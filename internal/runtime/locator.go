@@ -62,8 +62,7 @@ func NewLocator(roots ...string) *Locator {
 }
 
 // DefaultLocator supports both an installed application runtime and the
-// repository-local runtime used by `wails dev`. It deliberately has no
-// environment-variable override for executable directories.
+// repository-local runtime used by `mygo dev` and `go run`.
 func DefaultLocator() *Locator {
 	platform := goruntime.GOOS + "-" + goruntime.GOARCH
 	var roots []string
@@ -77,6 +76,7 @@ func DefaultLocator() *Locator {
 		roots = append(roots,
 			filepath.Join(executableDir, "runtime", platform),
 			filepath.Join(executableDir, "..", "Resources", "runtime", platform),
+			filepath.Join(executableDir, "..", "lib", "nfc-foundry"),
 		)
 	}
 	if workingDir, err := os.Getwd(); err == nil {

@@ -36,10 +36,3 @@ path = ["third_party/mfoc/**", "third_party/mfcuk/**", "third_party/mfoc-hardnes
 precedence = "aggregate"
 SPDX-FileCopyrightText = "mfoc/mfcuk/mfoc-hardnested contributors"
 SPDX-License-Identifier = "GPL-2.0-or-later"
-
-# AppImage's type-2 runtime is MIT, not GPL.
-[[annotations]]
-path = ["third_party/appimage/**"]
-precedence = "aggregate"
-SPDX-FileCopyrightText = "2004-2023 probonopd and AppImage contributors"
-SPDX-License-Identifier = "MIT"

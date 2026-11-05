@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Install build dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            base-devel git go pkgconf reuse libusb-compat pcsclite patchelf
+      - uses: actions/checkout@v4
+      - name: Trust the workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Go tests
+        run: go test ./...
+      - name: Go vet
+        run: go vet ./...
+      - name: Catalog check
+        run: go tool mygo i18n check .
+      - name: MyGo UI smoke test
+        run: go test -count=1 -run TestShellRendersCoreScreensAndEvents ./internal/desktop
+      - name: REUSE compliance
+        run: reuse lint
+      - name: Build application
+        run: go build -trimpath .

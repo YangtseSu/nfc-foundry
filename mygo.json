@@ -1,0 +1,12 @@
+{
+  "name": "NFC Foundry",
+  "identifier": "io.github.yangtsesu.nfcfoundry",
+  "version": "0.1.0",
+  "out": "build",
+  "i18n": { "dir": "locales", "source": "en" },
+  "linux": {
+    "webview": false,
+    "categories": ["Utility"],
+    "comment": "MIFARE Classic workbench for libnfc-ng readers"
+  }
+}

@@ -1,20 +1,14 @@
 package main
 
 import (
-	"embed"
 	"fmt"
 	"os"
 
 	"github.com/YangtseSu/nfc-foundry/internal/desktop"
 )
 
-// Wails v2 runs build analysis from the repository root.
-//
-//go:embed all:frontend/dist
-var assets embed.FS
-
 func main() {
-	if err := desktop.Execute(assets, os.Args, os.Stdout); err != nil {
+	if err := desktop.Execute(os.Args, os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

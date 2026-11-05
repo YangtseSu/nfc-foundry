@@ -46,7 +46,7 @@ func TestPreparedOperationClearsWorkbenchBeforeWorkerStarts(t *testing.T) {
 	service := &Service{emitter: emitter, operations: make(map[string]*operationTask), bench: model}
 	workerSawLoaded := make(chan bool, 1)
 
-	if _, err := service.startPreparedOperation("read", "读取整卡", service.clearWorkbench, func(context.Context, string) error {
+	if _, err := service.startPreparedOperation("read", "Read card", service.clearWorkbench, func(context.Context, string) error {
 		workerSawLoaded <- service.bench.Snapshot().Loaded
 		return nil
 	}); err != nil {
@@ -71,7 +71,7 @@ func TestPreparedOperationClearsWorkbenchBeforeWorkerStarts(t *testing.T) {
 func TestRejectedPreparedOperationDoesNotClearWorkbench(t *testing.T) {
 	service := &Service{emitter: noopEmitter{}, operations: map[string]*operationTask{"busy": {}}, bench: workbench.New()}
 	var prepared atomic.Bool
-	_, err := service.startPreparedOperation("scan", "扫描已知密钥", func() { prepared.Store(true) }, func(context.Context, string) error { return nil })
+	_, err := service.startPreparedOperation("scan", "Scan known keys", func() { prepared.Store(true) }, func(context.Context, string) error { return nil })
 	if !errors.Is(err, ErrOperationRunning) {
 		t.Fatalf("error = %v, want ErrOperationRunning", err)
 	}

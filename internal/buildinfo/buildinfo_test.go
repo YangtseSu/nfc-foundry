@@ -10,7 +10,7 @@ func TestCurrentHasStableDevelopmentDefaults(t *testing.T) {
 	if got.Version != "1.2.3" || got.Commit != "abc123" || got.BuildDate != "2026-01-02T03:04:05Z" || !got.Dirty {
 		t.Fatalf("Current() = %#v", got)
 	}
-	if got.GoVersion == "" || got.WailsVersion != "2.15.0" || got.OS == "" || got.Architecture == "" {
+	if got.GoVersion == "" || got.OS == "" || got.Architecture == "" {
 		t.Fatalf("Current() omitted toolchain/platform fields: %#v", got)
 	}
 }

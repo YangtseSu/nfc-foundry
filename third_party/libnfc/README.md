@@ -1,16 +1,26 @@
-# Pinned libnfc source
+# Pinned libnfc-ng source
 
-NFCX builds upstream libnfc 1.8.0 at commit
-`f02ff51449240102c27a97173dc495e8e7789046`. The release archive URL,
-SHA-256, enabled driver set and licenses are recorded in `libnfc.lock`.
+NFC Foundry builds the standalone `libnfc-ng` fork at tag `v1.8.0-ng.1`,
+commit `c1eb612d8f6032179e6994439802db1fdca1221a`. The git URL, driver
+profile, pkg-config identity, and licenses are recorded in `libnfc.lock`.
 
-The shared library is LGPL-3.0-or-later. The bundled `nfc-mfsetuid` example
-used for the Gen1A UID fallback is BSD-2-Clause; its notice is kept in
-`nfc-mfsetuid-BSD-2-Clause.txt`. Both artifacts are built from the same pinned
-source archive. NFCX applies only the patches listed in `patches/series` and
-packages the lock, notices and corresponding-source URL with the runtime.
+The fork installs a distinct library identity so it can coexist with Arch's
+upstream `libnfc` package:
 
-The Phase 01 fork baseline is `libnfc-ng` tag `v1.8.0-ng.1` (commit
-`c1eb612`). Phase 02 moves the application toolchain and C shim to that
-source and then replaces the upstream archive/mode of this lock; the current
-lock still describes the upstream 1.8.0 build used before that integration.
+```text
+/usr/lib/libnfcng.so.6
+/usr/include/libnfc-ng/nfc/
+/usr/lib/pkgconfig/libnfc-ng.pc
+```
+
+The C shim and the external engines build with `pkg-config libnfc-ng`; they
+never link `libnfc.so.6`. The fork keeps the upstream C API and exported
+symbol names, and the library stays LGPL-3.0-or-later.
+
+The `LIBNFC_DEVICE`/conffiles fix and the platform build fixes are ordinary
+commits in the fork, not a patch series applied here. The fork's `COPYING`
+is copied into the generated runtime, and its commit is recorded in
+`source.lock`.
+
+`nfc-mfsetuid-BSD-2-Clause.txt` preserves the notice for the Gen1A sequence
+that is being ported to Go. No upstream `nfc-*` executable is shipped.

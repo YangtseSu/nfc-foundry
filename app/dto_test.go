@@ -40,7 +40,7 @@ func TestCardDTOLabelsInferenceAsNonAuthoritative(t *testing.T) {
 		t.Fatalf("unexpected card DTO: %+v", dto)
 	}
 	unknown := cardDTO(nfc.CardInfo{UID: []byte{1, 2, 3, 4}, SAK: 0x20})
-	if unknown.Type != "未知" || unknown.Inferred {
+	if unknown.Type != "Unknown" || unknown.Inferred {
 		t.Fatalf("unknown card was overstated: %+v", unknown)
 	}
 }
@@ -135,7 +135,7 @@ func TestKeyRecoveryTaskDTOCarriesFiveStepReportWithoutKeyMaterial(t *testing.T)
 		Step: 3, TotalSteps: 5, StepStatus: "running", Indeterminate: true,
 		Recovery: &KeyRecoveryResultDTO{
 			Outcome: "partial", VerifiedKeySlots: 1, CoveredSectors: 1, ReadableSectors: 1, TotalSectors: 16,
-			Steps: []KeyRecoveryStepDTO{{Number: 1, Stage: "common_keys", Label: "扫描常见密钥", Status: "completed"}},
+			Steps: []KeyRecoveryStepDTO{{Number: 1, Stage: "common_keys", Label: "Scan common keys", Status: "completed"}},
 		},
 	})
 	if err != nil {

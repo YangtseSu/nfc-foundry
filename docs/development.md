@@ -10,13 +10,7 @@
 - `reuse` for license compliance.
 - A PN532 UART reader and authorized test cards for hardware work.
 
-The repository is still the NFCX-derived baseline while the migration in
-`docs/plan/` is implemented. Until the new build targets land, the archived
-NFCX commands are the only working build reference.
-
-## Target commands
-
-The intended developer interface is:
+## Commands
 
 ```sh
 make libnfc-ng-build
@@ -24,32 +18,31 @@ make libnfc-ng-check
 make test
 make build
 make check
-make hardware-smoke
+make libnfc-ng-hardware-smoke LIBNFC_DEVICE=pn532_uart:/dev/ttyUSB0
 ```
 
 - `libnfc-ng-build`: build/install the fork into the development prefix.
-- `libnfc-ng-check`: ABI, pkg-config, and symbol checks.
+- `libnfc-ng-check`: toolchain, SDK, and runtime checks.
 - `test`: hardware-free Go tests.
-- `build`: MyGo application and `nfctl`.
-- `check`: `go vet`/static checks, `reuse lint`, and packaging smoke tests.
-- `hardware-smoke`: explicit PN532 UART test; never part of ordinary CI.
+- `ui-test`: MyGo native view tests without a window.
+- `build`: native application plus the private runtime directory.
+- `check`: `go test`, `go vet`, catalogue validation, UI tests, and `reuse
+  lint`.
+- `libnfc-ng-hardware-smoke`: explicit PN532 UART enumeration; never part of
+  ordinary CI.
 
 ## Current baseline and migration
 
-The checked-in application still contains Wails, the HTML/TypeScript frontend,
-the old private runtime layout, and the `nfc-mfsetuid` adapter. The migration
-steps replace those pieces:
+The application now uses the MyGo native UI and the `libnfc-ng` fork. The
+remaining migration is:
 
 1. archive old docs (done);
-2. make `libnfc-ng` a pure library;
-3. replace Wails with MyGo;
+2. make `libnfc-ng` a pure library (done);
+3. replace Wails with MyGo (done);
 4. expose `nfctl`;
 5. port Gen1A to Go;
 6. add Type 2/NDEF;
 7. expand validated readers and card families.
-
-Do not add new features to the Wails frontend. Treat it as a temporary baseline
-until the MyGo shell lands.
 
 ## Testing
 

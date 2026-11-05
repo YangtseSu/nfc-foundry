@@ -62,8 +62,6 @@ func TestServiceRefreshConnectAndCardEvents(t *testing.T) {
 	})
 	service := &Service{
 		emitter:       emitter,
-		tasks:         make(map[string]*mockTask),
-		config:        mockTaskConfig{steps: 1, stepInterval: time.Millisecond},
 		deviceManager: manager,
 		deviceTimeout: 100 * time.Millisecond,
 	}

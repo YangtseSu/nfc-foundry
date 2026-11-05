@@ -13,10 +13,10 @@ import (
 
 func (s *Service) StartKeyRecovery(input KeyRecoveryStartRequestDTO) (TaskDTO, error) {
 	if s.keyRecovery == nil {
-		return TaskDTO{}, errors.New("密钥恢复流程未配置")
+		return TaskDTO{}, errors.New("key recovery is not configured")
 	}
 	if !input.Authorized {
-		return TaskDTO{}, errors.New("必须确认卡片已获授权")
+		return TaskDTO{}, errors.New("the card must be confirmed as authorized")
 	}
 	if s.bench.Snapshot().Dirty && !input.DiscardDirty {
 		return TaskDTO{}, ErrDirtyWorkbench
@@ -36,7 +36,7 @@ func (s *Service) StartKeyRecovery(input KeyRecoveryStartRequestDTO) (TaskDTO, e
 		return TaskDTO{}, err
 	}
 
-	return s.startPreparedOperation("key_recovery", "自动恢复密钥", s.clearWorkbench, func(ctx context.Context, taskID string) error {
+	return s.startPreparedOperation("key_recovery", "automatic key recovery", s.clearWorkbench, func(ctx context.Context, taskID string) error {
 		result, runErr := s.keyRecovery.Run(ctx, workflow.KeyRecoveryRequest{
 			TaskID: taskID, Card: card, Device: deviceInfo, Authorized: true,
 			DarksideTimeout: time.Hour, NestedTimeout: 30 * time.Minute, HardnestedTimeout: 6 * time.Hour,
@@ -59,7 +59,7 @@ func (s *Service) StartKeyRecovery(input KeyRecoveryStartRequestDTO) (TaskDTO, e
 				s.emitOperation(TaskEventDetailDTO{
 					TaskID: taskID, Kind: "key_recovery", Type: TaskEventProgress, Phase: string(workflow.KeyRecoveryReadiness),
 					Step: 5, TotalSteps: workflow.KeyRecoveryTotalSteps, StepStatus: string(workflow.KeyRecoveryCompleted), Progress: 100,
-					Message: "读取验证结果已载入工作台", Workbench: &workbench,
+					Message: "read verification loaded into the workbench", Workbench: &workbench,
 				})
 			}
 		}
@@ -110,11 +110,11 @@ func keyRecoveryResultDTO(result workflow.KeyRecoveryResult, snapshot device.Sna
 func keyRecoveryResultMessage(result KeyRecoveryResultDTO) string {
 	switch result.Outcome {
 	case string(workflow.KeyRecoveryComplete):
-		return "密钥恢复完成：所有扇区均已通过实际读取验证"
+		return "key recovery complete: every sector passed a real read verification"
 	case string(workflow.KeyRecoveryPartial):
-		return "密钥恢复得到部分结果：有效密钥和可读数据已保留"
+		return "key recovery produced partial results: verified keys and readable data were kept"
 	default:
-		return "密钥恢复失败：" + result.Reason
+		return "key recovery failed: " + result.Reason
 	}
 }
 

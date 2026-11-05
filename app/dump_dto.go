@@ -38,7 +38,7 @@ type DumpSectorKeyDTO struct {
 	KeyBStatus string `json:"keyBStatus"`
 }
 
-// RestoreResultDTO is deliberately separate from the workflow type so Wails
+// RestoreResultDTO is deliberately separate from the workflow type so the UI
 // bindings never need to expose a RestorePlan containing authentication keys.
 type RestoreResultDTO struct {
 	Phase           string                  `json:"phase"`

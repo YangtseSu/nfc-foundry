@@ -341,7 +341,7 @@ func sectorKeyDTOs(store *keys.Store, card *nfc.CardInfo) []SectorKeyDTO {
 
 func workbenchDTO(snapshot workbench.Snapshot) WorkbenchDTO {
 	if !snapshot.Loaded {
-		return WorkbenchDTO{Blocks: []WorkbenchBlockDTO{}, Diffs: []WorkbenchDiffDTO{}, DirtyBlocks: []int{}, Validation: WorkbenchValidationDTO{Valid: false, Errors: []string{"尚未加载 dump"}, Warnings: []string{}}}
+		return WorkbenchDTO{Blocks: []WorkbenchBlockDTO{}, Diffs: []WorkbenchDiffDTO{}, DirtyBlocks: []int{}, Validation: WorkbenchValidationDTO{Valid: false, Errors: []string{"no dump loaded"}, Warnings: []string{}}}
 	}
 	dirty := make(map[int]bool, len(snapshot.DirtyBlocks))
 	for _, block := range snapshot.DirtyBlocks {
@@ -355,10 +355,10 @@ func workbenchDTO(snapshot workbench.Snapshot) WorkbenchDTO {
 			KnownMask: fmt.Sprintf("%04X", block.KnownMask), Status: string(block.Status), Dirty: dirty[index],
 		}
 		if kind == workbench.BlockManufacturer {
-			dto.Warning = "Manufacturer block：本阶段保存可用，但写卡时始终跳过"
+			dto.Warning = "Manufacturer block: editable here, always skipped when writing the card"
 		}
 		if kind == workbench.BlockTrailer {
-			dto.Warning = "Sector trailer：写入会改变密钥或访问权限，需要额外确认"
+			dto.Warning = "Sector trailer: writing changes keys or access conditions and needs extra confirmation"
 			explanation := accessDTO(workbench.ExplainAccess(block))
 			dto.Access = &explanation
 		}
@@ -399,7 +399,7 @@ func snapshotValidation(snapshot workbench.Snapshot) WorkbenchValidationDTO {
 	validation := WorkbenchValidationDTO{Valid: true, Errors: []string{}, Warnings: []string{}}
 	if !snapshot.Result.Complete() {
 		validation.Valid = false
-		validation.Errors = append(validation.Errors, "dump 包含未知字节，只能保存为 NFCX 工程，不能写卡")
+		validation.Errors = append(validation.Errors, "the dump contains unknown bytes; save it as an NFC Foundry project, not to a card")
 		return validation
 	}
 	if _, err := snapshot.Result.Dump.ValidateBCC(len(snapshot.Result.Card.UID)); err != nil {
@@ -413,9 +413,9 @@ func snapshotValidation(snapshot workbench.Snapshot) WorkbenchValidationDTO {
 	for _, block := range snapshot.DirtyBlocks {
 		kind := workbench.KindForBlock(snapshot.Result.Dump.Layout, block)
 		if kind == workbench.BlockManufacturer {
-			validation.Warnings = append(validation.Warnings, "block 0 已修改，但写卡时会跳过")
+			validation.Warnings = append(validation.Warnings, "block 0 changed, but it is skipped when writing the card")
 		} else if kind == workbench.BlockTrailer {
-			validation.Warnings = append(validation.Warnings, fmt.Sprintf("block %d 是 sector trailer，写入前需要额外确认", block))
+			validation.Warnings = append(validation.Warnings, fmt.Sprintf("block %d is a sector trailer and needs extra confirmation before writing", block))
 		}
 	}
 	return validation

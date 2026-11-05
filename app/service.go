@@ -19,23 +19,18 @@ import (
 	"github.com/YangtseSu/nfc-foundry/internal/nfc"
 	"github.com/YangtseSu/nfc-foundry/internal/nfc/libnfc"
 	runtimebundle "github.com/YangtseSu/nfc-foundry/internal/runtime"
-	"github.com/YangtseSu/nfc-foundry/internal/telemetry"
 	"github.com/YangtseSu/nfc-foundry/internal/terminal"
-	"github.com/YangtseSu/nfc-foundry/internal/update"
 	"github.com/YangtseSu/nfc-foundry/internal/workbench"
 	"github.com/YangtseSu/nfc-foundry/internal/workflow"
 )
 
 const (
-	// MockTaskEventName is the Wails event channel used by the scaffold task.
-	MockTaskEventName   = "nfcx:mock-task"
-	DeviceEventName     = "nfcx:device-state"
-	CardEventName       = "nfcx:card-state"
-	TaskEventName       = "nfcx:task"
-	UpdateEventName     = "nfcx:update"
-	WorkbenchEventName  = "nfcx:workbench"
-	KeyEventName        = "nfcx:sector-keys"
-	KeyCatalogEventName = "nfcx:key-catalog"
+	DeviceEventName     = "nfc-foundry:device-state"
+	CardEventName       = "nfc-foundry:card-state"
+	TaskEventName       = "nfc-foundry:task"
+	WorkbenchEventName  = "nfc-foundry:workbench"
+	KeyEventName        = "nfc-foundry:sector-keys"
+	KeyCatalogEventName = "nfc-foundry:key-catalog"
 
 	TaskEventStarted   = "started"
 	TaskEventProgress  = "progress"
@@ -48,7 +43,7 @@ var (
 	ErrTaskNotFound   = errors.New("task not found")
 )
 
-// EventEmitter keeps the application service independent of the Wails runtime.
+// EventEmitter keeps the application service independent of the UI runtime.
 type EventEmitter interface {
 	Emit(name string, payload any)
 }
@@ -65,19 +60,19 @@ func (s *Service) Diagnostics() diagnostic.Report {
 }
 
 // OpenCommandTerminal releases the selected reader, then opens a user-driven
-// shell whose PATH includes NFCX's private runtime. NFCX cannot observe when a
-// user-run command ends, so the reader intentionally remains disconnected
-// until the user reconnects it in the GUI.
+// shell whose PATH includes the application's private runtime. The application
+// cannot observe when a user-run command ends, so the reader intentionally
+// remains disconnected until the user reconnects it in the GUI.
 func (s *Service) OpenCommandTerminal() error {
 	s.mu.Lock()
 	busy := len(s.operations) != 0
 	s.mu.Unlock()
 	if busy {
-		return errors.New("wait for the active NFCX task to finish before opening a command terminal")
+		return errors.New("wait for the active NFC Foundry task to finish before opening a command terminal")
 	}
 	runtimeDir, err := s.mfocLocator.RuntimeRoot()
 	if err != nil {
-		return fmt.Errorf("locate NFCX command-line runtime: %w", err)
+		return fmt.Errorf("locate NFC Foundry command-line runtime: %w", err)
 	}
 	snapshot := s.deviceManager.Snapshot()
 	connString := snapshot.Device.ConnString
@@ -103,29 +98,17 @@ type noopEmitter struct{}
 
 func (noopEmitter) Emit(string, any) {}
 
-type mockTask struct {
-	cancel          context.CancelFunc
-	cancelRequested bool
-}
-
 type operationTask struct {
 	cancel          context.CancelFunc
 	kind            string
 	cancelRequested bool
 }
 
-type mockTaskConfig struct {
-	steps        int
-	stepInterval time.Duration
-}
-
-// Service provides the GUI-facing application behaviour.
+// Service provides the UI-facing application behaviour.
 type Service struct {
 	mu               sync.Mutex
 	emitter          EventEmitter
-	tasks            map[string]*mockTask
 	nextID           atomic.Uint64
-	config           mockTaskConfig
 	deviceManager    *device.Manager
 	devices          []nfc.DeviceInfo
 	deviceTimeout    time.Duration
@@ -145,26 +128,13 @@ type Service struct {
 	operations       map[string]*operationTask
 	preflights       map[string]writePreflightRecord
 	uidPreflights    map[string]uidPreflightRecord
-	dialogs          fileDialogs
-	telemetry        *telemetry.Client
-	telemetryStore   *telemetry.Store
-	updater          *update.Manager
+	dialogs          FileDialogs
 }
 
 // NewService wires the application service to the current libnfc backend.
 func NewService(emitter EventEmitter) *Service {
-	return newService(emitter, mockTaskConfig{steps: 20, stepInterval: 180 * time.Millisecond})
-}
-
-func newService(emitter EventEmitter, config mockTaskConfig) *Service {
 	if emitter == nil {
 		emitter = noopEmitter{}
-	}
-	if config.steps < 1 {
-		config.steps = 1
-	}
-	if config.stepInterval <= 0 {
-		config.stepInterval = time.Millisecond
 	}
 	backend := libnfc.NewBackend()
 	manager := device.NewManager(backend, func() nfc.Reader { return backend.NewReader() }, deviceEventSink{emitter: emitter}, device.DefaultConfig())
@@ -186,26 +156,13 @@ func newService(emitter EventEmitter, config mockTaskConfig) *Service {
 	configRoot, _ := os.UserConfigDir()
 	keyStorePath := ""
 	uidBackupRoot := ""
-	telemetryPath := ""
-	updatePath := ""
-	updateStaging := ""
 	if configRoot != "" {
-		keyStorePath = filepath.Join(configRoot, "NFCX", "keys.json")
-		uidBackupRoot = filepath.Join(configRoot, "NFCX", "uid-backups")
-		telemetryPath = filepath.Join(configRoot, "NFCX", "telemetry.json")
-		updatePath = filepath.Join(configRoot, "NFCX", "updates.json")
-		updateStaging = filepath.Join(configRoot, "NFCX", "updates")
+		keyStorePath = filepath.Join(configRoot, "NFC Foundry", "keys.json")
+		uidBackupRoot = filepath.Join(configRoot, "NFC Foundry", "uid-backups")
 		_ = keyStore.Load(keyStorePath)
 	}
-	telemetryStore := telemetry.NewStore(telemetryPath)
-	if telemetryPath != "" {
-		_ = telemetryStore.Load()
-	}
-	updater, _ := update.NewManager(update.Config{ConfigPath: updatePath, StagingDir: updateStaging, AllowedHosts: []string{"github.com", "objects.githubusercontent.com"}})
 	return &Service{
 		emitter:          emitter,
-		tasks:            make(map[string]*mockTask),
-		config:           config,
 		deviceManager:    manager,
 		deviceTimeout:    5 * time.Second,
 		keyStore:         keyStore,
@@ -225,9 +182,6 @@ func newService(emitter EventEmitter, config mockTaskConfig) *Service {
 		preflights:       make(map[string]writePreflightRecord),
 		uidPreflights:    make(map[string]uidPreflightRecord),
 		dialogs:          noFileDialogs{},
-		telemetry:        telemetry.NewClient(telemetryStore),
-		telemetryStore:   telemetryStore,
-		updater:          updater,
 	}
 }
 
@@ -257,10 +211,10 @@ func (s *Service) Dashboard() DashboardDTO {
 		Blocks:         blockDTOs(benchSnapshot),
 		Keys:           sectorKeyDTOs(s.keyStore, snapshot.Card),
 		Actions: []ActionDTO{
-			{ID: "read", Label: "读取整卡", Enabled: false, Risk: "normal"},
-			{ID: "save", Label: "保存 Dump", Enabled: false, Risk: "normal"},
-			{ID: "write", Label: "写入卡片", Enabled: false, Risk: "danger"},
-			{ID: "scan", Label: "扫描默认密钥", Enabled: false, Risk: "normal"},
+			{ID: "read", Label: "Read card", Enabled: false, Risk: "normal"},
+			{ID: "save", Label: "Save dump", Enabled: false, Risk: "normal"},
+			{ID: "write", Label: "Write card", Enabled: false, Risk: "danger"},
+			{ID: "scan", Label: "Scan default keys", Enabled: false, Risk: "normal"},
 		},
 	}
 }
@@ -296,112 +250,15 @@ func (s *Service) ConnectDevice(connString string) error {
 
 func (s *Service) DisconnectDevice() error { return s.deviceManager.Disconnect() }
 
-// StartMockTask starts a cancellable background job and returns without blocking.
-func (s *Service) StartMockTask() TaskDTO {
-	id := fmt.Sprintf("mock-%04d", s.nextID.Add(1))
-	ctx, cancel := context.WithCancel(context.Background())
-
-	s.mu.Lock()
-	s.tasks[id] = &mockTask{cancel: cancel}
-	s.mu.Unlock()
-
-	result := TaskDTO{ID: id, Name: "模拟整卡读取", Status: "running"}
-	go s.runMockTask(ctx, result)
-	return result
-}
-
-// CancelMockTask requests cancellation. A successful call guarantees no completed event.
-func (s *Service) CancelMockTask(taskID string) error {
-	if taskID == "" {
-		return ErrTaskIDRequired
-	}
-
-	s.mu.Lock()
-	task, ok := s.tasks[taskID]
-	if !ok {
-		s.mu.Unlock()
-		return fmt.Errorf("%w: %s", ErrTaskNotFound, taskID)
-	}
-	task.cancelRequested = true
-	task.cancel()
-	s.mu.Unlock()
-	return nil
-}
-
-// Shutdown cancels all active mock work when the GUI exits.
+// Shutdown cancels all active work when the GUI exits.
 func (s *Service) Shutdown() {
 	s.mu.Lock()
-	for _, task := range s.tasks {
-		task.cancelRequested = true
-		task.cancel()
-	}
 	for _, task := range s.operations {
 		task.cancelRequested = true
 		task.cancel()
 	}
 	s.mu.Unlock()
 	s.deviceManager.Shutdown()
-}
-
-func (s *Service) runMockTask(ctx context.Context, task TaskDTO) {
-	s.emitTaskEvent(task.ID, TaskEventStarted, 0, "任务已开始")
-	ticker := time.NewTicker(s.config.stepInterval)
-	defer ticker.Stop()
-
-	for step := 1; step <= s.config.steps; step++ {
-		select {
-		case <-ctx.Done():
-			s.finishTask(task.ID, true)
-			return
-		case <-ticker.C:
-			progress := step * 100 / s.config.steps
-			if progress < 100 {
-				s.emitTaskEvent(task.ID, TaskEventProgress, progress, fmt.Sprintf("正在读取模拟 block：%d%%", progress))
-				continue
-			}
-			s.finishTask(task.ID, false)
-			return
-		}
-	}
-}
-
-func (s *Service) finishTask(taskID string, contextCancelled bool) {
-	s.mu.Lock()
-	task, ok := s.tasks[taskID]
-	if !ok {
-		s.mu.Unlock()
-		return
-	}
-	cancelled := contextCancelled || task.cancelRequested
-	delete(s.tasks, taskID)
-	s.mu.Unlock()
-
-	if cancelled {
-		s.emitTaskEvent(taskID, TaskEventCancelled, 0, "任务已取消")
-		return
-	}
-	s.emitTaskEvent(taskID, TaskEventProgress, 100, "模拟数据读取完成")
-	s.emitTaskEvent(taskID, TaskEventCompleted, 100, "任务已完成")
-}
-
-func (s *Service) emitTaskEvent(taskID, eventType string, progress int, message string) {
-	s.emitter.Emit(MockTaskEventName, TaskEventDTO{
-		TaskID:   taskID,
-		Type:     eventType,
-		Progress: progress,
-		Message:  message,
-		Time:     time.Now().UTC().Format(time.RFC3339Nano),
-	})
-}
-
-func mockBlockHex(block int) string {
-	if block == 0 {
-		return "04 A1 B2 C3 D4 E5 F6 88 04 00 00 00 00 00 00 00"
-	}
-	if block%4 == 3 {
-		return "FF FF FF FF FF FF FF 07 80 69 FF FF FF FF FF FF"
-	}
-	return fmt.Sprintf("%02X 00 00 00 00 00 00 00 00 00 00 00 00 00 00 %02X", block, 255-block)
 }
 
 type deviceEventSink struct{ emitter EventEmitter }
@@ -425,13 +282,13 @@ func (s deviceEventSink) CardChanged(event device.CardEvent) {
 
 func connectionDTO(snapshot device.Snapshot) ConnectionDTO {
 	labels := map[device.Status]string{
-		device.StatusDisconnected: "未连接",
-		device.StatusConnecting:   "正在连接",
-		device.StatusReady:        "设备已就绪",
-		device.StatusPolling:      "正在检测卡片",
-		device.StatusBusy:         "设备忙",
-		device.StatusRecovering:   "正在恢复连接",
-		device.StatusError:        "设备错误",
+		device.StatusDisconnected: "Disconnected",
+		device.StatusConnecting:   "Connecting",
+		device.StatusReady:        "Reader ready",
+		device.StatusPolling:      "Polling for a card",
+		device.StatusBusy:         "Reader busy",
+		device.StatusRecovering:   "Recovering the reader",
+		device.StatusError:        "Reader error",
 	}
 	detail := snapshot.Detail
 	if snapshot.ErrorMessage != "" {
@@ -447,13 +304,13 @@ func connectionDTO(snapshot device.Snapshot) ConnectionDTO {
 
 func cardPointerDTO(card *nfc.CardInfo) CardDTO {
 	if card == nil {
-		return CardDTO{Present: false, UID: "—", ATQA: "—", SAK: "—", Type: "未知"}
+		return CardDTO{Present: false, UID: "—", ATQA: "—", SAK: "—", Type: "Unknown"}
 	}
 	return cardDTO(*card)
 }
 
 func cardDTO(card nfc.CardInfo) CardDTO {
-	cardType, label := string(nfc.InferCardType(card)), "未知"
+	cardType, label := string(nfc.InferCardType(card)), "Unknown"
 	switch nfc.InferCardType(card) {
 	case nfc.CardTypeMIFAREMini:
 		label = "MIFARE Mini"
@@ -514,7 +371,7 @@ func transportLabel(connString string) string {
 	case "acr122_pcsc", "pcsc":
 		return "PC/SC"
 	case "":
-		return "未知连接"
+		return "Unknown connection"
 	default:
 		return driver
 	}

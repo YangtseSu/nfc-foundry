@@ -39,7 +39,7 @@ func (s *Service) PreflightUIDWrite(value string) (UIDWritePreflightDTO, error) 
 	}
 	card := snapshot.Card.Clone()
 	if nfc.InferCardType(card) != nfc.CardTypeMIFAREClassic1K {
-		return UIDWritePreflightDTO{Error: "当前只支持 4-byte UID 的 MIFARE Classic 1K 特殊卡"}, nil
+		return UIDWritePreflightDTO{Error: "only 4-byte UID MIFARE Classic 1K special cards are supported"}, nil
 	}
 	sectorKeys := verifiedSectorKeys(s.keyStore, card, mifare.Classic1K)
 	request := workflow.UIDWriteRequest{Card: card, Device: snapshot.Device, NewUID: newUID, Sector0Keys: sectorKeys[0]}
@@ -63,7 +63,7 @@ func (s *Service) PreflightUIDWrite(value string) (UIDWritePreflightDTO, error) 
 	preview := uidWritePreviewDTO(plan)
 	return UIDWritePreflightDTO{
 		Token: token, Valid: true, Preview: &preview,
-		Warning: "支持 CUID/Gen2 普通写与 PN532 UART 上的 Gen1A 特殊卡；普通不可改 UID 卡会安全失败。",
+		Warning: "supports CUID/Gen2 normal writes and Gen1A special cards on PN532 UART; ordinary cards with immutable UIDs fail safely.",
 	}, nil
 }
 
@@ -88,7 +88,7 @@ func (s *Service) StartUIDWrite(input UIDWriteStartRequestDTO) (TaskDTO, error) 
 	if uidWriteFingerprint(record.request, record.plan) != record.fingerprint {
 		return TaskDTO{}, ErrPreflightRequired
 	}
-	return s.startOperation("uid_write", "修改 UID", func(ctx context.Context, taskID string) error {
+	return s.startOperation("uid_write", "Write UID", func(ctx context.Context, taskID string) error {
 		request := record.request
 		request.TaskID = taskID
 		result, writeErr := s.uidService.Write(ctx, request, func(event workflow.UIDWriteEvent) {
@@ -124,7 +124,7 @@ func parseFourByteUID(value string) ([]byte, error) {
 }
 
 func errorsNewUID() error {
-	return nfc.NewError("parse UID", nfc.CodeInvalidArgument, "UID 必须是 8 位十六进制（4 字节）", nil)
+	return nfc.NewError("parse UID", nfc.CodeInvalidArgument, "UID must be 8 hexadecimal digits (4 bytes)", nil)
 }
 
 func uidWriteFingerprint(request workflow.UIDWriteRequest, plan workflow.UIDWritePlan) string {
@@ -154,12 +154,12 @@ func uidWriteResultDTO(result workflow.UIDWriteResult) UIDWriteResultDTO {
 
 func uidWriteResultMessage(result workflow.UIDWriteResult, err error) string {
 	if err == nil {
-		return fmt.Sprintf("UID 已修改为 %s；原 block 0 备份：%s", formatHex(result.NewCard.UID), result.BackupPath)
+		return fmt.Sprintf("UID changed to %s; original block 0 backed up to %s", formatHex(result.NewCard.UID), result.BackupPath)
 	}
 	if result.BackupPath != "" {
-		return fmt.Sprintf("UID 写入或验证失败；原 block 0 已备份到 %s", result.BackupPath)
+		return fmt.Sprintf("UID write or verification failed; original block 0 backed up to %s", result.BackupPath)
 	}
-	return "UID 写入前检查失败，卡片未被修改"
+	return "UID preflight failed; the card was not modified"
 }
 
 func (s *Service) registerUIDKey(result workflow.UIDWriteResult) {

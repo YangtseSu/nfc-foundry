@@ -69,7 +69,7 @@ type CardEvent struct {
 	Time time.Time
 }
 
-// EventSink keeps the device package independent of Wails.
+// EventSink keeps the device package independent of the UI framework.
 type EventSink interface {
 	DeviceStateChanged(Snapshot)
 	CardChanged(CardEvent)

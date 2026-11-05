@@ -11,7 +11,7 @@ import (
 
 func TestExecuteSelfCheckDoesNotStartGUI(t *testing.T) {
 	var output bytes.Buffer
-	err := Execute(nil, []string{"NFCX", "--self-check", "--json"}, &output)
+	err := Execute([]string{"nfc-foundry", "--self-check", "--json"}, &output)
 	if !errors.Is(err, ErrSelfCheckFailed) {
 		t.Fatalf("development self-check error = %v", err)
 	}
@@ -25,7 +25,7 @@ func TestExecuteSelfCheckDoesNotStartGUI(t *testing.T) {
 }
 
 func TestExecuteRejectsUnknownArguments(t *testing.T) {
-	err := Execute(nil, []string{"NFCX", "--self-check", "--unexpected"}, &bytes.Buffer{})
+	err := Execute([]string{"nfc-foundry", "--self-check", "--unexpected"}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("unknown argument was accepted")
 	}

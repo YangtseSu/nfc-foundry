@@ -83,7 +83,7 @@ check() {
       missing=1
     fi
   done
-  [[ -f "$SDK_DIR/lib/pkgconfig/libnfc.pc" ]] || { echo "  missing libnfc SDK: $SDK_DIR"; missing=1; }
+  [[ -f "$SDK_DIR/lib/pkgconfig/libnfc-ng.pc" ]] || { echo "  missing libnfc-ng SDK: $SDK_DIR"; missing=1; }
   [[ -f "$PATCH_FILE" ]] || { echo "  missing MinGW compatibility patch: $PATCH_FILE"; missing=1; }
   [[ -x "$RUNTIME_DIR/mfoc$EXE_SUFFIX" ]] || echo "  mfoc runtime not built"
   return "$missing"
@@ -108,7 +108,11 @@ build() {
     cd "$source"
     patch -p1 <"$PATCH_FILE"
     autoreconf -is
-    env CFLAGS="${CFLAGS:-} -O2 -g0" PKG_CONFIG_PATH="$SDK_DIR/lib/pkgconfig" ./configure --prefix="$work/install" --disable-dependency-tracking
+    env CFLAGS="${CFLAGS:-} -O2 -g0" \
+      libnfc_CFLAGS="-I$SDK_DIR/include/libnfc-ng" \
+      libnfc_LIBS="-L$SDK_DIR/lib -lnfcng" \
+      PKG_CONFIG_PATH="$SDK_DIR/lib/pkgconfig" \
+      ./configure --prefix="$work/install" --disable-dependency-tracking
     make -j"${NFCX_BUILD_JOBS:-4}"
   )
   binary="$source/src/mfoc$EXE_SUFFIX"

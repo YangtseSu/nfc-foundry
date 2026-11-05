@@ -120,12 +120,12 @@ func ParseDictionary(reader io.Reader) (ParseReport, error) {
 			return value
 		}, line)
 		if len(compact) != nfc.KeySize*2 {
-			report.Issues = append(report.Issues, ImportIssue{Line: lineNumber, Message: "密钥必须是 12 位十六进制"})
+			report.Issues = append(report.Issues, ImportIssue{Line: lineNumber, Message: "key must be 12 hexadecimal digits"})
 			continue
 		}
 		decoded, err := hex.DecodeString(compact)
 		if err != nil {
-			report.Issues = append(report.Issues, ImportIssue{Line: lineNumber, Message: "密钥包含非十六进制字符"})
+			report.Issues = append(report.Issues, ImportIssue{Line: lineNumber, Message: "key contains a non-hexadecimal character"})
 			continue
 		}
 		key, _ := nfc.KeyFromBytes(decoded)
@@ -149,7 +149,7 @@ func ParseKey(value string) (nfc.Key, error) {
 		return nfc.Key{}, err
 	}
 	if len(report.Issues) != 0 || len(report.Keys) != 1 {
-		return nfc.Key{}, errors.New("MIFARE Classic 密钥必须是 12 位十六进制")
+		return nfc.Key{}, errors.New("MIFARE Classic key must be 12 hexadecimal digits")
 	}
 	return report.Keys[0], nil
 }

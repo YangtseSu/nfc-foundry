@@ -7,7 +7,7 @@ patches.
 
 | Component | Use | License | Distribution |
 | --- | --- | --- | --- |
-| [libnfc-ng](https://github.com/nfc-tools/libnfc) | Forked native transport library, dynamically linked | LGPL-3.0-or-later | Separate `libnfc-ng` Arch package: shared library, headers, pkg-config, license, source metadata, patches |
+| [libnfc-ng](https://github.com/YangtseSu/libnfc-ng) | Forked native transport library, dynamically linked | LGPL-3.0-or-later | Separate `libnfc-ng` Arch package: shared library, headers, pkg-config, license, source metadata, patches |
 | [mfoc](https://github.com/nfc-tools/mfoc) | Nested key recovery, separate process | GPL-2.0-or-later | Bundled executable in `nfc-foundry`; source, license, patches |
 | [mfcuk](https://github.com/nfc-tools/mfcuk) | Darkside key recovery, separate process | GPL-2.0-or-later | Bundled executable in `nfc-foundry`; source, license, patches |
 | [mfoc-hardnested](https://github.com/nfc-tools/mfoc-hardnested) | Hardnested key recovery, separate process | GPL-2.0-or-later | Bundled executable in `nfc-foundry`; source, license, checksums |
@@ -16,8 +16,8 @@ patches.
 | [MyGo](https://github.com/egoist/mygo) | Native Go desktop UI framework | MIT | Built into the application; license text included |
 
 Go module dependencies keep their own licenses; release packaging collects
-their notices. Wails, the HTML/TypeScript frontend, AppImage tooling, and the
-website/telemetry stack from NFCX are not part of the target product.
+their notices. Wails, the HTML/TypeScript frontend, the website and telemetry
+stack from NFCX are not part of the target product.
 
 ## Source and redistribution
 

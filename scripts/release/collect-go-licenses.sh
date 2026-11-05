@@ -6,13 +6,13 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)"
 DESTINATION="${1:?license destination is required}"
 INDEX="$DESTINATION/THIRD_PARTY-GO.txt"
-MODULES_FILE="$(mktemp "${TMPDIR:-/tmp}/nfcx-go-modules.XXXXXX")"
+MODULES_FILE="$(mktemp "${TMPDIR:-/tmp}/nfc-foundry-go-modules.XXXXXX")"
 trap 'rm -f "$MODULES_FILE"' EXIT
 
 mkdir -p "$DESTINATION"
 (
   cd "$REPO_ROOT"
-  go list -deps -tags 'desktop,production' -f '{{with .Module}}{{if not .Main}}{{.Path}}|{{.Version}}|{{.Dir}}{{end}}{{end}}' . ./app ./internal/desktop | sort -u > "$MODULES_FILE"
+  go list -deps -f '{{with .Module}}{{if not .Main}}{{.Path}}|{{.Version}}|{{.Dir}}{{end}}{{end}}' . | sort -u > "$MODULES_FILE"
 )
 : > "$INDEX"
 while IFS='|' read -r module version directory; do

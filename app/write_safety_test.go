@@ -185,7 +185,7 @@ func TestOperationCancellationReachesWorker(t *testing.T) {
 	service := &Service{emitter: noopEmitter{}, operations: make(map[string]*operationTask)}
 	started := make(chan struct{})
 	stopped := make(chan struct{})
-	task, err := service.startOperation("test", "测试任务", func(ctx context.Context, _ string) error {
+	task, err := service.startOperation("test", "test task", func(ctx context.Context, _ string) error {
 		close(started)
 		<-ctx.Done()
 		close(stopped)

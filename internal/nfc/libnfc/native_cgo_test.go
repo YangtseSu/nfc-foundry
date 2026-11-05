@@ -47,3 +47,17 @@ func TestCGOOpenFailureReleasesResources(t *testing.T) {
 		t.Fatalf("resources after native open failure = %+v; want %+v", after, before)
 	}
 }
+
+func TestCGOListDevicesUsesEnvironmentSelection(t *testing.T) {
+	const connString = "pn532_uart:/dev/nfc-foundry-smoke-not-opened"
+	t.Setenv("LIBNFC_DEVICE", connString)
+	t.Setenv("LIBNFC_AUTO_SCAN", "false")
+	t.Setenv("LIBNFC_INTRUSIVE_SCAN", "false")
+	devices, err := NewBackend().ListDevices(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(devices) != 1 || devices[0].ConnString != connString {
+		t.Fatalf("devices = %+v; want exactly %q", devices, connString)
+	}
+}

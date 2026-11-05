@@ -101,11 +101,11 @@ nfcx_verify_libnfc_dependency() {
       otool -l "$binary" | grep -A3 LC_RPATH | grep -Fq '@executable_path'
       ;;
     linux-*)
-      readelf -d "$binary" | grep -Eq 'NEEDED.*libnfc\.so\.[0-9]+'
+      readelf -d "$binary" | grep -Eq 'NEEDED.*libnfcng\.so\.[0-9]+'
       patchelf --print-rpath "$binary" | grep -Fxq '$ORIGIN'
       ;;
     windows-*)
-      objdump -p "$binary" | grep -Eiq 'DLL Name: .*libnfc.*\.dll'
+      objdump -p "$binary" | grep -Eiq 'DLL Name: .*libnfcng.*\.dll'
       ;;
   esac
 }

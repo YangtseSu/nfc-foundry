@@ -119,7 +119,7 @@ func TestImportReportsInvalidAndDuplicateLinesAndExportIsExplicit(t *testing.T) 
 
 func TestLoadDumpRestoresCardScopedVerifiedKeys(t *testing.T) {
 	directory := t.TempDir()
-	path := filepath.Join(directory, "card.nfcx.json")
+	path := filepath.Join(directory, "card.nfc-foundry.json")
 	image, err := mifare.NewDump(mifare.Classic1K)
 	if err != nil {
 		t.Fatal(err)

@@ -74,7 +74,8 @@ Dependencies:
 - `libnfc-ng`;
 - `libusb` when USB transports are enabled;
 - `pcsclite` when PC/SC is enabled; `pcscd` is optional at runtime;
-- MyGo native runtime libraries as reported by `mygo doctor` on Arch;
+- MyGo native runtime libraries as reported by `mygo doctor` on Arch; the
+  native UI does not use WebKitGTK;
 - fonts/icon theme consistent with the desktop file.
 
 `makedepends` include Go, a C toolchain, `pkgconf`, `make`, autotools/libtool,
@@ -94,13 +95,16 @@ and the build-time libraries needed by `libnfc-ng`.
 
 Use an `archlinux:latest` container for build and test:
 
-1. install `base-devel`, Go, `pkgconf`, `libusb`, `pcsclite`, and MyGo's build
-   prerequisites;
+1. install `base-devel`, Go, `pkgconf`, `reuse`, and the native UI libraries
+   that `mygo doctor` reports;
 2. run `reuse lint`;
-3. run `go test ./...` in the hardware-free mode;
-4. build `libnfc-ng` and the application;
-5. run `makepkg` for both packages;
-6. upload `.pkg.tar.zst` files, the binary tarball, and the source archive.
+3. run `go test ./...` in the hardware-free mode, including the MyGo view
+   smoke test;
+4. run `go vet ./...` and `go tool mygo i18n check .`;
+5. build the application with `go build`;
+6. for a release, build `libnfc-ng`, the external engines, and both packages,
+   then upload the `.pkg.tar.zst` files, the binary tarball, and the source
+   archive.
 
 Hardware tests are never part of ordinary CI. Keep them behind an explicit
 environment variable or build tag.
@@ -130,17 +134,23 @@ without it.
 ## Binary tarball
 
 ```text
-nfc-foundry-<version>-x86_64/
-  bin/nfc-foundry
-  bin/nfctl
-  lib/libnfcng.so.6
-  lib/nfc-foundry/mfoc
-  lib/nfc-foundry/mfcuk
-  lib/nfc-foundry/mfoc-hardnested
-  share/...
-  licenses/...
+nfc-foundry-<version>-linux-amd64/
+  nfc-foundry
+  runtime/linux-amd64/
+    libnfcng.so.6
+    mfoc
+    mfcuk
+    mfoc-hardnested
+    LICENSES/
+    source.lock
+  LICENSES/
+  NOTICE
+  THIRD_PARTY_NOTICES.md
   README.md
 ```
+
+The executable links `libnfcng.so.6` from `runtime/linux-amd64` through an
+`$ORIGIN` rpath. `nfctl` joins the tarball when Phase 03 lands.
 
 The binary tarball is for Arch Linux/current glibc only. State that explicitly;
 do not present it as a generic Linux build.

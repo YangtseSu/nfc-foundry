@@ -38,15 +38,6 @@ type writePreflightRecord struct {
 	expires     time.Time
 }
 
-func (s *Service) setDialogs(dialogs fileDialogs) {
-	if dialogs == nil {
-		dialogs = noFileDialogs{}
-	}
-	s.mu.Lock()
-	s.dialogs = dialogs
-	s.mu.Unlock()
-}
-
 func (s *Service) KeyCatalog() []KeyDTO { return keyDTOs(s.keyStore) }
 
 func (s *Service) AddKey(value string) ([]KeyDTO, error) {
@@ -74,7 +65,7 @@ func (s *Service) DeleteKey(id string) ([]KeyDTO, error) {
 }
 
 func (s *Service) ImportKeyDictionary() (ImportReportDTO, error) {
-	path, err := s.dialogs.OpenFile("导入 MIFARE Classic 密钥字典", "*.dic;*.txt;*.keys")
+	path, err := s.dialogs.OpenFile("Import MIFARE Classic key dictionary", "*.dic;*.txt;*.keys")
 	if err != nil {
 		return ImportReportDTO{}, err
 	}
@@ -108,7 +99,7 @@ func (s *Service) ImportKeyDictionary() (ImportReportDTO, error) {
 }
 
 func (s *Service) ExportKeyDictionary() (ExportResultDTO, error) {
-	path, err := s.dialogs.SaveFile("导出全部已知密钥", "nfcx-known-keys.dic", "*.dic;*.txt")
+	path, err := s.dialogs.SaveFile("Export all known keys", "nfc-foundry-known-keys.dic", "*.dic;*.txt")
 	if err != nil {
 		return ExportResultDTO{}, err
 	}
@@ -172,10 +163,10 @@ func (s *Service) EditableBlock(blockNumber int) (EditableBlockDTO, error) {
 		Hex: strings.ToUpper(block.Hex()), ASCII: workbench.ASCII(block.Data),
 	}
 	if kind == workbench.BlockManufacturer {
-		dto.Warning = "Manufacturer block：本阶段保存可用，但写卡时始终跳过"
+		dto.Warning = "Manufacturer block: editable here, always skipped when writing the card"
 	}
 	if kind == workbench.BlockTrailer {
-		dto.Warning = "Sector trailer：当前视图包含完整密钥；写入需要额外确认"
+		dto.Warning = "Sector trailer: this view contains full keys; writing needs extra confirmation"
 		access := accessDTO(workbench.ExplainAccess(block))
 		dto.Access = &access
 	}
@@ -211,7 +202,7 @@ func (s *Service) LoadDump(discardDirty bool) (WorkbenchDTO, error) {
 	if s.bench.Snapshot().Dirty && !discardDirty {
 		return WorkbenchDTO{}, ErrDirtyWorkbench
 	}
-	path, err := s.dialogs.OpenFile("加载 MIFARE Classic Dump", "*.bin;*.mfd;*.json")
+	path, err := s.dialogs.OpenFile("Load MIFARE Classic dump", "*.bin;*.mfd;*.json")
 	if err != nil {
 		return WorkbenchDTO{}, err
 	}
@@ -255,7 +246,7 @@ func (s *Service) SaveDump() (SaveResultDTO, error) {
 	if complete {
 		defaultName, pattern = "card-dump.bin", "*.bin;*.mfd"
 	}
-	path, err := s.dialogs.SaveFile("保存 MIFARE Classic Dump", defaultName, pattern)
+	path, err := s.dialogs.SaveFile("Save MIFARE Classic dump", defaultName, pattern)
 	if err != nil {
 		return SaveResultDTO{}, err
 	}
@@ -288,11 +279,11 @@ func (s *Service) StartKeyScan(discardDirty bool) (TaskDTO, error) {
 		return TaskDTO{}, ErrCardRequired
 	}
 	card := snapshot.Card.Clone()
-	return s.startPreparedOperation("keyscan", "扫描已知密钥", s.clearWorkbench, func(ctx context.Context, taskID string) error {
+	return s.startPreparedOperation("keyscan", "Scan known keys", s.clearWorkbench, func(ctx context.Context, taskID string) error {
 		result, err := s.keyScanner.Scan(ctx, workflow.KeyScanRequest{Card: card}, func(progress workflow.KeyScanProgress) {
-			message := fmt.Sprintf("Sector %d · Key %s · 已尝试 %d · 已找到 %d", progress.Sector, keyTypeName(progress.KeyType), progress.Attempted, progress.Found)
+			message := fmt.Sprintf("Sector %d · Key %s · tried %d · found %d", progress.Sector, keyTypeName(progress.KeyType), progress.Attempted, progress.Found)
 			if progress.Matched {
-				message = fmt.Sprintf("Sector %d Key %s 已验证", progress.Sector, keyTypeName(progress.KeyType))
+				message = fmt.Sprintf("Sector %d Key %s verified", progress.Sector, keyTypeName(progress.KeyType))
 			}
 			s.emitOperation(TaskEventDetailDTO{
 				TaskID: taskID, Kind: "keyscan", Type: TaskEventProgress, Sector: progress.Sector,
@@ -334,8 +325,8 @@ func (s *Service) StartReadCard(discardDirty bool) (TaskDTO, error) {
 		return TaskDTO{}, err
 	}
 	request := workflow.DumpRequest{Card: card, Device: deviceInfo, Keys: verifiedSectorKeys(s.keyStore, card, layout)}
-	return s.startPreparedOperation("read", "读取整卡", s.clearWorkbench, func(ctx context.Context, taskID string) error {
-		s.emitOperation(TaskEventDetailDTO{TaskID: taskID, Kind: "read", Type: TaskEventProgress, Message: "正在读取当前卡片"})
+	return s.startPreparedOperation("read", "Read card", s.clearWorkbench, func(ctx context.Context, taskID string) error {
+		s.emitOperation(TaskEventDetailDTO{TaskID: taskID, Kind: "read", Type: TaskEventProgress, Message: "reading the current card"})
 		result, readErr := s.dumpService.ReadCard(ctx, request)
 		if len(result.Dump.Blocks) != 0 {
 			s.registerDumpKeys(result)
@@ -344,7 +335,7 @@ func (s *Service) StartReadCard(discardDirty bool) (TaskDTO, error) {
 				readErr = loadErr
 			}
 			dto := s.emitWorkbench()
-			s.emitOperation(TaskEventDetailDTO{TaskID: taskID, Kind: "read", Type: TaskEventProgress, Progress: 100, Message: "读取结果已载入工作台", Workbench: &dto})
+			s.emitOperation(TaskEventDetailDTO{TaskID: taskID, Kind: "read", Type: TaskEventProgress, Progress: 100, Message: "read result loaded into the workbench", Workbench: &dto})
 		}
 		return readErr
 	})
@@ -410,7 +401,7 @@ func (s *Service) PreflightWrite(input WritePreflightRequestDTO) (WritePreflight
 	switch mode {
 	case "changes":
 		if input.WriteUID {
-			return WritePreflightDTO{}, nfc.NewError("restore preflight", nfc.CodeInvalidArgument, "只有恢复完整 Dump 时可以同时写入 UID", nil)
+			return WritePreflightDTO{}, nfc.NewError("restore preflight", nfc.CodeInvalidArgument, "UID can be written only together with a full dump restore", nil)
 		}
 		blocks = append([]int(nil), snapshot.DirtyBlocks...)
 		writable := blocks[:0]
@@ -421,7 +412,7 @@ func (s *Service) PreflightWrite(input WritePreflightRequestDTO) (WritePreflight
 		}
 		blocks = writable
 		if len(blocks) == 0 {
-			return WritePreflightDTO{Mode: mode, SkippedBlock0: true, Error: "没有可写入的修改 block"}, nil
+			return WritePreflightDTO{Mode: mode, SkippedBlock0: true, Error: "there are no changed blocks to write"}, nil
 		}
 	case "full":
 		blocks = nil
@@ -436,7 +427,7 @@ func (s *Service) PreflightWrite(input WritePreflightRequestDTO) (WritePreflight
 	defer cancel()
 	plan, err := s.restoreService.Preflight(ctx, request)
 	if err != nil {
-		return WritePreflightDTO{Mode: mode, Error: err.Error(), Warnings: []string{"预检失败，尚未写入任何 block"}}, nil
+		return WritePreflightDTO{Mode: mode, Error: err.Error(), Warnings: []string{"preflight failed; no block was written"}}, nil
 	}
 	planned := make([]int, 0, len(plan.Operations))
 	trailers := make([]int, 0)
@@ -454,16 +445,16 @@ func (s *Service) PreflightWrite(input WritePreflightRequestDTO) (WritePreflight
 	if input.WriteUID {
 		newUID, parseErr := parseFourByteUID(input.UID)
 		if parseErr != nil {
-			return WritePreflightDTO{Mode: mode, Error: parseErr.Error(), Warnings: []string{"预检失败，尚未写入任何 block"}}, nil
+			return WritePreflightDTO{Mode: mode, Error: parseErr.Error(), Warnings: []string{"preflight failed; no block was written"}}, nil
 		}
 		if accessErr := validatePostRestoreUIDAccess(request.Dump); accessErr != nil {
-			return WritePreflightDTO{Mode: mode, Error: accessErr.Error(), Warnings: []string{"UID 预检失败，尚未写入任何 block"}}, nil
+			return WritePreflightDTO{Mode: mode, Error: accessErr.Error(), Warnings: []string{"UID preflight failed; no block was written"}}, nil
 		}
 		sectorKeys := verifiedSectorKeys(s.keyStore, card, layout)
 		candidate := workflow.UIDWriteRequest{Card: card, Device: deviceSnapshot.Device, NewUID: newUID, Sector0Keys: sectorKeys[0]}
 		preview, previewErr := s.uidService.Preflight(ctx, candidate)
 		if previewErr != nil {
-			return WritePreflightDTO{Mode: mode, Error: previewErr.Error(), Warnings: []string{"UID 预检失败，尚未写入任何 block"}}, nil
+			return WritePreflightDTO{Mode: mode, Error: previewErr.Error(), Warnings: []string{"UID preflight failed; no block was written"}}, nil
 		}
 		expected := preview.OldBlock0
 		candidate.ExpectedBlock0 = &expected
@@ -481,15 +472,15 @@ func (s *Service) PreflightWrite(input WritePreflightRequestDTO) (WritePreflight
 	s.mu.Lock()
 	s.preflights[token] = record
 	s.mu.Unlock()
-	warnings := []string{"普通 Dump 恢复路径会跳过 block 0", "写入遇到首个失败会立即停止"}
+	warnings := []string{"a normal dump restore skips block 0", "writing stops at the first unrecoverable failure"}
 	if len(trailers) != 0 {
-		warnings = append(warnings, "计划包含 sector trailer，必须确认密钥与访问权限变化")
+		warnings = append(warnings, "the plan contains sector trailers; key and access-condition changes must be confirmed")
 	}
 	var uidDTO *UIDWritePreviewDTO
 	if uidPlan != nil {
 		preview := uidWritePreviewDTO(*uidPlan)
 		uidDTO = &preview
-		warnings = append(warnings, "Dump 数据全部恢复成功后，才会最后写入 UID；支持 CUID/Gen2 与 PN532 UART 上的 Gen1A 特殊卡")
+		warnings = append(warnings, "UID is written last, after the full dump succeeds; supports CUID/Gen2 and Gen1A special cards on PN532 UART")
 	}
 	return WritePreflightDTO{
 		Token: token, Mode: mode, Valid: true, Blocks: planned, TrailerBlocks: trailers,
@@ -504,18 +495,18 @@ func (s *Service) PreflightWrite(input WritePreflightRequestDTO) (WritePreflight
 // to write data group 0 before the combined operation is offered.
 func validatePostRestoreUIDAccess(dump mifare.Dump) error {
 	if dump.Layout != mifare.Classic1K || len(dump.Blocks) <= 3 {
-		return nfc.NewError("restore UID preflight", nfc.CodeUnsupported, "当前只支持 4-byte UID 的 MIFARE Classic 1K 特殊卡", nil)
+		return nfc.NewError("restore UID preflight", nfc.CodeUnsupported, "only 4-byte UID MIFARE Classic 1K special cards are supported", nil)
 	}
 	trailer := dump.Blocks[3].Data
 	access, err := mifare.DecodeAccessBits([3]byte{trailer[6], trailer[7], trailer[8]})
 	if err != nil {
-		return nfc.NewError("restore UID preflight", nfc.CodeInvalidArgument, "Dump 的 sector 0 访问控制位无效", err)
+		return nfc.NewError("restore UID preflight", nfc.CodeInvalidArgument, "the dump has invalid sector 0 access bits", err)
 	}
 	mask := access.Groups[0].DataWriteKeys()
 	if mask.AllowsA() || mask.AllowsB() && !access.Groups[3].KeyBReadable() {
 		return nil
 	}
-	return nfc.NewError("restore UID preflight", nfc.CodePermission, "恢复后的 sector 0 访问条件不允许使用可验证密钥写入 block 0", nil)
+	return nfc.NewError("restore UID preflight", nfc.CodePermission, "the restored sector 0 access conditions do not allow a verified key to write block 0", nil)
 }
 
 func (s *Service) StartWrite(input WriteStartRequestDTO) (TaskDTO, error) {
@@ -545,7 +536,7 @@ func (s *Service) StartWrite(input WriteStartRequestDTO) (TaskDTO, error) {
 	if err != nil || current != expectedFingerprint {
 		return TaskDTO{}, ErrPreflightRequired
 	}
-	return s.startOperation("write", "写入并验证", func(ctx context.Context, taskID string) error {
+	return s.startOperation("write", "Write and verify", func(ctx context.Context, taskID string) error {
 		result, restoreErr := s.restoreService.Restore(ctx, record.request, func(event workflow.RestoreEvent) {
 			s.emitOperation(TaskEventDetailDTO{
 				TaskID: taskID, Kind: "write", Type: TaskEventProgress, Phase: string(event.Phase),
@@ -554,7 +545,7 @@ func (s *Service) StartWrite(input WriteStartRequestDTO) (TaskDTO, error) {
 		})
 		s.registerRestoredKeys(record.request, result)
 		dto := restoreResultDTO(result)
-		s.emitOperation(TaskEventDetailDTO{TaskID: taskID, Kind: "write", Type: TaskEventProgress, Phase: string(result.Phase), Message: "写入结果已生成", Restore: &dto})
+		s.emitOperation(TaskEventDetailDTO{TaskID: taskID, Kind: "write", Type: TaskEventProgress, Phase: string(result.Phase), Message: "write result generated", Restore: &dto})
 		if restoreErr != nil || record.uidRequest == nil {
 			return restoreErr
 		}
@@ -602,13 +593,13 @@ func (s *Service) registerRestoredKeys(request workflow.RestoreRequest, result w
 func restoreMessage(event workflow.RestoreEvent) string {
 	switch event.Phase {
 	case workflow.RestorePreflight:
-		return "正在重新确认预检条件"
+		return "reconfirming preflight conditions"
 	case workflow.RestoreExecute:
-		return fmt.Sprintf("正在写入 block %d", event.Block)
+		return fmt.Sprintf("writing block %d", event.Block)
 	case workflow.RestoreVerify:
-		return fmt.Sprintf("正在验证 block %d", event.Block)
+		return fmt.Sprintf("verifying block %d", event.Block)
 	case workflow.RestoreComplete:
-		return "写入与验证完成"
+		return "write and verification complete"
 	default:
 		return event.Message
 	}
@@ -660,7 +651,7 @@ func (s *Service) startPreparedOperation(kind, name string, prepare func(), run 
 	}
 	task := TaskDTO{ID: id, Name: name, Status: "running"}
 	go func() {
-		s.emitOperation(TaskEventDetailDTO{TaskID: id, Kind: kind, Type: TaskEventStarted, Message: name + "已开始"})
+		s.emitOperation(TaskEventDetailDTO{TaskID: id, Kind: kind, Type: TaskEventStarted, Message: name + " started"})
 		err := run(ctx, id)
 		s.mu.Lock()
 		operation := s.operations[id]
@@ -669,14 +660,14 @@ func (s *Service) startPreparedOperation(kind, name string, prepare func(), run 
 		s.mu.Unlock()
 		cancel()
 		if cancelled || errors.Is(err, context.Canceled) || errors.Is(err, nfc.ErrCanceled) || errors.Is(err, attack.ErrCancelled) {
-			s.emitOperation(TaskEventDetailDTO{TaskID: id, Kind: kind, Type: TaskEventCancelled, Message: name + "已取消；已确认结果予以保留"})
+			s.emitOperation(TaskEventDetailDTO{TaskID: id, Kind: kind, Type: TaskEventCancelled, Message: name + " cancelled; confirmed results were kept"})
 			return
 		}
 		if err != nil {
 			s.emitOperation(TaskEventDetailDTO{TaskID: id, Kind: kind, Type: "failed", Message: err.Error()})
 			return
 		}
-		s.emitOperation(TaskEventDetailDTO{TaskID: id, Kind: kind, Type: TaskEventCompleted, Progress: 100, Message: name + "已完成"})
+		s.emitOperation(TaskEventDetailDTO{TaskID: id, Kind: kind, Type: TaskEventCompleted, Progress: 100, Message: name + " completed"})
 	}()
 	return task, nil
 }

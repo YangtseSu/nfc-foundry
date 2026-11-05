@@ -17,24 +17,24 @@ import (
 func (s *Service) ExternalEngineFixtureStatus() ExternalEngineStatusDTO {
 	status := ExternalEngineStatusDTO{ID: "nfcx-fake-engine"}
 	if s.fixtureAttack == nil {
-		status.Detail = "开发测试引擎未配置"
+		status.Detail = "development fixture engine is not configured"
 		return status
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if err := s.fixtureAttack.Available(ctx); err != nil {
-		status.Detail = "未安装开发测试引擎"
+		status.Detail = "development fixture engine is not installed"
 		return status
 	}
 	status.Available = true
-	status.Detail = "仅用于验证设备交接、日志、取消和恢复"
+	status.Detail = "validates device handoff, logging, cancellation, and recovery only"
 	return status
 }
 
 func (s *Service) MFoCStatus() ExternalEngineStatusDTO {
 	status := ExternalEngineStatusDTO{ID: "mfoc"}
 	if s.mfocLocator == nil {
-		status.Detail = "MFOC 未配置"
+		status.Detail = "MFOC is not configured"
 		return status
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -44,14 +44,14 @@ func (s *Service) MFoCStatus() ExternalEngineStatusDTO {
 		return status
 	}
 	status.Available = true
-	status.Detail = "MFOC 0.10.7 · 仅使用 NFCX 已验证密钥启动 Nested"
+	status.Detail = "MFOC 0.10.7 · Nested starts only with verified NFC Foundry keys"
 	return status
 }
 
 func (s *Service) MFCUKStatus() ExternalEngineStatusDTO {
 	status := ExternalEngineStatusDTO{ID: "mfcuk-pipeline"}
 	if s.mfcukPipeline == nil || s.mfocLocator == nil {
-		status.Detail = "MFCUK pipeline 未配置"
+		status.Detail = "MFCUK pipeline is not configured"
 		return status
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
@@ -61,11 +61,11 @@ func (s *Service) MFCUKStatus() ExternalEngineStatusDTO {
 		return status
 	}
 	if err := attack.NewMFoCEngine(s.mfocLocator, attack.MFoCInvocation{}).Available(ctx); err != nil {
-		status.Detail = "MFCUK 可用，但后续 MFOC 不可用：" + err.Error()
+		status.Detail = "MFCUK is available but the follow-up MFOC is unavailable: " + err.Error()
 		return status
 	}
 	status.Available = true
-	status.Detail = "MFCUK 0.3.8 → MFOC 0.10.7 · 仅限授权的 Classic 1K"
+	status.Detail = "MFCUK 0.3.8 → MFOC 0.10.7 · authorized Classic 1K only"
 	return status
 }
 
@@ -99,7 +99,7 @@ func (s *Service) StartMFoC(input MFoCStartRequestDTO) (TaskDTO, error) {
 		return TaskDTO{}, workflow.ErrMFoCSeedRequired
 	}
 	deviceInfo := snapshot.Device
-	return s.startOperation("mfoc", "MFOC Nested 密钥恢复", func(ctx context.Context, taskID string) error {
+	return s.startOperation("mfoc", "MFOC nested key recovery", func(ctx context.Context, taskID string) error {
 		result, runErr := s.mfocAttack.Run(ctx, workflow.MFoCRequest{
 			TaskID: taskID, Card: card, Device: deviceInfo, Authorized: true,
 			Timeout: 30 * time.Minute, TemporaryPolicy: attack.CleanupAlways,
@@ -121,7 +121,7 @@ func (s *Service) StartMFoC(input MFoCStartRequestDTO) (TaskDTO, error) {
 			report.FilledBytes, report.DataConflicts, report.KeyConflicts, runErr = s.readAndMergeAttackResult(ctx, card, deviceInfo)
 			if runErr == nil {
 				workbench := s.emitWorkbench()
-				s.emitOperation(TaskEventDetailDTO{TaskID: taskID, Kind: "mfoc", Type: TaskEventProgress, Phase: string(attack.StateMergingResult), Message: "已用 libnfc 重新读取并安全合并工作台", Workbench: &workbench})
+				s.emitOperation(TaskEventDetailDTO{TaskID: taskID, Kind: "mfoc", Type: TaskEventProgress, Phase: string(attack.StateMergingResult), Message: "re-read with libnfc and merged into the workbench", Workbench: &workbench})
 			}
 		}
 		exitCode := result.External.ExitCode
@@ -132,7 +132,7 @@ func (s *Service) StartMFoC(input MFoCStartRequestDTO) (TaskDTO, error) {
 		s.emitOperation(TaskEventDetailDTO{
 			TaskID: taskID, Kind: "mfoc", Type: TaskEventProgress, Phase: string(result.External.State),
 			Engine: result.External.Engine, Version: result.External.Version, ExitCode: &exitCode, RecoveryError: recoveryError, MFoC: &report,
-			Message: fmt.Sprintf("MFOC：声称 %d，把 %d 个新密钥标为已验证，%d 个冲突，%d 个复验失败", report.Claimed, report.Added, report.Conflicts, report.Rejected),
+			Message: fmt.Sprintf("MFOC: claimed %d, marked %d new keys verified, %d conflicts, %d failed re-verification", report.Claimed, report.Added, report.Conflicts, report.Rejected),
 		})
 		return runErr
 	})
@@ -173,7 +173,7 @@ func (s *Service) StartMFCUKPipeline(input MFCUKStartRequestDTO) (TaskDTO, error
 		return TaskDTO{}, workflow.ErrMFCUKSeedAlreadyKnown
 	}
 	deviceInfo := snapshot.Device
-	return s.startOperation("mfcuk_pipeline", "MFCUK → MFOC 自动密钥恢复", func(ctx context.Context, taskID string) error {
+	return s.startOperation("mfcuk_pipeline", "MFCUK → MFOC automatic key recovery", func(ctx context.Context, taskID string) error {
 		result, runErr := s.mfcukPipeline.Run(ctx, workflow.MFCUKPipelineRequest{
 			TaskID: taskID, Card: card, Device: deviceInfo, Authorized: true, Timeout: 60 * time.Minute,
 			MFCUKTimeout: 30 * time.Minute, MFoCTimeout: 30 * time.Minute, TemporaryPolicy: attack.CleanupAlways,
@@ -195,16 +195,16 @@ func (s *Service) StartMFCUKPipeline(input MFCUKStartRequestDTO) (TaskDTO, error
 			}
 		}
 		if runErr == nil {
-			s.emitOperation(TaskEventDetailDTO{TaskID: taskID, Kind: "mfcuk_pipeline", Type: TaskEventProgress, Phase: string(attack.StateReadingDump), Message: "两阶段密钥复验完成，正在重新读取卡片"})
+			s.emitOperation(TaskEventDetailDTO{TaskID: taskID, Kind: "mfcuk_pipeline", Type: TaskEventProgress, Phase: string(attack.StateReadingDump), Message: "two-stage key verification complete; re-reading the card"})
 			report.FilledBytes, report.DataConflicts, report.KeyConflicts, runErr = s.readAndMergeAttackResult(ctx, card, deviceInfo)
 			if runErr == nil {
 				workbench := s.emitWorkbench()
-				s.emitOperation(TaskEventDetailDTO{TaskID: taskID, Kind: "mfcuk_pipeline", Type: TaskEventProgress, Phase: string(attack.StateMergingResult), Message: "已用 libnfc 重新读取并安全合并工作台", Workbench: &workbench})
+				s.emitOperation(TaskEventDetailDTO{TaskID: taskID, Kind: "mfcuk_pipeline", Type: TaskEventProgress, Phase: string(attack.StateMergingResult), Message: "re-read with libnfc and merged into the workbench", Workbench: &workbench})
 			}
 		}
 		s.emitOperation(TaskEventDetailDTO{
 			TaskID: taskID, Kind: "mfcuk_pipeline", Type: TaskEventProgress, Phase: string(result.MFoC.External.State), MFCUK: &report,
-			Message: fmt.Sprintf("MFCUK 候选 %d，验证 %d，拒绝 %d；MFOC 新增验证密钥 %d", report.Candidates, report.Verified, report.Rejected, report.MFoCAdded),
+			Message: fmt.Sprintf("MFCUK candidates %d, verified %d, rejected %d; MFOC added %d verified keys", report.Candidates, report.Verified, report.Rejected, report.MFoCAdded),
 		})
 		return runErr
 	})
@@ -257,7 +257,7 @@ func (s *Service) StartExternalEngineFixture() (TaskDTO, error) {
 		}
 		return TaskDTO{}, nfc.ErrNotOpen
 	}
-	return s.startOperation("external_fixture", "外部引擎框架自检", func(ctx context.Context, taskID string) error {
+	return s.startOperation("external_fixture", "external engine framework self-test", func(ctx context.Context, taskID string) error {
 		result, err := s.fixtureAttack.Run(ctx, attack.AttackRequest{
 			TaskID:          taskID,
 			Timeout:         30 * time.Second,
@@ -269,12 +269,12 @@ func (s *Service) StartExternalEngineFixture() (TaskDTO, error) {
 		s.emitOperation(TaskEventDetailDTO{
 			TaskID: taskID, Kind: "external_fixture", Type: TaskEventProgress, Phase: string(result.State),
 			Engine: result.Engine, Version: result.Version, ExitCode: &exitCode,
-			Message: fmt.Sprintf("外部引擎诊断：版本 %s，退出码 %d，耗时 %s", result.Version, result.ExitCode, result.Duration().Round(time.Millisecond)),
+			Message: fmt.Sprintf("external engine diagnostic: version %s, exit code %d, duration %s", result.Version, result.ExitCode, result.Duration().Round(time.Millisecond)),
 		})
 		if result.RecoveryError != nil {
 			s.emitOperation(TaskEventDetailDTO{
 				TaskID: taskID, Kind: "external_fixture", Type: TaskEventProgress, Phase: string(attack.StateReopeningDevice),
-				Engine: result.Engine, RecoveryError: result.RecoveryError.Error(), Message: "外部任务结果已保留，但读卡器恢复失败",
+				Engine: result.Engine, RecoveryError: result.RecoveryError.Error(), Message: "external result kept, but reader recovery failed",
 			})
 		}
 		return err
@@ -300,39 +300,39 @@ func attackEventDTO(taskID, kind string, event attack.AttackEvent) TaskEventDeta
 func attackStateMessage(state attack.State) string {
 	switch state {
 	case attack.StateQueued:
-		return "外部任务已排队"
+		return "external task queued"
 	case attack.StatePreflight:
-		return "正在重新确认目标卡片"
+		return "reconfirming the target card"
 	case attack.StateReleasingDevice:
-		return "正在停止轮询并释放读卡器"
+		return "stopping polling and releasing the reader"
 	case attack.StateStarting:
-		return "正在启动受控外部程序"
+		return "starting the controlled external program"
 	case attack.StateRunning:
-		return "外部程序正在运行"
+		return "external program is running"
 	case attack.StateCancelling:
-		return "正在终止外部程序及其子进程"
+		return "terminating the external program and its children"
 	case attack.StateValidatingResult:
-		return "正在校验外部程序结果"
+		return "validating the external program result"
 	case attack.StateReopeningDevice:
-		return "正在重新打开读卡器"
+		return "reopening the reader"
 	case attack.StateVerifyingKeys:
-		return "正在用 libnfc 重新验证候选密钥"
+		return "re-verifying candidate keys with libnfc"
 	case attack.StateMergingResult:
-		return "正在安全合并已验证结果"
+		return "merging verified results safely"
 	case attack.StateMFCUKStage:
-		return "阶段 1/2：MFCUK Darkside"
+		return "stage 1/2: MFCUK darkside"
 	case attack.StateVerifyingSeed:
-		return "正在用 libnfc 验证 MFCUK 候选"
+		return "verifying MFCUK candidates with libnfc"
 	case attack.StateMFoCStage:
-		return "阶段 2/2：MFOC Nested"
+		return "stage 2/2: MFOC nested"
 	case attack.StateReadingDump:
-		return "正在用已验证密钥读取卡片"
+		return "reading the card with verified keys"
 	case attack.StateSucceeded:
-		return "外部程序结果校验成功"
+		return "external program result validated"
 	case attack.StateFailed:
-		return "外部程序执行失败"
+		return "external program failed"
 	case attack.StateCancelled:
-		return "外部程序已取消"
+		return "external program cancelled"
 	default:
 		return strings.TrimSpace(string(state))
 	}

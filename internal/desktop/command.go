@@ -6,18 +6,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"time"
 
 	"github.com/YangtseSu/nfc-foundry/internal/diagnostic"
 	runtimebundle "github.com/YangtseSu/nfc-foundry/internal/runtime"
 )
 
-var ErrSelfCheckFailed = errors.New("NFCX self-check failed")
+var ErrSelfCheckFailed = errors.New("NFC Foundry self-check failed")
 
 // Execute runs the release self-check without starting a graphical shell when
-// --self-check is present. All other invocations start the Wails application.
-func Execute(assets fs.FS, args []string, output io.Writer) error {
+// --self-check is present. All other invocations start the native application.
+func Execute(args []string, output io.Writer) error {
 	selfCheck := false
 	for _, argument := range args[1:] {
 		if argument == "--self-check" || argument == "--self-check=json" {
@@ -25,7 +24,7 @@ func Execute(assets fs.FS, args []string, output io.Writer) error {
 		}
 	}
 	if !selfCheck {
-		return Run(assets)
+		return NewApplication().Run()
 	}
 	for _, argument := range args[1:] {
 		if argument != "--self-check" && argument != "--self-check=json" && argument != "--json" {

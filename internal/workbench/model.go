@@ -377,7 +377,7 @@ func validate(result workflow.DumpResult) Validation {
 	validation := Validation{Valid: true}
 	if !result.Complete() {
 		validation.Valid = false
-		validation.Errors = append(validation.Errors, "dump 包含未知字节，只能保存为 NFCX 工程")
+		validation.Errors = append(validation.Errors, "the dump contains unknown bytes and can only be saved as an NFC Foundry project")
 		return validation
 	}
 	if _, err := result.Dump.ValidateBCC(len(result.Card.UID)); err != nil {
@@ -470,12 +470,12 @@ func ExplainAccess(block mifare.Block) AccessSummary {
 func keyMaskLabel(mask mifare.KeyMask) string {
 	switch {
 	case mask.AllowsA() && mask.AllowsB():
-		return "Key A 或 Key B"
+		return "Key A or Key B"
 	case mask.AllowsA():
 		return "Key A"
 	case mask.AllowsB():
 		return "Key B"
 	default:
-		return "不可写"
+		return "not writable"
 	}
 }

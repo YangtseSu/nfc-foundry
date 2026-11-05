@@ -3,7 +3,7 @@
 package libnfc
 
 /*
-#cgo pkg-config: libnfc
+#cgo pkg-config: libnfc-ng
 #cgo darwin LDFLAGS: -framework UniformTypeIdentifiers
 #include "shim.h"
 */

@@ -8,7 +8,7 @@ import (
 )
 
 // These values are overridden with -ldflags for release builds. Keeping safe
-// development defaults makes ordinary go test and wails dev builds useful.
+// development defaults makes ordinary go test and native UI builds useful.
 var (
 	Version   = "dev"
 	Commit    = "unknown"
@@ -16,7 +16,8 @@ var (
 	Dirty     = "false"
 )
 
-const WailsVersion = "2.15.0"
+// UIFramework names the desktop toolkit linked into this build.
+const UIFramework = "MyGo"
 
 type Info struct {
 	Version      string `json:"version"`
@@ -24,13 +25,14 @@ type Info struct {
 	BuildDate    string `json:"buildDate"`
 	Dirty        bool   `json:"dirty"`
 	GoVersion    string `json:"goVersion"`
-	WailsVersion string `json:"wailsVersion"`
+	MyGoVersion  string `json:"mygoVersion,omitempty"`
 	OS           string `json:"os"`
 	Architecture string `json:"architecture"`
 }
 
 func Current() Info {
 	version, commit, buildDate := Version, Commit, BuildDate
+	mygoVersion := ""
 	if details, ok := debug.ReadBuildInfo(); ok {
 		if version == "dev" && details.Main.Version != "" && details.Main.Version != "(devel)" {
 			version = details.Main.Version
@@ -47,6 +49,12 @@ func Current() Info {
 				}
 			}
 		}
+		for _, dependency := range details.Deps {
+			if dependency.Path == "github.com/egoist/mygo" {
+				mygoVersion = dependency.Version
+				break
+			}
+		}
 	}
 	return Info{
 		Version:      clean(version, "dev"),
@@ -54,7 +62,7 @@ func Current() Info {
 		BuildDate:    clean(buildDate, "unknown"),
 		Dirty:        strings.EqualFold(strings.TrimSpace(Dirty), "true"),
 		GoVersion:    runtime.Version(),
-		WailsVersion: WailsVersion,
+		MyGoVersion:  mygoVersion,
 		OS:           runtime.GOOS,
 		Architecture: runtime.GOARCH,
 	}

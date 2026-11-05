@@ -13,12 +13,11 @@ the current architecture and migration steps live in [`docs/`](docs/).
 
 ## Status
 
-The repository currently contains the NFCX-derived implementation. The
-product migration is tracked in [`docs/plan/`](docs/plan/):
+The native MyGo shell is in place: reader discovery, card facts, Classic block
+viewing, the key catalog, and the task log. The remaining migration is tracked
+in [`docs/plan/`](docs/plan/):
 
-- replace Wails with the MyGo native UI;
 - expose the shared service layer as `nfctl`;
-- make `libnfc-ng` a pure library and remove all upstream `nfc-*` utilities;
 - replace `nfc-mfsetuid` with native Go Gen1A code;
 - add NFC Forum Type 2 and NDEF support;
 - validate additional readers and card families one at a time.
@@ -89,8 +88,6 @@ Requirements on Arch Linux:
 - a C compiler, `pkgconf`, `make`, `autoconf`, `automake`, and `libtool`;
 - `libusb` and `pcsclite` development files if those transports are enabled.
 
-Expected commands after the migration lands:
-
 ```sh
 make libnfc-ng-build
 make test
@@ -98,8 +95,8 @@ make build
 make check
 ```
 
-Until then, the existing NFCX build commands in the archived documentation are
-the only working reference.
+`make build` writes the executable and its private runtime to
+`build/nfc-foundry-linux-amd64/`, ready to run without installation.
 
 ## Languages
 
