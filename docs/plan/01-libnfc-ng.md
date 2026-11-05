@@ -40,13 +40,18 @@ This phase has two separate concerns:
 
 Original NFCX patches and how to carry them:
 
-| NFCX patch | Action | Upstream source |
-|---|---|---|
-| `0001-list-env-devices-without-conffiles.patch` | Apply as a fork commit | No upstream PR recorded |
-| `0002-macos-uart-synchronous-send.patch` | Apply the final upstream PR version | PR #633 (open, unmerged); pin the adopted commit |
-| `0003-modern-mingw-environment-compat.patch` | Apply as a fork commit | No upstream PR recorded |
-| `0004-modern-mingw-native-bitness.patch` | Use the upstream merged fix instead of the local patch if it covers the same change | Upstream PR #661 / merged master commit |
-| `0005-windows-uart-query-dos-device.patch` | Apply as a fork commit | No upstream PR recorded |
+| NFCX patch | Platform | Linux release | Action |
+|---|---|---|---|
+| `0001-list-env-devices-without-conffiles.patch` | All | **Required** | Apply as a fork commit; fixes `LIBNFC_DEVICE` when conffiles are disabled |
+| `0002-macos-uart-synchronous-send.patch` | macOS | Optional | Apply the final upstream PR #633 version when macOS builds are maintained |
+| `0003-modern-mingw-environment-compat.patch` | Windows/MinGW | Optional | Apply as a fork commit when Windows builds are maintained |
+| `0004-modern-mingw-native-bitness.patch` | Windows/CMake | Optional | Prefer upstream PR #661 / merged master commit; do not keep the local copy too |
+| `0005-windows-uart-query-dos-device.patch` | Windows | Optional | Apply as a fork commit when Windows builds are maintained |
+
+Linux Phase 01 only **requires** `0001`. The other patches are dormant on
+Linux; they are worth carrying only because the fork retains Windows/macOS
+source. Do not add them to the Linux release acceptance criteria, and do not
+spend Linux CI time on them.
 
 Rules:
 

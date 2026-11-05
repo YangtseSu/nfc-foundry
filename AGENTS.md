@@ -136,6 +136,9 @@ out-of-process.
   dependencies and hardware are validated.
 - Carry upstream PR versions of required patches when they exist. Never apply
   a patch that disables hardware or changes the default driver set.
+- Only the conffiles/`LIBNFC_DEVICE` patch is required for Linux. macOS and
+  Windows patches are optional platform maintenance; do not make them Linux
+  release blockers or Linux CI requirements.
 
 ## C shim and transport
 
