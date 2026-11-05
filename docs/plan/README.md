@@ -22,6 +22,8 @@ Status legend: `done`, `in progress`, `pending`, `conditional`, `backlog`.
   `docs/notes/` when it is complete.
 - Do not advertise a reader or card family until its hardware validation is
   recorded.
+- Do not narrow libnfc-ng's default driver set. Compile all upstream drivers;
+  select a validated profile explicitly in the application package/CI.
 - Do not add Windows/macOS, AppImage/Flatpak, Wails, telemetry, or a website.
 - Keep `reuse lint` green.
 - The CLI is English-only; the GUI is English-first with a complete Simplified

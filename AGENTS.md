@@ -125,9 +125,17 @@ out-of-process.
 - Prefer system `libusb` and `pcsclite` on Linux. Do not bundle them.
 - Dynamic linking only. Do not statically link libnfc-ng; LGPL obligations
   stay simple.
-- Drivers are enabled only after validation. Start with `pn532_uart`; add
-  `pn53x_usb`, `acr122_usb`, `acr122_pcsc`, and `pcsc` when they are tested.
-  Do not enable SPI/I2C or legacy serial drivers by default on desktop.
+- The fork retains all upstream drivers and must not narrow the default driver
+  set. Validation gates support claims and GUI/CLI capabilities, not
+  compilation.
+- The NFC Foundry package/build profile may select an explicit driver set.
+  The initial profile is `pn532_uart,pn53x_usb,acr122_usb,acr122_pcsc,pcsc`;
+  put that selection in `PKGBUILD`/CI, never in libnfc-ng's default.
+- SPI/I2C, `pn71xx`, and legacy serial drivers remain available in the
+  library. Do not add them to the initial application profile unless their
+  dependencies and hardware are validated.
+- Carry upstream PR versions of required patches when they exist. Never apply
+  a patch that disables hardware or changes the default driver set.
 
 ## C shim and transport
 

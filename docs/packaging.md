@@ -32,8 +32,14 @@ Dependencies follow the enabled driver set:
 - `pn53x_usb` / `acr122_usb`: `libusb`;
 - `acr122_pcsc` / `pcsc`: `pcsclite`.
 
-The initial package enables only validated drivers. Add a driver dependency
-only when the corresponding driver is enabled and tested.
+The initial package builds the explicit profile
+`pn532_uart,pn53x_usb,acr122_usb,acr122_pcsc,pcsc`. Only `pn532_uart` is
+advertised as validated; the others are compiled but remain experimental in
+the capability matrix.
+
+This profile is a package/build choice. The library's own default driver set
+must remain the upstream default, and `--with-drivers=all` must continue to
+work.
 
 Keep the unique library identity (`libnfcng.so.6`, pkg-config `libnfc-ng`) so
 the package can coexist with Arch's `libnfc`. Do not install
