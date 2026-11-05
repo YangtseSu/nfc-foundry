@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NFC Foundry workbench mockup</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: #E8EDF3;
+    display: flex; align-items: center; justify-content: center;
+    font-family: "Noto Sans CJK SC", "Noto Sans", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    color: #101828;
+  }
+  .app {
+    width: 1360px; height: 860px;
+    background: #F7F8FA;
+    border: 1px solid #DDE3EA;
+    border-radius: 14px;
+    overflow: hidden;
+    display: grid;
+    grid-template-rows: 58px minmax(0, 1fr) 66px;
+    box-shadow: 0 20px 60px rgba(15, 23, 42, .12);
+  }
+  .topbar {
+    background: #0B1B2B;
+    color: #DDE8F2;
+    display: flex; align-items: center; gap: 16px;
+    padding: 0 18px;
+    border-bottom: 1px solid rgba(255,255,255,.06);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; min-width: 200px; }
+  .mark {
+    width: 30px; height: 30px; border-radius: 9px;
+    background: #102C42;
+    display: grid; place-items: center;
+    border: 1px solid rgba(90, 215, 235, .25);
+  }
+  .brand-name { font-size: 15px; font-weight: 650; letter-spacing: .01em; color: #F4F8FC; line-height: 1.1; }
+  .brand-sub { font-size: 9.5px; color: #7E95AB; letter-spacing: .14em; text-transform: uppercase; margin-top: 3px; }
+  .vline { width: 1px; height: 24px; background: rgba(255,255,255,.11); }
+  .context { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    height: 28px; padding: 0 10px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.055);
+    border: 1px solid rgba(255,255,255,.08);
+    color: #D8E4EF; font-size: 11.5px; white-space: nowrap;
+  }
+  .chip .dot { width: 6px; height: 6px; border-radius: 50%; background: #3ED6A4; box-shadow: 0 0 0 3px rgba(62,214,164,.12); }
+  .chip .mono { font-family: "JetBrains Mono", monospace; font-size: 10.5px; color: #91A8BD; }
+  .chip.card { background: rgba(34, 195, 221, .10); border-color: rgba(34, 195, 221, .22); color: #DDF7FC; }
+  .spacer { flex: 1 1 auto; }
+  .topright { display: flex; align-items: center; gap: 6px; }
+  .top-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 27px; padding: 0 10px; border-radius: 999px;
+    font-size: 11px; color: #9FE8CE;
+    background: rgba(62,214,164,.10); border: 1px solid rgba(62,214,164,.18);
+  }
+  .icon-btn {
+    width: 30px; height: 30px; border-radius: 8px;
+    display: grid; place-items: center;
+    color: #A5B8C9; background: transparent; border: 0;
+  }
+  .lang { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: #C5D4E2; padding: 0 8px; height: 30px; }
+  .body { display: grid; grid-template-columns: 236px minmax(0, 1fr) 308px; min-height: 0; }
+  .rail {
+    background: #F2F5F8;
+    border-right: 1px solid #E1E6EC;
+    padding: 16px 14px 14px;
+    display: flex; flex-direction: column; gap: 16px;
+    min-height: 0;
+  }
+  .section-label { font-size: 9.5px; letter-spacing: .13em; text-transform: uppercase; color: #7B8998; font-weight: 700; padding: 0 2px; }
+  .panel {
+    background: #FFFFFF; border: 1px solid #E2E7ED; border-radius: 10px;
+    box-shadow: 0 1px 2px rgba(16,24,40,.03);
+  }
+  .reader { padding: 12px; }
+  .reader-head { display: flex; align-items: center; gap: 9px; }
+  .reader-icon { width: 28px; height: 28px; border-radius: 8px; background: #ECFBFD; color: #0E7490; display: grid; place-items: center; }
+  .reader-name { font-size: 12.5px; font-weight: 650; line-height: 1.2; }
+  .reader-state { font-size: 10px; color: #067647; display: flex; align-items: center; gap: 4px; margin-top: 2px; }
+  .reader-state .dot { width: 5px; height: 5px; border-radius: 50%; background: #12B76A; }
+  .conn { font-family: "JetBrains Mono", monospace; font-size: 9.5px; color: #7A8796; margin: 9px 0 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .caps { display: flex; flex-wrap: wrap; gap: 4px; }
+  .cap { font-size: 9px; color: #506070; background: #F3F6F9; border: 1px solid #E5EAF0; border-radius: 5px; padding: 2px 5px; }
+  .card-panel { padding: 12px; }
+  .card-top { display: flex; gap: 10px; align-items: center; }
+  .tagart {
+    width: 42px; height: 48px; border-radius: 8px; position: relative;
+    background: linear-gradient(145deg, #13354E 0%, #0B1B2B 100%);
+    border: 1px solid #26465F; overflow: hidden; flex: none;
+  }
+  .tagart:before {
+    content: ""; position: absolute; inset: 6px;
+    border: 1px dashed rgba(94, 219, 236, .35); border-radius: 5px;
+  }
+  .tagart svg { position: absolute; left: 11px; top: 13px; color: #37CFE8; }
+  .card-name { font-size: 15px; font-weight: 700; line-height: 1.2; }
+  .card-type { font-size: 10px; color: #6C7A89; margin-top: 3px; }
+  .uid { font-family: "JetBrains Mono", monospace; font-size: 10px; color: #344054; margin-top: 9px; }
+  .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; padding-top: 9px; border-top: 1px solid #EEF1F5; }
+  .metric-label { font-size: 9px; color: #8491A0; text-transform: uppercase; letter-spacing: .08em; }
+  .metric-value { font-size: 11.5px; font-weight: 650; margin-top: 2px; }
+  .health { padding: 6px 12px 10px; }
+  .health-row { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid #F0F3F6; font-size: 10.5px; color: #475467; }
+  .health-row:last-child { border-bottom: 0; }
+  .health-row .ok { color: #067647; }
+  .health-row .warn { color: #B54708; }
+  .health-row .muted { color: #8491A0; }
+  .health-row .value { margin-left: auto; font-size: 10px; color: #667085; }
+  .rail-bottom { margin-top: auto; border-top: 1px solid #E1E6EC; padding-top: 10px; display: flex; flex-direction: column; gap: 2px; }
+  .rail-link { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 6px; border-radius: 6px; font-size: 11px; color: #536273; }
+  .rail-link .right { margin-left: auto; color: #93A0AE; font-size: 10px; }
+  .workspace { padding: 18px 22px 0; min-width: 0; display: flex; flex-direction: column; }
+  .eyebrow { font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: #8491A0; font-weight: 700; }
+  .title-row { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+  .title { font-size: 24px; line-height: 1.1; letter-spacing: -.02em; font-weight: 720; }
+  .title-badge { font-size: 10px; color: #0E7490; background: #ECFBFD; border: 1px solid #C8F0F6; border-radius: 999px; padding: 3px 8px; font-weight: 600; }
+  .subtitle { font-size: 11px; color: #667085; margin-top: 4px; }
+  .tabs { display: flex; align-items: center; gap: 22px; margin-top: 15px; border-bottom: 1px solid #E4E9EF; }
+  .tab { height: 32px; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #667085; border-bottom: 2px solid transparent; position: relative; top: 1px; }
+  .tab.active { color: #0E7490; border-bottom-color: #0E7490; font-weight: 650; }
+  .tab .count { font-size: 9px; background: #E6F7FA; color: #0E7490; border-radius: 999px; padding: 1px 5px; }
+  .tab.disabled { color: #AAB4C0; }
+  .content { padding: 14px 0 0; display: flex; flex-direction: column; gap: 12px; min-height: 0; flex: 1; }
+  .capacity { padding: 13px 16px; display: flex; align-items: center; gap: 18px; }
+  .capacity-left { width: 146px; flex: none; }
+  .muted-label { font-size: 9.5px; text-transform: uppercase; letter-spacing: .1em; color: #8491A0; font-weight: 700; }
+  .capacity-number { font-size: 19px; font-weight: 700; margin-top: 4px; letter-spacing: -.01em; }
+  .capacity-number span { color: #98A2B3; font-size: 12px; font-weight: 500; }
+  .meter-wrap { flex: 1; min-width: 0; }
+  .meter { height: 7px; border-radius: 999px; background: #E9EEF4; overflow: hidden; display: flex; }
+  .meter .used { width: 37.3%; background: #0E7490; border-radius: 999px; }
+  .meter-legend { display: flex; justify-content: space-between; margin-top: 8px; font-size: 9.5px; color: #7A8796; }
+  .capacity-right { text-align: right; width: 92px; flex: none; }
+  .capacity-right strong { display: block; font-size: 11.5px; }
+  .capacity-right span { display: block; font-size: 9.5px; color: #067647; margin-top: 3px; }
+  .records { display: flex; flex-direction: column; flex: 0 0 auto; overflow: hidden; }
+  .panel-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px 10px; }
+  .panel-title { font-size: 12.5px; font-weight: 680; }
+  .panel-sub { font-size: 10px; color: #8491A0; }
+  .panel-actions { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+  .btn { height: 28px; padding: 0 10px; border-radius: 7px; border: 1px solid #DCE3EA; background: #FFFFFF; font: inherit; font-size: 10.5px; color: #344054; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .btn.primary { background: #0B1B2B; border-color: #0B1B2B; color: #F4F8FC; }
+  .btn.danger { background: #B42318; border-color: #B42318; color: #FFFFFF; }
+  .btn.ghost { background: transparent; border-color: transparent; color: #475467; }
+  .btn.add { color: #0E7490; border-color: #C8E7ED; background: #F6FDFE; font-weight: 600; }
+  .table { border-top: 1px solid #EDF1F5; }
+  .thead, .row { display: grid; grid-template-columns: 34px 98px minmax(0, 1fr) 56px 48px; align-items: center; gap: 8px; padding: 0 14px; }
+  .thead { height: 26px; font-size: 8.5px; text-transform: uppercase; letter-spacing: .11em; color: #93A0AE; font-weight: 700; background: #FBFCFD; border-bottom: 1px solid #EDF1F5; }
+  .row { height: 48px; border-bottom: 1px solid #F1F4F7; font-size: 11px; position: relative; }
+  .row:last-child { border-bottom: 0; }
+  .row.selected { background: #F2FBFD; }
+  .row.selected:before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: #0E7490; }
+  .idx { color: #98A2B3; font-size: 9.5px; font-family: "JetBrains Mono", monospace; }
+  .type { display: inline-flex; align-items: center; gap: 5px; width: fit-content; font-size: 9.5px; font-weight: 600; border-radius: 5px; padding: 3px 6px; }
+  .type.text { color: #175CD3; background: #EFF8FF; border: 1px solid #D1E9FF; }
+  .type.uri { color: #0E7490; background: #ECFBFD; border: 1px solid #C8F0F6; }
+  .type.mime { color: #6941C6; background: #F4F0FF; border: 1px solid #E4D7FB; }
+  .type.empty { color: #667085; background: #F2F4F7; border: 1px solid #E4E7EC; }
+  .preview { color: #344054; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .preview .sub { color: #8491A0; font-size: 9.5px; margin-left: 6px; }
+  .size { text-align: right; font-family: "JetBrains Mono", monospace; font-size: 9.5px; color: #667085; }
+  .row-actions { display: flex; justify-content: flex-end; gap: 2px; color: #98A2B3; }
+  .mini { width: 22px; height: 22px; border-radius: 5px; display: grid; place-items: center; }
+  .mini.danger { color: #B42318; }
+  .preflight { display: flex; align-items: center; gap: 18px; padding: 11px 14px; }
+  .preflight-item { display: flex; align-items: center; gap: 7px; min-width: 0; }
+  .preflight-item .pf-icon { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; background: #F3FCF8; color: #067647; flex: none; }
+  .preflight-item strong { display: block; font-size: 10px; font-weight: 650; color: #344054; }
+  .preflight-item span { display: block; font-size: 9px; color: #8491A0; margin-top: 1px; }
+  .preflight .btn { margin-left: auto; }
+  .raw { padding: 10px 14px 12px; flex: 0 0 auto; }
+  .raw-head { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+  .raw-head strong { font-size: 11px; }
+  .raw-head span { font-size: 9.5px; color: #8491A0; }
+  .hex { background: #F7F9FB; border: 1px solid #E9EEF4; border-radius: 7px; padding: 8px 10px; font-family: "JetBrains Mono", monospace; font-size: 9.5px; line-height: 1.55; color: #475467; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hex b { color: #0E7490; font-weight: 600; }
+  .side { background: #FFFFFF; border-left: 1px solid #E2E7ED; padding: 16px 16px 14px; display: flex; flex-direction: column; min-height: 0; }
+  .side-head { display: flex; align-items: center; gap: 8px; }
+  .side-title { font-size: 12.5px; font-weight: 680; }
+  .side-sub { font-size: 9.5px; color: #8491A0; }
+  .record-card { margin-top: 10px; border: 1px solid #E5EAF0; border-radius: 10px; padding: 11px; background: #FBFCFD; }
+  .record-head { display: flex; align-items: center; gap: 8px; }
+  .record-name { font-size: 11.5px; font-weight: 650; }
+  .record-index { font-size: 9.5px; color: #98A2B3; margin-left: auto; }
+  .fields { display: grid; grid-template-columns: 78px minmax(0, 1fr); row-gap: 7px; column-gap: 8px; margin-top: 11px; font-size: 10px; }
+  .fields dt { color: #8491A0; }
+  .fields dd { margin: 0; color: #344054; min-width: 0; word-break: break-word; }
+  .fields .mono { font-family: "JetBrains Mono", monospace; font-size: 9.5px; }
+  .payload { margin-top: 9px; background: #FFFFFF; border: 1px solid #E8EDF3; border-radius: 7px; padding: 8px 9px; font-family: "JetBrains Mono", monospace; font-size: 9px; line-height: 1.5; color: #344054; word-break: break-all; }
+  .valid { display: flex; align-items: center; gap: 6px; margin-top: 9px; font-size: 9.5px; color: #067647; }
+  .record-buttons { display: flex; gap: 6px; margin-top: 10px; }
+  .divider { height: 1px; background: #EDF1F5; margin: 14px 0 12px; }
+  .activity { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+  .activity-head { display: flex; align-items: center; gap: 8px; }
+  .link { margin-left: auto; font-size: 9.5px; color: #0E7490; }
+  .task { margin-top: 9px; border: 1px solid #D9F3E6; background: #F3FCF8; border-radius: 9px; padding: 9px 10px; }
+  .task-top { display: flex; align-items: center; gap: 6px; font-size: 10.5px; font-weight: 650; color: #05603A; }
+  .task-sub { font-size: 9.5px; color: #5B7A6C; margin-top: 3px; }
+  .task-bar { height: 4px; border-radius: 999px; background: #D9F3E6; margin-top: 7px; overflow: hidden; }
+  .task-bar span { display: block; width: 100%; height: 100%; background: #12B76A; border-radius: 999px; }
+  .log { display: flex; flex-direction: column; gap: 0; margin-top: 7px; overflow: hidden; }
+  .log-row { display: grid; grid-template-columns: 42px 14px minmax(0, 1fr); gap: 7px; padding: 7px 0; border-bottom: 1px solid #F1F4F7; align-items: start; }
+  .log-row:last-child { border-bottom: 0; }
+  .time { font-family: "JetBrains Mono", monospace; font-size: 8.5px; color: #98A2B3; padding-top: 2px; }
+  .log-icon { color: #98A2B3; display: grid; place-items: center; padding-top: 1px; }
+  .log-text { font-size: 9.5px; color: #475467; line-height: 1.35; }
+  .log-text strong { font-weight: 600; color: #344054; }
+  .note { margin-top: auto; padding-top: 10px; border-top: 1px solid #EDF1F5; font-size: 9px; line-height: 1.45; color: #8491A0; }
+  .actionbar { background: #FFFFFF; border-top: 1px solid #E2E7ED; padding: 0 20px; display: flex; align-items: center; gap: 12px; }
+  .action-status { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #475467; }
+  .action-status .dot { width: 7px; height: 7px; border-radius: 50%; background: #12B76A; box-shadow: 0 0 0 3px rgba(18,183,106,.12); }
+  .action-status .muted { color: #98A2B3; }
+  .actions { margin-left: auto; display: flex; align-items: center; gap: 7px; }
+  .actions .btn { height: 32px; padding: 0 13px; font-size: 11px; }
+  .actions .btn.danger { box-shadow: 0 1px 2px rgba(180,35,24,.18); }
+  .icon { display: inline-grid; place-items: center; }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- top -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="mark">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#37CFE8" stroke-width="2.1" stroke-linecap="round">
+          <path d="M4.6 15.4a8.7 8.7 0 0 1 0-6.8"/>
+          <path d="M8.2 13.6a4.9 4.9 0 0 1 0-3.2"/>
+          <path d="M11.7 12.2a1.2 1.2 0 0 1 0-.4"/>
+          <rect x="15" y="6.7" width="5.8" height="10.6" rx="1.6"/>
+          <circle cx="18.1" cy="9.4" r=".7" fill="#37CFE8" stroke="none"/>
+        </svg>
+      </div>
+      <div>
+        <div class="brand-name">NFC Foundry</div>
+        <div class="brand-sub">Card workbench</div>
+      </div>
+    </div>
+    <div class="vline"></div>
+    <div class="context">
+      <div class="chip"><span class="dot"></span>PN532 UART<span class="mono">/dev/ttyUSB0</span></div>
+      <div class="chip card">NTAG215 <span class="mono">·</span> Type 2</div>
+      <div class="chip">NDEF <span class="mono">188 / 504 B</span></div>
+    </div>
+    <div class="spacer"></div>
+    <div class="topright">
+      <div class="top-pill"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>Ready</div>
+      <div class="lang">EN <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></div>
+      <div class="icon-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.65 1.65 0 0 0 15 19.4a1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
+    </div>
+  </header>
+
+  <!-- body -->
+  <div class="body">
+    <!-- left context rail -->
+    <aside class="rail">
+      <div class="section-label">Reader</div>
+      <div class="panel reader">
+        <div class="reader-head">
+          <div class="reader-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 8.5a12 12 0 0 1 0 7"/><path d="M8 10a7.5 7.5 0 0 1 0 4"/><rect x="12" y="7" width="8" height="10" rx="2"/><path d="M16 17v3"/></svg>
+          </div>
+          <div>
+            <div class="reader-name">PN532 UART</div>
+            <div class="reader-state"><span class="dot"></span>Connected</div>
+          </div>
+          <div style="margin-left:auto;color:#98A2B3">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+          </div>
+        </div>
+        <div class="conn">pn532_uart:/dev/ttyUSB0</div>
+        <div class="caps"><span class="cap">ISO14443A</span><span class="cap">Classic</span><span class="cap">Type 2</span><span class="cap">Raw</span></div>
+      </div>
+
+      <div class="section-label">Card</div>
+      <div class="panel card-panel">
+        <div class="card-top">
+          <div class="tagart">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 9.5a9 9 0 0 1 0 5"/><path d="M8.6 10.7a5 5 0 0 1 0 2.6"/><rect x="12.5" y="7.3" width="6.5" height="9.4" rx="1.5"/></svg>
+          </div>
+          <div>
+            <div class="card-name">NTAG215</div>
+            <div class="card-type">NFC Forum Type 2</div>
+          </div>
+        </div>
+        <div class="uid">04:E1:9C:2A:7B:54:80</div>
+        <div class="metrics">
+          <div><div class="metric-label">User memory</div><div class="metric-value">504 B</div></div>
+          <div><div class="metric-label">NDEF used</div><div class="metric-value">188 B</div></div>
+        </div>
+      </div>
+
+      <div class="section-label">Tag health</div>
+      <div class="panel health">
+        <div class="health-row"><span class="ok"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg></span>NDEF formatted<span class="value">Valid</span></div>
+        <div class="health-row"><span class="ok"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg></span>Static lock<span class="value">0 / 16</span></div>
+        <div class="health-row"><span class="warn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg></span>Config pages<span class="value">41–44</span></div>
+        <div class="health-row"><span class="muted"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span>PWD / PACK<span class="value">Not set</span></div>
+      </div>
+
+      <div class="rail-bottom">
+        <div class="rail-link"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 12h4l2-6 4 12 2-6h6"/></svg>Diagnostics<span class="right">›</span></div>
+        <div class="rail-link"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.65 1.65 0 0 0 15 19.4a1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Settings<span class="right">›</span></div>
+      </div>
+    </aside>
+
+    <!-- main workspace -->
+    <main class="workspace">
+      <div class="eyebrow">Card workspace</div>
+      <div class="title-row">
+        <div class="title">NTAG215</div>
+        <div class="title-badge">Type 2</div>
+        <div class="title-badge" style="color:#475467;background:#F2F4F7;border-color:#E4E7EC">NDEF</div>
+      </div>
+      <div class="subtitle">4-byte pages · 504 B user memory · 4 NDEF records · 188 B used</div>
+      <div class="tabs">
+        <div class="tab">Memory <span class="count">45</span></div>
+        <div class="tab active">NDEF <span class="count">4</span></div>
+        <div class="tab">Protection</div>
+        <div class="tab">Details</div>
+      </div>
+
+      <div class="content">
+        <div class="panel capacity">
+          <div class="capacity-left">
+            <div class="muted-label">NDEF capacity</div>
+            <div class="capacity-number">188 <span>/ 504 B</span></div>
+          </div>
+          <div class="meter-wrap">
+            <div class="meter"><div class="used"></div></div>
+            <div class="meter-legend"><span>Message TLV + records</span><span>316 B free</span></div>
+          </div>
+          <div class="capacity-right">
+            <strong>4 records</strong>
+            <span>Valid NDEF</span>
+          </div>
+        </div>
+
+        <div class="panel records">
+          <div class="panel-head">
+            <div class="panel-title">Message records</div>
+            <div class="panel-sub">4 records · 188 B</div>
+            <div class="panel-actions">
+              <button class="btn ghost"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>Load .ndef</button>
+              <button class="btn add"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Add record</button>
+            </div>
+          </div>
+          <div class="table">
+            <div class="thead"><span>#</span><span>Type</span><span>Preview</span><span style="text-align:right">Size</span><span></span></div>
+            <div class="row">
+              <div class="idx">01</div>
+              <div><span class="type text">Text · en</span></div>
+              <div class="preview">NFC Foundry — tap to open the workbench<span class="sub">UTF-8</span></div>
+              <div class="size">56 B</div>
+              <div class="row-actions"><span class="mini"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></span><span class="mini danger"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m6 6 1 14h10l1-14"/></svg></span></div>
+            </div>
+            <div class="row selected">
+              <div class="idx">02</div>
+              <div><span class="type uri">URI</span></div>
+              <div class="preview">https://nfcfoundry.example/card/42<span class="sub">Well-known</span></div>
+              <div class="size">42 B</div>
+              <div class="row-actions"><span class="mini"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></span><span class="mini danger"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m6 6 1 14h10l1-14"/></svg></span></div>
+            </div>
+            <div class="row">
+              <div class="idx">03</div>
+              <div><span class="type mime">MIME · JSON</span></div>
+              <div class="preview">{"phase":"02","records":4,"tag":"NTAG215"}<span class="sub">application/json</span></div>
+              <div class="size">58 B</div>
+              <div class="row-actions"><span class="mini"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></span><span class="mini danger"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m6 6 1 14h10l1-14"/></svg></span></div>
+            </div>
+            <div class="row">
+              <div class="idx">04</div>
+              <div><span class="type text">Text · en</span></div>
+              <div class="preview">Backup verified · 2026-11-05<span class="sub">UTF-8</span></div>
+              <div class="size">32 B</div>
+              <div class="row-actions"><span class="mini"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></span><span class="mini danger"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m6 6 1 14h10l1-14"/></svg></span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel preflight">
+          <div class="preflight-item">
+            <div class="pf-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg></div>
+            <div><strong>TLV valid</strong><span>188 B · 4 records · no trailing data</span></div>
+          </div>
+          <div class="preflight-item">
+            <div class="pf-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg></div>
+            <div><strong>Fits user memory</strong><span>316 B free of 504 B</span></div>
+          </div>
+          <div class="preflight-item">
+            <div class="pf-icon" style="background:#FFF8EB;color:#B54708"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg></div>
+            <div><strong>Protected areas untouched</strong><span>Config 41–44 · static lock 2</span></div>
+          </div>
+          <button class="btn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 6 9 17l-5-5"/></svg>Validate</button>
+        </div>
+
+        <div class="panel raw">
+          <div class="raw-head"><strong>Raw message</strong><span>TLV 0x03 · 188 B · little-endian length</span></div>
+          <div class="hex"><b>03</b> BC D1 01 35 54 02 65 6E 4E 46 43 20 46 6F 75 6E 64 72 79 20 E2 80 94 20 74 61 70 20 74 6F 20 6F 70 65 6E 20 74 68 65 20 77 6F 72 6B 62 65 6E 63 68 D1 01 28 55 04 6E 66 63 66 6F 75 6E 64 72 79 2E 65 78 61 6D 70 6C 65 ...</div>
+        </div>
+      </div>
+    </main>
+
+    <!-- right inspector + activity -->
+    <aside class="side">
+      <div class="side-head">
+        <div class="side-title">Inspector</div>
+        <div class="side-sub">Record 2 of 4</div>
+      </div>
+      <div class="record-card">
+        <div class="record-head">
+          <span class="type uri">URI</span>
+          <div class="record-name">Well-known URI</div>
+          <div class="record-index">02</div>
+        </div>
+        <dl class="fields">
+          <dt>TNF</dt><dd>Well-known <span style="color:#98A2B3">(0x01)</span></dd>
+          <dt>Type</dt><dd class="mono">U <span style="color:#98A2B3">(0x55)</span></dd>
+          <dt>ID</dt><dd style="color:#98A2B3">—</dd>
+          <dt>Encoded</dt><dd>42 bytes</dd>
+        </dl>
+        <div class="payload">https://nfcfoundry.example/card/42</div>
+        <div class="valid"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Valid absolute HTTPS URI</div>
+        <div class="record-buttons">
+          <button class="btn primary" style="height:27px;font-size:10px"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>Edit record</button>
+          <button class="btn ghost" style="height:27px;font-size:10px;color:#B42318">Remove</button>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="activity">
+        <div class="activity-head">
+          <div class="side-title">Activity</div>
+          <div class="link">Clear</div>
+        </div>
+        <div class="task">
+          <div class="task-top"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>NDEF read completed</div>
+          <div class="task-sub">4 records · 188 B · 0.8 s</div>
+          <div class="task-bar"><span></span></div>
+        </div>
+        <div class="log">
+          <div class="log-row">
+            <div class="time">10:42:18</div>
+            <div class="log-icon" style="color:#067647"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg></div>
+            <div class="log-text"><strong>NDEF parsed</strong><br>4 records · TLV valid · no trailing bytes</div>
+          </div>
+          <div class="log-row">
+            <div class="time">10:42:17</div>
+            <div class="log-icon" style="color:#0E7490"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 8.5a12 12 0 0 1 0 7"/><path d="M8 10a7.5 7.5 0 0 1 0 4"/><rect x="12" y="7" width="8" height="10" rx="2"/></svg></div>
+            <div class="log-text"><strong>Tag identified</strong><br>NTAG215 · 7-byte UID · CC valid</div>
+          </div>
+          <div class="log-row">
+            <div class="time">10:42:15</div>
+            <div class="log-icon" style="color:#98A2B3"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg></div>
+            <div class="log-text"><strong>Reader connected</strong><br>PN532 UART · exact connstring preserved</div>
+          </div>
+        </div>
+        <div class="note">Writing NDEF replaces only the message TLV. Static lock, config pages, and PWD/PACK stay untouched and require a separate guarded flow.</div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- action bar -->
+  <footer class="actionbar">
+    <div class="action-status"><span class="dot"></span>Ready <span class="muted">· 4 records · 188 B · no unsaved changes</span></div>
+    <div class="actions">
+      <button class="btn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>Read tag</button>
+      <button class="btn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>Read NDEF</button>
+      <button class="btn ghost" style="color:#475467">Save .ndef</button>
+      <button class="btn danger"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v12"/><path d="m7 8 5-5 5 5"/><path d="M5 21h14"/></svg>Write NDEF…</button>
+    </div>
+  </footer>
+</div>
+</body>
+</html>

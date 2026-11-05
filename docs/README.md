@@ -15,6 +15,7 @@ implementation.
   obligations.
 - [Development workflow](development.md): build, tests, hardware gates, i18n,
   REUSE, and documentation rules.
+- [Design references](design/README.md): reviewed native UI mockups.
 - [Phased plan](plan/README.md): implementation order and acceptance criteria.
 
 ## Language rules
