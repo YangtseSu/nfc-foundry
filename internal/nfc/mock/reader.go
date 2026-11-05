@@ -5,7 +5,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/BennyThink/NFCX/internal/nfc"
+	"github.com/YangtseSu/nfc-foundry/internal/nfc"
 )
 
 // ReaderFuncs can override individual mock operations. Nil functions use the

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	runtimebundle "github.com/BennyThink/NFCX/internal/runtime"
+	runtimebundle "github.com/YangtseSu/nfc-foundry/internal/runtime"
 )
 
 var fixtureExecutable = runtimebundle.Executable{

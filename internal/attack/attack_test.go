@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BennyThink/NFCX/internal/device"
-	"github.com/BennyThink/NFCX/internal/nfc"
-	"github.com/BennyThink/NFCX/internal/nfc/mock"
-	runtimebundle "github.com/BennyThink/NFCX/internal/runtime"
+	"github.com/YangtseSu/nfc-foundry/internal/device"
+	"github.com/YangtseSu/nfc-foundry/internal/nfc"
+	"github.com/YangtseSu/nfc-foundry/internal/nfc/mock"
+	runtimebundle "github.com/YangtseSu/nfc-foundry/internal/runtime"
 )
 
 var fixtureRuntimeRoot string

@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BennyThink/NFCX/internal/attack"
-	"github.com/BennyThink/NFCX/internal/buildinfo"
-	"github.com/BennyThink/NFCX/internal/nfc/libnfc"
-	runtimebundle "github.com/BennyThink/NFCX/internal/runtime"
+	"github.com/YangtseSu/nfc-foundry/internal/attack"
+	"github.com/YangtseSu/nfc-foundry/internal/buildinfo"
+	"github.com/YangtseSu/nfc-foundry/internal/nfc/libnfc"
+	runtimebundle "github.com/YangtseSu/nfc-foundry/internal/runtime"
 )
 
 type Check struct {

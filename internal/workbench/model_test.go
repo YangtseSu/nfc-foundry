@@ -3,8 +3,8 @@ package workbench
 import (
 	"testing"
 
-	"github.com/BennyThink/NFCX/internal/mifare"
-	"github.com/BennyThink/NFCX/internal/workflow"
+	"github.com/YangtseSu/nfc-foundry/internal/mifare"
+	"github.com/YangtseSu/nfc-foundry/internal/workflow"
 )
 
 func workbenchResult(t *testing.T) workflow.DumpResult {

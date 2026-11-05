@@ -7,7 +7,7 @@ VERSION ?= 0.1.0
 COMMIT ?= $(shell git rev-parse --verify HEAD 2>/dev/null || echo unknown)
 BUILD_DATE ?= unknown
 DIRTY ?= $(shell test -z "$$(git status --porcelain 2>/dev/null)" && echo false || echo true)
-RELEASE_LDFLAGS = -X github.com/BennyThink/NFCX/internal/buildinfo.Version=$(VERSION) -X github.com/BennyThink/NFCX/internal/buildinfo.Commit=$(COMMIT) -X github.com/BennyThink/NFCX/internal/buildinfo.BuildDate=$(BUILD_DATE) -X github.com/BennyThink/NFCX/internal/buildinfo.Dirty=$(DIRTY)
+RELEASE_LDFLAGS = -X github.com/YangtseSu/nfc-foundry/internal/buildinfo.Version=$(VERSION) -X github.com/YangtseSu/nfc-foundry/internal/buildinfo.Commit=$(COMMIT) -X github.com/YangtseSu/nfc-foundry/internal/buildinfo.BuildDate=$(BUILD_DATE) -X github.com/YangtseSu/nfc-foundry/internal/buildinfo.Dirty=$(DIRTY)
 NFCX_NATIVE_TAGS := libnfc
 ifneq (,$(filter linux-%,$(LIBNFC_PLATFORM)))
 NFCX_NATIVE_TAGS := libnfc,webkit2_41

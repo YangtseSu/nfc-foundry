@@ -15,6 +15,8 @@ reference material, not as the current specification:
 - `evidence/`: previous acceptance evidence.
 - `deployment.md`, `release.md`, `docs-index.md`: previous distribution and
   documentation indexes.
+- `github-workflows/`: previous GitHub Actions workflows.
+- `website/`, `telemetry-worker/`: previous website and telemetry code.
 - `images/`: previous screenshots and diagrams.
 
 Current documents live in `docs/` and the repository root. The most useful

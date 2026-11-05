@@ -7,13 +7,13 @@
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
   "author": {
-    "name": "BennyThink"
+    "name": "NFC Foundry contributors"
   },
   "info": {
-    "companyName": "NFCX",
-    "productName": "NFCX",
+    "companyName": "NFC Foundry",
+    "productName": "NFC Foundry",
     "productVersion": "0.1.0",
-    "copyright": "Copyright © 2026 NFCX contributors",
-    "comments": "Cross-platform NFC desktop workbench"
+    "copyright": "Copyright © 2026 NFC Foundry contributors",
+    "comments": "Linux-only NFC workbench"
   }
 }

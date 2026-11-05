@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/BennyThink/NFCX/internal/nfc"
+	"github.com/YangtseSu/nfc-foundry/internal/nfc"
 )
 
 // Enumerator is a configurable hardware-free device enumerator.

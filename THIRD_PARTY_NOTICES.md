@@ -12,7 +12,7 @@ patches.
 | [mfcuk](https://github.com/nfc-tools/mfcuk) | Darkside key recovery, separate process | GPL-2.0-or-later | Bundled executable in `nfc-foundry`; source, license, patches |
 | [mfoc-hardnested](https://github.com/nfc-tools/mfoc-hardnested) | Hardnested key recovery, separate process | GPL-2.0-or-later | Bundled executable in `nfc-foundry`; source, license, checksums |
 | `nfc-mfsetuid` | Gen1A sequence reference; rewritten in Go | BSD-2-Clause | Port retains the copyright/license notice; no upstream executable is shipped |
-| NFCX application code | Behavioral reference and ported Go logic | MIT | See `LICENSES/NFCX-MIT.txt`; notices retained |
+| NFCX application code | Behavioral reference and ported Go logic | MIT | See `NOTICE` and `LICENSES/MIT.txt`; notices retained |
 | [MyGo](https://github.com/egoist/mygo) | Native Go desktop UI framework | MIT | Built into the application; license text included |
 
 Go module dependencies keep their own licenses; release packaging collects

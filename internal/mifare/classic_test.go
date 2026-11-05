@@ -3,7 +3,7 @@ package mifare_test
 import (
 	"testing"
 
-	"github.com/BennyThink/NFCX/internal/mifare"
+	"github.com/YangtseSu/nfc-foundry/internal/mifare"
 )
 
 func TestClassicLayoutSizes(t *testing.T) {

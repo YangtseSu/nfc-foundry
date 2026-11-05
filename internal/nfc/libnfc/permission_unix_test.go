@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/BennyThink/NFCX/internal/nfc"
+	"github.com/YangtseSu/nfc-foundry/internal/nfc"
 )
 
 func TestConnStringPermissionErrorForInaccessibleUART(t *testing.T) {

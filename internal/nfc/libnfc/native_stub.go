@@ -2,7 +2,7 @@
 
 package libnfc
 
-import "github.com/BennyThink/NFCX/internal/nfc"
+import "github.com/YangtseSu/nfc-foundry/internal/nfc"
 
 type stubHandle struct{}
 

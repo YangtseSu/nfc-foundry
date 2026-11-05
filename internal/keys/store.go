@@ -19,7 +19,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/BennyThink/NFCX/internal/nfc"
+	"github.com/YangtseSu/nfc-foundry/internal/nfc"
 )
 
 type Source string

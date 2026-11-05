@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BennyThink/NFCX/internal/nfc"
+	"github.com/YangtseSu/nfc-foundry/internal/nfc"
 )
 
 func TestCancellationTerminatesFixtureChildProcess(t *testing.T) {

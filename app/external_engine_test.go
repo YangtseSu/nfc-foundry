@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BennyThink/NFCX/internal/attack"
+	"github.com/YangtseSu/nfc-foundry/internal/attack"
 )
 
 func TestExternalCancellationCannotEmitCompletion(t *testing.T) {

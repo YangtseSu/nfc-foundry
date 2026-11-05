@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/BennyThink/NFCX/internal/desktop"
+	"github.com/YangtseSu/nfc-foundry/internal/desktop"
 )
 
 //go:embed all:frontend/dist

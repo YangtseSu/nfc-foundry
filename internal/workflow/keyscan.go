@@ -5,8 +5,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/BennyThink/NFCX/internal/keys"
-	"github.com/BennyThink/NFCX/internal/nfc"
+	"github.com/YangtseSu/nfc-foundry/internal/keys"
+	"github.com/YangtseSu/nfc-foundry/internal/nfc"
 )
 
 type KeyScanRequest struct {

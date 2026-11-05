@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/BennyThink/NFCX/internal/mifare"
-	"github.com/BennyThink/NFCX/internal/nfc"
+	"github.com/YangtseSu/nfc-foundry/internal/mifare"
+	"github.com/YangtseSu/nfc-foundry/internal/nfc"
 )
 
 // Backend owns the native implementation used to enumerate and create readers.

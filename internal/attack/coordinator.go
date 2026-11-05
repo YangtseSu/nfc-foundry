@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BennyThink/NFCX/internal/device"
-	"github.com/BennyThink/NFCX/internal/nfc"
+	"github.com/YangtseSu/nfc-foundry/internal/device"
+	"github.com/YangtseSu/nfc-foundry/internal/nfc"
 )
 
 const defaultTimeout = 30 * time.Minute

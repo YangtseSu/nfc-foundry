@@ -5,10 +5,10 @@ import (
 	"errors"
 	"time"
 
-	"github.com/BennyThink/NFCX/internal/attack"
-	"github.com/BennyThink/NFCX/internal/device"
-	"github.com/BennyThink/NFCX/internal/nfc"
-	"github.com/BennyThink/NFCX/internal/workflow"
+	"github.com/YangtseSu/nfc-foundry/internal/attack"
+	"github.com/YangtseSu/nfc-foundry/internal/device"
+	"github.com/YangtseSu/nfc-foundry/internal/nfc"
+	"github.com/YangtseSu/nfc-foundry/internal/workflow"
 )
 
 func (s *Service) StartKeyRecovery(input KeyRecoveryStartRequestDTO) (TaskDTO, error) {

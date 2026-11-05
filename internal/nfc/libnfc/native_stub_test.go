@@ -7,8 +7,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/BennyThink/NFCX/internal/nfc"
-	"github.com/BennyThink/NFCX/internal/nfc/libnfc"
+	"github.com/YangtseSu/nfc-foundry/internal/nfc"
+	"github.com/YangtseSu/nfc-foundry/internal/nfc/libnfc"
 )
 
 func TestDefaultBuildReportsUnavailableNativeSupport(t *testing.T) {

@@ -1,4 +1,4 @@
-module github.com/BennyThink/NFCX
+module github.com/YangtseSu/nfc-foundry
 
 go 1.25.1
 

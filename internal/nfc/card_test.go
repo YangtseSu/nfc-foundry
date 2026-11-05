@@ -3,7 +3,7 @@ package nfc_test
 import (
 	"testing"
 
-	"github.com/BennyThink/NFCX/internal/nfc"
+	"github.com/YangtseSu/nfc-foundry/internal/nfc"
 )
 
 func TestInferCardTypeIsConservative(t *testing.T) {

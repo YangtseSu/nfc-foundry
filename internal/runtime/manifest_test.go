@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	runtimebundle "github.com/BennyThink/NFCX/internal/runtime"
+	runtimebundle "github.com/YangtseSu/nfc-foundry/internal/runtime"
 )
 
 func TestBuildWriteAndVerifyManifest(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	runtimebundle "github.com/BennyThink/NFCX/internal/runtime"
+	runtimebundle "github.com/YangtseSu/nfc-foundry/internal/runtime"
 )
 
 func LockedComponents(repositoryRoot string) ([]runtimebundle.ManifestComponent, error) {

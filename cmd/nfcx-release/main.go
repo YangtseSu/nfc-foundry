@@ -13,8 +13,8 @@ import (
 	"sort"
 	"strings"
 
-	nfcxrelease "github.com/BennyThink/NFCX/internal/release"
-	runtimebundle "github.com/BennyThink/NFCX/internal/runtime"
+	nfcxrelease "github.com/YangtseSu/nfc-foundry/internal/release"
+	runtimebundle "github.com/YangtseSu/nfc-foundry/internal/runtime"
 )
 
 var releaseVersionRE = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$`)

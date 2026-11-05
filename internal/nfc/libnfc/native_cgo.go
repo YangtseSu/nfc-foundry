@@ -12,7 +12,7 @@ import "C"
 import (
 	"unsafe"
 
-	"github.com/BennyThink/NFCX/internal/nfc"
+	"github.com/YangtseSu/nfc-foundry/internal/nfc"
 )
 
 const (

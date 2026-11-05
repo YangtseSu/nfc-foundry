@@ -19,7 +19,7 @@ func TestCheckAcceptsNewerGitHubRelease(t *testing.T) {
 		})
 	}))
 	defer server.Close()
-	m, err := NewManager(Config{GitHubAPIURL: server.URL, GitHubRepo: "BennyThink/NFCX", CurrentVersion: "1.1.9", Platform: "linux-amd64"})
+	m, err := NewManager(Config{GitHubAPIURL: server.URL, GitHubRepo: "YangtseSu/nfc-foundry", CurrentVersion: "1.1.9", Platform: "linux-amd64"})
 	if err != nil {
 		t.Fatal(err)
 	}

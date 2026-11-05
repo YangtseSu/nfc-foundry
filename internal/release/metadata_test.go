@@ -5,7 +5,7 @@ import (
 	"runtime"
 	"testing"
 
-	nfcxrelease "github.com/BennyThink/NFCX/internal/release"
+	nfcxrelease "github.com/YangtseSu/nfc-foundry/internal/release"
 )
 
 func TestLockedComponentsUsesRepositoryLocks(t *testing.T) {

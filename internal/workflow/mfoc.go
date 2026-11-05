@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/BennyThink/NFCX/internal/attack"
-	"github.com/BennyThink/NFCX/internal/device"
-	"github.com/BennyThink/NFCX/internal/keys"
-	"github.com/BennyThink/NFCX/internal/mifare"
-	"github.com/BennyThink/NFCX/internal/nfc"
+	"github.com/YangtseSu/nfc-foundry/internal/attack"
+	"github.com/YangtseSu/nfc-foundry/internal/device"
+	"github.com/YangtseSu/nfc-foundry/internal/keys"
+	"github.com/YangtseSu/nfc-foundry/internal/mifare"
+	"github.com/YangtseSu/nfc-foundry/internal/nfc"
 )
 
 var (

@@ -19,7 +19,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BennyThink/NFCX/internal/buildinfo"
+	"github.com/YangtseSu/nfc-foundry/internal/buildinfo"
 )
 
 const maxFeedSize = 128 << 10
@@ -96,7 +96,7 @@ func NewManager(config Config) (*Manager, error) {
 		config.Platform = platformKey()
 	}
 	if config.GitHubRepo == "" {
-		config.GitHubRepo = "BennyThink/NFCX"
+		config.GitHubRepo = "YangtseSu/nfc-foundry"
 	}
 	if config.GitHubAPIURL == "" {
 		config.GitHubAPIURL = "https://api.github.com"

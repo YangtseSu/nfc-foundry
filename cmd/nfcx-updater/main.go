@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/BennyThink/NFCX/internal/update"
+	"github.com/YangtseSu/nfc-foundry/internal/update"
 )
 
 func main() {

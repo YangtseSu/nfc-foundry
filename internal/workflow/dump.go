@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/BennyThink/NFCX/internal/mifare"
-	"github.com/BennyThink/NFCX/internal/nfc"
+	"github.com/YangtseSu/nfc-foundry/internal/mifare"
+	"github.com/YangtseSu/nfc-foundry/internal/nfc"
 )
 
 // SectorKeys contains caller-supplied known keys for one sector. A nil key is

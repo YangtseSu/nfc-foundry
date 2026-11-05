@@ -11,9 +11,9 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"github.com/BennyThink/NFCX/internal/mifare"
-	"github.com/BennyThink/NFCX/internal/nfc"
-	"github.com/BennyThink/NFCX/internal/workflow"
+	"github.com/YangtseSu/nfc-foundry/internal/mifare"
+	"github.com/YangtseSu/nfc-foundry/internal/nfc"
+	"github.com/YangtseSu/nfc-foundry/internal/workflow"
 )
 
 var ErrNoDump = errors.New("workbench has no dump")

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/BennyThink/NFCX/internal/update"
+	"github.com/YangtseSu/nfc-foundry/internal/update"
 )
 
 func (s *Service) UpdateStatus() update.Snapshot {

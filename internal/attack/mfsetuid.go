@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BennyThink/NFCX/internal/nfc"
-	runtimebundle "github.com/BennyThink/NFCX/internal/runtime"
+	"github.com/YangtseSu/nfc-foundry/internal/nfc"
+	runtimebundle "github.com/YangtseSu/nfc-foundry/internal/runtime"
 )
 
 const MFSetUIDVersion = "libnfc-1.8.0"

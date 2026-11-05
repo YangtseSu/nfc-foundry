@@ -14,10 +14,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BennyThink/NFCX/internal/device"
-	"github.com/BennyThink/NFCX/internal/mifare"
-	"github.com/BennyThink/NFCX/internal/nfc"
-	runtimebundle "github.com/BennyThink/NFCX/internal/runtime"
+	"github.com/YangtseSu/nfc-foundry/internal/device"
+	"github.com/YangtseSu/nfc-foundry/internal/mifare"
+	"github.com/YangtseSu/nfc-foundry/internal/nfc"
+	runtimebundle "github.com/YangtseSu/nfc-foundry/internal/runtime"
 )
 
 const MFoCVersion = "0.10.7"

@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BennyThink/NFCX/internal/buildinfo"
+	"github.com/YangtseSu/nfc-foundry/internal/buildinfo"
 )
 
 const Endpoint = "https://telemetry.nfcx.tools/api/telemetry"

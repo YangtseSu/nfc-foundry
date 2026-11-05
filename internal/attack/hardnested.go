@@ -9,8 +9,8 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/BennyThink/NFCX/internal/device"
-	runtimebundle "github.com/BennyThink/NFCX/internal/runtime"
+	"github.com/YangtseSu/nfc-foundry/internal/device"
+	runtimebundle "github.com/YangtseSu/nfc-foundry/internal/runtime"
 )
 
 const HardnestedVersion = "0.10.9"

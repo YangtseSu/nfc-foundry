@@ -1,7 +1,7 @@
 package app
 
-import "github.com/BennyThink/NFCX/internal/diagnostic"
-import "github.com/BennyThink/NFCX/internal/update"
+import "github.com/YangtseSu/nfc-foundry/internal/diagnostic"
+import "github.com/YangtseSu/nfc-foundry/internal/update"
 
 // Bindings is the only object exposed to the Wails frontend.
 type Bindings struct {

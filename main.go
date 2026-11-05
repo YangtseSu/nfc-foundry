@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/BennyThink/NFCX/internal/desktop"
+	"github.com/YangtseSu/nfc-foundry/internal/desktop"
 )
 
 // Wails v2 runs build analysis from the repository root.

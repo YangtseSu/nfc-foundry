@@ -3,8 +3,8 @@ package workflow
 import (
 	"context"
 
-	"github.com/BennyThink/NFCX/internal/mifare"
-	"github.com/BennyThink/NFCX/internal/nfc"
+	"github.com/YangtseSu/nfc-foundry/internal/mifare"
+	"github.com/YangtseSu/nfc-foundry/internal/nfc"
 )
 
 // ReaderExecutor is the device-ownership boundary implemented by

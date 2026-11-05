@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BennyThink/NFCX/internal/device"
-	"github.com/BennyThink/NFCX/internal/nfc"
-	"github.com/BennyThink/NFCX/internal/nfc/mock"
+	"github.com/YangtseSu/nfc-foundry/internal/device"
+	"github.com/YangtseSu/nfc-foundry/internal/nfc"
+	"github.com/YangtseSu/nfc-foundry/internal/nfc/mock"
 )
 
 func TestNestedCapabilityIsExplicitlyLimitedToPN532UART(t *testing.T) {

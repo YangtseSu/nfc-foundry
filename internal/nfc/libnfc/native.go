@@ -1,6 +1,6 @@
 package libnfc
 
-import "github.com/BennyThink/NFCX/internal/nfc"
+import "github.com/YangtseSu/nfc-foundry/internal/nfc"
 
 // These values mirror nfcx_error_code in shim.h. They are deliberately
 // independent of libnfc's native error numbers.

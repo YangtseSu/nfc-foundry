@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BennyThink/NFCX/internal/mifare"
-	"github.com/BennyThink/NFCX/internal/nfc"
+	"github.com/YangtseSu/nfc-foundry/internal/mifare"
+	"github.com/YangtseSu/nfc-foundry/internal/nfc"
 )
 
 const DumpMetadataVersion = 1

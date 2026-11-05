@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BennyThink/NFCX/internal/nfc"
+	"github.com/YangtseSu/nfc-foundry/internal/nfc"
 )
 
 // Status is the stable device lifecycle state exposed to application services.

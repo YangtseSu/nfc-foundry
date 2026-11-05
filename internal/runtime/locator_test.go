@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"testing"
 
-	runtimebundle "github.com/BennyThink/NFCX/internal/runtime"
+	runtimebundle "github.com/YangtseSu/nfc-foundry/internal/runtime"
 )
 
 func TestLocatorResolvesControlledExecutableAndHash(t *testing.T) {

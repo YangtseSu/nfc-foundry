@@ -3,9 +3,9 @@ package app
 import (
 	"fmt"
 
-	"github.com/BennyThink/NFCX/internal/mifare"
-	"github.com/BennyThink/NFCX/internal/workbench"
-	"github.com/BennyThink/NFCX/internal/workflow"
+	"github.com/YangtseSu/nfc-foundry/internal/mifare"
+	"github.com/YangtseSu/nfc-foundry/internal/workbench"
+	"github.com/YangtseSu/nfc-foundry/internal/workflow"
 )
 
 // DumpResultDTO exposes block certainty and provenance without sending secret

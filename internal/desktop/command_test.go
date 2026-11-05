@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/BennyThink/NFCX/internal/diagnostic"
+	"github.com/YangtseSu/nfc-foundry/internal/diagnostic"
 )
 
 func TestExecuteSelfCheckDoesNotStartGUI(t *testing.T) {

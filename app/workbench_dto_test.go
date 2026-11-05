@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BennyThink/NFCX/internal/mifare"
-	"github.com/BennyThink/NFCX/internal/workbench"
-	"github.com/BennyThink/NFCX/internal/workflow"
+	"github.com/YangtseSu/nfc-foundry/internal/mifare"
+	"github.com/YangtseSu/nfc-foundry/internal/workbench"
+	"github.com/YangtseSu/nfc-foundry/internal/workflow"
 )
 
 func TestWorkbenchSnapshotShowsTrailerKeys(t *testing.T) {

@@ -3,7 +3,7 @@ package libnfc_test
 import (
 	"testing"
 
-	"github.com/BennyThink/NFCX/internal/nfc/libnfc"
+	"github.com/YangtseSu/nfc-foundry/internal/nfc/libnfc"
 )
 
 func TestInfoAlwaysReportsDeclaredDriverSet(t *testing.T) {

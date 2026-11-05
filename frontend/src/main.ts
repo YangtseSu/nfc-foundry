@@ -236,7 +236,7 @@ terminalButton.addEventListener("click", async () => { terminalButton.disabled =
 aboutButton.addEventListener("click", async () => { const settings = await GetTelemetrySettings() as TelemetrySettings; telemetryToggle.checked = settings.enabled; renderUpdate(await GetUpdateStatus() as UpdateResult); aboutModal.showModal(); });
 updateChip.addEventListener("click", () => { void aboutButton.click(); });
 websiteButton.addEventListener("click", () => BrowserOpenURL("https://nfcx.tools"));
-githubButton.addEventListener("click", () => BrowserOpenURL("https://github.com/BennyThink/NFCX"));
+githubButton.addEventListener("click", () => BrowserOpenURL("https://github.com/YangtseSu/nfc-foundry"));
 telemetryToggle.addEventListener("change", async () => { telemetryToggle.disabled = true; try { const settings = await SetTelemetryEnabled(telemetryToggle.checked) as TelemetrySettings; telemetryToggle.checked = settings.enabled; } finally { telemetryToggle.disabled = false; } });
 telemetryConsentConfirm.addEventListener("click", async () => { telemetryConsentConfirm.disabled = true; try { await SetTelemetryEnabled(telemetryConsent.checked); telemetryConsentModal.close(); } finally { telemetryConsentConfirm.disabled = false; } });
 updateButton.addEventListener("click", async () => { updateButton.disabled = true; renderUpdate({ ...updateStatus, state: "checking" }); try { renderUpdate(await CheckForUpdates() as UpdateResult); } catch { renderUpdate(await GetUpdateStatus() as UpdateResult); } finally { updateButton.disabled = false; } });

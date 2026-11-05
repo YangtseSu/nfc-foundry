@@ -9,8 +9,8 @@ import (
 	"io/fs"
 	"time"
 
-	"github.com/BennyThink/NFCX/internal/diagnostic"
-	runtimebundle "github.com/BennyThink/NFCX/internal/runtime"
+	"github.com/YangtseSu/nfc-foundry/internal/diagnostic"
+	runtimebundle "github.com/YangtseSu/nfc-foundry/internal/runtime"
 )
 
 var ErrSelfCheckFailed = errors.New("NFCX self-check failed")

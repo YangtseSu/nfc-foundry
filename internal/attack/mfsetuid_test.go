@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BennyThink/NFCX/internal/nfc"
-	runtimebundle "github.com/BennyThink/NFCX/internal/runtime"
+	"github.com/YangtseSu/nfc-foundry/internal/nfc"
+	runtimebundle "github.com/YangtseSu/nfc-foundry/internal/runtime"
 )
 
 func TestMFSetUIDEngineRejectsNonPN532ReaderBeforeProcess(t *testing.T) {

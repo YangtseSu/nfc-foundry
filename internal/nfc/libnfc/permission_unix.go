@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/BennyThink/NFCX/internal/nfc"
+	"github.com/YangtseSu/nfc-foundry/internal/nfc"
 	"golang.org/x/sys/unix"
 )
 

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/BennyThink/NFCX/internal/nfc"
+	"github.com/YangtseSu/nfc-foundry/internal/nfc"
 )
 
 func TestNativeErrorMapping(t *testing.T) {
