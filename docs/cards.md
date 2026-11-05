@@ -1,0 +1,133 @@
+# Card support and safety
+
+This document is the support contract. A card family is not advertised until it
+has a defined memory model, write preflight, read-back verification, tests, and
+real-hardware validation.
+
+## Support matrix
+
+| Family | Identify | Read | Write | Status |
+|---|---|---|---|---|
+| MIFARE Classic 1K | Yes | Blocks, dump | User blocks; trailers/block 0 guarded | Current baseline |
+| MIFARE Classic 4K | Yes | Blocks, dump | User blocks; trailers/block 0 guarded | Current baseline |
+| MIFARE Ultralight | Yes | Pages | User pages | Planned |
+| NTAG213/215/216 | Yes | Pages, NDEF | User pages, NDEF | Planned; NDEF committed |
+| ISO/IEC 14443-4 | ATS/APDU | APDU | Application-specific | Later |
+| DESFire | ISO14443-4 + auth | Files | Guarded | Later |
+| FeliCa / NFC Forum Type 3 | IDm/PMm | TBD | TBD | Not committed |
+| Jewel / Topaz | Yes | Commands | User bytes | Optional |
+
+## MIFARE Classic
+
+Geometry:
+
+- Classic 1K: 16 sectors, 4 blocks each, 64 blocks, 1024 bytes.
+- Classic 4K: 40 sectors; sectors 0-31 have 4 blocks, sectors 32-39 have 16
+  blocks; 256 blocks, 4096 bytes.
+
+Rules:
+
+- Authenticate the sector containing the target block before access.
+- Validate block 0 BCC (`UID[0] ^ UID[1] ^ UID[2] ^ UID[3]`).
+- Validate trailer access-bit complements before any trailer write.
+- Write ordinary blocks first, trailers last.
+- Block 0 writes are disabled by default; require explicit confirmation and a
+  backup.
+- Verify every write by reading it back.
+- Abort if UID, ATQA, or SAK changes mid-operation.
+- Keep `.mfd`/`.bin` compatibility; metadata goes in a sidecar JSON file.
+
+## Type 2: Ultralight and NTAG21x
+
+Type 2 tags use 4-byte pages and plain `READ (0x30)`, `FAST_READ (0x3A)`,
+`WRITE (0xA2)`, and optional `PWD_AUTH (0x1B)`. There is no Crypto1.
+
+NTAG21x memory map:
+
+| Tag | Pages | User pages | User bytes | Dynamic lock | Config | PWD/PACK |
+|---|---:|---|---:|---|---|---|
+| NTAG213 | 45 | 4-39 | 144 | 40 | 41-42 | 43-44 |
+| NTAG215 | 135 | 4-129 | 504 | 130 | 131-132 | 133-134 |
+| NTAG216 | 231 | 4-225 | 888 | 226 | 227-228 | 229-230 |
+
+Page 0-1 contain UID/BCC; page 2 contains internal/static-lock bytes; page 3 is
+the capability container. Do not treat pages as Classic blocks and do not reuse
+the Classic sector/trailer model.
+
+Write rules:
+
+- Default to user-memory pages only.
+- Treat config pages, dynamic lock bytes, static lock bits, PWD/PACK, and
+  authentication-protected pages as dangerous.
+- Require an explicit confirmation and a backup before any config/lock write.
+- Verify every page read-back.
+- Keep a full 540-byte-image path for NTAG215-style analysis, but expose user
+  memory as the normal dump unit.
+- Never write UID pages through a normal Type 2 command; UID is read-only on
+  genuine NTAG.
+
+NDEF is a committed feature:
+
+- parse and validate the capability container and NDEF TLV;
+- read NDEF messages from Type 2 user memory;
+- write NDEF with length/TLV validation and read-back;
+- refuse to overwrite lock bytes or configuration pages;
+- report unsupported or malformed NDEF without modifying the tag.
+
+## ISO/IEC 14443-4 and DESFire
+
+Implement APDU transport first (RATS/ATS, I-block chaining, status words). Then
+add DESFire authentication and a file model. Key changes, format, and
+application deletion are destructive and require explicit confirmation,
+key backups, and a tested recovery path.
+
+Do not expose a generic "send any APDU to any card" command as a write path;
+raw APDU belongs in a clearly marked diagnostic command.
+
+## FeliCa / NFC Forum Type 3
+
+FeliCa support is not committed. It needs a defined scope before
+implementation:
+
+- Type 3 NDEF only, or raw FeliCa services?
+- IDm/PMm/system-code/service-code handling;
+- read-only vs write support;
+- which readers and regions are validated.
+
+Until that scope is written and accepted, do not add FeliCa to the advertised
+support matrix.
+
+## Jewel / Topaz
+
+Optional. If added, implement as a small command-based module with read,
+user-byte write, and read-back verification. Do not make it part of the initial
+milestone.
+
+## Card emulation
+
+Card emulation is a future direction, primarily for mobile Linux devices. It is
+not part of the current milestones and is not exposed by the GUI or CLI.
+
+If it is pursued:
+
+- define the emulated target type and the reader it must satisfy;
+- validate against real readers and systems;
+- keep target-mode code behind a separate capability;
+- do not reuse initiator write paths for emulation state.
+
+## Reader capabilities
+
+Reader capability is separate from card capability. A reader may enumerate a
+card but lack the command path needed for a workflow. The capability model must
+distinguish:
+
+- enumerate;
+- select ISO14443A/B;
+- Classic read/write;
+- Type 2 read/write;
+- raw bytes;
+- raw bits;
+- PC/SC APDU;
+- Nested/Darkside/Hardnested support (engine + firmware dependent).
+
+Never infer all capabilities from "libnfc listed the device".

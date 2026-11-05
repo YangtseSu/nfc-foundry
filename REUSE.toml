@@ -1,0 +1,45 @@
+version = 1
+
+# Default for new NFC Foundry code and documentation. More specific
+# annotations below override this entry because the REUSE specification
+# resolves annotations from the end of the file.
+[[annotations]]
+path = ["**"]
+precedence = "closest"
+SPDX-FileCopyrightText = "2026 NFC Foundry contributors"
+SPDX-License-Identifier = "GPL-3.0-or-later"
+
+# Historical NFCX documentation and screenshots.
+[[annotations]]
+path = ["docs/archive/nfcx-upstream/**"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 NFCX contributors"
+SPDX-License-Identifier = "MIT"
+
+# The libnfc fork keeps the upstream license.
+[[annotations]]
+path = ["third_party/libnfc/**"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "libnfc contributors"
+SPDX-License-Identifier = "LGPL-3.0-or-later"
+
+# nfc-mfsetuid's example code is BSD-2-Clause inside the libnfc tree.
+[[annotations]]
+path = ["third_party/libnfc/nfc-mfsetuid-BSD-2-Clause.txt"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "nfc-mfsetuid contributors"
+SPDX-License-Identifier = "BSD-2-Clause"
+
+# External recovery engines and their patched sources.
+[[annotations]]
+path = ["third_party/mfoc/**", "third_party/mfcuk/**", "third_party/mfoc-hardnested/**"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "mfoc/mfcuk/mfoc-hardnested contributors"
+SPDX-License-Identifier = "GPL-2.0-or-later"
+
+# AppImage's type-2 runtime is MIT, not GPL.
+[[annotations]]
+path = ["third_party/appimage/**"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2004-2023 probonopd and AppImage contributors"
+SPDX-License-Identifier = "MIT"

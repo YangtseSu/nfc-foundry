@@ -1,20 +1,43 @@
 # Third-party notices
 
-This repository and release runtime include components under their own licenses. The NFCX application source itself is [MIT licensed](LICENSE); this does not relicense the components below.
+NFC Foundry is distributed under **GPL-3.0-or-later** (see `LICENSE`). The
+third-party components below keep their own licenses. Release packages must
+include their notices, source locations, pinned versions, and NFC Foundry
+patches.
 
-| Component | How NFCX uses it | License | Release handling |
+| Component | Use | License | Distribution |
 | --- | --- | --- | --- |
-| [libnfc 1.8.0](third_party/libnfc/libnfc.lock) | Dynamically linked private runtime, with `pn532_uart` enabled | LGPL-3.0-or-later | Releases include license, source lock, source URL, checksum, and NFCX patches. |
-| `nfc-mfsetuid` from libnfc 1.8.0 | Separate executable for guarded Gen1A fallback | BSD-2-Clause | Releases include its BSD notice and source metadata. |
-| [mfoc 0.10.7](third_party/mfoc/mfoc.lock) | Separate Nested-recovery executable | GPL-2.0-or-later | Releases include `COPYING`, source lock/source URL/checksum, and the NFCX patch. |
-| [mfcuk 0.3.8](third_party/mfcuk/mfcuk.lock) | Separate Darkside-recovery executable | GPL-2.0-or-later | Releases include `COPYING`, source lock/source URL/checksum, and the NFCX patch. |
-| [mfoc-hardnested 0.10.9](third_party/mfoc-hardnested/hardnested.lock) | Separate Hardnested-recovery executable | GPL-2.0-or-later | Releases include `COPYING` and source lock/source URL/checksum. |
-| Go and Wails dependencies | Linked into the application | Individual upstream licenses | Release packaging collects their licenses into the runtime. |
-| TypeScript and Vite | Build-time frontend dependencies | Individual upstream licenses | Used to build the frontend; not bundled as a runtime framework. |
-| AppImage type-2 runtime | Linux AppImage packaging | See [license text](third_party/appimage/type2-runtime-LICENSE.txt) | Included only in the AppImage artifact. |
+| [libnfc-ng](https://github.com/nfc-tools/libnfc) | Forked native transport library, dynamically linked | LGPL-3.0-or-later | Separate `libnfc-ng` Arch package: shared library, headers, pkg-config, license, source metadata, patches |
+| [mfoc](https://github.com/nfc-tools/mfoc) | Nested key recovery, separate process | GPL-2.0-or-later | Bundled executable in `nfc-foundry`; source, license, patches |
+| [mfcuk](https://github.com/nfc-tools/mfcuk) | Darkside key recovery, separate process | GPL-2.0-or-later | Bundled executable in `nfc-foundry`; source, license, patches |
+| [mfoc-hardnested](https://github.com/nfc-tools/mfoc-hardnested) | Hardnested key recovery, separate process | GPL-2.0-or-later | Bundled executable in `nfc-foundry`; source, license, checksums |
+| `nfc-mfsetuid` | Gen1A sequence reference; rewritten in Go | BSD-2-Clause | Port retains the copyright/license notice; no upstream executable is shipped |
+| NFCX application code | Behavioral reference and ported Go logic | MIT | See `LICENSES/NFCX-MIT.txt`; notices retained |
+| [MyGo](https://github.com/egoist/mygo) | Native Go desktop UI framework | MIT | Built into the application; license text included |
 
-## Audit conclusion
+Go module dependencies keep their own licenses; release packaging collects
+their notices. Wails, the HTML/TypeScript frontend, AppImage tooling, and the
+website/telemetry stack from NFCX are not part of the target product.
 
-The GPL programs above are launched as independent external executables, not linked into NFCX. Their source and notices are preserved in each runtime distribution. libnfc is dynamically linked and distributed with LGPL compliance material. On that basis, the NFCX application source can be MIT licensed while the bundled third-party programs retain their original licenses.
+## Source and redistribution
 
-The exact upstream commits, source archive hashes, and NFCX patches are the authoritative records in `third_party/` and in every release runtime manifest.
+The external engines are separate programs, not linked into NFC Foundry. They
+are launched as child processes and their output is validated by NFC Foundry.
+
+A binary release must be accompanied by the complete corresponding source for
+the GPL-covered work, including build/install scripts and any patches. The
+recommended release layout is:
+
+```text
+nfc-foundry-<version>-x86_64.tar.zst
+nfc-foundry-<version>-source.tar.zst
+```
+
+The source archive must include this repository, the `libnfc-ng` fork at the
+pinned commit, and the patched engine sources. A stable download URL in the
+release notes is also acceptable when it points at the exact corresponding
+source.
+
+`libnfc-ng` remains LGPL-3.0-or-later even though it is distributed alongside a
+GPL-3.0-or-later application. Keep it dynamically linked and provide its source
+and relinkable build metadata.
