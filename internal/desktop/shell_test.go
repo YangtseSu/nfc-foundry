@@ -2,7 +2,9 @@ package desktop
 
 import (
 	"fmt"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/YangtseSu/nfc-foundry/app"
 	"github.com/YangtseSu/nfc-foundry/locales"
@@ -10,16 +12,25 @@ import (
 )
 
 type fakeBackend struct {
-	dashboard app.DashboardDTO
-	workbench app.WorkbenchDTO
-	keys      []app.KeyDTO
+	mu         sync.Mutex
+	dashboard  app.DashboardDTO
+	workbench  app.WorkbenchDTO
+	keys       []app.KeyDTO
+	connects   []string
+	readStarts int
+	scanStarts int
 }
 
 func (f *fakeBackend) GetDashboard() app.DashboardDTO { return f.dashboard }
 func (f *fakeBackend) RefreshDevices() ([]app.DeviceDTO, error) {
 	return f.dashboard.Devices, nil
 }
-func (f *fakeBackend) ConnectDevice(string) error  { return nil }
+func (f *fakeBackend) ConnectDevice(connString string) error {
+	f.mu.Lock()
+	f.connects = append(f.connects, connString)
+	f.mu.Unlock()
+	return nil
+}
 func (f *fakeBackend) DisconnectDevice() error     { return nil }
 func (f *fakeBackend) GetKeyCatalog() []app.KeyDTO { return f.keys }
 func (f *fakeBackend) AddKey(string) ([]app.KeyDTO, error) {
@@ -36,14 +47,32 @@ func (f *fakeBackend) ExportKeyDictionary() (app.ExportResultDTO, error) {
 }
 func (f *fakeBackend) GetWorkbench() app.WorkbenchDTO { return f.workbench }
 func (f *fakeBackend) StartReadCard(bool) (app.TaskDTO, error) {
+	f.mu.Lock()
+	f.readStarts++
+	f.mu.Unlock()
 	return app.TaskDTO{ID: "read-1", Name: "read", Status: "running"}, nil
 }
 func (f *fakeBackend) StartKeyScan(bool) (app.TaskDTO, error) {
+	f.mu.Lock()
+	f.scanStarts++
+	f.mu.Unlock()
 	return app.TaskDTO{ID: "keyscan-1", Name: "keyscan", Status: "running"}, nil
 }
 func (f *fakeBackend) CancelTask(string) error { return nil }
 
-func fixtureBackend() *fakeBackend {
+func (f *fakeBackend) connectCalls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.connects...)
+}
+
+func (f *fakeBackend) taskStarts() (int, int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.readStarts, f.scanStarts
+}
+
+func classicFixture() *fakeBackend {
 	device := app.DeviceDTO{
 		ID: "reader-1", Name: "PN532 UART", ConnString: "pn532_uart:/dev/ttyUSB0",
 		Transport: "UART / PN532", Available: true, Nested: true, Darkside: true, Hardnested: true,
@@ -52,16 +81,52 @@ func fixtureBackend() *fakeBackend {
 		Present: true, UID: "04 A1 B2 C3", UIDLength: 4, ATQA: "00 04", SAK: "08",
 		Type: "MIFARE Classic 1K", TypeCode: "mifare_classic_1k", Inferred: true,
 	}
+	blocks := []app.WorkbenchBlockDTO{
+		{Block: 0, Sector: 0, Kind: "manufacturer", Hex: "04 A1 B2 C3 D4 E5 F6 88 04 00 00 00 00 00 00 00", ASCII: "........", Status: "read"},
+		{Block: 1, Sector: 0, Kind: "data", Hex: "00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F", ASCII: "................", Status: "read"},
+		{Block: 2, Sector: 0, Kind: "data", Hex: "AA BB CC DD EE FF 00 11 22 33 44 55 66 77 88 99", ASCII: ".. .#DUfw..", Status: "read"},
+		{Block: 3, Sector: 0, Kind: "trailer", Hex: "FF FF FF FF FF FF FF 07 80 69 FF FF FF FF FF FF", ASCII: "........i......", Status: "read",
+			Access: &app.AccessSummaryDTO{Valid: true, Groups: []app.AccessGroupDTO{{Group: 0, Code: "000", DataWriteKeys: "A|B", TrailerWriteKeys: "A", KeyBReadable: true}}}},
+		{Block: 4, Sector: 1, Kind: "data", Hex: "10 20 30 40 50 60 70 80 90 A0 B0 C0 D0 E0 F0 00", ASCII: "..0@P`p.........", Status: "read"},
+		{Block: 5, Sector: 1, Kind: "data", Hex: "01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F 10", ASCII: "................", Status: "read"},
+		{Block: 6, Sector: 1, Kind: "data", Hex: "DE AD BE EF 00 00 00 00 00 00 00 00 00 00 00 00", ASCII: "................", Status: "read"},
+		{Block: 7, Sector: 1, Kind: "trailer", Hex: "FF FF FF FF FF FF FF 07 80 69 FF FF FF FF FF FF", ASCII: "........i......", Status: "read"},
+	}
 	workbench := app.WorkbenchDTO{
-		Loaded: true, Layout: "classic_1k", Complete: true,
-		Blocks: []app.WorkbenchBlockDTO{
-			{Block: 0, Sector: 0, Kind: "manufacturer", Hex: "04 A1 B2 C3 D4 E5 F6 88 04 00 00 00 00 00 00 00", ASCII: "........"},
-			{Block: 1, Sector: 0, Kind: "data", Hex: "00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F", ASCII: "................", Status: "read"},
+		Loaded: true, Layout: "classic_1k", Complete: true, Name: "card.nfcx",
+		Blocks: blocks,
+		Validation: app.WorkbenchValidationDTO{
+			Valid: true, Errors: []string{}, Warnings: []string{},
 		},
 	}
 	keys := []app.KeyDTO{
 		{ID: "builtin", Value: "FF FF FF FF FF FF", Builtin: true, Sources: []string{"builtin"}},
 		{ID: "custom", Value: "A0 A1 A2 A3 A4 A5", Removable: true, Sources: []string{"user_input"}},
+	}
+	sectorKeys := []app.SectorKeyDTO{
+		{Sector: 0, KeyAStatus: "verified", KeyA: "FF FF FF FF FF FF", KeyAID: "builtin", KeyBStatus: "unknown"},
+		{Sector: 1, KeyAStatus: "unknown", KeyBStatus: "unknown"},
+	}
+	return &fakeBackend{
+		dashboard: app.DashboardDTO{
+			Devices: []app.DeviceDTO{device}, SelectedDevice: device.ID,
+			Connection: app.ConnectionDTO{Status: "polling"},
+			Card:       card,
+			Keys:       sectorKeys,
+		},
+		workbench: workbench,
+		keys:      keys,
+	}
+}
+
+func type2Fixture() *fakeBackend {
+	device := app.DeviceDTO{
+		ID: "reader-1", Name: "PN532 UART", ConnString: "pn532_uart:/dev/ttyUSB0",
+		Transport: "UART / PN532", Available: true,
+	}
+	card := app.CardDTO{
+		Present: true, UID: "04 E1 9C 2A 7B 54 80", UIDLength: 7, ATQA: "00 44", SAK: "00",
+		Type: "NTAG215", TypeCode: "ntag215", Inferred: true,
 	}
 	return &fakeBackend{
 		dashboard: app.DashboardDTO{
@@ -69,68 +134,180 @@ func fixtureBackend() *fakeBackend {
 			Connection: app.ConnectionDTO{Status: "polling"},
 			Card:       card,
 		},
-		workbench: workbench,
-		keys:      keys,
 	}
 }
 
-func TestShellRendersCoreScreensAndEvents(t *testing.T) {
-	backend := fixtureBackend()
+func TestShellRendersWorkbenchAndClassicTabs(t *testing.T) {
+	backend := classicFixture()
 	model := newShell(backend)
-	tester := ui.NewTester(model.view, 1100, 760)
+	tester := ui.NewTester(model.view, 1360, 860)
 
-	if !tester.HasText("Readers") || !tester.HasText("PN532 UART") {
-		t.Fatalf("devices page texts: %q", tester.Texts())
+	if !tester.HasText("PN532 UART") || !tester.HasText("MIFARE Classic 1K") ||
+		!tester.HasText("04 A1 B2 C3") || !tester.HasText("Sector 0") ||
+		!tester.HasText("00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F") {
+		t.Fatalf("workbench texts: %q", tester.Texts())
 	}
-	if err := tester.Click("Card"); err != nil {
+	if tester.HasText("Memory") || tester.HasText("Protection") {
+		t.Fatalf("Classic workbench exposed future tabs: %q", tester.Texts())
+	}
+
+	if err := tester.Click("Keys"); err != nil {
 		t.Fatal(err)
 	}
-	if !tester.HasText("MIFARE Classic 1K") || !tester.HasText("04 A1 B2 C3") {
-		t.Fatalf("card page texts: %q", tester.Texts())
+	if !tester.HasText("Sector keys") || !tester.HasText("Key catalog") ||
+		!tester.HasText("A0 A1 A2 A3 A4 A5") {
+		t.Fatalf("key view texts: %q", tester.Texts())
 	}
 
-	if err := tester.Click("Classic blocks"); err != nil {
+	if err := tester.Click("Details"); err != nil {
 		t.Fatal(err)
 	}
-	if !tester.HasText("04 A1 B2 C3 D4 E5 F6 88 04 00 00 00 00 00 00 00") {
-		t.Fatalf("block table texts: %q", tester.Texts())
-	}
-
-	readResult := backend.workbench
-	readResult.Blocks = append([]app.WorkbenchBlockDTO(nil), backend.workbench.Blocks...)
-	readResult.Blocks[1].Hex = "DE AD BE EF 00 00 00 00 00 00 00 00 00 00 00 00"
-	model.applyEvent(app.WorkbenchEventName, readResult)
-	tester.Frame()
-	if !tester.HasText("DE AD BE EF 00 00 00 00 00 00 00 00 00 00 00 00") {
-		t.Fatalf("workbench event did not update the table: %q", tester.Texts())
-	}
-
-	if err := tester.Click("Key catalog"); err != nil {
-		t.Fatal(err)
-	}
-	if !tester.HasText("A0 A1 A2 A3 A4 A5") {
-		t.Fatalf("key page texts: %q", tester.Texts())
+	if !tester.HasText("Card facts") || !tester.HasText("Geometry") ||
+		!tester.HasText("classic_1k") {
+		t.Fatalf("details texts: %q", tester.Texts())
 	}
 
 	model.applyEvent(app.TaskEventName, app.TaskEventDetailDTO{
 		TaskID: "read-1", Kind: "read", Type: app.TaskEventProgress,
 		Progress: 42, Message: "Reading sector 3",
 	})
-	if err := tester.Click("Activity"); err != nil {
-		t.Fatal(err)
-	}
+	tester.Frame()
 	if !tester.HasText("Reading sector 3") {
-		t.Fatalf("activity page texts: %q", tester.Texts())
+		t.Fatalf("activity did not stay visible: %q", tester.Texts())
 	}
 
-	if err := tester.Click("Devices"); err != nil {
+	if err := tester.Click("Blocks"); err != nil {
 		t.Fatal(err)
 	}
+	if err := tester.Click("00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if model.blockChosen != 1 {
+		t.Fatalf("selected block = %d, want 1", model.blockChosen)
+	}
+	if !tester.HasText("Block 1 of 8") {
+		t.Fatalf("block inspector texts: %q", tester.Texts())
+	}
+
+	updated := backend.workbench
+	updated.Blocks = append([]app.WorkbenchBlockDTO(nil), backend.workbench.Blocks...)
+	updated.Blocks[1].Hex = "DE AD BE EF 00 00 00 00 00 00 00 00 00 00 00 00"
+	model.applyEvent(app.WorkbenchEventName, updated)
+	tester.Frame()
+	if !tester.HasText("DE AD BE EF 00 00 00 00 00 00 00 00 00 00 00 00") {
+		t.Fatalf("workbench event did not update the table: %q", tester.Texts())
+	}
+
 	model.locale = "zh-Hans"
 	tester.Frame()
-	if !tester.HasText("读卡器") || !tester.HasText("正在检测卡片") {
+	if !tester.HasText("卡片工作区") || !tester.HasText("扇区区块") {
 		t.Fatalf("Simplified Chinese texts: %q", tester.Texts())
 	}
+}
+
+func TestType2TabsAreReservedWithoutFakeData(t *testing.T) {
+	model := newShell(type2Fixture())
+	tester := ui.NewTester(model.view, 1360, 860)
+
+	if model.selectedTab != tabDetails {
+		t.Fatalf("selected tab = %q, want details", model.selectedTab)
+	}
+	for _, text := range []string{"Memory", "NDEF", "Protection", "Details", "Phase 05"} {
+		if !tester.HasText(text) {
+			t.Fatalf("missing %q in type 2 workbench: %q", text, tester.Texts())
+		}
+	}
+	if tester.HasText("Text · en") || tester.HasText("188 B") || tester.HasText("Message records") {
+		t.Fatalf("type 2 workbench showed synthetic NDEF data: %q", tester.Texts())
+	}
+	if err := tester.Click("NDEF"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if model.selectedTab != tabDetails {
+		t.Fatalf("disabled NDEF tab became %q", model.selectedTab)
+	}
+}
+
+func TestShellConnectsExactReader(t *testing.T) {
+	backend := classicFixture()
+	backend.dashboard.SelectedDevice = ""
+	backend.dashboard.Connection = app.ConnectionDTO{Status: "disconnected"}
+	backend.dashboard.Card = app.CardDTO{}
+	model := newShell(backend)
+	tester := ui.NewTester(model.view, 1360, 860)
+
+	if err := tester.Click("Connect"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for len(backend.connectCalls()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	calls := backend.connectCalls()
+	if len(calls) != 1 || calls[0] != "pn532_uart:/dev/ttyUSB0" {
+		t.Fatalf("connect calls = %v", calls)
+	}
+}
+
+func TestClassicActionsStartTasks(t *testing.T) {
+	backend := classicFixture()
+	model := newShell(backend)
+	tester := ui.NewTester(model.view, 1360, 860)
+
+	if err := tester.Click("Read card"); err != nil {
+		t.Fatal(err)
+	}
+	waitForTaskStarts(t, backend, 1, 0)
+	model.applyEvent(app.TaskEventName, app.TaskEventDetailDTO{
+		TaskID: "read-1", Kind: "read", Type: app.TaskEventStarted,
+		Message: "Read card started",
+	})
+	waitForText(t, tester, "Reading the card…")
+
+	model.applyEvent(app.TaskEventName, app.TaskEventDetailDTO{
+		TaskID: "read-1", Kind: "read", Type: app.TaskEventCompleted, Progress: 100,
+		Message: "Read card completed",
+	})
+	tester.Frame()
+
+	if err := tester.Click("Scan keys"); err != nil {
+		t.Fatal(err)
+	}
+	waitForTaskStarts(t, backend, 1, 1)
+	model.applyEvent(app.TaskEventName, app.TaskEventDetailDTO{
+		TaskID: "keyscan-1", Kind: "keyscan", Type: app.TaskEventStarted,
+		Message: "Key scan started",
+	})
+	waitForText(t, tester, "Scanning keys…")
+}
+
+func waitForTaskStarts(t *testing.T, backend *fakeBackend, reads, scans int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		gotReads, gotScans := backend.taskStarts()
+		if gotReads >= reads && gotScans >= scans {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	gotReads, gotScans := backend.taskStarts()
+	t.Fatalf("task starts = %d reads, %d scans; want at least %d, %d", gotReads, gotScans, reads, scans)
+}
+
+func waitForText(t *testing.T, tester *ui.Tester, text string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		tester.Frame()
+		if tester.HasText(text) {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %q: %q", text, tester.Texts())
 }
 
 func TestCatalogTranslationsAreComplete(t *testing.T) {
@@ -141,11 +318,13 @@ func TestCatalogTranslationsAreComplete(t *testing.T) {
 		en   string
 		zh   string
 	}{
-		{"navDevices", en.NavDevices(), zh.NavDevices()},
-		{"keysTitle", en.KeysTitle(), zh.KeysTitle()},
+		{"tabBlocks", en.TabBlocks(), zh.TabBlocks()},
+		{"keysPanelTitle", en.KeysPanelTitle(), zh.KeysPanelTitle()},
 		{"activityTitle", en.ActivityTitle(), zh.ActivityTitle()},
-		{"classicEmpty", en.ClassicEmpty(), zh.ClassicEmpty()},
+		{"blocksEmpty", en.BlocksEmpty(), zh.BlocksEmpty()},
 		{"cardEmpty", en.CardEmpty(), zh.CardEmpty()},
+		{"railHealth", en.RailHealth(), zh.RailHealth()},
+		{"featureDeferredDetail", en.FeatureDeferredDetail(), zh.FeatureDeferredDetail()},
 	}
 	for _, check := range checks {
 		if check.en == "" || check.zh == "" {

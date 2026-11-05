@@ -19,15 +19,17 @@ func (s *shell) applyEvent(name string, payload any) {
 	case app.WorkbenchEventName:
 		if event, ok := payload.(app.WorkbenchDTO); ok {
 			s.workbench = event
-			s.clampBlockChoice()
+			s.clampSelections()
 		}
 	case app.KeyEventName:
 		if event, ok := payload.([]app.SectorKeyDTO); ok {
 			s.sectorKeys = append([]app.SectorKeyDTO(nil), event...)
+			s.clampSelections()
 		}
 	case app.KeyCatalogEventName:
 		if event, ok := payload.([]app.KeyDTO); ok {
 			s.keys = append([]app.KeyDTO(nil), event...)
+			s.syncKeyChoice()
 		}
 	case app.TaskEventName:
 		if event, ok := payload.(app.TaskEventDetailDTO); ok {
@@ -67,28 +69,43 @@ func (s *shell) applyDeviceState(event app.DeviceStateEventDTO) {
 			s.selectedID = event.Device.ID
 		}
 	}
+	s.clampSelections()
 }
 
 func (s *shell) applyCardEvent(event app.CardEventDTO) {
 	if event.Type == "removed" {
 		s.card = nil
+		s.clampSelections()
 		return
 	}
 	card := event.Card
 	s.card = &card
+	s.clampSelections()
 }
 
 func (s *shell) applyTaskEvent(event app.TaskEventDetailDTO) {
 	if event.Workbench != nil {
 		s.workbench = *event.Workbench
-		s.clampBlockChoice()
+		s.clampSelections()
 	}
 	switch event.Type {
 	case app.TaskEventStarted:
 		s.activeTask = event.TaskID
+		s.activeKind = event.Kind
+		s.activeProgress = event.Progress
+		s.activeMessage = event.Message
 	case app.TaskEventCompleted, app.TaskEventCancelled, "failed":
 		if s.activeTask == event.TaskID {
 			s.activeTask = ""
+			s.activeProgress = 0
+			s.activeMessage = ""
+		}
+	default:
+		if event.TaskID != "" {
+			s.activeTask = event.TaskID
+			s.activeKind = event.Kind
+			s.activeProgress = event.Progress
+			s.activeMessage = event.Message
 		}
 	}
 	when := time.Now()

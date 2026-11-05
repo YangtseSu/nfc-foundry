@@ -1,18 +1,17 @@
 {
   "@@locale": "en",
   "appTitle": "NFC Foundry",
-  "appSubtitle": "MIFARE Classic workbench",
-  "navDevices": "Devices",
-  "navCard": "Card",
-  "navBlocks": "Classic blocks",
-  "navKeys": "Key catalog",
-  "navActivity": "Activity",
+  "appSubtitle": "Card workbench",
+  "workspaceEyebrow": "Card workspace",
+  "languageLabel": "Language",
+  "languageShortEN": "EN",
+  "languageShortZH": "中文",
+  "menuLanguage": "Language",
   "commonRefresh": "Refresh",
   "commonConnect": "Connect",
   "commonDisconnect": "Disconnect",
   "commonReadCard": "Read card",
   "commonScanKeys": "Scan keys",
-  "commonCancel": "Cancel",
   "commonCancelTask": "Cancel task",
   "commonClear": "Clear",
   "commonAdd": "Add",
@@ -22,6 +21,9 @@
   "commonNotAvailable": "Not available",
   "commonUnknown": "Unknown",
   "commonWorking": "Working…",
+  "commonReady": "Ready",
+  "commonYes": "Yes",
+  "commonNo": "No",
   "connectionDisconnected": "Disconnected",
   "connectionConnecting": "Connecting",
   "connectionReady": "Reader ready",
@@ -30,28 +32,55 @@
   "connectionRecovering": "Recovering the reader",
   "connectionError": "Reader error",
   "connectionUnknown": "Unknown state",
-  "devicesTitle": "Readers",
-  "devicesEmpty": "No readers found. Connect a supported reader and refresh.",
-  "devicesConnString": "Connection",
-  "devicesTransport": "Transport",
-  "devicesCapabilities": "Recovery capabilities",
   "devicesRefreshFailed": "Could not enumerate readers: {message}",
   "devicesConnectFailed": "Could not connect the reader: {message}",
   "devicesDisconnectFailed": "Could not disconnect the reader: {message}",
-  "cardTitle": "Card",
+  "deviceBlocked": "Wait for the active task to finish.",
+  "cardReadFailed": "Read failed: {message}",
+  "cardScanFailed": "Key scan failed: {message}",
+  "railReader": "Reader",
+  "railCard": "Card",
+  "railHealth": "Tag health",
+  "railNoReader": "No readers found",
+  "railNoReaderHint": "Connect a supported reader, then refresh.",
+  "railPickReader": "Choose reader",
+  "cardEmptyTitle": "No card",
   "cardEmpty": "No card selected. Place a MIFARE Classic card on the reader.",
+  "cardUnsupported": "This card is not a MIFARE Classic card.",
+  "cardReadHint": "Read the card to fill the block table.",
+  "cardInferred": "Inferred",
   "cardUID": "UID",
   "cardATQA": "ATQA",
   "cardSAK": "SAK",
   "cardType": "Type",
   "cardUIDLength": "UID length",
-  "cardInferred": "Inferred",
-  "cardReadHint": "Reading the card fills the Classic block table.",
-  "cardReadFailed": "Read failed: {message}",
-  "cardScanFailed": "Key scan failed: {message}",
-  "cardUnsupported": "This card is not a MIFARE Classic card.",
-  "classicTitle": "Classic blocks",
-  "classicEmpty": "No blocks loaded. Read a MIFARE Classic card first.",
+  "cardFamily": "Family",
+  "familyClassic": "MIFARE Classic",
+  "familyType2": "NFC Forum Type 2",
+  "badgeClassic": "Classic",
+  "badgeType2": "Type 2",
+  "classicSubtitle": "{blocks} blocks · {sectors} sectors · {keys, plural, =0 {no keys verified} one {# key verified} other {# keys verified}}",
+  "type2Subtitle": "NFC Forum Type 2 · memory and NDEF arrive in Phase 05",
+  "phase05": "Phase 05",
+  "tabBlocks": "Blocks",
+  "tabKeys": "Keys",
+  "tabDetails": "Details",
+  "tabMemory": "Memory",
+  "tabNDEF": "NDEF",
+  "tabProtection": "Protection",
+  "metricBlocks": "Block count",
+  "metricSectors": "Sector count",
+  "healthDump": "Dump",
+  "healthValidation": "Validation",
+  "healthKeys": "Key status",
+  "healthChanges": "Changes",
+  "healthNotLoaded": "Not loaded",
+  "healthComplete": "Complete",
+  "healthPartial": "Partial",
+  "healthValid": "Valid",
+  "healthInvalid": "Invalid",
+  "healthNoChanges": "None",
+  "healthUnsaved": "{count, plural, one {# unsaved change} other {# unsaved changes}}",
   "classicBlock": "Block",
   "classicSector": "Sector",
   "classicKind": "Kind",
@@ -59,13 +88,12 @@
   "classicASCII": "ASCII",
   "classicStatus": "Status",
   "classicDirty": "Changed",
-  "classicDetailTitle": "Selected block",
-  "classicLoaded": "Loaded",
-  "classicLayout": "Layout",
-  "classicComplete": "Complete dump",
-  "classicIncomplete": "Partial dump",
-  "classicValidation": "Validation",
   "classicAccess": "Access conditions",
+  "blocksPanelTitle": "Sector blocks",
+  "blocksSummary": "{count, plural, =0 {No blocks} one {# block} other {# blocks}}",
+  "blocksEmpty": "No blocks loaded. Read a MIFARE Classic card first.",
+  "sectorHeader": "Sector {sector}",
+  "sectorSummary": "{blocks} blocks · {verified, plural, =0 {no keys verified} one {# key verified} other {# keys verified}}",
   "kindManufacturer": "Manufacturer",
   "kindData": "Data",
   "kindTrailer": "Trailer",
@@ -76,12 +104,27 @@
   "statusSynthetic": "Synthetic",
   "statusVerified": "Verified",
   "statusUnknown": "Unknown",
+  "keysPanelTitle": "Sector keys",
+  "keysPanelSub": "{verified} of {total} keys verified",
+  "keysMatrixEmpty": "No sector key data. Read the card or scan keys.",
+  "keyColumnA": "Key A",
+  "keyColumnB": "Key B",
+  "keyState": "State",
+  "keyUnknown": "Unknown",
   "keysTitle": "Key catalog",
+  "keyCount": "{count, plural, =0 {No keys} one {# key} other {# keys}}",
   "keysEmpty": "No keys in the catalog.",
   "keysAddPlaceholder": "6-byte key in hex, e.g. FFFFFFFFFFFF",
   "keysBuiltin": "Built-in",
   "keysCustom": "Custom",
   "keysSources": "Sources",
+  "keysSourceBuiltin": "Built-in",
+  "keysSourceUserInput": "User input",
+  "keysSourceFileImport": "File import",
+  "keysSourceReadContext": "Read context",
+  "keysSourceAttackEngine": "Attack engine",
+  "keyType": "Type",
+  "keyRemovable": "Removable",
   "keysAddFailed": "Could not add the key: {message}",
   "keysDeleteFailed": "Could not delete the key: {message}",
   "keysImportFailed": "Import failed: {message}",
@@ -89,32 +132,176 @@
   "keysImported": "Imported {added} keys; {duplicates} duplicates, {ignored} ignored.",
   "keysExportDone": "Exported {count} keys.",
   "keysImportIssues": "Import issues: {count}.",
-  "keyCount": "{count, plural, =0 {No keys} one {# key} other {# keys}}",
+  "detailsCard": "Card facts",
+  "detailsDump": "Dump",
+  "detailsSource": "Source",
+  "detailsLayout": "Layout",
+  "detailsGeometry": "Geometry",
+  "detailsSourceUID": "Source UID",
+  "detailsComplete": "Completeness",
+  "detailsValidation": "Validation",
+  "detailsMessages": "Messages",
+  "detailsUnsaved": "Unsaved dump",
+  "noDump": "No dump loaded.",
+  "dumpBlocks": "{count, plural, =0 {No blocks} one {# block} other {# blocks}}",
+  "dumpSectors": "{count, plural, =0 {No sectors} one {# sector} other {# sectors}}",
+  "validationClean": "No errors or warnings",
+  "validationErrors": "{count, plural, one {# error} other {# errors}}",
+  "validationWarnings": "{count, plural, one {# warning} other {# warnings}}",
+  "inspectorTitle": "Inspector",
+  "blockOf": "Block {block} of {total}",
+  "noBlockSelected": "No block selected.",
+  "noSectorSelected": "No sector selected.",
+  "noCardSelected": "No card selected.",
+  "cardInspectorSub": "Card identity",
+  "blockWarningManufacturer": "Manufacturer block: skipped when writing the card.",
+  "blockWarningTrailer": "Sector trailer: keys and access conditions need extra confirmation.",
   "activityTitle": "Activity",
+  "activityClear": "Clear",
   "activityEmpty": "No activity yet.",
-  "activityTask": "Task",
   "activityStarted": "Started",
   "activityProgress": "Progress",
   "activityCompleted": "Completed",
   "activityCancelled": "Cancelled",
   "activityFailed": "Failed",
-  "activityClear": "Clear activity",
+  "activityKindRead": "Read",
+  "activityKindKeyScan": "Key scan",
+  "activityKindKeys": "Key catalog",
+  "activityKindKeyRecovery": "Key recovery",
   "readStarted": "Reading the card…",
   "scanStarted": "Scanning keys…",
-  "languageLabel": "Language",
-  "menuLanguage": "Language",
-  "menuView": "View",
-  "menuRefresh": "Refresh readers",
-  "menuAbout": "About NFC Foundry",
-  "menuQuit": "Quit NFC Foundry",
+  "featureDeferred": "{feature} arrives in {phase}.",
+  "featureDeferredDetail": "This build reads MIFARE Classic cards only. No NDEF records are read or synthesized.",
+  "actionNoDump": "No dump loaded",
+  "actionBlocks": "{count, plural, =0 {No blocks} one {# block} other {# blocks}}",
+  "actionKeys": "{count, plural, =0 {No keys} one {# key} other {# keys}}",
+  "actionUnsaved": "{count, plural, one {# unsaved change} other {# unsaved changes}}",
+  "actionNoChanges": "No unsaved changes",
   "errorDetail": "{message}",
-  "deviceBlocked": "Wait for the active task to finish.",
-  "blocksSummary": "{count, plural, =0 {No blocks} one {# block} other {# blocks}}",
   "capNested": "Nested",
   "capDarkside": "Darkside",
   "capHardnested": "Hardnested",
+  "@classicSubtitle": {
+    "placeholders": {
+      "blocks": {
+        "type": "int"
+      },
+      "sectors": {
+        "type": "int"
+      },
+      "keys": {
+        "type": "int"
+      }
+    }
+  },
+  "@healthUnsaved": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@blocksSummary": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@sectorHeader": {
+    "placeholders": {
+      "sector": {
+        "type": "int"
+      }
+    }
+  },
+  "@sectorSummary": {
+    "placeholders": {
+      "blocks": {
+        "type": "int"
+      },
+      "verified": {
+        "type": "int"
+      }
+    }
+  },
+  "@keysPanelSub": {
+    "placeholders": {
+      "verified": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "@keyCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@dumpBlocks": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@dumpSectors": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@validationErrors": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@validationWarnings": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@blockOf": {
+    "placeholders": {
+      "block": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "@actionBlocks": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@actionKeys": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@actionUnsaved": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "@keysImported": {
-    "description": "Import summary in the activity log.",
     "placeholders": {
       "added": {
         "type": "int"
@@ -128,7 +315,6 @@
     }
   },
   "@keysExportDone": {
-    "description": "Export summary.",
     "placeholders": {
       "count": {
         "type": "int"
@@ -136,11 +322,11 @@
     }
   },
   "@keysImportIssues": {
-    "description": "Number of import issues.",
     "placeholders": {
       "count": {
         "type": "int"
       }
     }
-  }
+  },
+  "topDump": "Dump"
 }

@@ -67,6 +67,35 @@ func TestASCIIEditPadsShortInputWithZeroBytes(t *testing.T) {
 	}
 }
 
+func TestMarkWrittenClearsOnlyWrittenBlocks(t *testing.T) {
+	model := New()
+	if err := model.Load(workbenchResult(t), "test.bin"); err != nil {
+		t.Fatal(err)
+	}
+	if err := model.EditHex(0, "0102030405060708090A0B0C0D0E0F10"); err != nil {
+		t.Fatal(err)
+	}
+	if err := model.EditHex(1, "101112131415161718191A1B1C1D1E1F"); err != nil {
+		t.Fatal(err)
+	}
+	if err := model.MarkWritten([]int{1}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := model.Snapshot()
+	if !snapshot.Dirty || len(snapshot.DirtyBlocks) != 1 || snapshot.DirtyBlocks[0] != 0 {
+		t.Fatalf("written block did not stay separate from skipped block 0: %+v", snapshot)
+	}
+	if err := model.MarkWritten([]int{0}); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot := model.Snapshot(); snapshot.Dirty {
+		t.Fatalf("written blocks remained dirty: %+v", snapshot)
+	}
+	if err := model.MarkWritten([]int{64}); err == nil {
+		t.Fatal("out-of-range block was accepted")
+	}
+}
+
 func TestReloadAndMarkSavedClearDirty(t *testing.T) {
 	model := New()
 	result := workbenchResult(t)

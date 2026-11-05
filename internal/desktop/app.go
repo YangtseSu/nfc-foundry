@@ -84,12 +84,12 @@ func (a *Application) open() {
 	a.shell.setLocale(mygo.App.Locale(), false)
 	window := mygo.NewWindow(mygo.WindowOptions{
 		Title:           a.shell.locales().AppTitle(),
-		Width:           1200,
-		Height:          820,
-		MinWidth:        900,
-		MinHeight:       600,
-		StateKey:        "main",
-		BackgroundColor: "light-dark(#ffffff, #18181b)",
+		Width:           1360,
+		Height:          860,
+		MinWidth:        1120,
+		MinHeight:       720,
+		StateKey:        "workbench",
+		BackgroundColor: "light-dark(#F7F8FA, #0F1216)",
 		Content:         ui.View(a.shell.view),
 	})
 	a.shell.attachWindow(window)

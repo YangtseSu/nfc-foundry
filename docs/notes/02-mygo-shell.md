@@ -2,10 +2,9 @@
 
 Date: 2026-11-05
 
-> UI status: the first shell implementation was superseded by the reviewed
-> workbench mockup in [`docs/design/`](../design/README.md) and is being
-> rebuilt to that design. The service, build, and packaging migration recorded
-> below remains valid.
+> UI status: the reviewed workbench in [`docs/design/`](../design/README.md)
+> replaced the first five-page sidebar shell on 2026-11-05. The Classic
+> workflow is implemented; the hardware acceptance gate remains pending.
 
 ## Implemented
 
@@ -18,10 +17,8 @@ Date: 2026-11-05
   - an event emitter that applies service events through `Window.Update`;
   - native file dialogs for key import/export;
   - English/Simplified Chinese application menu and runtime language switch.
-- Added the initial screens: devices, card facts, Classic block table with
-  block detail, key catalog, and activity/task log.
 - Added `locales/en.json`, `locales/zh-Hans.json`, and the generated
-  `locales/catalog_gen.go` (113 messages).
+  `locales/catalog_gen.go` (182 messages).
 - Removed telemetry and the auto-updater services, application bindings, and
   the `nfcx-updater` command. User files now live under `NFC Foundry`.
 - Replaced application-facing service messages and task-log strings in the
@@ -39,10 +36,40 @@ Date: 2026-11-05
   smoke test, REUSE lint, and a hardware-free build.
 - Added `mygo.json` and `resources/icon.png`.
 
+## Workbench rebuild
+
+- Replaced the routed sidebar pages with one workbench:
+  - top bar with the exact reader connstring, card identity, dump capacity,
+    task state, language switch, and refresh;
+  - left rail with the selected reader, connection state, transport and
+    recovery capabilities, card identity, dump health, and changes;
+  - center workspace with card-family badges, capability-driven tabs, and the
+    active family view;
+  - right inspector and a persistent activity list that survives tab changes;
+  - bottom action bar with the operation state, Read card, Scan keys, and
+    cancellation.
+- Classic implements Blocks, Keys, and Details:
+  - the Blocks table is grouped by sector with sticky sector headers, kind
+    badges, hex/ASCII previews, changed markers, row selection, and a
+    selected-block inspector;
+  - the Keys view pairs a sector key matrix with the persistent key catalog,
+    including add, delete, import, and export;
+  - Details shows card facts, dump geometry, validation, completion, and the
+    source UID without exposing write, UID, recovery, or configuration actions.
+- Type 2 reserves Memory, NDEF, and Protection in the tab model. The tabs stay
+  disabled and no NDEF records, capacity, or validation values are synthesized.
+  Details remains the only enabled Type 2 tab in this phase.
+- The palette follows the mockup in light and dark themes. MyGo widgets are
+  aligned through a per-frame theme copy so table selection, focus, and muted
+  text use the workbench colors.
+- The window opens at 1360x860 with a 1120x720 minimum.
+- Removed the obsolete route/page view files and the old navigation catalogue
+  messages.
+
 ## Verification
 
 - `make check`: `go test ./...`, `go vet ./...`, `go tool mygo i18n check .`,
-  the MyGo tester smoke test, and `reuse lint` all pass.
+  the MyGo tester smoke test, and `reuse lint` all pass after the rebuild.
 - `go test -race ./internal/desktop ./app` passes.
 - `make libnfc-binding-test` (all packages with `-tags libnfc`) passes,
   including a new environment-selected device enumeration test.
@@ -51,17 +78,33 @@ Date: 2026-11-05
   expected.
 - `make build` produces `build/nfc-foundry-linux-amd64/nfc-foundry` with the
   `$ORIGIN/runtime/linux-amd64` rpath and bundled `libnfcng.so.6`.
+- The MyGo headless tester rendered the rebuilt workbench at 1360x860 for
+  visual review: Classic Blocks, Keys, Details, an active read task, Type 2
+  reserved tabs, no-card, no-reader, and the dark palette.
+- A CH340 USB serial adapter (`1a86:7523`) appeared as `/dev/ttyUSB0`.
+  `libnfc-ng` auto-scan enumerated `pn532_uart:/dev/ttyUSB0:115200`, and
+  `Reader.Open` succeeded with that exact connstring.
+- A MIFARE Classic 1K test card was fully readable after `mfoc` recovered
+  the one sector whose keys were not in the built-in dictionary. The
+  resulting 64-block dump was complete with 32/32 key slots verified.
+- The write path was exercised on data block 8: the test pattern
+  `DEADBEEF00112233445566778899AABB` was written and read back verified, then
+  the original all-zero block was written back and independently verified.
+  The card was left in its original state. MIFARE trailer reads mask
+  Key A as zeros; that is normal and not by itself evidence of a magic card.
+- The first write test exposed a state bug: after a successful write the
+  workbench baseline did not advance, so a subsequent write of the original
+  value had no dirty block to preflight. `StartWrite` now calls
+  `workbench.Model.MarkWritten` for the verified blocks (leaving skipped
+  block 0 dirty), with a unit test for the model method.
 - The packaged binary starts under a headless mutter 51.1 Wayland compositor
-  (`mutter --headless --no-x11 --virtual-monitor 1280x800`) and exits cleanly
-  (0) on SIGTERM. AT-SPI exposed the real window as `nfc-foundry` with the
-  `NFC Foundry` frame, the five navigation items, the Language menu/segmented
-  control, and the Devices page.
-- With `LIBNFC_DEVICE=pn532_uart:/dev/nfc-foundry-ui-test` and autoscan off,
-  the live Devices page rendered the exact connstring, transport, Nested /
-  Darkside / Hardnested capabilities, and a Connect button. This is the
-  hardware-free reader-enumeration gate.
-- `--self-check --json` loads `libnfc-ng v1.8.0-ng.1`. It reports unhealthy
-  only because the recovery engines and release manifest are not built in this
+  (`mutter --headless --no-x11 --wayland-display=wayland-1
+  --virtual-monitor 1360x860`) and exits cleanly (0) on SIGTERM.
+  Bare mutter does not expose a screen-copy protocol, so `grim` cannot capture
+  the live surface; the visual proof is the tester-rendered image.
+- `--self-check --json` loads `libnfc-ng v1.8.0-ng.1`. `mfoc` is built and
+  available; the report remains unhealthy only because `mfcuk`,
+  `mfoc-hardnested`, and the release manifest are not built in this
   workspace.
 
 ## Problems encountered
@@ -77,7 +120,14 @@ Date: 2026-11-05
   with `CGO_ENABLED=1` and `-tags libnfc` through plain `go build`, and packages
   the private runtime separately.
 - Headless mutter initially reported `gdk_monitor_get_workarea` assertions
-  without a monitor. Adding `--virtual-monitor 1280x800` removes them.
+  without a monitor. Adding `--virtual-monitor` removes them.
+- Bare mutter's headless backend lacks `wlr-screencopy`, so `grim` reports
+  "compositor doesn't support the screen capture protocol". The MyGo tester
+  image is used for visual review instead.
+- AT-SPI activation inside a nested `dbus-run-session` fails because the
+  session tries to activate user systemd units that the nested bus does not
+  provide. This is a test-harness limitation, not an application error; the
+  window lifecycle still completes and exits 0.
 
 ## Blockers and follow-up
 

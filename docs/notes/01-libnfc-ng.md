@@ -57,6 +57,13 @@ Date: 2026-11-05
   `libpcsclite.so.1`, `libusb-0.1.so.4` and `libc.so.6`.
 - `namcap PKGBUILD` and `namcap` on the package reported no error or warning.
 - `reuse lint` passes in `libnfc-ng` and `arch-pkgs`.
+- Rebuilt `libnfc-ng-git` after the hardware tests from a temporary local `git+file://` source override, because the
+  canonical private GitHub URL cannot be fetched without credentials. The
+  package is
+  `libnfc-ng-git-1.8.0.ng.1.r0.gc1eb612-1-x86_64.pkg.tar.zst` under
+  `~/projects/arch-pkgs/libnfc-ng-git/`. `.SRCINFO` was generated locally but
+  is ignored by that repository's whitelist `.gitignore`; it is not an AUR
+  publication.
 
 ## Problems encountered
 

@@ -44,64 +44,64 @@ func (msgs Messages) AppTitle() string {
 	return Catalog.Format(msgs.locale, "appTitle", nil)
 }
 
-// AppSubtitle says "MIFARE Classic workbench"
+// AppSubtitle says "Card workbench"
 // in the language the app shows.
 func AppSubtitle() string { return In(i18n.Locale()).AppSubtitle() }
 
-// AppSubtitle says "MIFARE Classic workbench"
+// AppSubtitle says "Card workbench"
 // in the language of msgs.
 func (msgs Messages) AppSubtitle() string {
 	return Catalog.Format(msgs.locale, "appSubtitle", nil)
 }
 
-// NavDevices says "Devices"
+// WorkspaceEyebrow says "Card workspace"
 // in the language the app shows.
-func NavDevices() string { return In(i18n.Locale()).NavDevices() }
+func WorkspaceEyebrow() string { return In(i18n.Locale()).WorkspaceEyebrow() }
 
-// NavDevices says "Devices"
+// WorkspaceEyebrow says "Card workspace"
 // in the language of msgs.
-func (msgs Messages) NavDevices() string {
-	return Catalog.Format(msgs.locale, "navDevices", nil)
+func (msgs Messages) WorkspaceEyebrow() string {
+	return Catalog.Format(msgs.locale, "workspaceEyebrow", nil)
 }
 
-// NavCard says "Card"
+// LanguageLabel says "Language"
 // in the language the app shows.
-func NavCard() string { return In(i18n.Locale()).NavCard() }
+func LanguageLabel() string { return In(i18n.Locale()).LanguageLabel() }
 
-// NavCard says "Card"
+// LanguageLabel says "Language"
 // in the language of msgs.
-func (msgs Messages) NavCard() string {
-	return Catalog.Format(msgs.locale, "navCard", nil)
+func (msgs Messages) LanguageLabel() string {
+	return Catalog.Format(msgs.locale, "languageLabel", nil)
 }
 
-// NavBlocks says "Classic blocks"
+// LanguageShortEN says "EN"
 // in the language the app shows.
-func NavBlocks() string { return In(i18n.Locale()).NavBlocks() }
+func LanguageShortEN() string { return In(i18n.Locale()).LanguageShortEN() }
 
-// NavBlocks says "Classic blocks"
+// LanguageShortEN says "EN"
 // in the language of msgs.
-func (msgs Messages) NavBlocks() string {
-	return Catalog.Format(msgs.locale, "navBlocks", nil)
+func (msgs Messages) LanguageShortEN() string {
+	return Catalog.Format(msgs.locale, "languageShortEN", nil)
 }
 
-// NavKeys says "Key catalog"
+// LanguageShortZH says "中文"
 // in the language the app shows.
-func NavKeys() string { return In(i18n.Locale()).NavKeys() }
+func LanguageShortZH() string { return In(i18n.Locale()).LanguageShortZH() }
 
-// NavKeys says "Key catalog"
+// LanguageShortZH says "中文"
 // in the language of msgs.
-func (msgs Messages) NavKeys() string {
-	return Catalog.Format(msgs.locale, "navKeys", nil)
+func (msgs Messages) LanguageShortZH() string {
+	return Catalog.Format(msgs.locale, "languageShortZH", nil)
 }
 
-// NavActivity says "Activity"
+// MenuLanguage says "Language"
 // in the language the app shows.
-func NavActivity() string { return In(i18n.Locale()).NavActivity() }
+func MenuLanguage() string { return In(i18n.Locale()).MenuLanguage() }
 
-// NavActivity says "Activity"
+// MenuLanguage says "Language"
 // in the language of msgs.
-func (msgs Messages) NavActivity() string {
-	return Catalog.Format(msgs.locale, "navActivity", nil)
+func (msgs Messages) MenuLanguage() string {
+	return Catalog.Format(msgs.locale, "menuLanguage", nil)
 }
 
 // CommonRefresh says "Refresh"
@@ -152,16 +152,6 @@ func CommonScanKeys() string { return In(i18n.Locale()).CommonScanKeys() }
 // in the language of msgs.
 func (msgs Messages) CommonScanKeys() string {
 	return Catalog.Format(msgs.locale, "commonScanKeys", nil)
-}
-
-// CommonCancel says "Cancel"
-// in the language the app shows.
-func CommonCancel() string { return In(i18n.Locale()).CommonCancel() }
-
-// CommonCancel says "Cancel"
-// in the language of msgs.
-func (msgs Messages) CommonCancel() string {
-	return Catalog.Format(msgs.locale, "commonCancel", nil)
 }
 
 // CommonCancelTask says "Cancel task"
@@ -254,6 +244,36 @@ func (msgs Messages) CommonWorking() string {
 	return Catalog.Format(msgs.locale, "commonWorking", nil)
 }
 
+// CommonReady says "Ready"
+// in the language the app shows.
+func CommonReady() string { return In(i18n.Locale()).CommonReady() }
+
+// CommonReady says "Ready"
+// in the language of msgs.
+func (msgs Messages) CommonReady() string {
+	return Catalog.Format(msgs.locale, "commonReady", nil)
+}
+
+// CommonYes says "Yes"
+// in the language the app shows.
+func CommonYes() string { return In(i18n.Locale()).CommonYes() }
+
+// CommonYes says "Yes"
+// in the language of msgs.
+func (msgs Messages) CommonYes() string {
+	return Catalog.Format(msgs.locale, "commonYes", nil)
+}
+
+// CommonNo says "No"
+// in the language the app shows.
+func CommonNo() string { return In(i18n.Locale()).CommonNo() }
+
+// CommonNo says "No"
+// in the language of msgs.
+func (msgs Messages) CommonNo() string {
+	return Catalog.Format(msgs.locale, "commonNo", nil)
+}
+
 // ConnectionDisconnected says "Disconnected"
 // in the language the app shows.
 func ConnectionDisconnected() string { return In(i18n.Locale()).ConnectionDisconnected() }
@@ -334,56 +354,6 @@ func (msgs Messages) ConnectionUnknown() string {
 	return Catalog.Format(msgs.locale, "connectionUnknown", nil)
 }
 
-// DevicesTitle says "Readers"
-// in the language the app shows.
-func DevicesTitle() string { return In(i18n.Locale()).DevicesTitle() }
-
-// DevicesTitle says "Readers"
-// in the language of msgs.
-func (msgs Messages) DevicesTitle() string {
-	return Catalog.Format(msgs.locale, "devicesTitle", nil)
-}
-
-// DevicesEmpty says "No readers found. Connect a supported reader and refresh."
-// in the language the app shows.
-func DevicesEmpty() string { return In(i18n.Locale()).DevicesEmpty() }
-
-// DevicesEmpty says "No readers found. Connect a supported reader and refresh."
-// in the language of msgs.
-func (msgs Messages) DevicesEmpty() string {
-	return Catalog.Format(msgs.locale, "devicesEmpty", nil)
-}
-
-// DevicesConnString says "Connection"
-// in the language the app shows.
-func DevicesConnString() string { return In(i18n.Locale()).DevicesConnString() }
-
-// DevicesConnString says "Connection"
-// in the language of msgs.
-func (msgs Messages) DevicesConnString() string {
-	return Catalog.Format(msgs.locale, "devicesConnString", nil)
-}
-
-// DevicesTransport says "Transport"
-// in the language the app shows.
-func DevicesTransport() string { return In(i18n.Locale()).DevicesTransport() }
-
-// DevicesTransport says "Transport"
-// in the language of msgs.
-func (msgs Messages) DevicesTransport() string {
-	return Catalog.Format(msgs.locale, "devicesTransport", nil)
-}
-
-// DevicesCapabilities says "Recovery capabilities"
-// in the language the app shows.
-func DevicesCapabilities() string { return In(i18n.Locale()).DevicesCapabilities() }
-
-// DevicesCapabilities says "Recovery capabilities"
-// in the language of msgs.
-func (msgs Messages) DevicesCapabilities() string {
-	return Catalog.Format(msgs.locale, "devicesCapabilities", nil)
-}
-
 // DevicesRefreshFailed says "Could not enumerate readers: {message}"
 // in the language the app shows.
 func DevicesRefreshFailed(message string) string {
@@ -420,14 +390,104 @@ func (msgs Messages) DevicesDisconnectFailed(message string) string {
 	return Catalog.Format(msgs.locale, "devicesDisconnectFailed", map[string]any{"message": message})
 }
 
-// CardTitle says "Card"
+// DeviceBlocked says "Wait for the active task to finish."
 // in the language the app shows.
-func CardTitle() string { return In(i18n.Locale()).CardTitle() }
+func DeviceBlocked() string { return In(i18n.Locale()).DeviceBlocked() }
 
-// CardTitle says "Card"
+// DeviceBlocked says "Wait for the active task to finish."
 // in the language of msgs.
-func (msgs Messages) CardTitle() string {
-	return Catalog.Format(msgs.locale, "cardTitle", nil)
+func (msgs Messages) DeviceBlocked() string {
+	return Catalog.Format(msgs.locale, "deviceBlocked", nil)
+}
+
+// CardReadFailed says "Read failed: {message}"
+// in the language the app shows.
+func CardReadFailed(message string) string { return In(i18n.Locale()).CardReadFailed(message) }
+
+// CardReadFailed says "Read failed: {message}"
+// in the language of msgs.
+func (msgs Messages) CardReadFailed(message string) string {
+	return Catalog.Format(msgs.locale, "cardReadFailed", map[string]any{"message": message})
+}
+
+// CardScanFailed says "Key scan failed: {message}"
+// in the language the app shows.
+func CardScanFailed(message string) string { return In(i18n.Locale()).CardScanFailed(message) }
+
+// CardScanFailed says "Key scan failed: {message}"
+// in the language of msgs.
+func (msgs Messages) CardScanFailed(message string) string {
+	return Catalog.Format(msgs.locale, "cardScanFailed", map[string]any{"message": message})
+}
+
+// RailReader says "Reader"
+// in the language the app shows.
+func RailReader() string { return In(i18n.Locale()).RailReader() }
+
+// RailReader says "Reader"
+// in the language of msgs.
+func (msgs Messages) RailReader() string {
+	return Catalog.Format(msgs.locale, "railReader", nil)
+}
+
+// RailCard says "Card"
+// in the language the app shows.
+func RailCard() string { return In(i18n.Locale()).RailCard() }
+
+// RailCard says "Card"
+// in the language of msgs.
+func (msgs Messages) RailCard() string {
+	return Catalog.Format(msgs.locale, "railCard", nil)
+}
+
+// RailHealth says "Tag health"
+// in the language the app shows.
+func RailHealth() string { return In(i18n.Locale()).RailHealth() }
+
+// RailHealth says "Tag health"
+// in the language of msgs.
+func (msgs Messages) RailHealth() string {
+	return Catalog.Format(msgs.locale, "railHealth", nil)
+}
+
+// RailNoReader says "No readers found"
+// in the language the app shows.
+func RailNoReader() string { return In(i18n.Locale()).RailNoReader() }
+
+// RailNoReader says "No readers found"
+// in the language of msgs.
+func (msgs Messages) RailNoReader() string {
+	return Catalog.Format(msgs.locale, "railNoReader", nil)
+}
+
+// RailNoReaderHint says "Connect a supported reader, then refresh."
+// in the language the app shows.
+func RailNoReaderHint() string { return In(i18n.Locale()).RailNoReaderHint() }
+
+// RailNoReaderHint says "Connect a supported reader, then refresh."
+// in the language of msgs.
+func (msgs Messages) RailNoReaderHint() string {
+	return Catalog.Format(msgs.locale, "railNoReaderHint", nil)
+}
+
+// RailPickReader says "Choose reader"
+// in the language the app shows.
+func RailPickReader() string { return In(i18n.Locale()).RailPickReader() }
+
+// RailPickReader says "Choose reader"
+// in the language of msgs.
+func (msgs Messages) RailPickReader() string {
+	return Catalog.Format(msgs.locale, "railPickReader", nil)
+}
+
+// CardEmptyTitle says "No card"
+// in the language the app shows.
+func CardEmptyTitle() string { return In(i18n.Locale()).CardEmptyTitle() }
+
+// CardEmptyTitle says "No card"
+// in the language of msgs.
+func (msgs Messages) CardEmptyTitle() string {
+	return Catalog.Format(msgs.locale, "cardEmptyTitle", nil)
 }
 
 // CardEmpty says "No card selected. Place a MIFARE Classic card on the reader."
@@ -438,6 +498,36 @@ func CardEmpty() string { return In(i18n.Locale()).CardEmpty() }
 // in the language of msgs.
 func (msgs Messages) CardEmpty() string {
 	return Catalog.Format(msgs.locale, "cardEmpty", nil)
+}
+
+// CardUnsupported says "This card is not a MIFARE Classic card."
+// in the language the app shows.
+func CardUnsupported() string { return In(i18n.Locale()).CardUnsupported() }
+
+// CardUnsupported says "This card is not a MIFARE Classic card."
+// in the language of msgs.
+func (msgs Messages) CardUnsupported() string {
+	return Catalog.Format(msgs.locale, "cardUnsupported", nil)
+}
+
+// CardReadHint says "Read the card to fill the block table."
+// in the language the app shows.
+func CardReadHint() string { return In(i18n.Locale()).CardReadHint() }
+
+// CardReadHint says "Read the card to fill the block table."
+// in the language of msgs.
+func (msgs Messages) CardReadHint() string {
+	return Catalog.Format(msgs.locale, "cardReadHint", nil)
+}
+
+// CardInferred says "Inferred"
+// in the language the app shows.
+func CardInferred() string { return In(i18n.Locale()).CardInferred() }
+
+// CardInferred says "Inferred"
+// in the language of msgs.
+func (msgs Messages) CardInferred() string {
+	return Catalog.Format(msgs.locale, "cardInferred", nil)
 }
 
 // CardUID says "UID"
@@ -490,74 +580,276 @@ func (msgs Messages) CardUIDLength() string {
 	return Catalog.Format(msgs.locale, "cardUIDLength", nil)
 }
 
-// CardInferred says "Inferred"
+// CardFamily says "Family"
 // in the language the app shows.
-func CardInferred() string { return In(i18n.Locale()).CardInferred() }
+func CardFamily() string { return In(i18n.Locale()).CardFamily() }
 
-// CardInferred says "Inferred"
+// CardFamily says "Family"
 // in the language of msgs.
-func (msgs Messages) CardInferred() string {
-	return Catalog.Format(msgs.locale, "cardInferred", nil)
+func (msgs Messages) CardFamily() string {
+	return Catalog.Format(msgs.locale, "cardFamily", nil)
 }
 
-// CardReadHint says "Reading the card fills the Classic block table."
+// FamilyClassic says "MIFARE Classic"
 // in the language the app shows.
-func CardReadHint() string { return In(i18n.Locale()).CardReadHint() }
+func FamilyClassic() string { return In(i18n.Locale()).FamilyClassic() }
 
-// CardReadHint says "Reading the card fills the Classic block table."
+// FamilyClassic says "MIFARE Classic"
 // in the language of msgs.
-func (msgs Messages) CardReadHint() string {
-	return Catalog.Format(msgs.locale, "cardReadHint", nil)
+func (msgs Messages) FamilyClassic() string {
+	return Catalog.Format(msgs.locale, "familyClassic", nil)
 }
 
-// CardReadFailed says "Read failed: {message}"
+// FamilyType2 says "NFC Forum Type 2"
 // in the language the app shows.
-func CardReadFailed(message string) string { return In(i18n.Locale()).CardReadFailed(message) }
+func FamilyType2() string { return In(i18n.Locale()).FamilyType2() }
 
-// CardReadFailed says "Read failed: {message}"
+// FamilyType2 says "NFC Forum Type 2"
 // in the language of msgs.
-func (msgs Messages) CardReadFailed(message string) string {
-	return Catalog.Format(msgs.locale, "cardReadFailed", map[string]any{"message": message})
+func (msgs Messages) FamilyType2() string {
+	return Catalog.Format(msgs.locale, "familyType2", nil)
 }
 
-// CardScanFailed says "Key scan failed: {message}"
+// BadgeClassic says "Classic"
 // in the language the app shows.
-func CardScanFailed(message string) string { return In(i18n.Locale()).CardScanFailed(message) }
+func BadgeClassic() string { return In(i18n.Locale()).BadgeClassic() }
 
-// CardScanFailed says "Key scan failed: {message}"
+// BadgeClassic says "Classic"
 // in the language of msgs.
-func (msgs Messages) CardScanFailed(message string) string {
-	return Catalog.Format(msgs.locale, "cardScanFailed", map[string]any{"message": message})
+func (msgs Messages) BadgeClassic() string {
+	return Catalog.Format(msgs.locale, "badgeClassic", nil)
 }
 
-// CardUnsupported says "This card is not a MIFARE Classic card."
+// BadgeType2 says "Type 2"
 // in the language the app shows.
-func CardUnsupported() string { return In(i18n.Locale()).CardUnsupported() }
+func BadgeType2() string { return In(i18n.Locale()).BadgeType2() }
 
-// CardUnsupported says "This card is not a MIFARE Classic card."
+// BadgeType2 says "Type 2"
 // in the language of msgs.
-func (msgs Messages) CardUnsupported() string {
-	return Catalog.Format(msgs.locale, "cardUnsupported", nil)
+func (msgs Messages) BadgeType2() string {
+	return Catalog.Format(msgs.locale, "badgeType2", nil)
 }
 
-// ClassicTitle says "Classic blocks"
+// ClassicSubtitle says "{blocks} blocks · {sectors} sectors · {keys, plural, =0 {no keys verified} one {# key verified} other {# keys verif…"
 // in the language the app shows.
-func ClassicTitle() string { return In(i18n.Locale()).ClassicTitle() }
-
-// ClassicTitle says "Classic blocks"
-// in the language of msgs.
-func (msgs Messages) ClassicTitle() string {
-	return Catalog.Format(msgs.locale, "classicTitle", nil)
+func ClassicSubtitle(blocks int, sectors int, keys int) string {
+	return In(i18n.Locale()).ClassicSubtitle(blocks, sectors, keys)
 }
 
-// ClassicEmpty says "No blocks loaded. Read a MIFARE Classic card first."
-// in the language the app shows.
-func ClassicEmpty() string { return In(i18n.Locale()).ClassicEmpty() }
-
-// ClassicEmpty says "No blocks loaded. Read a MIFARE Classic card first."
+// ClassicSubtitle says "{blocks} blocks · {sectors} sectors · {keys, plural, =0 {no keys verified} one {# key verified} other {# keys verif…"
 // in the language of msgs.
-func (msgs Messages) ClassicEmpty() string {
-	return Catalog.Format(msgs.locale, "classicEmpty", nil)
+func (msgs Messages) ClassicSubtitle(blocks int, sectors int, keys int) string {
+	return Catalog.Format(msgs.locale, "classicSubtitle", map[string]any{"blocks": blocks, "sectors": sectors, "keys": keys})
+}
+
+// Type2Subtitle says "NFC Forum Type 2 · memory and NDEF arrive in Phase 05"
+// in the language the app shows.
+func Type2Subtitle() string { return In(i18n.Locale()).Type2Subtitle() }
+
+// Type2Subtitle says "NFC Forum Type 2 · memory and NDEF arrive in Phase 05"
+// in the language of msgs.
+func (msgs Messages) Type2Subtitle() string {
+	return Catalog.Format(msgs.locale, "type2Subtitle", nil)
+}
+
+// Phase05 says "Phase 05"
+// in the language the app shows.
+func Phase05() string { return In(i18n.Locale()).Phase05() }
+
+// Phase05 says "Phase 05"
+// in the language of msgs.
+func (msgs Messages) Phase05() string {
+	return Catalog.Format(msgs.locale, "phase05", nil)
+}
+
+// TabBlocks says "Blocks"
+// in the language the app shows.
+func TabBlocks() string { return In(i18n.Locale()).TabBlocks() }
+
+// TabBlocks says "Blocks"
+// in the language of msgs.
+func (msgs Messages) TabBlocks() string {
+	return Catalog.Format(msgs.locale, "tabBlocks", nil)
+}
+
+// TabKeys says "Keys"
+// in the language the app shows.
+func TabKeys() string { return In(i18n.Locale()).TabKeys() }
+
+// TabKeys says "Keys"
+// in the language of msgs.
+func (msgs Messages) TabKeys() string {
+	return Catalog.Format(msgs.locale, "tabKeys", nil)
+}
+
+// TabDetails says "Details"
+// in the language the app shows.
+func TabDetails() string { return In(i18n.Locale()).TabDetails() }
+
+// TabDetails says "Details"
+// in the language of msgs.
+func (msgs Messages) TabDetails() string {
+	return Catalog.Format(msgs.locale, "tabDetails", nil)
+}
+
+// TabMemory says "Memory"
+// in the language the app shows.
+func TabMemory() string { return In(i18n.Locale()).TabMemory() }
+
+// TabMemory says "Memory"
+// in the language of msgs.
+func (msgs Messages) TabMemory() string {
+	return Catalog.Format(msgs.locale, "tabMemory", nil)
+}
+
+// TabNDEF says "NDEF"
+// in the language the app shows.
+func TabNDEF() string { return In(i18n.Locale()).TabNDEF() }
+
+// TabNDEF says "NDEF"
+// in the language of msgs.
+func (msgs Messages) TabNDEF() string {
+	return Catalog.Format(msgs.locale, "tabNDEF", nil)
+}
+
+// TabProtection says "Protection"
+// in the language the app shows.
+func TabProtection() string { return In(i18n.Locale()).TabProtection() }
+
+// TabProtection says "Protection"
+// in the language of msgs.
+func (msgs Messages) TabProtection() string {
+	return Catalog.Format(msgs.locale, "tabProtection", nil)
+}
+
+// MetricBlocks says "Block count"
+// in the language the app shows.
+func MetricBlocks() string { return In(i18n.Locale()).MetricBlocks() }
+
+// MetricBlocks says "Block count"
+// in the language of msgs.
+func (msgs Messages) MetricBlocks() string {
+	return Catalog.Format(msgs.locale, "metricBlocks", nil)
+}
+
+// MetricSectors says "Sector count"
+// in the language the app shows.
+func MetricSectors() string { return In(i18n.Locale()).MetricSectors() }
+
+// MetricSectors says "Sector count"
+// in the language of msgs.
+func (msgs Messages) MetricSectors() string {
+	return Catalog.Format(msgs.locale, "metricSectors", nil)
+}
+
+// HealthDump says "Dump"
+// in the language the app shows.
+func HealthDump() string { return In(i18n.Locale()).HealthDump() }
+
+// HealthDump says "Dump"
+// in the language of msgs.
+func (msgs Messages) HealthDump() string {
+	return Catalog.Format(msgs.locale, "healthDump", nil)
+}
+
+// HealthValidation says "Validation"
+// in the language the app shows.
+func HealthValidation() string { return In(i18n.Locale()).HealthValidation() }
+
+// HealthValidation says "Validation"
+// in the language of msgs.
+func (msgs Messages) HealthValidation() string {
+	return Catalog.Format(msgs.locale, "healthValidation", nil)
+}
+
+// HealthKeys says "Key status"
+// in the language the app shows.
+func HealthKeys() string { return In(i18n.Locale()).HealthKeys() }
+
+// HealthKeys says "Key status"
+// in the language of msgs.
+func (msgs Messages) HealthKeys() string {
+	return Catalog.Format(msgs.locale, "healthKeys", nil)
+}
+
+// HealthChanges says "Changes"
+// in the language the app shows.
+func HealthChanges() string { return In(i18n.Locale()).HealthChanges() }
+
+// HealthChanges says "Changes"
+// in the language of msgs.
+func (msgs Messages) HealthChanges() string {
+	return Catalog.Format(msgs.locale, "healthChanges", nil)
+}
+
+// HealthNotLoaded says "Not loaded"
+// in the language the app shows.
+func HealthNotLoaded() string { return In(i18n.Locale()).HealthNotLoaded() }
+
+// HealthNotLoaded says "Not loaded"
+// in the language of msgs.
+func (msgs Messages) HealthNotLoaded() string {
+	return Catalog.Format(msgs.locale, "healthNotLoaded", nil)
+}
+
+// HealthComplete says "Complete"
+// in the language the app shows.
+func HealthComplete() string { return In(i18n.Locale()).HealthComplete() }
+
+// HealthComplete says "Complete"
+// in the language of msgs.
+func (msgs Messages) HealthComplete() string {
+	return Catalog.Format(msgs.locale, "healthComplete", nil)
+}
+
+// HealthPartial says "Partial"
+// in the language the app shows.
+func HealthPartial() string { return In(i18n.Locale()).HealthPartial() }
+
+// HealthPartial says "Partial"
+// in the language of msgs.
+func (msgs Messages) HealthPartial() string {
+	return Catalog.Format(msgs.locale, "healthPartial", nil)
+}
+
+// HealthValid says "Valid"
+// in the language the app shows.
+func HealthValid() string { return In(i18n.Locale()).HealthValid() }
+
+// HealthValid says "Valid"
+// in the language of msgs.
+func (msgs Messages) HealthValid() string {
+	return Catalog.Format(msgs.locale, "healthValid", nil)
+}
+
+// HealthInvalid says "Invalid"
+// in the language the app shows.
+func HealthInvalid() string { return In(i18n.Locale()).HealthInvalid() }
+
+// HealthInvalid says "Invalid"
+// in the language of msgs.
+func (msgs Messages) HealthInvalid() string {
+	return Catalog.Format(msgs.locale, "healthInvalid", nil)
+}
+
+// HealthNoChanges says "None"
+// in the language the app shows.
+func HealthNoChanges() string { return In(i18n.Locale()).HealthNoChanges() }
+
+// HealthNoChanges says "None"
+// in the language of msgs.
+func (msgs Messages) HealthNoChanges() string {
+	return Catalog.Format(msgs.locale, "healthNoChanges", nil)
+}
+
+// HealthUnsaved says "{count, plural, one {# unsaved change} other {# unsaved changes}}"
+// in the language the app shows.
+func HealthUnsaved(count int) string { return In(i18n.Locale()).HealthUnsaved(count) }
+
+// HealthUnsaved says "{count, plural, one {# unsaved change} other {# unsaved changes}}"
+// in the language of msgs.
+func (msgs Messages) HealthUnsaved(count int) string {
+	return Catalog.Format(msgs.locale, "healthUnsaved", map[string]any{"count": count})
 }
 
 // ClassicBlock says "Block"
@@ -630,66 +922,6 @@ func (msgs Messages) ClassicDirty() string {
 	return Catalog.Format(msgs.locale, "classicDirty", nil)
 }
 
-// ClassicDetailTitle says "Selected block"
-// in the language the app shows.
-func ClassicDetailTitle() string { return In(i18n.Locale()).ClassicDetailTitle() }
-
-// ClassicDetailTitle says "Selected block"
-// in the language of msgs.
-func (msgs Messages) ClassicDetailTitle() string {
-	return Catalog.Format(msgs.locale, "classicDetailTitle", nil)
-}
-
-// ClassicLoaded says "Loaded"
-// in the language the app shows.
-func ClassicLoaded() string { return In(i18n.Locale()).ClassicLoaded() }
-
-// ClassicLoaded says "Loaded"
-// in the language of msgs.
-func (msgs Messages) ClassicLoaded() string {
-	return Catalog.Format(msgs.locale, "classicLoaded", nil)
-}
-
-// ClassicLayout says "Layout"
-// in the language the app shows.
-func ClassicLayout() string { return In(i18n.Locale()).ClassicLayout() }
-
-// ClassicLayout says "Layout"
-// in the language of msgs.
-func (msgs Messages) ClassicLayout() string {
-	return Catalog.Format(msgs.locale, "classicLayout", nil)
-}
-
-// ClassicComplete says "Complete dump"
-// in the language the app shows.
-func ClassicComplete() string { return In(i18n.Locale()).ClassicComplete() }
-
-// ClassicComplete says "Complete dump"
-// in the language of msgs.
-func (msgs Messages) ClassicComplete() string {
-	return Catalog.Format(msgs.locale, "classicComplete", nil)
-}
-
-// ClassicIncomplete says "Partial dump"
-// in the language the app shows.
-func ClassicIncomplete() string { return In(i18n.Locale()).ClassicIncomplete() }
-
-// ClassicIncomplete says "Partial dump"
-// in the language of msgs.
-func (msgs Messages) ClassicIncomplete() string {
-	return Catalog.Format(msgs.locale, "classicIncomplete", nil)
-}
-
-// ClassicValidation says "Validation"
-// in the language the app shows.
-func ClassicValidation() string { return In(i18n.Locale()).ClassicValidation() }
-
-// ClassicValidation says "Validation"
-// in the language of msgs.
-func (msgs Messages) ClassicValidation() string {
-	return Catalog.Format(msgs.locale, "classicValidation", nil)
-}
-
 // ClassicAccess says "Access conditions"
 // in the language the app shows.
 func ClassicAccess() string { return In(i18n.Locale()).ClassicAccess() }
@@ -698,6 +930,58 @@ func ClassicAccess() string { return In(i18n.Locale()).ClassicAccess() }
 // in the language of msgs.
 func (msgs Messages) ClassicAccess() string {
 	return Catalog.Format(msgs.locale, "classicAccess", nil)
+}
+
+// BlocksPanelTitle says "Sector blocks"
+// in the language the app shows.
+func BlocksPanelTitle() string { return In(i18n.Locale()).BlocksPanelTitle() }
+
+// BlocksPanelTitle says "Sector blocks"
+// in the language of msgs.
+func (msgs Messages) BlocksPanelTitle() string {
+	return Catalog.Format(msgs.locale, "blocksPanelTitle", nil)
+}
+
+// BlocksSummary says "{count, plural, =0 {No blocks} one {# block} other {# blocks}}"
+// in the language the app shows.
+func BlocksSummary(count int) string { return In(i18n.Locale()).BlocksSummary(count) }
+
+// BlocksSummary says "{count, plural, =0 {No blocks} one {# block} other {# blocks}}"
+// in the language of msgs.
+func (msgs Messages) BlocksSummary(count int) string {
+	return Catalog.Format(msgs.locale, "blocksSummary", map[string]any{"count": count})
+}
+
+// BlocksEmpty says "No blocks loaded. Read a MIFARE Classic card first."
+// in the language the app shows.
+func BlocksEmpty() string { return In(i18n.Locale()).BlocksEmpty() }
+
+// BlocksEmpty says "No blocks loaded. Read a MIFARE Classic card first."
+// in the language of msgs.
+func (msgs Messages) BlocksEmpty() string {
+	return Catalog.Format(msgs.locale, "blocksEmpty", nil)
+}
+
+// SectorHeader says "Sector {sector}"
+// in the language the app shows.
+func SectorHeader(sector int) string { return In(i18n.Locale()).SectorHeader(sector) }
+
+// SectorHeader says "Sector {sector}"
+// in the language of msgs.
+func (msgs Messages) SectorHeader(sector int) string {
+	return Catalog.Format(msgs.locale, "sectorHeader", map[string]any{"sector": sector})
+}
+
+// SectorSummary says "{blocks} blocks · {verified, plural, =0 {no keys verified} one {# key verified} other {# keys verified}}"
+// in the language the app shows.
+func SectorSummary(blocks int, verified int) string {
+	return In(i18n.Locale()).SectorSummary(blocks, verified)
+}
+
+// SectorSummary says "{blocks} blocks · {verified, plural, =0 {no keys verified} one {# key verified} other {# keys verified}}"
+// in the language of msgs.
+func (msgs Messages) SectorSummary(blocks int, verified int) string {
+	return Catalog.Format(msgs.locale, "sectorSummary", map[string]any{"blocks": blocks, "verified": verified})
 }
 
 // KindManufacturer says "Manufacturer"
@@ -800,6 +1084,78 @@ func (msgs Messages) StatusUnknown() string {
 	return Catalog.Format(msgs.locale, "statusUnknown", nil)
 }
 
+// KeysPanelTitle says "Sector keys"
+// in the language the app shows.
+func KeysPanelTitle() string { return In(i18n.Locale()).KeysPanelTitle() }
+
+// KeysPanelTitle says "Sector keys"
+// in the language of msgs.
+func (msgs Messages) KeysPanelTitle() string {
+	return Catalog.Format(msgs.locale, "keysPanelTitle", nil)
+}
+
+// KeysPanelSub says "{verified} of {total} keys verified"
+// in the language the app shows.
+func KeysPanelSub(verified int, total int) string {
+	return In(i18n.Locale()).KeysPanelSub(verified, total)
+}
+
+// KeysPanelSub says "{verified} of {total} keys verified"
+// in the language of msgs.
+func (msgs Messages) KeysPanelSub(verified int, total int) string {
+	return Catalog.Format(msgs.locale, "keysPanelSub", map[string]any{"verified": verified, "total": total})
+}
+
+// KeysMatrixEmpty says "No sector key data. Read the card or scan keys."
+// in the language the app shows.
+func KeysMatrixEmpty() string { return In(i18n.Locale()).KeysMatrixEmpty() }
+
+// KeysMatrixEmpty says "No sector key data. Read the card or scan keys."
+// in the language of msgs.
+func (msgs Messages) KeysMatrixEmpty() string {
+	return Catalog.Format(msgs.locale, "keysMatrixEmpty", nil)
+}
+
+// KeyColumnA says "Key A"
+// in the language the app shows.
+func KeyColumnA() string { return In(i18n.Locale()).KeyColumnA() }
+
+// KeyColumnA says "Key A"
+// in the language of msgs.
+func (msgs Messages) KeyColumnA() string {
+	return Catalog.Format(msgs.locale, "keyColumnA", nil)
+}
+
+// KeyColumnB says "Key B"
+// in the language the app shows.
+func KeyColumnB() string { return In(i18n.Locale()).KeyColumnB() }
+
+// KeyColumnB says "Key B"
+// in the language of msgs.
+func (msgs Messages) KeyColumnB() string {
+	return Catalog.Format(msgs.locale, "keyColumnB", nil)
+}
+
+// KeyState says "State"
+// in the language the app shows.
+func KeyState() string { return In(i18n.Locale()).KeyState() }
+
+// KeyState says "State"
+// in the language of msgs.
+func (msgs Messages) KeyState() string {
+	return Catalog.Format(msgs.locale, "keyState", nil)
+}
+
+// KeyUnknown says "Unknown"
+// in the language the app shows.
+func KeyUnknown() string { return In(i18n.Locale()).KeyUnknown() }
+
+// KeyUnknown says "Unknown"
+// in the language of msgs.
+func (msgs Messages) KeyUnknown() string {
+	return Catalog.Format(msgs.locale, "keyUnknown", nil)
+}
+
 // KeysTitle says "Key catalog"
 // in the language the app shows.
 func KeysTitle() string { return In(i18n.Locale()).KeysTitle() }
@@ -808,6 +1164,16 @@ func KeysTitle() string { return In(i18n.Locale()).KeysTitle() }
 // in the language of msgs.
 func (msgs Messages) KeysTitle() string {
 	return Catalog.Format(msgs.locale, "keysTitle", nil)
+}
+
+// KeyCount says "{count, plural, =0 {No keys} one {# key} other {# keys}}"
+// in the language the app shows.
+func KeyCount(count int) string { return In(i18n.Locale()).KeyCount(count) }
+
+// KeyCount says "{count, plural, =0 {No keys} one {# key} other {# keys}}"
+// in the language of msgs.
+func (msgs Messages) KeyCount(count int) string {
+	return Catalog.Format(msgs.locale, "keyCount", map[string]any{"count": count})
 }
 
 // KeysEmpty says "No keys in the catalog."
@@ -860,6 +1226,76 @@ func (msgs Messages) KeysSources() string {
 	return Catalog.Format(msgs.locale, "keysSources", nil)
 }
 
+// KeysSourceBuiltin says "Built-in"
+// in the language the app shows.
+func KeysSourceBuiltin() string { return In(i18n.Locale()).KeysSourceBuiltin() }
+
+// KeysSourceBuiltin says "Built-in"
+// in the language of msgs.
+func (msgs Messages) KeysSourceBuiltin() string {
+	return Catalog.Format(msgs.locale, "keysSourceBuiltin", nil)
+}
+
+// KeysSourceUserInput says "User input"
+// in the language the app shows.
+func KeysSourceUserInput() string { return In(i18n.Locale()).KeysSourceUserInput() }
+
+// KeysSourceUserInput says "User input"
+// in the language of msgs.
+func (msgs Messages) KeysSourceUserInput() string {
+	return Catalog.Format(msgs.locale, "keysSourceUserInput", nil)
+}
+
+// KeysSourceFileImport says "File import"
+// in the language the app shows.
+func KeysSourceFileImport() string { return In(i18n.Locale()).KeysSourceFileImport() }
+
+// KeysSourceFileImport says "File import"
+// in the language of msgs.
+func (msgs Messages) KeysSourceFileImport() string {
+	return Catalog.Format(msgs.locale, "keysSourceFileImport", nil)
+}
+
+// KeysSourceReadContext says "Read context"
+// in the language the app shows.
+func KeysSourceReadContext() string { return In(i18n.Locale()).KeysSourceReadContext() }
+
+// KeysSourceReadContext says "Read context"
+// in the language of msgs.
+func (msgs Messages) KeysSourceReadContext() string {
+	return Catalog.Format(msgs.locale, "keysSourceReadContext", nil)
+}
+
+// KeysSourceAttackEngine says "Attack engine"
+// in the language the app shows.
+func KeysSourceAttackEngine() string { return In(i18n.Locale()).KeysSourceAttackEngine() }
+
+// KeysSourceAttackEngine says "Attack engine"
+// in the language of msgs.
+func (msgs Messages) KeysSourceAttackEngine() string {
+	return Catalog.Format(msgs.locale, "keysSourceAttackEngine", nil)
+}
+
+// KeyType says "Type"
+// in the language the app shows.
+func KeyType() string { return In(i18n.Locale()).KeyType() }
+
+// KeyType says "Type"
+// in the language of msgs.
+func (msgs Messages) KeyType() string {
+	return Catalog.Format(msgs.locale, "keyType", nil)
+}
+
+// KeyRemovable says "Removable"
+// in the language the app shows.
+func KeyRemovable() string { return In(i18n.Locale()).KeyRemovable() }
+
+// KeyRemovable says "Removable"
+// in the language of msgs.
+func (msgs Messages) KeyRemovable() string {
+	return Catalog.Format(msgs.locale, "keyRemovable", nil)
+}
+
 // KeysAddFailed says "Could not add the key: {message}"
 // in the language the app shows.
 func KeysAddFailed(message string) string { return In(i18n.Locale()).KeysAddFailed(message) }
@@ -902,56 +1338,274 @@ func (msgs Messages) KeysExportFailed(message string) string {
 
 // KeysImported says "Imported {added} keys; {duplicates} duplicates, {ignored} ignored."
 // in the language the app shows.
-//
-// Import summary in the activity log.
 func KeysImported(added int, duplicates int, ignored int) string {
 	return In(i18n.Locale()).KeysImported(added, duplicates, ignored)
 }
 
 // KeysImported says "Imported {added} keys; {duplicates} duplicates, {ignored} ignored."
 // in the language of msgs.
-//
-// Import summary in the activity log.
 func (msgs Messages) KeysImported(added int, duplicates int, ignored int) string {
 	return Catalog.Format(msgs.locale, "keysImported", map[string]any{"added": added, "duplicates": duplicates, "ignored": ignored})
 }
 
 // KeysExportDone says "Exported {count} keys."
 // in the language the app shows.
-//
-// Export summary.
 func KeysExportDone(count int) string { return In(i18n.Locale()).KeysExportDone(count) }
 
 // KeysExportDone says "Exported {count} keys."
 // in the language of msgs.
-//
-// Export summary.
 func (msgs Messages) KeysExportDone(count int) string {
 	return Catalog.Format(msgs.locale, "keysExportDone", map[string]any{"count": count})
 }
 
 // KeysImportIssues says "Import issues: {count}."
 // in the language the app shows.
-//
-// Number of import issues.
 func KeysImportIssues(count int) string { return In(i18n.Locale()).KeysImportIssues(count) }
 
 // KeysImportIssues says "Import issues: {count}."
 // in the language of msgs.
-//
-// Number of import issues.
 func (msgs Messages) KeysImportIssues(count int) string {
 	return Catalog.Format(msgs.locale, "keysImportIssues", map[string]any{"count": count})
 }
 
-// KeyCount says "{count, plural, =0 {No keys} one {# key} other {# keys}}"
+// DetailsCard says "Card facts"
 // in the language the app shows.
-func KeyCount(count int) string { return In(i18n.Locale()).KeyCount(count) }
+func DetailsCard() string { return In(i18n.Locale()).DetailsCard() }
 
-// KeyCount says "{count, plural, =0 {No keys} one {# key} other {# keys}}"
+// DetailsCard says "Card facts"
 // in the language of msgs.
-func (msgs Messages) KeyCount(count int) string {
-	return Catalog.Format(msgs.locale, "keyCount", map[string]any{"count": count})
+func (msgs Messages) DetailsCard() string {
+	return Catalog.Format(msgs.locale, "detailsCard", nil)
+}
+
+// DetailsDump says "Dump"
+// in the language the app shows.
+func DetailsDump() string { return In(i18n.Locale()).DetailsDump() }
+
+// DetailsDump says "Dump"
+// in the language of msgs.
+func (msgs Messages) DetailsDump() string {
+	return Catalog.Format(msgs.locale, "detailsDump", nil)
+}
+
+// DetailsSource says "Source"
+// in the language the app shows.
+func DetailsSource() string { return In(i18n.Locale()).DetailsSource() }
+
+// DetailsSource says "Source"
+// in the language of msgs.
+func (msgs Messages) DetailsSource() string {
+	return Catalog.Format(msgs.locale, "detailsSource", nil)
+}
+
+// DetailsLayout says "Layout"
+// in the language the app shows.
+func DetailsLayout() string { return In(i18n.Locale()).DetailsLayout() }
+
+// DetailsLayout says "Layout"
+// in the language of msgs.
+func (msgs Messages) DetailsLayout() string {
+	return Catalog.Format(msgs.locale, "detailsLayout", nil)
+}
+
+// DetailsGeometry says "Geometry"
+// in the language the app shows.
+func DetailsGeometry() string { return In(i18n.Locale()).DetailsGeometry() }
+
+// DetailsGeometry says "Geometry"
+// in the language of msgs.
+func (msgs Messages) DetailsGeometry() string {
+	return Catalog.Format(msgs.locale, "detailsGeometry", nil)
+}
+
+// DetailsSourceUID says "Source UID"
+// in the language the app shows.
+func DetailsSourceUID() string { return In(i18n.Locale()).DetailsSourceUID() }
+
+// DetailsSourceUID says "Source UID"
+// in the language of msgs.
+func (msgs Messages) DetailsSourceUID() string {
+	return Catalog.Format(msgs.locale, "detailsSourceUID", nil)
+}
+
+// DetailsComplete says "Completeness"
+// in the language the app shows.
+func DetailsComplete() string { return In(i18n.Locale()).DetailsComplete() }
+
+// DetailsComplete says "Completeness"
+// in the language of msgs.
+func (msgs Messages) DetailsComplete() string {
+	return Catalog.Format(msgs.locale, "detailsComplete", nil)
+}
+
+// DetailsValidation says "Validation"
+// in the language the app shows.
+func DetailsValidation() string { return In(i18n.Locale()).DetailsValidation() }
+
+// DetailsValidation says "Validation"
+// in the language of msgs.
+func (msgs Messages) DetailsValidation() string {
+	return Catalog.Format(msgs.locale, "detailsValidation", nil)
+}
+
+// DetailsMessages says "Messages"
+// in the language the app shows.
+func DetailsMessages() string { return In(i18n.Locale()).DetailsMessages() }
+
+// DetailsMessages says "Messages"
+// in the language of msgs.
+func (msgs Messages) DetailsMessages() string {
+	return Catalog.Format(msgs.locale, "detailsMessages", nil)
+}
+
+// DetailsUnsaved says "Unsaved dump"
+// in the language the app shows.
+func DetailsUnsaved() string { return In(i18n.Locale()).DetailsUnsaved() }
+
+// DetailsUnsaved says "Unsaved dump"
+// in the language of msgs.
+func (msgs Messages) DetailsUnsaved() string {
+	return Catalog.Format(msgs.locale, "detailsUnsaved", nil)
+}
+
+// NoDump says "No dump loaded."
+// in the language the app shows.
+func NoDump() string { return In(i18n.Locale()).NoDump() }
+
+// NoDump says "No dump loaded."
+// in the language of msgs.
+func (msgs Messages) NoDump() string {
+	return Catalog.Format(msgs.locale, "noDump", nil)
+}
+
+// DumpBlocks says "{count, plural, =0 {No blocks} one {# block} other {# blocks}}"
+// in the language the app shows.
+func DumpBlocks(count int) string { return In(i18n.Locale()).DumpBlocks(count) }
+
+// DumpBlocks says "{count, plural, =0 {No blocks} one {# block} other {# blocks}}"
+// in the language of msgs.
+func (msgs Messages) DumpBlocks(count int) string {
+	return Catalog.Format(msgs.locale, "dumpBlocks", map[string]any{"count": count})
+}
+
+// DumpSectors says "{count, plural, =0 {No sectors} one {# sector} other {# sectors}}"
+// in the language the app shows.
+func DumpSectors(count int) string { return In(i18n.Locale()).DumpSectors(count) }
+
+// DumpSectors says "{count, plural, =0 {No sectors} one {# sector} other {# sectors}}"
+// in the language of msgs.
+func (msgs Messages) DumpSectors(count int) string {
+	return Catalog.Format(msgs.locale, "dumpSectors", map[string]any{"count": count})
+}
+
+// ValidationClean says "No errors or warnings"
+// in the language the app shows.
+func ValidationClean() string { return In(i18n.Locale()).ValidationClean() }
+
+// ValidationClean says "No errors or warnings"
+// in the language of msgs.
+func (msgs Messages) ValidationClean() string {
+	return Catalog.Format(msgs.locale, "validationClean", nil)
+}
+
+// ValidationErrors says "{count, plural, one {# error} other {# errors}}"
+// in the language the app shows.
+func ValidationErrors(count int) string { return In(i18n.Locale()).ValidationErrors(count) }
+
+// ValidationErrors says "{count, plural, one {# error} other {# errors}}"
+// in the language of msgs.
+func (msgs Messages) ValidationErrors(count int) string {
+	return Catalog.Format(msgs.locale, "validationErrors", map[string]any{"count": count})
+}
+
+// ValidationWarnings says "{count, plural, one {# warning} other {# warnings}}"
+// in the language the app shows.
+func ValidationWarnings(count int) string { return In(i18n.Locale()).ValidationWarnings(count) }
+
+// ValidationWarnings says "{count, plural, one {# warning} other {# warnings}}"
+// in the language of msgs.
+func (msgs Messages) ValidationWarnings(count int) string {
+	return Catalog.Format(msgs.locale, "validationWarnings", map[string]any{"count": count})
+}
+
+// InspectorTitle says "Inspector"
+// in the language the app shows.
+func InspectorTitle() string { return In(i18n.Locale()).InspectorTitle() }
+
+// InspectorTitle says "Inspector"
+// in the language of msgs.
+func (msgs Messages) InspectorTitle() string {
+	return Catalog.Format(msgs.locale, "inspectorTitle", nil)
+}
+
+// BlockOf says "Block {block} of {total}"
+// in the language the app shows.
+func BlockOf(block int, total int) string { return In(i18n.Locale()).BlockOf(block, total) }
+
+// BlockOf says "Block {block} of {total}"
+// in the language of msgs.
+func (msgs Messages) BlockOf(block int, total int) string {
+	return Catalog.Format(msgs.locale, "blockOf", map[string]any{"block": block, "total": total})
+}
+
+// NoBlockSelected says "No block selected."
+// in the language the app shows.
+func NoBlockSelected() string { return In(i18n.Locale()).NoBlockSelected() }
+
+// NoBlockSelected says "No block selected."
+// in the language of msgs.
+func (msgs Messages) NoBlockSelected() string {
+	return Catalog.Format(msgs.locale, "noBlockSelected", nil)
+}
+
+// NoSectorSelected says "No sector selected."
+// in the language the app shows.
+func NoSectorSelected() string { return In(i18n.Locale()).NoSectorSelected() }
+
+// NoSectorSelected says "No sector selected."
+// in the language of msgs.
+func (msgs Messages) NoSectorSelected() string {
+	return Catalog.Format(msgs.locale, "noSectorSelected", nil)
+}
+
+// NoCardSelected says "No card selected."
+// in the language the app shows.
+func NoCardSelected() string { return In(i18n.Locale()).NoCardSelected() }
+
+// NoCardSelected says "No card selected."
+// in the language of msgs.
+func (msgs Messages) NoCardSelected() string {
+	return Catalog.Format(msgs.locale, "noCardSelected", nil)
+}
+
+// CardInspectorSub says "Card identity"
+// in the language the app shows.
+func CardInspectorSub() string { return In(i18n.Locale()).CardInspectorSub() }
+
+// CardInspectorSub says "Card identity"
+// in the language of msgs.
+func (msgs Messages) CardInspectorSub() string {
+	return Catalog.Format(msgs.locale, "cardInspectorSub", nil)
+}
+
+// BlockWarningManufacturer says "Manufacturer block: skipped when writing the card."
+// in the language the app shows.
+func BlockWarningManufacturer() string { return In(i18n.Locale()).BlockWarningManufacturer() }
+
+// BlockWarningManufacturer says "Manufacturer block: skipped when writing the card."
+// in the language of msgs.
+func (msgs Messages) BlockWarningManufacturer() string {
+	return Catalog.Format(msgs.locale, "blockWarningManufacturer", nil)
+}
+
+// BlockWarningTrailer says "Sector trailer: keys and access conditions need extra confirmation."
+// in the language the app shows.
+func BlockWarningTrailer() string { return In(i18n.Locale()).BlockWarningTrailer() }
+
+// BlockWarningTrailer says "Sector trailer: keys and access conditions need extra confirmation."
+// in the language of msgs.
+func (msgs Messages) BlockWarningTrailer() string {
+	return Catalog.Format(msgs.locale, "blockWarningTrailer", nil)
 }
 
 // ActivityTitle says "Activity"
@@ -964,6 +1618,16 @@ func (msgs Messages) ActivityTitle() string {
 	return Catalog.Format(msgs.locale, "activityTitle", nil)
 }
 
+// ActivityClear says "Clear"
+// in the language the app shows.
+func ActivityClear() string { return In(i18n.Locale()).ActivityClear() }
+
+// ActivityClear says "Clear"
+// in the language of msgs.
+func (msgs Messages) ActivityClear() string {
+	return Catalog.Format(msgs.locale, "activityClear", nil)
+}
+
 // ActivityEmpty says "No activity yet."
 // in the language the app shows.
 func ActivityEmpty() string { return In(i18n.Locale()).ActivityEmpty() }
@@ -972,16 +1636,6 @@ func ActivityEmpty() string { return In(i18n.Locale()).ActivityEmpty() }
 // in the language of msgs.
 func (msgs Messages) ActivityEmpty() string {
 	return Catalog.Format(msgs.locale, "activityEmpty", nil)
-}
-
-// ActivityTask says "Task"
-// in the language the app shows.
-func ActivityTask() string { return In(i18n.Locale()).ActivityTask() }
-
-// ActivityTask says "Task"
-// in the language of msgs.
-func (msgs Messages) ActivityTask() string {
-	return Catalog.Format(msgs.locale, "activityTask", nil)
 }
 
 // ActivityStarted says "Started"
@@ -1034,14 +1688,44 @@ func (msgs Messages) ActivityFailed() string {
 	return Catalog.Format(msgs.locale, "activityFailed", nil)
 }
 
-// ActivityClear says "Clear activity"
+// ActivityKindRead says "Read"
 // in the language the app shows.
-func ActivityClear() string { return In(i18n.Locale()).ActivityClear() }
+func ActivityKindRead() string { return In(i18n.Locale()).ActivityKindRead() }
 
-// ActivityClear says "Clear activity"
+// ActivityKindRead says "Read"
 // in the language of msgs.
-func (msgs Messages) ActivityClear() string {
-	return Catalog.Format(msgs.locale, "activityClear", nil)
+func (msgs Messages) ActivityKindRead() string {
+	return Catalog.Format(msgs.locale, "activityKindRead", nil)
+}
+
+// ActivityKindKeyScan says "Key scan"
+// in the language the app shows.
+func ActivityKindKeyScan() string { return In(i18n.Locale()).ActivityKindKeyScan() }
+
+// ActivityKindKeyScan says "Key scan"
+// in the language of msgs.
+func (msgs Messages) ActivityKindKeyScan() string {
+	return Catalog.Format(msgs.locale, "activityKindKeyScan", nil)
+}
+
+// ActivityKindKeys says "Key catalog"
+// in the language the app shows.
+func ActivityKindKeys() string { return In(i18n.Locale()).ActivityKindKeys() }
+
+// ActivityKindKeys says "Key catalog"
+// in the language of msgs.
+func (msgs Messages) ActivityKindKeys() string {
+	return Catalog.Format(msgs.locale, "activityKindKeys", nil)
+}
+
+// ActivityKindKeyRecovery says "Key recovery"
+// in the language the app shows.
+func ActivityKindKeyRecovery() string { return In(i18n.Locale()).ActivityKindKeyRecovery() }
+
+// ActivityKindKeyRecovery says "Key recovery"
+// in the language of msgs.
+func (msgs Messages) ActivityKindKeyRecovery() string {
+	return Catalog.Format(msgs.locale, "activityKindKeyRecovery", nil)
 }
 
 // ReadStarted says "Reading the card…"
@@ -1064,64 +1748,76 @@ func (msgs Messages) ScanStarted() string {
 	return Catalog.Format(msgs.locale, "scanStarted", nil)
 }
 
-// LanguageLabel says "Language"
+// FeatureDeferred says "{feature} arrives in {phase}."
 // in the language the app shows.
-func LanguageLabel() string { return In(i18n.Locale()).LanguageLabel() }
-
-// LanguageLabel says "Language"
-// in the language of msgs.
-func (msgs Messages) LanguageLabel() string {
-	return Catalog.Format(msgs.locale, "languageLabel", nil)
+func FeatureDeferred(feature string, phase string) string {
+	return In(i18n.Locale()).FeatureDeferred(feature, phase)
 }
 
-// MenuLanguage says "Language"
-// in the language the app shows.
-func MenuLanguage() string { return In(i18n.Locale()).MenuLanguage() }
-
-// MenuLanguage says "Language"
+// FeatureDeferred says "{feature} arrives in {phase}."
 // in the language of msgs.
-func (msgs Messages) MenuLanguage() string {
-	return Catalog.Format(msgs.locale, "menuLanguage", nil)
+func (msgs Messages) FeatureDeferred(feature string, phase string) string {
+	return Catalog.Format(msgs.locale, "featureDeferred", map[string]any{"feature": feature, "phase": phase})
 }
 
-// MenuView says "View"
+// FeatureDeferredDetail says "This build reads MIFARE Classic cards only. No NDEF records are read or synthesized."
 // in the language the app shows.
-func MenuView() string { return In(i18n.Locale()).MenuView() }
+func FeatureDeferredDetail() string { return In(i18n.Locale()).FeatureDeferredDetail() }
 
-// MenuView says "View"
+// FeatureDeferredDetail says "This build reads MIFARE Classic cards only. No NDEF records are read or synthesized."
 // in the language of msgs.
-func (msgs Messages) MenuView() string {
-	return Catalog.Format(msgs.locale, "menuView", nil)
+func (msgs Messages) FeatureDeferredDetail() string {
+	return Catalog.Format(msgs.locale, "featureDeferredDetail", nil)
 }
 
-// MenuRefresh says "Refresh readers"
+// ActionNoDump says "No dump loaded"
 // in the language the app shows.
-func MenuRefresh() string { return In(i18n.Locale()).MenuRefresh() }
+func ActionNoDump() string { return In(i18n.Locale()).ActionNoDump() }
 
-// MenuRefresh says "Refresh readers"
+// ActionNoDump says "No dump loaded"
 // in the language of msgs.
-func (msgs Messages) MenuRefresh() string {
-	return Catalog.Format(msgs.locale, "menuRefresh", nil)
+func (msgs Messages) ActionNoDump() string {
+	return Catalog.Format(msgs.locale, "actionNoDump", nil)
 }
 
-// MenuAbout says "About NFC Foundry"
+// ActionBlocks says "{count, plural, =0 {No blocks} one {# block} other {# blocks}}"
 // in the language the app shows.
-func MenuAbout() string { return In(i18n.Locale()).MenuAbout() }
+func ActionBlocks(count int) string { return In(i18n.Locale()).ActionBlocks(count) }
 
-// MenuAbout says "About NFC Foundry"
+// ActionBlocks says "{count, plural, =0 {No blocks} one {# block} other {# blocks}}"
 // in the language of msgs.
-func (msgs Messages) MenuAbout() string {
-	return Catalog.Format(msgs.locale, "menuAbout", nil)
+func (msgs Messages) ActionBlocks(count int) string {
+	return Catalog.Format(msgs.locale, "actionBlocks", map[string]any{"count": count})
 }
 
-// MenuQuit says "Quit NFC Foundry"
+// ActionKeys says "{count, plural, =0 {No keys} one {# key} other {# keys}}"
 // in the language the app shows.
-func MenuQuit() string { return In(i18n.Locale()).MenuQuit() }
+func ActionKeys(count int) string { return In(i18n.Locale()).ActionKeys(count) }
 
-// MenuQuit says "Quit NFC Foundry"
+// ActionKeys says "{count, plural, =0 {No keys} one {# key} other {# keys}}"
 // in the language of msgs.
-func (msgs Messages) MenuQuit() string {
-	return Catalog.Format(msgs.locale, "menuQuit", nil)
+func (msgs Messages) ActionKeys(count int) string {
+	return Catalog.Format(msgs.locale, "actionKeys", map[string]any{"count": count})
+}
+
+// ActionUnsaved says "{count, plural, one {# unsaved change} other {# unsaved changes}}"
+// in the language the app shows.
+func ActionUnsaved(count int) string { return In(i18n.Locale()).ActionUnsaved(count) }
+
+// ActionUnsaved says "{count, plural, one {# unsaved change} other {# unsaved changes}}"
+// in the language of msgs.
+func (msgs Messages) ActionUnsaved(count int) string {
+	return Catalog.Format(msgs.locale, "actionUnsaved", map[string]any{"count": count})
+}
+
+// ActionNoChanges says "No unsaved changes"
+// in the language the app shows.
+func ActionNoChanges() string { return In(i18n.Locale()).ActionNoChanges() }
+
+// ActionNoChanges says "No unsaved changes"
+// in the language of msgs.
+func (msgs Messages) ActionNoChanges() string {
+	return Catalog.Format(msgs.locale, "actionNoChanges", nil)
 }
 
 // ErrorDetail says "{message}"
@@ -1132,26 +1828,6 @@ func ErrorDetail(message string) string { return In(i18n.Locale()).ErrorDetail(m
 // in the language of msgs.
 func (msgs Messages) ErrorDetail(message string) string {
 	return Catalog.Format(msgs.locale, "errorDetail", map[string]any{"message": message})
-}
-
-// DeviceBlocked says "Wait for the active task to finish."
-// in the language the app shows.
-func DeviceBlocked() string { return In(i18n.Locale()).DeviceBlocked() }
-
-// DeviceBlocked says "Wait for the active task to finish."
-// in the language of msgs.
-func (msgs Messages) DeviceBlocked() string {
-	return Catalog.Format(msgs.locale, "deviceBlocked", nil)
-}
-
-// BlocksSummary says "{count, plural, =0 {No blocks} one {# block} other {# blocks}}"
-// in the language the app shows.
-func BlocksSummary(count int) string { return In(i18n.Locale()).BlocksSummary(count) }
-
-// BlocksSummary says "{count, plural, =0 {No blocks} one {# block} other {# blocks}}"
-// in the language of msgs.
-func (msgs Messages) BlocksSummary(count int) string {
-	return Catalog.Format(msgs.locale, "blocksSummary", map[string]any{"count": count})
 }
 
 // CapNested says "Nested"
@@ -1182,4 +1858,14 @@ func CapHardnested() string { return In(i18n.Locale()).CapHardnested() }
 // in the language of msgs.
 func (msgs Messages) CapHardnested() string {
 	return Catalog.Format(msgs.locale, "capHardnested", nil)
+}
+
+// TopDump says "Dump"
+// in the language the app shows.
+func TopDump() string { return In(i18n.Locale()).TopDump() }
+
+// TopDump says "Dump"
+// in the language of msgs.
+func (msgs Messages) TopDump() string {
+	return Catalog.Format(msgs.locale, "topDump", nil)
 }

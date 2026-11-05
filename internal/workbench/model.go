@@ -351,6 +351,25 @@ func (m *Model) Revert() error {
 	return nil
 }
 
+// MarkWritten makes the current contents of the written blocks the new
+// baseline, leaving every other block's dirty state untouched. It is used
+// after a successful card write so the workbench reflects the card contents
+// without hiding changes that were skipped, such as block 0.
+func (m *Model) MarkWritten(blocks []int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.loaded {
+		return ErrNoDump
+	}
+	for _, block := range blocks {
+		if block < 0 || block >= len(m.working.Dump.Blocks) || block >= len(m.baseline.Dump.Blocks) {
+			return fmt.Errorf("block %d is outside the loaded dump", block)
+		}
+		m.baseline.Dump.Blocks[block] = m.working.Dump.Blocks[block]
+	}
+	return nil
+}
+
 // MarkSaved makes the successfully persisted working copy the new baseline.
 func (m *Model) MarkSaved(path string) error {
 	m.mu.Lock()

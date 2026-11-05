@@ -546,6 +546,12 @@ func (s *Service) StartWrite(input WriteStartRequestDTO) (TaskDTO, error) {
 		s.registerRestoredKeys(record.request, result)
 		dto := restoreResultDTO(result)
 		s.emitOperation(TaskEventDetailDTO{TaskID: taskID, Kind: "write", Type: TaskEventProgress, Phase: string(result.Phase), Message: "write result generated", Restore: &dto})
+		if len(dto.VerifiedBlocks) != 0 {
+			if err := s.bench.MarkWritten(dto.VerifiedBlocks); err != nil {
+				return fmt.Errorf("write succeeded but workbench state could not be updated: %w", err)
+			}
+			s.emitWorkbench()
+		}
 		if restoreErr != nil || record.uidRequest == nil {
 			return restoreErr
 		}
@@ -561,6 +567,10 @@ func (s *Service) StartWrite(input WriteStartRequestDTO) (TaskDTO, error) {
 		s.emitOperation(TaskEventDetailDTO{TaskID: taskID, Kind: "write", Type: TaskEventProgress, Phase: string(workflow.UIDWriteVerify), Message: uidWriteResultMessage(uidResult, uidErr), UID: &uidDTO})
 		if uidErr == nil {
 			s.registerUIDKey(uidResult)
+			if err := s.bench.MarkWritten([]int{0}); err != nil {
+				return fmt.Errorf("UID write succeeded but workbench state could not be updated: %w", err)
+			}
+			s.emitWorkbench()
 		}
 		return uidErr
 	})
