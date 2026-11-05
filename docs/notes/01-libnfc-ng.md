@@ -72,10 +72,12 @@ Date: 2026-11-05
 
 ## Blockers and follow-up
 
-- The fork commit and tag are local only. The canonical PKGBUILD source
-  (`git+https://github.com/YangtseSu/libnfc-ng.git`) cannot build the new
-  identity until the branch and tag are pushed. The package was therefore
-  verified from `git+file://` and a clean-chroot `pkgctl build` was not run.
+- The fork branch and tag `v1.8.0-ng.1` are pushed to GitHub. The repository
+  is currently private, so the canonical PKGBUILD source
+  (`git+https://github.com/YangtseSu/libnfc-ng.git`) cannot be cloned
+  anonymously. The package was verified from `git+file://` against the same
+  commit; a public build and clean-chroot `pkgctl build` remain blocked until
+  the repository is made public or a public source mirror is provided.
 - No hardware test was performed; Phase 01 has no reader/card acceptance
   requirement. The first hardware gate is the application integration in
   Phase 02.
