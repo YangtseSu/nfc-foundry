@@ -78,6 +78,9 @@ Date: 2026-11-05
   anonymously. The package was verified from `git+file://` against the same
   commit; a public build and clean-chroot `pkgctl build` remain blocked until
   the repository is made public or a public source mirror is provided.
+- Decision on 2026-11-05: keep `libnfc-ng` private and do not publish the
+  package to the AUR yet. The PKGBUILD remains local-only until a public
+  source location is chosen.
 - No hardware test was performed; Phase 01 has no reader/card acceptance
   requirement. The first hardware gate is the application integration in
   Phase 02.
