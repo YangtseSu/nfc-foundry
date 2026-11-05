@@ -1,6 +1,6 @@
 # Phased implementation plan
 
-Status legend: `done`, `in progress`, `pending`, `conditional`, `backlog`.
+Status legend: `done`, `in progress`, `pending`, `conditional`.
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -13,7 +13,7 @@ Status legend: `done`, `in progress`, `pending`, `conditional`, `backlog`.
 | 06 | Reader expansion and capability matrix | pending |
 | 07 | ISO14443-4 APDU and DESFire read | pending |
 | 08 | FeliCa / Type 3 NDEF scope | conditional |
-| — | Card emulation research for mobile Linux | backlog |
+| 09 | Card emulation for mobile Linux (scope to be defined) | conditional |
 
 ## Rules
 
@@ -24,6 +24,8 @@ Status legend: `done`, `in progress`, `pending`, `conditional`, `backlog`.
   recorded.
 - Do not narrow libnfc-ng's default driver set. Compile all upstream drivers;
   select a validated profile explicitly in the application package/CI.
+- Card emulation is a conditional future phase (Phase 09), not a global
+  non-goal. Do not write "No emulation" as a product-wide constraint.
 - Do not add Windows/macOS, AppImage/Flatpak, Wails, telemetry, or a website.
 - Keep `reuse lint` green.
 - The CLI is English-only; the GUI is English-first with a complete Simplified

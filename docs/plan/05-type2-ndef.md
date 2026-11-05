@@ -29,4 +29,6 @@ read/write support.
 
 - No UID-page writing.
 - No FeliCa/Type 3 NDEF.
-- No card emulation.
+
+Card emulation is tracked as Phase 09, separate from Type 2/NDEF. This phase
+does not implement it, but it does not rule it out for the product.

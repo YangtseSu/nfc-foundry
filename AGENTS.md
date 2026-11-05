@@ -290,10 +290,10 @@ Use `--device`, `--json`, `--yes`, and `--dry-run` consistently. Destructive
 operations require explicit confirmation. Exit codes must distinguish usage,
 validation, permission, hardware, and engine failures.
 
-Do not reimplement upstream utilities that are demos, emulation, relay, DEP,
-SAM, or barcode experiments. The CLI covers only product-useful operations.
-Card emulation may become a CLI feature later for mobile Linux, but it is not
-part of the initial command set.
+Do not reimplement upstream demo utilities, including their emulation examples,
+relay, DEP, SAM, or barcode experiments. Card emulation as a product capability
+is a conditional future phase (Phase 09), not a global non-goal; the initial
+CLI does not expose it.
 
 ## Packaging and distribution
 

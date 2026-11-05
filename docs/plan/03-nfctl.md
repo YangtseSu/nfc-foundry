@@ -27,5 +27,9 @@ Expose the shared application services as a stable, English-only CLI.
 
 ## Non-goals
 
-- No emulation, relay, DEP, anticol, SAM, or barcode commands.
+- No relay, DEP, anticol, SAM, or barcode commands.
 - No translated CLI output.
+
+The initial CLI does not expose emulation. Card emulation is a conditional
+future phase (Phase 09), not a global non-goal; Phase 09 will define its command
+surface after target-mode research.

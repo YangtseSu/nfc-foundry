@@ -21,7 +21,9 @@ Decide whether FeliCa/Type 3 NDEF belongs in NFC Foundry before writing code.
 ## Non-goals
 
 - Raw FeliCa service browsing.
-- FeliCa card emulation.
 - Any advertised support before hardware validation.
+
+FeliCa emulation belongs to Phase 09 (card emulation) if that phase is
+accepted; it is not ruled out by this NDEF scope.
 
 If the scope is not accepted, keep FeliCa out of the support matrix.

@@ -157,9 +157,14 @@ When an external engine runs, the same handoff rules as the GUI apply: release
 the reader, run the engine with `LIBNFC_DEVICE`, validate the artifact, reopen,
 and verify in-process.
 
+## Future phases
+
+Card emulation commands are not part of the initial CLI. Phase 09 will define
+their surface after target-mode research; it is a conditional direction, not a
+global non-goal.
+
 ## Explicitly out of scope
 
-- card emulation commands (future mobile-Linux direction, not initial);
 - relay/DEP/anticol/SAM demonstration commands;
 - barcode experiments;
 - generic "write everything writable";
