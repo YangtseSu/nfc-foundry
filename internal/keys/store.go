@@ -416,6 +416,33 @@ func (s *Store) Verified(cardID string) []Verification {
 	return result
 }
 
+// Verifications returns every card-scoped verification for persistence.
+func (s *Store) Verifications() []Verification {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]Verification, 0, len(s.verifications))
+	for _, match := range s.verifications {
+		result = append(result, match)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].CardID != result[j].CardID {
+			return result[i].CardID < result[j].CardID
+		}
+		if result[i].Sector != result[j].Sector {
+			return result[i].Sector < result[j].Sector
+		}
+		return result[i].KeyType < result[j].KeyType
+	})
+	return result
+}
+
+func keyTypeName(value nfc.KeyType) string {
+	if value == nfc.KeyTypeB {
+		return "B"
+	}
+	return "A"
+}
+
 // Candidates returns the deterministic priority order for one authentication
 // slot: its exact prior match, other successes on this card, then user and
 // imported entries, and finally the built-in dictionary.
@@ -474,13 +501,22 @@ func (s *Store) Record(id string) (Record, bool) {
 }
 
 type persistedStore struct {
-	Version int            `json:"version"`
-	Keys    []persistedKey `json:"keys"`
+	Version       int                     `json:"version"`
+	Keys          []persistedKey          `json:"keys"`
+	Verifications []persistedVerification `json:"verifications,omitempty"`
 }
 
 type persistedKey struct {
 	Value   string   `json:"value"`
 	Sources []Source `json:"sources"`
+}
+
+type persistedVerification struct {
+	CardID     string    `json:"cardId"`
+	Sector     int       `json:"sector"`
+	KeyType    string    `json:"keyType"`
+	KeyID      string    `json:"keyId"`
+	VerifiedAt time.Time `json:"verifiedAt"`
 }
 
 func (s *Store) Load(path string) error {
@@ -512,7 +548,35 @@ func (s *Store) Load(path string) error {
 			}
 		}
 	}
+	for _, item := range stored.Verifications {
+		keyType, err := parsePersistedKeyType(item.KeyType)
+		if err != nil {
+			return err
+		}
+		record, exists := s.records[item.KeyID]
+		if !exists || item.CardID == "" || item.Sector < 0 {
+			continue
+		}
+		verifiedAt := item.VerifiedAt
+		if verifiedAt.IsZero() {
+			verifiedAt = time.Now().UTC()
+		}
+		s.verifications[verificationID(item.CardID, item.Sector, keyType)] = Verification{
+			CardID: item.CardID, Sector: item.Sector, KeyType: keyType, KeyID: record.ID, VerifiedAt: verifiedAt,
+		}
+	}
 	return nil
+}
+
+func parsePersistedKeyType(value string) (nfc.KeyType, error) {
+	switch strings.ToUpper(strings.TrimSpace(value)) {
+	case "A":
+		return nfc.KeyTypeA, nil
+	case "B":
+		return nfc.KeyTypeB, nil
+	default:
+		return 0, fmt.Errorf("unsupported persisted key type %q", value)
+	}
 }
 
 func (s *Store) Save(path string) error {
@@ -527,6 +591,12 @@ func (s *Store) Save(path string) error {
 		if len(item.Sources) != 0 {
 			stored.Keys = append(stored.Keys, item)
 		}
+	}
+	for _, verification := range s.Verifications() {
+		stored.Verifications = append(stored.Verifications, persistedVerification{
+			CardID: verification.CardID, Sector: verification.Sector,
+			KeyType: keyTypeName(verification.KeyType), KeyID: verification.KeyID, VerifiedAt: verification.VerifiedAt,
+		})
 	}
 	encoded, err := json.MarshalIndent(stored, "", "  ")
 	if err != nil {

@@ -136,13 +136,13 @@ func (r *processRunner) startHeartbeat(ctx context.Context, engine string, start
 			select {
 			case now := <-ticker.C:
 				elapsed := now.Sub(startedAt).Round(time.Second)
-				message := fmt.Sprintf("%s 进程仍在运行：已用时 %s", engine, elapsed)
+				message := fmt.Sprintf("%s process is still running: %s elapsed", engine, elapsed)
 				if deadline, ok := ctx.Deadline(); ok {
 					remaining := deadline.Sub(now).Round(time.Second)
 					if remaining < 0 {
 						remaining = 0
 					}
-					message += fmt.Sprintf("，本阶段超时剩余 %s", remaining)
+					message += fmt.Sprintf(", %s left in this phase timeout", remaining)
 				}
 				emit(AttackEvent{Engine: engine, State: StateRunning, Message: message})
 			case <-ctx.Done():

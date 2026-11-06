@@ -70,15 +70,62 @@ func (s *Service) MFCUKStatus() ExternalEngineStatusDTO {
 }
 
 func (s *Service) StartMFoC(input MFoCStartRequestDTO) (TaskDTO, error) {
-	if s.mfocAttack == nil || s.mfocLocator == nil {
-		return TaskDTO{}, attack.ErrUnavailable
-	}
-	if !input.Authorized {
+	return s.startMFoCFamily(mfoCFamilyMFoC, input.Authorized)
+}
+
+func (s *Service) StartHardnested(input HardnestedStartRequestDTO) (TaskDTO, error) {
+	return s.startMFoCFamily(mfoCFamilyHardnested, input.Authorized)
+}
+
+type mfoCFamily int
+
+const (
+	mfoCFamilyMFoC mfoCFamily = iota
+	mfoCFamilyHardnested
+)
+
+func (s *Service) startMFoCFamily(family mfoCFamily, authorized bool) (TaskDTO, error) {
+	if !authorized {
 		return TaskDTO{}, workflow.ErrMFoCAuthorization
 	}
+	if s.mfocLocator == nil {
+		return TaskDTO{}, attack.ErrUnavailable
+	}
+	if family == mfoCFamilyHardnested {
+		if s.hardnestedAttack == nil {
+			return TaskDTO{}, attack.ErrUnavailable
+		}
+	} else if s.mfocAttack == nil {
+		return TaskDTO{}, attack.ErrUnavailable
+	}
+	kind, name, label := "mfoc", "MFOC nested key recovery", "MFOC"
+	timeout := 30 * time.Minute
+	capabilityErr := workflow.ErrMFoCNested
+	capability := func(capabilities device.Capabilities) bool { return capabilities.Nested }
+	available := func(ctx context.Context) error {
+		return attack.NewMFoCEngine(s.mfocLocator, attack.MFoCInvocation{}).Available(ctx)
+	}
+	run := func(ctx context.Context, request workflow.MFoCRequest, emit func(attack.AttackEvent)) (workflow.MFoCResult, error) {
+		return s.mfocAttack.Run(ctx, request, emit)
+	}
+	switch family {
+	case mfoCFamilyHardnested:
+		kind, name, label = "hardnested", "Hardnested key recovery", "Hardnested"
+		timeout = 6 * time.Hour
+		capabilityErr = workflow.ErrHardnestedCapability
+		capability = func(capabilities device.Capabilities) bool { return capabilities.Hardnested }
+		available = s.hardnestedAttack.Available
+		run = func(ctx context.Context, request workflow.MFoCRequest, emit func(attack.AttackEvent)) (workflow.MFoCResult, error) {
+			return s.hardnestedAttack.Run(ctx, workflow.HardnestedRequest{
+				TaskID: request.TaskID, Card: request.Card, Device: request.Device, Authorized: request.Authorized,
+				Timeout: request.Timeout, TemporaryPolicy: request.TemporaryPolicy,
+			}, emit)
+		}
+	}
+
 	availabilityCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if err := attack.NewMFoCEngine(s.mfocLocator, attack.MFoCInvocation{}).Available(availabilityCtx); err != nil {
+	if err := available(availabilityCtx); err != nil {
 		return TaskDTO{}, err
 	}
 	snapshot := s.deviceManager.Snapshot()
@@ -91,20 +138,20 @@ func (s *Service) StartMFoC(input MFoCStartRequestDTO) (TaskDTO, error) {
 	if snapshot.Card == nil {
 		return TaskDTO{}, ErrCardRequired
 	}
-	if !snapshot.Capabilities.Nested {
-		return TaskDTO{}, workflow.ErrMFoCNested
+	if !capability(snapshot.Capabilities) {
+		return TaskDTO{}, capabilityErr
 	}
 	card := snapshot.Card.Clone()
 	if len(s.keyStore.Verified(keys.CardID(card))) == 0 {
 		return TaskDTO{}, workflow.ErrMFoCSeedRequired
 	}
 	deviceInfo := snapshot.Device
-	return s.startOperation("mfoc", "MFOC nested key recovery", func(ctx context.Context, taskID string) error {
-		result, runErr := s.mfocAttack.Run(ctx, workflow.MFoCRequest{
+	return s.startOperation(kind, name, func(ctx context.Context, taskID string) error {
+		result, runErr := run(ctx, workflow.MFoCRequest{
 			TaskID: taskID, Card: card, Device: deviceInfo, Authorized: true,
-			Timeout: 30 * time.Minute, TemporaryPolicy: attack.CleanupAlways,
+			Timeout: timeout, TemporaryPolicy: attack.CleanupAlways,
 		}, func(event attack.AttackEvent) {
-			s.emitOperation(attackEventDTO(taskID, "mfoc", event))
+			s.emitOperation(attackEventDTO(taskID, kind, event))
 		})
 		report := MFoCResultDTO{
 			OutputValidated: result.External.Validated, Claimed: len(result.Claims), Added: result.Added,
@@ -121,7 +168,7 @@ func (s *Service) StartMFoC(input MFoCStartRequestDTO) (TaskDTO, error) {
 			report.FilledBytes, report.DataConflicts, report.KeyConflicts, runErr = s.readAndMergeAttackResult(ctx, card, deviceInfo)
 			if runErr == nil {
 				workbench := s.emitWorkbench()
-				s.emitOperation(TaskEventDetailDTO{TaskID: taskID, Kind: "mfoc", Type: TaskEventProgress, Phase: string(attack.StateMergingResult), Message: "re-read with libnfc and merged into the workbench", Workbench: &workbench})
+				s.emitOperation(TaskEventDetailDTO{TaskID: taskID, Kind: kind, Type: TaskEventProgress, Phase: string(attack.StateMergingResult), Message: "re-read with libnfc and merged into the workbench", Workbench: &workbench})
 			}
 		}
 		exitCode := result.External.ExitCode
@@ -130,9 +177,9 @@ func (s *Service) StartMFoC(input MFoCStartRequestDTO) (TaskDTO, error) {
 			recoveryError = result.External.RecoveryError.Error()
 		}
 		s.emitOperation(TaskEventDetailDTO{
-			TaskID: taskID, Kind: "mfoc", Type: TaskEventProgress, Phase: string(result.External.State),
+			TaskID: taskID, Kind: kind, Type: TaskEventProgress, Phase: string(result.External.State),
 			Engine: result.External.Engine, Version: result.External.Version, ExitCode: &exitCode, RecoveryError: recoveryError, MFoC: &report,
-			Message: fmt.Sprintf("MFOC: claimed %d, marked %d new keys verified, %d conflicts, %d failed re-verification", report.Claimed, report.Added, report.Conflicts, report.Rejected),
+			Message: fmt.Sprintf("%s: claimed %d, marked %d new keys verified, %d conflicts, %d failed re-verification", label, report.Claimed, report.Added, report.Conflicts, report.Rejected),
 		})
 		return runErr
 	})

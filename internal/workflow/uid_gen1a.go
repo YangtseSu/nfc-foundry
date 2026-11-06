@@ -52,14 +52,14 @@ func (w *Gen1AUIDWriter) Write(ctx context.Context, request UIDFallbackRequest, 
 		if event.Message == "" {
 			return
 		}
-		message := "正在执行 Gen1A 写入"
+		message := "running the Gen1A write"
 		switch event.State {
 		case attack.StateReleasingDevice:
-			message = "正在释放读卡器并切换到 Gen1A 写入"
+			message = "releasing the reader and switching to the Gen1A write"
 		case attack.StateStarting, attack.StateRunning:
-			message = "正在发送 Gen1A 解锁与 block 0 写入序列"
+			message = "sending the Gen1A unlock and block 0 write sequence"
 		case attack.StateReopeningDevice:
-			message = "正在重新打开读卡器"
+			message = "reopening the reader"
 		}
 		emit(UIDWriteEvent{Phase: UIDWriteFallback, Message: message})
 	})
@@ -67,7 +67,7 @@ func (w *Gen1AUIDWriter) Write(ctx context.Context, request UIDFallbackRequest, 
 		return err
 	}
 	if result.RecoveryError != nil {
-		return errors.Join(errors.New("Gen1A 写入后无法重新打开读卡器"), result.RecoveryError)
+		return errors.Join(errors.New("the reader could not be reopened after the Gen1A write"), result.RecoveryError)
 	}
 	if emit != nil {
 		emit(UIDWriteEvent{Phase: UIDWriteFallback, Message: describeGen1AResult(result.Stdout, result.Stderr)})
@@ -79,12 +79,12 @@ func describeGen1AResult(stdout, stderr []byte) string {
 	output := bytes.Join([][]byte{stdout, stderr}, []byte{'\n'})
 	switch {
 	case bytes.Contains(output, []byte("Unlock command [1/2]: failed")):
-		return "Gen1A 诊断：卡片未响应 7-bit 0x40 解锁命令，不支持该后门或已锁定"
+		return "Gen1A diagnostic: the card did not answer the 7-bit 0x40 unlock command; the backdoor is absent or locked"
 	case bytes.Contains(output, []byte("Unlock command [2/2]: failed")):
-		return "Gen1A 诊断：卡片响应了第一步，但拒绝 0x43 解锁命令"
+		return "Gen1A diagnostic: the card answered step 1 but refused the 0x43 unlock command"
 	case bytes.Contains(output, []byte("Card unlocked")):
-		return "Gen1A 诊断：卡片已接受后门解锁，写入结果将以重新寻卡和完整 block 0 回读为准"
+		return "Gen1A diagnostic: the card accepted the backdoor unlock; the write result is decided by reselection and a full block 0 readback"
 	default:
-		return "Gen1A 诊断：工具未报告明确的解锁结果，写入结果将以重新寻卡和完整 block 0 回读为准"
+		return "Gen1A diagnostic: the tool did not report an explicit unlock result; the write result is decided by reselection and a full block 0 readback"
 	}
 }

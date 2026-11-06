@@ -59,6 +59,7 @@ func TestServiceRefreshConnectAndCardEvents(t *testing.T) {
 		OpenTimeout:       20 * time.Millisecond,
 		RemovalMisses:     2,
 		ReconnectBackoffs: []time.Duration{time.Millisecond},
+		LockDir:           t.TempDir(),
 	})
 	service := &Service{
 		emitter:       emitter,

@@ -1,4 +1,4 @@
-.PHONY: fmt test vet i18n-check ui-test reuse check dev gui-build build package release-manifest external-engine-fixture toolchain-check libnfc-ng-check libnfc-ng-build libnfc-ng-verify libnfc-ng-smoke libnfc-ng-repeatability-check libnfc-ng-hardware-smoke libnfc-binding-test libnfc-binding-hardware-smoke libnfc-classic-hardware-test libnfc-dump-hardware-test libnfc-dump-restore-hardware-test mfoc-check mfoc-build mfoc-verify mfcuk-check mfcuk-build mfcuk-verify hardnested-check hardnested-build hardnested-verify
+.PHONY: fmt test vet i18n-check ui-test reuse check dev gui-build cli-build build package release-manifest external-engine-fixture toolchain-check libnfc-ng-check libnfc-ng-build libnfc-ng-verify libnfc-ng-smoke libnfc-ng-repeatability-check libnfc-ng-hardware-smoke libnfc-binding-test libnfc-binding-hardware-smoke libnfc-classic-hardware-test libnfc-dump-hardware-test libnfc-dump-restore-hardware-test mfoc-check mfoc-build mfoc-verify mfcuk-check mfcuk-build mfcuk-verify hardnested-check hardnested-build hardnested-verify
 
 GO ?= go
 LIBNFC_PLATFORM ?= linux-amd64
@@ -42,7 +42,13 @@ gui-build:
 	mkdir -p build/bin
 	env $(NATIVE_ENV) $(GO) build -trimpath -tags "$(NATIVE_TAGS)" -ldflags "$(RELEASE_LDFLAGS)" -o build/bin/nfc-foundry .
 
-build: gui-build
+cli-build:
+	@test -f "$(LIBNFC_SDK_DIR)/lib/pkgconfig/libnfc-ng.pc" || (echo "libnfc-ng SDK is missing; run make libnfc-ng-build first" >&2; exit 2)
+	@test -d "$(LIBNFC_RUNTIME_DIR)" || (echo "libnfc-ng runtime is missing; run make libnfc-ng-build first" >&2; exit 2)
+	mkdir -p build/bin
+	env $(NATIVE_ENV) $(GO) build -trimpath -tags "$(NATIVE_TAGS)" -ldflags "$(RELEASE_LDFLAGS)" -o build/bin/nfctl ./cmd/nfctl
+
+build: gui-build cli-build
 	./scripts/package-runtime.sh build/bin/nfc-foundry
 
 package: build mfoc-build mfcuk-build hardnested-build

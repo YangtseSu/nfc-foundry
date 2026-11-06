@@ -28,3 +28,5 @@ jobs:
         run: reuse lint
       - name: Build application
         run: go build -trimpath .
+      - name: Build CLI
+        run: go build -trimpath -o /tmp/nfctl ./cmd/nfctl

@@ -255,7 +255,7 @@ func TestCoordinatorIntegrationTransfersRealManagerOwnership(t *testing.T) {
 	reader := mock.NewReader()
 	manager := device.NewManager(mock.NewEnumerator(nil, nil), func() nfc.Reader { return reader }, nil, device.Config{
 		PollInterval: time.Millisecond, PollTimeout: 20 * time.Millisecond, OpenTimeout: 20 * time.Millisecond,
-		RemovalMisses: 2, ReconnectBackoffs: []time.Duration{time.Millisecond},
+		RemovalMisses: 2, ReconnectBackoffs: []time.Duration{time.Millisecond}, LockDir: t.TempDir(),
 	})
 	connString := "pn532_uart:/dev/integration with spaces"
 	if err := manager.Connect(context.Background(), connString); err != nil {
@@ -283,7 +283,7 @@ func TestCoordinatorReselectsExpectedCardBeforeProcessLaunch(t *testing.T) {
 	reader.SetCardResult(nfc.CardInfo{UID: []byte{9, 9, 9, 9}, ATQA: [2]byte{4, 0}, SAK: 0x08}, nil)
 	manager := device.NewManager(mock.NewEnumerator(nil, nil), func() nfc.Reader { return reader }, nil, device.Config{
 		PollInterval: time.Hour, PollTimeout: time.Second, OpenTimeout: time.Second,
-		RemovalMisses: 2, ReconnectBackoffs: []time.Duration{time.Millisecond},
+		RemovalMisses: 2, ReconnectBackoffs: []time.Duration{time.Millisecond}, LockDir: t.TempDir(),
 	})
 	if err := manager.Connect(context.Background(), "pn532_uart:/dev/card-swap"); err != nil {
 		t.Fatal(err)

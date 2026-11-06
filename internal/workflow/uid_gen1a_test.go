@@ -13,8 +13,8 @@ func TestDescribeGen1AResultDistinguishesUnlockStages(t *testing.T) {
 	}{
 		{name: "first command rejected", output: "Warning: Unlock command [1/2]: failed / not acknowledged.", want: "7-bit 0x40"},
 		{name: "second command rejected", output: "Warning: Unlock command [2/2]: failed / not acknowledged.", want: "0x43"},
-		{name: "unlocked", output: "Card unlocked", want: "已接受后门解锁"},
-		{name: "unknown", output: "NFC reader opened", want: "未报告明确"},
+		{name: "unlocked", output: "Card unlocked", want: "accepted the backdoor unlock"},
+		{name: "unknown", output: "NFC reader opened", want: "did not report an explicit unlock result"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

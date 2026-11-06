@@ -114,7 +114,7 @@ func (e *KeyRecoveryError) Error() string {
 	if e == nil {
 		return "<nil>"
 	}
-	return fmt.Sprintf("密钥恢复第 %d/%d 步（%s）失败：%v", e.Step, KeyRecoveryTotalSteps, recoveryStageLabel(e.Stage), e.Cause)
+	return fmt.Sprintf("key recovery step %d/%d (%s) failed: %v", e.Step, KeyRecoveryTotalSteps, recoveryStageLabel(e.Stage), e.Cause)
 }
 
 func (e *KeyRecoveryError) Unwrap() error { return e.Cause }
@@ -157,24 +157,24 @@ func (s *KeyRecoveryService) Run(ctx context.Context, request KeyRecoveryRequest
 	request.Card = request.Card.Clone()
 	result := KeyRecoveryResult{Card: request.Card.Clone(), Steps: newKeyRecoverySteps()}
 	if ctx == nil || s == nil || s.scanner == nil || s.keys == nil || s.reader == nil {
-		return failKeyRecovery(result, 1, KeyRecoveryCommonKeys, errors.New("密钥恢复服务未配置"))
+		return failKeyRecovery(result, 1, KeyRecoveryCommonKeys, errors.New("key recovery service is not configured"))
 	}
 	if !request.Authorized {
-		return failKeyRecovery(result, 1, KeyRecoveryCommonKeys, errors.New("必须确认卡片已获授权"))
+		return failKeyRecovery(result, 1, KeyRecoveryCommonKeys, errors.New("the card must be confirmed as authorized"))
 	}
 	layout, err := layoutForCard(request.Card)
 	if err != nil {
-		return failKeyRecovery(result, 1, KeyRecoveryCommonKeys, errors.New("仅支持 MIFARE Classic 1K/4K"))
+		return failKeyRecovery(result, 1, KeyRecoveryCommonKeys, errors.New("only MIFARE Classic 1K/4K is supported"))
 	}
 	result.TotalSectors, _ = layout.SectorCount()
 	emitter := keyRecoveryEmitter(emit)
 
-	updateRecoveryStep(&result, emitter, 1, KeyRecoveryRunning, 0, false, "第 1/5 步：扫描历史记录、用户字典和常见密钥")
+	updateRecoveryStep(&result, emitter, 1, KeyRecoveryRunning, 0, false, "step 1/5: scanning history, the user dictionary, and common keys")
 	result.Scan, err = s.scanner.Scan(ctx, KeyScanRequest{Card: request.Card}, func(progress KeyScanProgress) {
 		emitter(KeyRecoveryEvent{
 			Step: 1, Stage: KeyRecoveryCommonKeys, Status: KeyRecoveryRunning,
 			Progress: recoveryScanProgress(layout, progress.Sector, progress.KeyType),
-			Message:  fmt.Sprintf("第 1/5 步：Sector %d Key %s，已尝试 %d，已找到 %d", progress.Sector, recoveryKeyTypeName(progress.KeyType), progress.Attempted, progress.Found),
+			Message:  fmt.Sprintf("step 1/5: sector %d key %s, %d tried, %d found", progress.Sector, recoveryKeyTypeName(progress.KeyType), progress.Attempted, progress.Found),
 			Sector:   progress.Sector, KeyType: progress.KeyType, KeyTypeSet: true,
 			Attempted: progress.Attempted, Found: progress.Found,
 		})
@@ -183,12 +183,12 @@ func (s *KeyRecoveryService) Run(ctx context.Context, request KeyRecoveryRequest
 		return failAndEmitKeyRecovery(result, emitter, 1, KeyRecoveryCommonKeys, err)
 	}
 	refreshRecoveryCoverage(&result, s.keys, layout)
-	updateRecoveryStep(&result, emitter, 1, KeyRecoveryCompleted, 20, false, fmt.Sprintf("第 1/5 步完成：%d/%d 个扇区已有可验证密钥", result.CoveredSectors, result.TotalSectors))
+	updateRecoveryStep(&result, emitter, 1, KeyRecoveryCompleted, 20, false, fmt.Sprintf("step 1/5 complete: %d/%d sectors have a verifiable key", result.CoveredSectors, result.TotalSectors))
 
 	var nestedErr error
 	if result.CoveredSectors == 0 {
 		if s.mfcuk == nil || nfc.InferCardType(request.Card) != nfc.CardTypeMIFAREClassic1K || !device.CapabilitiesFor(request.Device).Darkside {
-			reason := errors.New("没有可用种子密钥，且当前卡片或读卡器不能运行 Darkside")
+			reason := errors.New("no seed key is available and the current card or reader cannot run Darkside")
 			return failAndEmitKeyRecovery(result, emitter, 2, KeyRecoveryDarkside, reason)
 		}
 		darksideTimeout := request.DarksideTimeout
@@ -199,7 +199,7 @@ func (s *KeyRecoveryService) Run(ctx context.Context, request KeyRecoveryRequest
 		if nestedTimeout <= 0 {
 			nestedTimeout = defaultRecoveryNestedTimeout
 		}
-		updateRecoveryStep(&result, emitter, 2, KeyRecoveryRunning, 0, true, fmt.Sprintf("第 2/5 步：Darkside 正在获取第一把密钥，最长运行 %s", darksideTimeout))
+		updateRecoveryStep(&result, emitter, 2, KeyRecoveryRunning, 0, true, fmt.Sprintf("step 2/5: Darkside is recovering the first key, maximum %s", darksideTimeout))
 		result.MFCUK, err = s.mfcuk.Run(ctx, MFCUKPipelineRequest{
 			TaskID: request.TaskID + "-darkside", Card: request.Card, Device: request.Device, Authorized: true,
 			Timeout: darksideTimeout + nestedTimeout + 5*time.Minute, MFCUKTimeout: darksideTimeout,
@@ -209,16 +209,16 @@ func (s *KeyRecoveryService) Run(ctx context.Context, request KeyRecoveryRequest
 			if event.Engine == "mfoc" || event.State == attack.StateMFoCStage {
 				step, stage = 3, KeyRecoveryNested
 				if result.Steps[2].Status == KeyRecoveryPending {
-					updateRecoveryStep(&result, emitter, 2, KeyRecoveryCompleted, 40, false, "第 2/5 步完成：Darkside 种子密钥已通过 libnfc 验证")
+					updateRecoveryStep(&result, emitter, 2, KeyRecoveryCompleted, 40, false, "step 2/5 complete: Darkside seed verified by libnfc")
 					result.Steps[2].Status = KeyRecoveryRunning
 				}
 			}
 			copy := event
-			emitter(KeyRecoveryEvent{Step: step, Stage: stage, Status: KeyRecoveryRunning, Indeterminate: true, Message: fmt.Sprintf("第 %d/5 步：%s", step, event.Message), Attack: &copy})
+			emitter(KeyRecoveryEvent{Step: step, Stage: stage, Status: KeyRecoveryRunning, Indeterminate: true, Message: fmt.Sprintf("step %d/5: %s", step, event.Message), Attack: &copy})
 		})
 		refreshRecoveryCoverage(&result, s.keys, layout)
 		if result.CoveredSectors == 0 {
-			return failAndEmitKeyRecovery(result, emitter, 2, KeyRecoveryDarkside, errOr(err, errors.New("Darkside 未能获得通过 libnfc 验证的种子密钥")))
+			return failAndEmitKeyRecovery(result, emitter, 2, KeyRecoveryDarkside, errOr(err, errors.New("Darkside produced no seed key accepted by libnfc verification")))
 		}
 		if err != nil && isRecoveryCancellation(err) {
 			step, stage := 2, KeyRecoveryDarkside
@@ -228,41 +228,41 @@ func (s *KeyRecoveryService) Run(ctx context.Context, request KeyRecoveryRequest
 			return failAndEmitKeyRecovery(result, emitter, step, stage, err)
 		}
 		if result.Steps[1].Status != KeyRecoveryCompleted {
-			updateRecoveryStep(&result, emitter, 2, KeyRecoveryCompleted, 40, false, "第 2/5 步完成：Darkside 种子密钥已通过 libnfc 验证")
+			updateRecoveryStep(&result, emitter, 2, KeyRecoveryCompleted, 40, false, "step 2/5 complete: Darkside seed verified by libnfc")
 		}
 		if err != nil {
 			nestedErr = err
-			updateRecoveryStep(&result, emitter, 3, KeyRecoveryFailed, 60, false, "第 3/5 步失败："+err.Error())
+			updateRecoveryStep(&result, emitter, 3, KeyRecoveryFailed, 60, false, "step 3/5 failed: "+err.Error())
 		} else {
-			updateRecoveryStep(&result, emitter, 3, KeyRecoveryCompleted, 60, false, "第 3/5 步完成：Nested 已返回并复验结果")
+			updateRecoveryStep(&result, emitter, 3, KeyRecoveryCompleted, 60, false, "step 3/5 complete: Nested returned and its result was re-verified")
 		}
 	} else {
-		updateRecoveryStep(&result, emitter, 2, KeyRecoverySkipped, 40, false, "第 2/5 步跳过：已经有通过验证的种子密钥")
+		updateRecoveryStep(&result, emitter, 2, KeyRecoverySkipped, 40, false, "step 2/5 skipped: a verified seed key already exists")
 		if result.CoveredSectors == result.TotalSectors {
-			updateRecoveryStep(&result, emitter, 3, KeyRecoverySkipped, 60, false, "第 3/5 步跳过：每个扇区都已有可验证密钥")
+			updateRecoveryStep(&result, emitter, 3, KeyRecoverySkipped, 60, false, "step 3/5 skipped: every sector already has a verifiable key")
 		} else if s.mfoc == nil || !device.CapabilitiesFor(request.Device).Nested {
-			nestedErr = errors.New("当前读卡器未启用 Nested 或 MFOC 不可用")
-			updateRecoveryStep(&result, emitter, 3, KeyRecoveryUnavailable, 60, false, "第 3/5 步不可用："+nestedErr.Error())
+			nestedErr = errors.New("the current reader does not enable Nested or MFOC is unavailable")
+			updateRecoveryStep(&result, emitter, 3, KeyRecoveryUnavailable, 60, false, "step 3/5 unavailable: "+nestedErr.Error())
 		} else {
 			nestedTimeout := request.NestedTimeout
 			if nestedTimeout <= 0 {
 				nestedTimeout = defaultRecoveryNestedTimeout
 			}
-			updateRecoveryStep(&result, emitter, 3, KeyRecoveryRunning, 0, true, fmt.Sprintf("第 3/5 步：Nested 正在恢复剩余密钥，最长运行 %s", nestedTimeout))
+			updateRecoveryStep(&result, emitter, 3, KeyRecoveryRunning, 0, true, fmt.Sprintf("step 3/5: Nested is recovering the remaining keys, maximum %s", nestedTimeout))
 			result.MFoC, nestedErr = s.mfoc.Run(ctx, MFoCRequest{
 				TaskID: request.TaskID + "-nested", Card: request.Card, Device: request.Device, Authorized: true,
 				Timeout: nestedTimeout, TemporaryPolicy: request.TemporaryPolicy,
 			}, func(event attack.AttackEvent) {
 				copy := event
-				emitter(KeyRecoveryEvent{Step: 3, Stage: KeyRecoveryNested, Status: KeyRecoveryRunning, Indeterminate: true, Message: "第 3/5 步：" + event.Message, Attack: &copy})
+				emitter(KeyRecoveryEvent{Step: 3, Stage: KeyRecoveryNested, Status: KeyRecoveryRunning, Indeterminate: true, Message: "step 3/5: " + event.Message, Attack: &copy})
 			})
 			if nestedErr != nil {
 				if isRecoveryCancellation(nestedErr) {
 					return failAndEmitKeyRecovery(result, emitter, 3, KeyRecoveryNested, nestedErr)
 				}
-				updateRecoveryStep(&result, emitter, 3, KeyRecoveryFailed, 60, false, "第 3/5 步失败："+nestedErr.Error())
+				updateRecoveryStep(&result, emitter, 3, KeyRecoveryFailed, 60, false, "step 3/5 failed: "+nestedErr.Error())
 			} else {
-				updateRecoveryStep(&result, emitter, 3, KeyRecoveryCompleted, 60, false, "第 3/5 步完成：Nested 已返回并复验结果")
+				updateRecoveryStep(&result, emitter, 3, KeyRecoveryCompleted, 60, false, "step 3/5 complete: Nested returned and its result was re-verified")
 			}
 		}
 	}
@@ -272,9 +272,9 @@ func (s *KeyRecoveryService) Run(ctx context.Context, request KeyRecoveryRequest
 
 	refreshRecoveryCoverage(&result, s.keys, layout)
 	if result.CoveredSectors == result.TotalSectors {
-		updateRecoveryStep(&result, emitter, 4, KeyRecoverySkipped, 80, false, "第 4/5 步跳过：当前密钥覆盖已足够，无需 Hardnested")
+		updateRecoveryStep(&result, emitter, 4, KeyRecoverySkipped, 80, false, "step 4/5 skipped: current key coverage is sufficient; Hardnested is unnecessary")
 	} else if s.hardnested == nil || !device.CapabilitiesFor(request.Device).Hardnested {
-		message := "第 4/5 步不可用：当前读卡器未启用 Hardnested"
+		message := "step 4/5 unavailable: the current reader does not enable Hardnested"
 		updateRecoveryStep(&result, emitter, 4, KeyRecoveryUnavailable, 80, false, message)
 		if nestedErr != nil {
 			result.FailedStep, result.FailedStage, result.Reason = 3, KeyRecoveryNested, nestedErr.Error()
@@ -282,7 +282,7 @@ func (s *KeyRecoveryService) Run(ctx context.Context, request KeyRecoveryRequest
 			result.FailedStep, result.FailedStage, result.Reason = 4, KeyRecoveryHardnested, message
 		}
 	} else if availabilityErr := s.hardnested.Available(ctx); availabilityErr != nil {
-		message := "第 4/5 步不可用：" + availabilityErr.Error()
+		message := "step 4/5 unavailable: " + availabilityErr.Error()
 		updateRecoveryStep(&result, emitter, 4, KeyRecoveryUnavailable, 80, false, message)
 		if nestedErr != nil {
 			result.FailedStep, result.FailedStage, result.Reason = 3, KeyRecoveryNested, nestedErr.Error()
@@ -295,14 +295,14 @@ func (s *KeyRecoveryService) Run(ctx context.Context, request KeyRecoveryRequest
 		if hardnestedTimeout <= 0 {
 			hardnestedTimeout = defaultRecoveryHardnestedTimeout
 		}
-		updateRecoveryStep(&result, emitter, 4, KeyRecoveryRunning, 0, true, fmt.Sprintf("第 4/5 步：Hardnested 正在恢复剩余密钥，最长运行 %s", hardnestedTimeout))
+		updateRecoveryStep(&result, emitter, 4, KeyRecoveryRunning, 0, true, fmt.Sprintf("step 4/5: Hardnested is recovering the remaining keys, maximum %s", hardnestedTimeout))
 		var hardnestedErr error
 		result.Hardnested, hardnestedErr = s.hardnested.Run(ctx, HardnestedRequest{
 			TaskID: request.TaskID + "-hardnested", Card: request.Card, Device: request.Device, Authorized: true,
 			Timeout: hardnestedTimeout, TemporaryPolicy: request.TemporaryPolicy,
 		}, func(event attack.AttackEvent) {
 			copy := event
-			emitter(KeyRecoveryEvent{Step: 4, Stage: KeyRecoveryHardnested, Status: KeyRecoveryRunning, Indeterminate: true, Message: "第 4/5 步：" + event.Message, Attack: &copy})
+			emitter(KeyRecoveryEvent{Step: 4, Stage: KeyRecoveryHardnested, Status: KeyRecoveryRunning, Indeterminate: true, Message: "step 4/5: " + event.Message, Attack: &copy})
 		})
 		refreshRecoveryCoverage(&result, s.keys, layout)
 		if hardnestedErr != nil {
@@ -312,15 +312,15 @@ func (s *KeyRecoveryService) Run(ctx context.Context, request KeyRecoveryRequest
 			if result.Hardnested.External.RecoveryError != nil || (!errors.Is(hardnestedErr, attack.ErrTimeout) && fatalCardOperation(hardnestedErr)) {
 				return failAndEmitKeyRecovery(result, emitter, 4, KeyRecoveryHardnested, hardnestedErr)
 			}
-			updateRecoveryStep(&result, emitter, 4, KeyRecoveryFailed, 80, false, "第 4/5 步失败："+hardnestedErr.Error())
+			updateRecoveryStep(&result, emitter, 4, KeyRecoveryFailed, 80, false, "step 4/5 failed: "+hardnestedErr.Error())
 			result.FailedStep, result.FailedStage, result.Reason = 4, KeyRecoveryHardnested, hardnestedErr.Error()
 		} else {
-			updateRecoveryStep(&result, emitter, 4, KeyRecoveryCompleted, 80, false, fmt.Sprintf("第 4/5 步完成：密钥覆盖 %d/%d 个扇区", result.CoveredSectors, result.TotalSectors))
+			updateRecoveryStep(&result, emitter, 4, KeyRecoveryCompleted, 80, false, fmt.Sprintf("step 4/5 complete: key coverage %d/%d sectors", result.CoveredSectors, result.TotalSectors))
 			result.FailedStep, result.FailedStage, result.Reason = 0, "", ""
 		}
 	}
 
-	updateRecoveryStep(&result, emitter, 5, KeyRecoveryRunning, 0, true, "第 5/5 步：使用已验证密钥逐扇区读取并确认实际可读性")
+	updateRecoveryStep(&result, emitter, 5, KeyRecoveryRunning, 0, true, "step 5/5: reading every sector with verified keys to confirm actual readability")
 	result.Read, err = s.reader.ReadCard(ctx, DumpRequest{Card: request.Card, Device: request.Device, Keys: recoverySectorKeys(s.keys, request.Card, layout)})
 	result.DumpComplete = result.Read.Complete()
 	result.ReadableSectors = readableRecoverySectors(result.Read.Dump)
@@ -329,9 +329,9 @@ func (s *KeyRecoveryService) Run(ctx context.Context, request KeyRecoveryRequest
 		return failAndEmitKeyRecovery(result, emitter, 5, KeyRecoveryReadiness, err)
 	}
 	if result.ReadableSectors == 0 {
-		return failAndEmitKeyRecovery(result, emitter, 5, KeyRecoveryReadiness, errors.New("没有扇区通过实际读取验证"))
+		return failAndEmitKeyRecovery(result, emitter, 5, KeyRecoveryReadiness, errors.New("no sector passed a real read verification"))
 	}
-	updateRecoveryStep(&result, emitter, 5, KeyRecoveryCompleted, 100, false, fmt.Sprintf("第 5/5 步完成：实际可读 %d/%d 个扇区", result.ReadableSectors, result.TotalSectors))
+	updateRecoveryStep(&result, emitter, 5, KeyRecoveryCompleted, 100, false, fmt.Sprintf("step 5/5 complete: %d/%d sectors are actually readable", result.ReadableSectors, result.TotalSectors))
 	if result.ReadableSectors == result.TotalSectors {
 		result.Outcome = KeyRecoveryComplete
 		result.FailedStep, result.FailedStage, result.Reason = 0, "", ""
@@ -339,7 +339,7 @@ func (s *KeyRecoveryService) Run(ctx context.Context, request KeyRecoveryRequest
 		result.Outcome = KeyRecoveryPartial
 		if result.Reason == "" {
 			result.FailedStep, result.FailedStage = 5, KeyRecoveryReadiness
-			result.Reason = fmt.Sprintf("仍有 %d 个扇区无法读取", result.TotalSectors-result.ReadableSectors)
+			result.Reason = fmt.Sprintf("%d sectors remain unreadable", result.TotalSectors-result.ReadableSectors)
 		}
 	}
 	return result, nil
@@ -368,7 +368,7 @@ func failAndEmitKeyRecovery(result KeyRecoveryResult, emit func(KeyRecoveryEvent
 		result.Steps[step-1].Status = KeyRecoveryFailed
 		result.Steps[step-1].Message = cause.Error()
 	}
-	emit(KeyRecoveryEvent{Step: step, Stage: stage, Status: KeyRecoveryFailed, Progress: (step - 1) * 20, Message: fmt.Sprintf("第 %d/5 步失败：%v", step, cause)})
+	emit(KeyRecoveryEvent{Step: step, Stage: stage, Status: KeyRecoveryFailed, Progress: (step - 1) * 20, Message: fmt.Sprintf("step %d/5 failed: %v", step, cause)})
 	return result, &KeyRecoveryError{Step: step, Stage: stage, Cause: cause}
 }
 
@@ -457,15 +457,15 @@ func recoveryScanProgress(layout mifare.Layout, sector int, keyType nfc.KeyType)
 func recoveryStageLabel(stage KeyRecoveryStage) string {
 	switch stage {
 	case KeyRecoveryCommonKeys:
-		return "扫描常见密钥"
+		return "scan common keys"
 	case KeyRecoveryDarkside:
-		return "Darkside 获取种子"
+		return "Darkside seed recovery"
 	case KeyRecoveryNested:
-		return "Nested 恢复剩余密钥"
+		return "Nested remaining-key recovery"
 	case KeyRecoveryHardnested:
-		return "Hardnested 恢复"
+		return "Hardnested recovery"
 	case KeyRecoveryReadiness:
-		return "实际读取验证"
+		return "real read verification"
 	default:
 		return string(stage)
 	}

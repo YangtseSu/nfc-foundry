@@ -72,6 +72,12 @@ func (s *Service) ImportKeyDictionary() (ImportReportDTO, error) {
 	if path == "" {
 		return ImportReportDTO{Cancelled: true, Keys: keyDTOs(s.keyStore), Issues: []ImportIssueDTO{}}, nil
 	}
+	return s.ImportKeyDictionaryFile(path)
+}
+
+// ImportKeyDictionaryFile imports a key dictionary without a native file
+// dialog. The CLI uses it for --keys and `nfctl keys import`.
+func (s *Service) ImportKeyDictionaryFile(path string) (ImportReportDTO, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return ImportReportDTO{}, err
@@ -106,6 +112,12 @@ func (s *Service) ExportKeyDictionary() (ExportResultDTO, error) {
 	if path == "" {
 		return ExportResultDTO{Cancelled: true}, nil
 	}
+	return s.ExportKeyDictionaryFile(path)
+}
+
+// ExportKeyDictionaryFile writes the complete key catalog with mode 0600.
+// The CLI calls it directly so a script can choose the destination.
+func (s *Service) ExportKeyDictionaryFile(path string) (ExportResultDTO, error) {
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return ExportResultDTO{}, err
@@ -209,7 +221,17 @@ func (s *Service) LoadDump(discardDirty bool) (WorkbenchDTO, error) {
 	if path == "" {
 		return s.Workbench(), nil
 	}
+	return s.LoadDumpFile(path, discardDirty)
+}
+
+// LoadDumpFile loads a raw dump or NFC Foundry project from an explicit path.
+// It keeps the same validation and key registration as the GUI file dialog.
+func (s *Service) LoadDumpFile(path string, discardDirty bool) (WorkbenchDTO, error) {
+	if s.bench.Snapshot().Dirty && !discardDirty {
+		return WorkbenchDTO{}, ErrDirtyWorkbench
+	}
 	var result workflow.DumpResult
+	var err error
 	if strings.HasSuffix(strings.ToLower(path), ".json") {
 		result, err = workflow.LoadDumpProject(path)
 	} else {
@@ -236,12 +258,6 @@ func (s *Service) SaveDump() (SaveResultDTO, error) {
 		return SaveResultDTO{}, err
 	}
 	complete := result.Complete()
-	if complete {
-		validation := s.bench.ValidateForSave()
-		if !validation.Valid {
-			return SaveResultDTO{}, errors.New(strings.Join(validation.Errors, "; "))
-		}
-	}
 	defaultName, pattern := "card-dump.nfcx.json", "*.json"
 	if complete {
 		defaultName, pattern = "card-dump.bin", "*.bin;*.mfd"
@@ -253,15 +269,40 @@ func (s *Service) SaveDump() (SaveResultDTO, error) {
 	if path == "" {
 		return SaveResultDTO{Cancelled: true}, nil
 	}
-	response := SaveResultDTO{Path: filepath.Base(path)}
+	return s.SaveDumpFile(path)
+}
+
+// SaveDumpFile writes the current workbench image to an explicit path. A .json
+// path always stores an NFC Foundry project, complete or partial. Other paths
+// store a complete raw image plus a metadata sidecar; partial images are
+// rejected so unknown bytes are never presented as card data.
+func (s *Service) SaveDumpFile(path string) (SaveResultDTO, error) {
+	result, err := s.bench.Result()
+	if err != nil {
+		return SaveResultDTO{}, err
+	}
+	complete := result.Complete()
 	if complete {
+		validation := s.bench.ValidateForSave()
+		if !validation.Valid {
+			return SaveResultDTO{}, errors.New(strings.Join(validation.Errors, "; "))
+		}
+	}
+	project := strings.HasSuffix(strings.ToLower(path), ".json")
+	if !complete && !project {
+		return SaveResultDTO{}, nfc.NewError("save dump", nfc.CodeInvalidArgument, "an incomplete dump must be saved as an .json project; unknown bytes are never zero-filled", nil)
+	}
+	response := SaveResultDTO{Path: filepath.Base(path)}
+	if project {
+		if err := workflow.SaveDumpProject(path, result); err != nil {
+			return SaveResultDTO{}, err
+		}
+	} else {
 		sidecar, err := workflow.SaveRawDump(path, result)
 		if err != nil {
 			return SaveResultDTO{}, err
 		}
 		response.Sidecar = filepath.Base(sidecar)
-	} else if err := workflow.SaveDumpProject(path, result); err != nil {
-		return SaveResultDTO{}, err
 	}
 	if err := s.bench.MarkSaved(path); err != nil {
 		return SaveResultDTO{}, err
@@ -292,6 +333,9 @@ func (s *Service) StartKeyScan(discardDirty bool) (TaskDTO, error) {
 			})
 		})
 		s.emitter.Emit(KeyEventName, sectorKeyDTOs(s.keyStore, &card))
+		if persistErr := s.persistKeys(); persistErr != nil && err == nil {
+			err = persistErr
+		}
 		if result.Cancelled {
 			return context.Canceled
 		}
@@ -330,6 +374,7 @@ func (s *Service) StartReadCard(discardDirty bool) (TaskDTO, error) {
 		result, readErr := s.dumpService.ReadCard(ctx, request)
 		if len(result.Dump.Blocks) != 0 {
 			s.registerDumpKeys(result)
+			_ = s.persistKeys()
 			s.emitter.Emit(KeyEventName, sectorKeyDTOs(s.keyStore, &card))
 			if loadErr := s.bench.Load(result, ""); loadErr != nil && readErr == nil {
 				readErr = loadErr
@@ -597,6 +642,7 @@ func (s *Service) registerRestoredKeys(request workflow.RestoreRequest, result w
 	}
 	if changed {
 		s.emitter.Emit(KeyEventName, sectorKeyDTOs(s.keyStore, &request.Card))
+		_ = s.persistKeys()
 	}
 }
 

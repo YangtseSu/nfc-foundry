@@ -13,14 +13,15 @@ the current architecture and migration steps live in [`docs/`](docs/).
 
 ## Status
 
-The native MyGo shell is in place: reader discovery, card facts, Classic block
-viewing, the key catalog, and the task log. The remaining migration is tracked
+The native MyGo shell and the `nfctl` CLI are in place: reader discovery, card
+facts, Classic block operations, dump/restore, key scanning, key recovery, UID
+writes, diagnostics, and the key catalog. The remaining migration is tracked
 in [`docs/plan/`](docs/plan/):
 
-- expose the shared service layer as `nfctl`;
 - replace `nfc-mfsetuid` with native Go Gen1A code;
 - add NFC Forum Type 2 and NDEF support;
-- validate additional readers and card families one at a time.
+- validate additional readers and the APDU foundation;
+- add read-only DESFire support after the APDU layer.
 
 MIFARE Classic 1K/4K is hardware-tested on a PN532 UART reader and on the
 ACR122U through `acr122_usb`. Do not assume the planned features below are
@@ -97,7 +98,7 @@ make build
 make check
 ```
 
-`make build` writes the executable and its private runtime to
+`make build` writes `nfc-foundry`, `nfctl`, and the private runtime to
 `build/nfc-foundry-linux-amd64/`, ready to run without installation.
 
 ## Languages
@@ -110,25 +111,24 @@ localized. Automation should not depend on translated output.
 
 ## CLI
 
-`nfctl` is the planned scripting interface. It shares the same services as the
-GUI:
+`nfctl` is the scripting interface. It shares the same services as the GUI:
 
 ```text
 nfctl list
 nfctl scan [--watch]
 nfctl card info
 nfctl classic read|write|dump|restore|keyscan
-nfctl type2 read|write|dump
-nfctl uid set
 nfctl recover nested|darkside|hardnested
+nfctl uid set
 nfctl diag
-nfctl pn532 shell
-nfctl apdu
-nfctl ndef read|write
+nfctl keys list|add|import|export
 ```
 
-Destructive commands require `--yes`. `--json` output is intended for scripts
-and CI. See [`docs/cli.md`](docs/cli.md) for the stable contract.
+`nfctl type2`, `nfctl ndef`, `nfctl pn532 shell`, and `nfctl apdu` arrive with
+their card/transport phases. Destructive commands require `--yes`; trailer and
+UID writes also require their specific confirmation flags. `--json` and
+`--jsonl` output is intended for scripts and CI. See
+[`docs/cli.md`](docs/cli.md) for the stable contract.
 
 ## Distribution
 

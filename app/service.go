@@ -5,8 +5,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -17,7 +15,6 @@ import (
 	"github.com/YangtseSu/nfc-foundry/internal/diagnostic"
 	"github.com/YangtseSu/nfc-foundry/internal/keys"
 	"github.com/YangtseSu/nfc-foundry/internal/nfc"
-	"github.com/YangtseSu/nfc-foundry/internal/nfc/libnfc"
 	runtimebundle "github.com/YangtseSu/nfc-foundry/internal/runtime"
 	"github.com/YangtseSu/nfc-foundry/internal/terminal"
 	"github.com/YangtseSu/nfc-foundry/internal/workbench"
@@ -119,6 +116,7 @@ type Service struct {
 	keyRecovery      *workflow.KeyRecoveryService
 	dumpService      *workflow.DumpService
 	restoreService   *workflow.RestoreService
+	classicIO        *workflow.ClassicIO
 	uidService       *workflow.UIDService
 	fixtureAttack    *attack.Coordinator
 	mfocAttack       *workflow.MFoCService
@@ -129,60 +127,6 @@ type Service struct {
 	preflights       map[string]writePreflightRecord
 	uidPreflights    map[string]uidPreflightRecord
 	dialogs          FileDialogs
-}
-
-// NewService wires the application service to the current libnfc backend.
-func NewService(emitter EventEmitter) *Service {
-	if emitter == nil {
-		emitter = noopEmitter{}
-	}
-	backend := libnfc.NewBackend()
-	manager := device.NewManager(backend, func() nfc.Reader { return backend.NewReader() }, deviceEventSink{emitter: emitter}, device.DefaultConfig())
-	locator := runtimebundle.DefaultLocator()
-	fixtureAttack := attack.NewCoordinator(manager, attack.NewFixtureEngine(locator))
-	keyStore := keys.NewStore()
-	mfocAttack := workflow.NewMFoCService(manager, manager, keyStore, func(invocation attack.MFoCInvocation) attack.AttackEngine {
-		return attack.NewMFoCEngine(locator, invocation)
-	})
-	mfcukPipeline := workflow.NewMFCUKPipelineService(manager, manager, keyStore, func(invocation attack.MFCUKInvocation) attack.AttackEngine {
-		return attack.NewMFCUKEngine(locator, invocation)
-	}, mfocAttack)
-	hardnestedAttack := workflow.NewHardnestedService(manager, manager, keyStore, func(invocation attack.MFoCInvocation) attack.AttackEngine {
-		return attack.NewHardnestedEngine(locator, invocation)
-	})
-	keyScanner := workflow.NewKeyScanService(manager, keyStore)
-	dumpService := workflow.NewDumpService(manager)
-	keyRecovery := workflow.NewKeyRecoveryService(keyScanner, keyStore, mfcukPipeline, mfocAttack, hardnestedAttack, dumpService)
-	configRoot, _ := os.UserConfigDir()
-	keyStorePath := ""
-	uidBackupRoot := ""
-	if configRoot != "" {
-		keyStorePath = filepath.Join(configRoot, "NFC Foundry", "keys.json")
-		uidBackupRoot = filepath.Join(configRoot, "NFC Foundry", "uid-backups")
-		_ = keyStore.Load(keyStorePath)
-	}
-	return &Service{
-		emitter:          emitter,
-		deviceManager:    manager,
-		deviceTimeout:    5 * time.Second,
-		keyStore:         keyStore,
-		keyStorePath:     keyStorePath,
-		bench:            workbench.New(),
-		keyScanner:       keyScanner,
-		keyRecovery:      keyRecovery,
-		dumpService:      dumpService,
-		restoreService:   workflow.NewRestoreService(manager),
-		uidService:       workflow.NewUIDService(manager, workflow.FileUIDBackupStore{Root: uidBackupRoot}, workflow.NewGen1AUIDWriter(manager, locator)),
-		fixtureAttack:    fixtureAttack,
-		mfocAttack:       mfocAttack,
-		mfcukPipeline:    mfcukPipeline,
-		hardnestedAttack: hardnestedAttack,
-		mfocLocator:      locator,
-		operations:       make(map[string]*operationTask),
-		preflights:       make(map[string]writePreflightRecord),
-		uidPreflights:    make(map[string]uidPreflightRecord),
-		dialogs:          noFileDialogs{},
-	}
 }
 
 // Dashboard returns the latest real device/card snapshot. Memory and key data

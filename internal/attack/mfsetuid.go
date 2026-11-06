@@ -81,7 +81,7 @@ func (e *MFSetUIDEngine) Run(ctx context.Context, request AttackRequest, emit fu
 		return result, &Error{Code: CodeUnavailable, Engine: e.Name(), ExitCode: -1, Version: MFSetUIDVersion, Detail: err.Error(), Cause: err}
 	}
 	if emit != nil {
-		emit(AttackEvent{Engine: e.Name(), State: StateStarting, Message: "正在使用 Gen1A 后门序列写入 block 0"})
+		emit(AttackEvent{Engine: e.Name(), State: StateStarting, Message: "writing block 0 with the Gen1A backdoor sequence"})
 	}
 	process, runErr := e.runner.run(ctx, e.Name(), command{
 		Path: path,

@@ -2,6 +2,7 @@ package keys
 
 import (
 	"bytes"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -86,5 +87,32 @@ func TestExportIncludesAllKnownKeys(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "010203040506\n") || !strings.Contains(output.String(), "FFFFFFFFFFFF\n") {
 		t.Fatalf("export omitted a custom or built-in key: %q", output.String())
+	}
+}
+
+func TestSaveAndLoadPreserveCardScopedVerifications(t *testing.T) {
+	store := NewStore()
+	custom := nfc.Key{1, 2, 3, 4, 5, 6}
+	record, _, err := store.Add(custom, SourceUserInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Verify("01020304/0400/08", 3, nfc.KeyTypeB, record.ID); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "keys.json")
+	if err := store.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	loaded := NewStore()
+	if err := loaded.Load(path); err != nil {
+		t.Fatal(err)
+	}
+	matches := loaded.Verified("01020304/0400/08")
+	if len(matches) != 1 || matches[0].KeyID != record.ID || matches[0].Sector != 3 || matches[0].KeyType != nfc.KeyTypeB {
+		t.Fatalf("loaded verifications = %+v", matches)
+	}
+	if other := loaded.Verified("AABBCCDD/0400/08"); len(other) != 0 {
+		t.Fatalf("verification leaked to another card: %+v", other)
 	}
 }

@@ -39,10 +39,10 @@ remaining migration is:
 1. archive old docs (done);
 2. make `libnfc-ng` a pure library (done);
 3. replace Wails with MyGo (done);
-4. expose `nfctl`;
+4. expose `nfctl` (done);
 5. port Gen1A to Go;
 6. add Type 2/NDEF;
-7. expand validated readers and card families.
+7. expand validated readers and add the APDU foundation.
 
 ## Testing
 

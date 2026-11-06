@@ -142,20 +142,22 @@ func waitUntil(t *testing.T, sink *recordingSink, condition func() bool) {
 	}
 }
 
-func testConfig() device.Config {
+func testConfig(t *testing.T) device.Config {
+	t.Helper()
 	return device.Config{
 		PollInterval:      time.Millisecond,
 		PollTimeout:       100 * time.Millisecond,
 		OpenTimeout:       50 * time.Millisecond,
 		RemovalMisses:     2,
 		ReconnectBackoffs: []time.Duration{time.Millisecond, time.Millisecond, time.Millisecond},
+		LockDir:           t.TempDir(),
 	}
 }
 
 func TestCardEventsAreDeduplicatedAndOrdered(t *testing.T) {
 	reader := newChannelReader()
 	sink := newRecordingSink()
-	manager := device.NewManager(mock.NewEnumerator(nil, nil), func() nfc.Reader { return reader }, sink, testConfig())
+	manager := device.NewManager(mock.NewEnumerator(nil, nil), func() nfc.Reader { return reader }, sink, testConfig(t))
 	if err := manager.Connect(context.Background(), "pn532_uart:/dev/test"); err != nil {
 		t.Fatalf("connect: %v", err)
 	}
@@ -188,7 +190,7 @@ func TestCardEventsAreDeduplicatedAndOrdered(t *testing.T) {
 
 func TestDisconnectCancelsPollingAndPreservesExactConnString(t *testing.T) {
 	reader := newChannelReader()
-	manager := device.NewManager(mock.NewEnumerator(nil, nil), func() nfc.Reader { return reader }, nil, testConfig())
+	manager := device.NewManager(mock.NewEnumerator(nil, nil), func() nfc.Reader { return reader }, nil, testConfig(t))
 	connString := "  pn532_uart:/dev/tty exact  "
 	if err := manager.Connect(context.Background(), connString); err != nil {
 		t.Fatalf("connect: %v", err)
@@ -253,7 +255,7 @@ func TestDisconnectedDeviceUsesFiniteRecovery(t *testing.T) {
 			},
 			card: func(context.Context) error { return nfc.ErrDeviceDisconnected },
 		}
-	}, sink, testConfig())
+	}, sink, testConfig(t))
 	connString := "pn532_uart:/dev/reconnect"
 	if err := manager.Connect(context.Background(), connString); err != nil {
 		t.Fatalf("connect: %v", err)
@@ -262,9 +264,9 @@ func TestDisconnectedDeviceUsesFiniteRecovery(t *testing.T) {
 
 	waitUntil(t, sink, func() bool {
 		state := manager.Snapshot()
-		return state.Status == device.StatusError && state.Detail == "读卡器自动恢复失败"
+		return state.Status == device.StatusError && state.Detail == "reader recovery failed"
 	})
-	if got, want := factoryCalls.Load(), int32(1+len(testConfig().ReconnectBackoffs)); got != want {
+	if got, want := factoryCalls.Load(), int32(1+len(testConfig(t).ReconnectBackoffs)); got != want {
 		t.Fatalf("reader factory calls = %d; want finite %d", got, want)
 	}
 	statuses := sink.statuses()
@@ -289,7 +291,7 @@ func TestPermissionFailureDoesNotReconnect(t *testing.T) {
 			open: func(string) error { return nil },
 			card: func(context.Context) error { return nfc.ErrPermission },
 		}
-	}, sink, testConfig())
+	}, sink, testConfig(t))
 	if err := manager.Connect(context.Background(), "pn532_uart:/dev/denied"); err != nil {
 		t.Fatalf("connect: %v", err)
 	}
@@ -318,7 +320,7 @@ func TestDisconnectedDeviceRecoversAndResumesPolling(t *testing.T) {
 				return nfc.NewError("card info", nfc.CodeTimeout, "", ctx.Err())
 			},
 		}
-	}, sink, testConfig())
+	}, sink, testConfig(t))
 	if err := manager.Connect(context.Background(), "pn532_uart:/dev/recover"); err != nil {
 		t.Fatalf("connect: %v", err)
 	}
@@ -334,7 +336,7 @@ func TestDisconnectedDeviceRecoversAndResumesPolling(t *testing.T) {
 
 func TestWithReaderSerializesConcurrentOperations(t *testing.T) {
 	reader := newChannelReader()
-	manager := device.NewManager(mock.NewEnumerator(nil, nil), func() nfc.Reader { return reader }, nil, testConfig())
+	manager := device.NewManager(mock.NewEnumerator(nil, nil), func() nfc.Reader { return reader }, nil, testConfig(t))
 	if err := manager.Connect(context.Background(), "pn532_uart:/dev/test"); err != nil {
 		t.Fatalf("connect: %v", err)
 	}
@@ -383,7 +385,7 @@ func TestListDevicesPreservesAndDeduplicatesConnStrings(t *testing.T) {
 }
 
 func TestWithReaderRequiresConnection(t *testing.T) {
-	manager := device.NewManager(mock.NewEnumerator(nil, nil), func() nfc.Reader { return newChannelReader() }, nil, testConfig())
+	manager := device.NewManager(mock.NewEnumerator(nil, nil), func() nfc.Reader { return newChannelReader() }, nil, testConfig(t))
 	err := manager.WithReader(context.Background(), func(context.Context, nfc.Reader) error { return nil })
 	if !errors.Is(err, nfc.ErrNotOpen) {
 		t.Fatalf("WithReader error = %v; want ErrNotOpen", err)
@@ -392,7 +394,7 @@ func TestWithReaderRequiresConnection(t *testing.T) {
 
 func TestDisconnectCancelsExclusiveOperation(t *testing.T) {
 	reader := newChannelReader()
-	manager := device.NewManager(mock.NewEnumerator(nil, nil), func() nfc.Reader { return reader }, nil, testConfig())
+	manager := device.NewManager(mock.NewEnumerator(nil, nil), func() nfc.Reader { return reader }, nil, testConfig(t))
 	if err := manager.Connect(context.Background(), "pn532_uart:/dev/test"); err != nil {
 		t.Fatalf("connect: %v", err)
 	}
@@ -473,7 +475,7 @@ func TestWithReleasedDeviceClosesRunsAndReopens(t *testing.T) {
 	manager := device.NewManager(mock.NewEnumerator(nil, nil), func() nfc.Reader {
 		index := int(factoryIndex.Add(1)) - 1
 		return readers[index]
-	}, nil, testConfig())
+	}, nil, testConfig(t))
 	connString := "pn532_uart:/dev/path with spaces/测试"
 	if err := manager.Connect(context.Background(), connString); err != nil {
 		t.Fatalf("connect: %v", err)
@@ -528,7 +530,7 @@ func TestWithReleasedDeviceCancellationStillReopens(t *testing.T) {
 	var factoryIndex atomic.Int32
 	manager := device.NewManager(mock.NewEnumerator(nil, nil), func() nfc.Reader {
 		return readers[int(factoryIndex.Add(1))-1]
-	}, nil, testConfig())
+	}, nil, testConfig(t))
 	if err := manager.Connect(context.Background(), "pn532_uart:/dev/cancel"); err != nil {
 		t.Fatal(err)
 	}

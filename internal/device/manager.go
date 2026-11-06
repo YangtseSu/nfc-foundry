@@ -115,6 +115,9 @@ type Config struct {
 	OpenTimeout       time.Duration
 	RemovalMisses     int
 	ReconnectBackoffs []time.Duration
+	// LockDir selects the cross-process reader lock directory. Empty uses the
+	// per-user runtime directory.
+	LockDir string
 }
 
 func DefaultConfig() Config {
@@ -151,6 +154,7 @@ type Manager struct {
 	pollDone        chan struct{}
 	operationCancel context.CancelFunc
 	externalActive  bool
+	readerLock      *readerLock
 }
 
 func NewManager(enumerator nfc.DeviceEnumerator, newReader ReaderFactory, sink EventSink, config Config) *Manager {
@@ -233,26 +237,38 @@ func (m *Manager) Connect(ctx context.Context, connString string) error {
 	m.lifecycleMu.Lock()
 	defer m.lifecycleMu.Unlock()
 	if err := m.stopSession(); err != nil {
-		m.transition(StatusError, "关闭之前的读卡器失败", err)
+		m.transition(StatusError, "failed to close the previous reader", err)
 		return err
 	}
+	lock, err := acquireReaderLock(m.config.LockDir, connString)
+	if err != nil {
+		m.transition(StatusError, "reader is in use by another process", err)
+		if errors.Is(err, ErrReaderLocked) {
+			return nfc.NewError("connect", nfc.CodeBusy, err.Error(), err)
+		}
+		return nfc.NewError("connect", nfc.CodeIO, "could not acquire exclusive reader access", err)
+	}
+	m.readerLock = lock
 	m.setDevice(nfc.DeviceInfo{Name: connString, ConnString: connString})
-	m.transition(StatusConnecting, "正在连接读卡器", nil)
+	m.transition(StatusConnecting, "connecting to the reader", nil)
 
 	reader := m.newReader()
 	if reader == nil {
+		m.releaseReaderLock()
 		err := nfc.NewError("connect", nfc.CodeInternal, "reader factory returned nil", nil)
-		m.transition(StatusError, "无法创建设备句柄", err)
+		m.transition(StatusError, "could not create a device handle", err)
 		return err
 	}
 	if err := reader.Open(ctx, connString); err != nil {
-		m.transition(StatusError, "连接读卡器失败", err)
+		m.releaseReaderLock()
+		m.transition(StatusError, "failed to connect to the reader", err)
 		return err
 	}
 	if err := ctx.Err(); err != nil {
 		_ = reader.Close()
+		m.releaseReaderLock()
 		mapped := contextNFCError("connect", err)
-		m.transition(StatusError, "连接已取消", mapped)
+		m.transition(StatusError, "connection cancelled", mapped)
 		return mapped
 	}
 
@@ -261,7 +277,7 @@ func (m *Manager) Connect(ctx context.Context, connString string) error {
 	m.reader = reader
 	m.device = deviceInfo
 	m.stateMu.Unlock()
-	m.transition(StatusReady, "读卡器已就绪", nil)
+	m.transition(StatusReady, "reader ready", nil)
 	m.startPolling(reader, connString)
 	return nil
 }
@@ -273,7 +289,7 @@ func (m *Manager) Disconnect() error {
 	m.lifecycleMu.Lock()
 	defer m.lifecycleMu.Unlock()
 	err := m.stopSession()
-	m.transition(StatusDisconnected, "未连接读卡器", nil)
+	m.transition(StatusDisconnected, "reader disconnected", nil)
 	return err
 }
 
@@ -312,7 +328,7 @@ func (m *Manager) WithReader(ctx context.Context, operation func(context.Context
 		}
 		return nfc.NewError("device operation", nfc.CodeNotOpen, "reader is not connected", nil)
 	}
-	m.transition(StatusBusy, "读卡器正在执行独占操作", nil)
+	m.transition(StatusBusy, "reader is running an exclusive operation", nil)
 	err := operation(operationCtx, reader)
 	cancel()
 	m.stateMu.Lock()
@@ -320,7 +336,7 @@ func (m *Manager) WithReader(ctx context.Context, operation func(context.Context
 	stillCurrent := m.reader == reader && m.status == StatusBusy
 	m.stateMu.Unlock()
 	if stillCurrent {
-		m.transition(StatusPolling, "正在检测卡片", nil)
+		m.transition(StatusPolling, "polling for a card", nil)
 	}
 	return err
 }
@@ -377,7 +393,7 @@ func (m *Manager) WithReleasedDevice(ctx context.Context, hooks ReleasedDeviceHo
 	if hooks.Releasing != nil {
 		hooks.Releasing()
 	}
-	m.transition(StatusBusy, "正在释放读卡器给外部任务", nil)
+	m.transition(StatusBusy, "releasing the reader to an external task", nil)
 	if pollCancel != nil {
 		pollCancel()
 	}
@@ -408,7 +424,7 @@ func (m *Manager) WithReleasedDevice(ctx context.Context, hooks ReleasedDeviceHo
 	if hooks.Reopening != nil {
 		hooks.Reopening()
 	}
-	m.transition(StatusRecovering, "正在重新打开读卡器", nil)
+	m.transition(StatusRecovering, "reopening the reader", nil)
 	result.RecoveryError = m.reopenReleasedDevice(deviceInfo.ConnString)
 	return result
 }
@@ -426,7 +442,7 @@ func (m *Manager) startPolling(reader nfc.Reader, connString string) {
 	m.pollCancel = cancel
 	m.pollDone = done
 	m.stateMu.Unlock()
-	m.transition(StatusPolling, "正在检测卡片", nil)
+	m.transition(StatusPolling, "polling for a card", nil)
 	go m.pollLoop(ctx, done, reader, connString)
 }
 
@@ -460,7 +476,7 @@ func (m *Manager) pollLoop(ctx context.Context, done chan struct{}, reader nfc.R
 			}
 		default:
 			m.clearCard()
-			m.transition(StatusError, "寻卡停止", err)
+			m.transition(StatusError, "card polling stopped", err)
 			_ = reader.Close()
 			m.clearReader(reader)
 			return
@@ -490,7 +506,7 @@ func (m *Manager) pollCard(parent context.Context, reader nfc.Reader) error {
 }
 
 func (m *Manager) recover(ctx context.Context, oldReader nfc.Reader, connString string, cause error) (nfc.Reader, bool) {
-	m.transition(StatusError, "读卡器连接中断", cause)
+	m.transition(StatusError, "reader connection lost", cause)
 	m.clearCard()
 	if err := m.acquire(ctx); err != nil {
 		return nil, false
@@ -504,7 +520,7 @@ func (m *Manager) recover(ctx context.Context, oldReader nfc.Reader, connString 
 		if ctx.Err() != nil {
 			return nil, false
 		}
-		m.transition(StatusRecovering, fmt.Sprintf("正在尝试恢复读卡器（%d/%d）", attempt+1, len(m.config.ReconnectBackoffs)), lastErr)
+		m.transition(StatusRecovering, fmt.Sprintf("recovering the reader (%d/%d)", attempt+1, len(m.config.ReconnectBackoffs)), lastErr)
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
@@ -532,8 +548,8 @@ func (m *Manager) recover(ctx context.Context, oldReader nfc.Reader, connString 
 			m.reader = candidate
 			m.device = describeReader(candidate, connString)
 			m.stateMu.Unlock()
-			m.transition(StatusReady, "读卡器已恢复", nil)
-			m.transition(StatusPolling, "正在检测卡片", nil)
+			m.transition(StatusReady, "reader recovered", nil)
+			m.transition(StatusPolling, "polling for a card", nil)
 			return candidate, true
 		}
 		_ = candidate.Close()
@@ -542,7 +558,7 @@ func (m *Manager) recover(ctx context.Context, oldReader nfc.Reader, connString 
 			break
 		}
 	}
-	m.transition(StatusError, "读卡器自动恢复失败", lastErr)
+	m.transition(StatusError, "reader recovery failed", lastErr)
 	return nil, false
 }
 
@@ -573,7 +589,16 @@ func (m *Manager) stopSession() error {
 		m.release()
 	}
 	m.clearCard()
+	m.releaseReaderLock()
 	return err
+}
+
+func (m *Manager) releaseReaderLock() {
+	if m.readerLock == nil {
+		return
+	}
+	_ = m.readerLock.release()
+	m.readerLock = nil
 }
 
 func (m *Manager) cancelActiveOperation() {
@@ -589,7 +614,7 @@ func (m *Manager) reopenReleasedDevice(connString string) error {
 	if m.newReader == nil || connString == "" {
 		err := nfc.NewError("reopen reader", nfc.CodeNotOpen, "selected reader is unavailable", nil)
 		m.clearCard()
-		m.transition(StatusError, "读卡器恢复失败", err)
+		m.transition(StatusError, "reader recovery failed", err)
 		return err
 	}
 	var lastErr error
@@ -611,7 +636,7 @@ func (m *Manager) reopenReleasedDevice(connString string) error {
 			m.reader = candidate
 			m.device = describeReader(candidate, connString)
 			m.stateMu.Unlock()
-			m.transition(StatusReady, "读卡器已重新打开", nil)
+			m.transition(StatusReady, "reader reopened", nil)
 			m.startPolling(candidate, connString)
 			return nil
 		}
@@ -620,13 +645,13 @@ func (m *Manager) reopenReleasedDevice(connString string) error {
 		if !shouldReconnect(err) {
 			break
 		}
-		m.transition(StatusRecovering, fmt.Sprintf("正在重试打开读卡器（%d/%d）", attempt+1, len(m.config.ReconnectBackoffs)+1), err)
+		m.transition(StatusRecovering, fmt.Sprintf("retrying reader open (%d/%d)", attempt+1, len(m.config.ReconnectBackoffs)+1), err)
 	}
 	if lastErr == nil {
 		lastErr = nfc.NewError("reopen reader", nfc.CodeInternal, "reader recovery failed", nil)
 	}
 	m.clearCard()
-	m.transition(StatusError, "读卡器恢复失败", lastErr)
+	m.transition(StatusError, "reader recovery failed", lastErr)
 	return lastErr
 }
 

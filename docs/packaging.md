@@ -136,6 +136,7 @@ without it.
 ```text
 nfc-foundry-<version>-linux-amd64/
   nfc-foundry
+  nfctl
   runtime/linux-amd64/
     libnfcng.so.6
     mfoc
@@ -149,8 +150,8 @@ nfc-foundry-<version>-linux-amd64/
   README.md
 ```
 
-The executable links `libnfcng.so.6` from `runtime/linux-amd64` through an
-`$ORIGIN` rpath. `nfctl` joins the tarball when Phase 03 lands.
+Both executables link `libnfcng.so.6` from `runtime/linux-amd64` through an
+`$ORIGIN` rpath.
 
 The binary tarball is for Arch Linux/current glibc only. State that explicitly;
 do not present it as a generic Linux build.

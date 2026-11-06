@@ -81,7 +81,7 @@ func TestMFCUKProgressParserAcceptsArbitraryChunks(t *testing.T) {
 	progress := false
 	for _, event := range events {
 		combined += event.Data
-		progress = progress || strings.Contains(event.Message, "25 次认证")
+		progress = progress || strings.Contains(event.Message, "25 authentications attempted")
 	}
 	if combined != "NFCX_PROGRESS key=A sector=0 attempts=25\n" || !progress {
 		t.Fatalf("events = %+v", events)
@@ -100,7 +100,7 @@ func TestMFCUKEmitsHeartbeatWhileRecoveryIsSilent(t *testing.T) {
 		t.Fatalf("timeout error=%v", err)
 	}
 	for _, event := range recorder.snapshot() {
-		if strings.Contains(event.Message, "进程仍在运行") && strings.Contains(event.Message, "超时剩余") {
+		if strings.Contains(event.Message, "process is still running") && strings.Contains(event.Message, "left in this phase timeout") {
 			return
 		}
 	}

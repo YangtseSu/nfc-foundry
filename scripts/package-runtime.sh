@@ -15,15 +15,18 @@ esac
 
 APP_PATH="${1:-$REPO_ROOT/build/bin/nfc-foundry}"
 APP_ROOT="${2:-$REPO_ROOT/build/nfc-foundry-linux-amd64}"
+CLI_PATH="${3:-$(dirname "$APP_PATH")/nfctl}"
 SOURCE="$REPO_ROOT/runtime/$PLATFORM"
 DESTINATION="$APP_ROOT/runtime/$PLATFORM"
 
 [[ -x "$APP_PATH" ]] || { echo "application executable is missing: $APP_PATH" >&2; exit 1; }
+[[ -x "$CLI_PATH" ]] || { echo "CLI executable is missing: $CLI_PATH" >&2; exit 1; }
 [[ -d "$SOURCE" ]] || { echo "libnfc-ng runtime is missing; run make libnfc-ng-build first" >&2; exit 1; }
 
 rm -rf "$APP_ROOT"
 mkdir -p "$APP_ROOT" "$DESTINATION"
 install -m 0755 "$APP_PATH" "$APP_ROOT/nfc-foundry"
+install -m 0755 "$CLI_PATH" "$APP_ROOT/nfctl"
 
 for library in "$SOURCE"/libnfcng.so*; do
   [[ -e "$library" || -L "$library" ]] && cp -P "$library" "$DESTINATION/"
@@ -47,4 +50,5 @@ for metadata in source.lock mfoc-source.lock mfcuk-source.lock mfoc-hardnested-s
 done
 
 patchelf --set-rpath '$ORIGIN/runtime/linux-amd64' "$APP_ROOT/nfc-foundry"
+patchelf --set-rpath '$ORIGIN/runtime/linux-amd64' "$APP_ROOT/nfctl"
 echo "packaged unsigned Linux application at $APP_ROOT"

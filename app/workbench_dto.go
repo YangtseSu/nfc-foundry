@@ -250,6 +250,10 @@ type MFoCStartRequestDTO struct {
 	Authorized bool `json:"authorized"`
 }
 
+type HardnestedStartRequestDTO struct {
+	Authorized bool `json:"authorized"`
+}
+
 type MFoCResultDTO struct {
 	OutputValidated bool `json:"outputValidated"`
 	Claimed         int  `json:"claimed"`

@@ -265,7 +265,7 @@ func (s *mfcukStreamEmitter) emitLine(base AttackEvent, line string) {
 	s.emitFn(AttackEvent{
 		Engine:  base.Engine,
 		State:   StateRunning,
-		Message: fmt.Sprintf("MFCUK 正在恢复 Sector %s Key %s：已尝试 %s 次认证", match[2], match[1], match[3]),
+		Message: fmt.Sprintf("MFCUK recovering sector %s key %s: %s authentications attempted", match[2], match[1], match[3]),
 	})
 }
 
