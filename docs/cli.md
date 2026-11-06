@@ -154,8 +154,11 @@ the current/new UID, BCC, and old/new block 0. `--dry-run` stops after
 preflight and does not require `--yes`.
 
 An actual write requires `--yes` and an exact `--confirm-uid` value equal to
-the target UID. The service backs up block 0, writes, reselects, and verifies
-the complete block.
+the target UID. The service backs up block 0, tries the ordinary CUID/Gen2
+manufacturer write, then falls back to the in-process Gen1A unlock on the same
+open reader. It reselects and verifies the complete block 0 before reporting
+success. The reader is not released to an external process; `nfc-mfsetuid` is
+not required.
 
 ### Diagnostics and keys
 

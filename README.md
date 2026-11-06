@@ -15,17 +15,17 @@ the current architecture and migration steps live in [`docs/`](docs/).
 
 The native MyGo shell and the `nfctl` CLI are in place: reader discovery, card
 facts, Classic block operations, dump/restore, key scanning, key recovery, UID
-writes, diagnostics, and the key catalog. The remaining migration is tracked
-in [`docs/plan/`](docs/plan/):
+writes with an in-process Gen1A path, diagnostics, and the key catalog. The
+remaining migration is tracked in [`docs/plan/`](docs/plan/):
 
-- replace `nfc-mfsetuid` with native Go Gen1A code;
 - add NFC Forum Type 2 and NDEF support;
 - validate additional readers and the APDU foundation;
 - add read-only DESFire support after the APDU layer.
 
 MIFARE Classic 1K/4K is hardware-tested on a PN532 UART reader and on the
-ACR122U through `acr122_usb`. Do not assume the planned features below are
-already available.
+ACR122U through `acr122_usb`. Gen1A block 0 writes run natively in Go and are
+hardware-tested on the ACR122U; no `nfc-mfsetuid` executable is shipped or
+required. Do not assume the planned features below are already available.
 
 ## Supported hardware
 
@@ -34,7 +34,7 @@ already available.
 | PN532 + FT232RL | `pn532_uart` via `libnfc-ng` | Tested baseline |
 | Other PN532 UART adapters | `pn532_uart` | Expected compatible; not tested |
 | PN53x USB | `pn53x_usb` | Planned; not validated |
-| ACR122U | `acr122_usb` | Tested: Classic 1K keyscan and complete dump |
+| ACR122U | `acr122_usb` | Tested: Classic 1K keyscan, complete dump/restore, and Gen1A UID write |
 | ACR122U | `acr122_pcsc`, `pcsc` | Not usable for Classic on firmware 2.14; use `acr122_usb` |
 | Other PC/SC readers | `pcsc` | Planned; APDU-oriented |
 

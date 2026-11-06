@@ -14,6 +14,7 @@
 #endif
 
 #define NFCX_MANUFACTURER_WRITE_TIMEOUT_MS 1000
+#define NFCX_RAW_TRANSCEIVE_TIMEOUT_MS 1000
 #define NFCX_RF_RESET_DELAY_MS 20
 
 struct nfcx_handle {
@@ -23,6 +24,7 @@ struct nfcx_handle {
   bool has_target;
   bool authenticated;
   uint8_t authenticated_sector;
+  bool raw_mode;
 };
 
 static _Atomic size_t live_contexts = 0;
@@ -173,6 +175,54 @@ static bool same_target_identity(const nfc_target *left,
   }
   return memcmp(left->nti.nai.abtUid, right->nti.nai.abtUid,
                 left->nti.nai.szUidLen) == 0;
+}
+
+static int set_raw_properties(nfcx_handle *handle) {
+  int result =
+      nfc_device_set_property_bool(handle->device, NP_HANDLE_CRC, false);
+  if (result < 0) {
+    return result;
+  }
+  result = nfc_device_set_property_bool(handle->device, NP_EASY_FRAMING, false);
+  if (result < 0) {
+    return result;
+  }
+  return nfc_device_set_property_bool(handle->device, NP_AUTO_ISO14443_4,
+                                      false);
+}
+
+static int set_ordinary_properties(nfcx_handle *handle) {
+  int first_error = NFCX_OK;
+  int result = nfc_device_set_property_bool(handle->device, NP_HANDLE_CRC,
+                                            true);
+  if (result < 0) {
+    first_error = result;
+  }
+  result = nfc_device_set_property_bool(handle->device, NP_EASY_FRAMING, true);
+  if (result < 0 && first_error == NFCX_OK) {
+    first_error = result;
+  }
+  result = nfc_device_set_property_bool(handle->device, NP_AUTO_ISO14443_4,
+                                        true);
+  if (result < 0 && first_error == NFCX_OK) {
+    first_error = result;
+  }
+  return first_error;
+}
+
+static int require_ordinary_mode(nfcx_handle *handle, char *detail,
+                                 size_t detail_capacity,
+                                 size_t *detail_length) {
+  if (handle == NULL || handle->device == NULL) {
+    set_detail("reader is not open", detail, detail_capacity, detail_length);
+    return NFCX_ERR_NOT_OPEN;
+  }
+  if (handle->raw_mode) {
+    set_detail("reader is in raw mode", detail, detail_capacity,
+               detail_length);
+    return NFCX_ERR_INVALID_ARGUMENT;
+  }
+  return NFCX_OK;
 }
 
 static int classic_block_sector(const nfcx_handle *handle, uint8_t block,
@@ -544,6 +594,11 @@ int nfcx_reader_card_info(nfcx_handle *handle, nfcx_card_info *output,
     set_detail("reader is not open", detail, detail_capacity, detail_length);
     return NFCX_ERR_NOT_OPEN;
   }
+  int mode = require_ordinary_mode(handle, detail, detail_capacity,
+                                   detail_length);
+  if (mode != NFCX_OK) {
+    return mode;
+  }
   if (output == NULL) {
     set_detail("card output is required", detail, detail_capacity,
                detail_length);
@@ -600,6 +655,11 @@ int nfcx_reader_authenticate(nfcx_handle *handle, uint8_t block,
   if (handle == NULL || handle->device == NULL) {
     set_detail("reader is not open", detail, detail_capacity, detail_length);
     return NFCX_ERR_NOT_OPEN;
+  }
+  int mode = require_ordinary_mode(handle, detail, detail_capacity,
+                                   detail_length);
+  if (mode != NFCX_OK) {
+    return mode;
   }
   if (key == NULL || key_length != NFCX_KEY_LENGTH ||
       (key_command != NFCX_MIFARE_AUTH_A &&
@@ -663,6 +723,11 @@ int nfcx_reader_read_block(nfcx_handle *handle, uint8_t block,
                detail_length);
     return NFCX_ERR_INVALID_ARGUMENT;
   }
+  int mode = require_ordinary_mode(handle, detail, detail_capacity,
+                                   detail_length);
+  if (mode != NFCX_OK) {
+    return mode;
+  }
   uint8_t sector = 0;
   int code = require_authenticated_sector(handle, block, &sector, detail,
                                           detail_capacity, detail_length);
@@ -709,6 +774,11 @@ int nfcx_reader_write_block(nfcx_handle *handle, uint8_t block,
                detail_capacity, detail_length);
     return NFCX_ERR_INVALID_ARGUMENT;
   }
+  int mode = require_ordinary_mode(handle, detail, detail_capacity,
+                                   detail_length);
+  if (mode != NFCX_OK) {
+    return mode;
+  }
   uint8_t sector = 0;
   int code = require_authenticated_sector(handle, block, &sector, detail,
                                           detail_capacity, detail_length);
@@ -743,6 +813,11 @@ int nfcx_reader_write_manufacturer_block(
     set_detail("invalid manufacturer block input buffer", detail,
                detail_capacity, detail_length);
     return NFCX_ERR_INVALID_ARGUMENT;
+  }
+  int mode = require_ordinary_mode(handle, detail, detail_capacity,
+                                   detail_length);
+  if (mode != NFCX_OK) {
+    return mode;
   }
   uint8_t sector = 0;
   int code = require_authenticated_sector(handle, 0, &sector, detail,
@@ -802,6 +877,141 @@ int nfcx_reader_write_manufacturer_block(
                detail, detail_capacity, detail_length);
     return map_libnfc_error(result);
   }
+  set_detail(NULL, detail, detail_capacity, detail_length);
+  return NFCX_OK;
+}
+
+int nfcx_reader_set_raw_mode(nfcx_handle *handle, bool enabled, char *detail,
+                             size_t detail_capacity, size_t *detail_length) {
+  if (handle == NULL || handle->device == NULL) {
+    set_detail("reader is not open", detail, detail_capacity, detail_length);
+    return NFCX_ERR_NOT_OPEN;
+  }
+  if (enabled == handle->raw_mode) {
+    set_detail(NULL, detail, detail_capacity, detail_length);
+    return NFCX_OK;
+  }
+
+  if (enabled) {
+    int result = set_raw_properties(handle);
+    if (result < 0) {
+      (void)set_ordinary_properties(handle);
+      return device_result(handle, result, detail, detail_capacity,
+                           detail_length);
+    }
+    handle->raw_mode = true;
+    clear_target(handle);
+    set_detail(NULL, detail, detail_capacity, detail_length);
+    return NFCX_OK;
+  }
+
+  int result = set_ordinary_properties(handle);
+  handle->raw_mode = false;
+  clear_target(handle);
+  int field_result =
+      nfc_device_set_property_bool(handle->device, NP_ACTIVATE_FIELD, false);
+  if (field_result < 0 && result == NFCX_OK) {
+    result = field_result;
+  }
+  sleep_milliseconds(NFCX_RF_RESET_DELAY_MS);
+  field_result =
+      nfc_device_set_property_bool(handle->device, NP_ACTIVATE_FIELD, true);
+  if (field_result < 0 && result == NFCX_OK) {
+    result = field_result;
+  }
+  sleep_milliseconds(NFCX_RF_RESET_DELAY_MS);
+  if (result < 0) {
+    return device_result(handle, result, detail, detail_capacity,
+                         detail_length);
+  }
+  set_detail(NULL, detail, detail_capacity, detail_length);
+  return NFCX_OK;
+}
+
+int nfcx_reader_transceive_bytes(nfcx_handle *handle, const uint8_t *tx,
+                                 size_t tx_length, uint8_t *rx,
+                                 size_t rx_capacity, size_t *rx_length,
+                                 char *detail, size_t detail_capacity,
+                                 size_t *detail_length) {
+  if (rx_length != NULL) {
+    *rx_length = 0;
+  }
+  if (handle == NULL || handle->device == NULL) {
+    set_detail("reader is not open", detail, detail_capacity, detail_length);
+    return NFCX_ERR_NOT_OPEN;
+  }
+  if (!handle->raw_mode) {
+    set_detail("raw mode is not enabled", detail, detail_capacity,
+               detail_length);
+    return NFCX_ERR_INVALID_ARGUMENT;
+  }
+  if (tx == NULL || tx_length == 0 || tx_length > NFCX_FRAME_MAX ||
+      rx == NULL || rx_length == NULL || rx_capacity == 0) {
+    set_detail("invalid raw transceive buffer", detail, detail_capacity,
+               detail_length);
+    return NFCX_ERR_INVALID_ARGUMENT;
+  }
+
+  uint8_t response[NFCX_FRAME_MAX] = {0};
+  int result = nfc_initiator_transceive_bytes(
+      handle->device, tx, tx_length, response, sizeof(response),
+      NFCX_RAW_TRANSCEIVE_TIMEOUT_MS);
+  if (result < 0) {
+    return device_result(handle, result, detail, detail_capacity,
+                         detail_length);
+  }
+  size_t length = (size_t)result;
+  if (length > rx_capacity) {
+    set_detail("raw response exceeds the output buffer", detail,
+               detail_capacity, detail_length);
+    return NFCX_ERR_INTERNAL;
+  }
+  memcpy(rx, response, length);
+  *rx_length = length;
+  set_detail(NULL, detail, detail_capacity, detail_length);
+  return NFCX_OK;
+}
+
+int nfcx_reader_transceive_bits(nfcx_handle *handle, const uint8_t *tx,
+                                size_t tx_length, size_t tx_bits, uint8_t *rx,
+                                size_t rx_capacity, size_t *rx_bits,
+                                char *detail, size_t detail_capacity,
+                                size_t *detail_length) {
+  if (rx_bits != NULL) {
+    *rx_bits = 0;
+  }
+  if (handle == NULL || handle->device == NULL) {
+    set_detail("reader is not open", detail, detail_capacity, detail_length);
+    return NFCX_ERR_NOT_OPEN;
+  }
+  if (!handle->raw_mode) {
+    set_detail("raw mode is not enabled", detail, detail_capacity,
+               detail_length);
+    return NFCX_ERR_INVALID_ARGUMENT;
+  }
+  if (tx == NULL || tx_length == 0 || tx_length > NFCX_FRAME_MAX ||
+      tx_bits == 0 || tx_bits > tx_length * 8 || rx == NULL ||
+      rx_bits == NULL || rx_capacity == 0) {
+    set_detail("invalid raw bit-frame buffer", detail, detail_capacity,
+               detail_length);
+    return NFCX_ERR_INVALID_ARGUMENT;
+  }
+
+  uint8_t response[NFCX_FRAME_MAX] = {0};
+  int result = nfc_initiator_transceive_bits(handle->device, tx, tx_bits, NULL,
+                                             response, sizeof(response), NULL);
+  if (result < 0) {
+    return device_result(handle, result, detail, detail_capacity,
+                         detail_length);
+  }
+  size_t length = ((size_t)result + 7) / 8;
+  if (length > rx_capacity) {
+    set_detail("raw bit response exceeds the output buffer", detail,
+               detail_capacity, detail_length);
+    return NFCX_ERR_INTERNAL;
+  }
+  memcpy(rx, response, length);
+  *rx_bits = (size_t)result;
   set_detail(NULL, detail, detail_capacity, detail_length);
   return NFCX_OK;
 }

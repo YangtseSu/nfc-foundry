@@ -3,12 +3,14 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 #define NFCX_CONNSTRING_MAX 1024
 #define NFCX_UID_MAX 10
 #define NFCX_ATQA_LENGTH 2
 #define NFCX_KEY_LENGTH 6
 #define NFCX_BLOCK_LENGTH 16
+#define NFCX_FRAME_MAX 264
 #define NFCX_DEVICE_NAME_MAX 256
 
 typedef enum {
@@ -124,6 +126,29 @@ int nfcx_reader_write_block(nfcx_handle *handle, uint8_t block,
 int nfcx_reader_write_manufacturer_block(
     nfcx_handle *handle, const uint8_t *data, size_t data_length, char *detail,
     size_t detail_capacity, size_t *detail_length);
+
+// Raw mode is the transport for card protocols that build their own frames.
+// Enabling it disables libnfc CRC and easy framing while leaving PN53x parity
+// generation enabled. Disabling it restores the ordinary properties, clears
+// target/authentication state, and power-cycles the RF field so a rewritten
+// manufacturer block is visible to the next selection.
+int nfcx_reader_set_raw_mode(nfcx_handle *handle, bool enabled, char *detail,
+                             size_t detail_capacity, size_t *detail_length);
+
+// Both raw transceive calls require raw mode. They use a bounded timeout,
+// never perform high-level presence classification or implicit reselection,
+// and copy only into caller-owned buffers.
+int nfcx_reader_transceive_bytes(nfcx_handle *handle, const uint8_t *tx,
+                                 size_t tx_length, uint8_t *rx,
+                                 size_t rx_capacity, size_t *rx_length,
+                                 char *detail, size_t detail_capacity,
+                                 size_t *detail_length);
+
+int nfcx_reader_transceive_bits(nfcx_handle *handle, const uint8_t *tx,
+                                size_t tx_length, size_t tx_bits, uint8_t *rx,
+                                size_t rx_capacity, size_t *rx_bits,
+                                char *detail, size_t detail_capacity,
+                                size_t *detail_length);
 
 int nfcx_smoke(char *detail, size_t detail_capacity, size_t *detail_length);
 void nfcx_get_resource_count(nfcx_resource_count *output);

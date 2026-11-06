@@ -33,7 +33,6 @@ func LockedComponents(repositoryRoot string) ([]runtimebundle.ManifestComponent,
 		component("mfoc", "MFOC", mfoc),
 		component("mfcuk", "MFCUK", mfcuk),
 		component("mfoc-hardnested", "HARDNESTED", hardnested),
-		{ID: "nfc-mfsetuid", Version: libnfc["LIBNFC_VERSION"], Commit: libnfc["LIBNFC_COMMIT"], License: libnfc["LIBNFC_UTILS_LICENSE"], Source: libnfc["LIBNFC_SOURCE_URL"]},
 	}
 	for _, item := range components {
 		if item.Version == "" || item.Commit == "" || item.License == "" || item.Source == "" {

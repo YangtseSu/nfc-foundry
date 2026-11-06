@@ -54,3 +54,13 @@ func (s stubNative) writeBlock(nativeHandle, byte, [nfc.BlockSize]byte) nativeRe
 func (s stubNative) writeManufacturerBlock(nativeHandle, [nfc.BlockSize]byte) nativeResult {
 	return s.unavailable()
 }
+
+func (s stubNative) setRawMode(nativeHandle, bool) nativeResult { return s.unavailable() }
+
+func (s stubNative) transceiveBytes(nativeHandle, []byte) ([]byte, nativeResult) {
+	return nil, s.unavailable()
+}
+
+func (s stubNative) transceiveBits(nativeHandle, []byte, int) ([]byte, int, nativeResult) {
+	return nil, 0, s.unavailable()
+}

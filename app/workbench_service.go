@@ -525,7 +525,7 @@ func (s *Service) PreflightWrite(input WritePreflightRequestDTO) (WritePreflight
 	if uidPlan != nil {
 		preview := uidWritePreviewDTO(*uidPlan)
 		uidDTO = &preview
-		warnings = append(warnings, "UID is written last, after the full dump succeeds; supports CUID/Gen2 and Gen1A special cards on PN532 UART")
+		warnings = append(warnings, "UID is written last, after the full dump succeeds; supports CUID/Gen2 and Gen1A special cards on readers with raw-frame support")
 	}
 	return WritePreflightDTO{
 		Token: token, Mode: mode, Valid: true, Blocks: planned, TrailerBlocks: trailers,

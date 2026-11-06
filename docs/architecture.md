@@ -47,7 +47,8 @@ stable error codes, never libnfc pointers. It provides:
 The core is independent of the GUI and process execution:
 
 - `Reader`/`Transport` interfaces for device access;
-- card-family modules (Classic, Type 2/NTAG, later ISO14443-4/DESFire, FeliCa);
+- card-family modules (Classic with the in-process Gen1A sequence, Type 2/NTAG,
+  later ISO14443-4/DESFire, FeliCa);
 - dump/restore validation, key catalog, key scan, recovery orchestration;
 - the global device manager and lock;
 - external engine adapters and result validation.

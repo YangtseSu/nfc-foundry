@@ -17,7 +17,7 @@ const (
 	UIDWriteBackup    UIDWritePhase = "backup"
 	UIDWriteExecute   UIDWritePhase = "execute"
 	UIDWriteReselect  UIDWritePhase = "reselect"
-	UIDWriteFallback  UIDWritePhase = "gen1a_fallback"
+	UIDWriteGen1A     UIDWritePhase = "gen1a"
 	UIDWriteVerify    UIDWritePhase = "verify"
 	UIDWriteComplete  UIDWritePhase = "complete"
 )
@@ -28,8 +28,8 @@ type UIDWriteEvent struct {
 }
 
 // UIDWriteRequest carries the shared safety facts for the ordinary CUID/Gen2
-// attempt and the optional external Gen1A fallback. Irreversible magic-card
-// configuration commands are deliberately absent.
+// attempt and the in-process Gen1A path. Irreversible magic-card configuration
+// commands are deliberately absent.
 type UIDWriteRequest struct {
 	TaskID         string
 	Card           nfc.CardInfo
@@ -78,21 +78,16 @@ type UIDBackupStore interface {
 type UIDService struct {
 	devices       ReaderExecutor
 	backups       UIDBackupStore
-	fallback      UIDFallbackWriter
 	reselectLimit time.Duration
 	retryDelay    time.Duration
 	now           func() time.Time
 }
 
-func NewUIDService(devices ReaderExecutor, backups UIDBackupStore, fallback ...UIDFallbackWriter) *UIDService {
-	service := &UIDService{
+func NewUIDService(devices ReaderExecutor, backups UIDBackupStore) *UIDService {
+	return &UIDService{
 		devices: devices, backups: backups, reselectLimit: 8 * time.Second,
 		retryDelay: 200 * time.Millisecond, now: func() time.Time { return time.Now().UTC() },
 	}
-	if len(fallback) != 0 {
-		service.fallback = fallback[0]
-	}
-	return service
 }
 
 // Preflight is read-only. It proves that the current card is a 4-byte Classic
@@ -117,7 +112,9 @@ func (s *UIDService) Preflight(ctx context.Context, request UIDWriteRequest) (UI
 }
 
 // Write repeats preflight under one exclusive lease, persists the original
-// block 0, performs the special write, then reselects and verifies the card.
+// block 0, performs the ordinary CUID/Gen2 write, and falls back to the
+// in-process Gen1A backdoor on the same reader. The card is reselected and the
+// complete block 0 is verified before success is reported.
 func (s *UIDService) Write(ctx context.Context, request UIDWriteRequest, emit func(UIDWriteEvent)) (UIDWriteResult, error) {
 	request.Card = request.Card.Clone()
 	request.NewUID = append([]byte(nil), request.NewUID...)
@@ -139,7 +136,6 @@ func (s *UIDService) Write(ctx context.Context, request UIDWriteRequest, emit fu
 	}
 	emit(UIDWriteEvent{Phase: UIDWritePreflight, Message: "reconfirming the card and block 0"})
 
-	var ordinaryErr error
 	err := s.devices.WithReader(ctx, func(operationCtx context.Context, reader nfc.Reader) error {
 		plan, err := buildUIDWritePlan(operationCtx, reader, request)
 		if err != nil {
@@ -183,42 +179,55 @@ func (s *UIDService) Write(ctx context.Context, request UIDWriteRequest, emit fu
 			emit(UIDWriteEvent{Phase: UIDWriteReselect, Message: "reselecting the card and confirming the new UID"})
 		}
 
-		newCard, err := s.waitForNewUID(operationCtx, plan.Card, request.NewUID, reader, s.fallback != nil)
-		if err != nil {
-			if s.fallback != nil && errors.Is(err, errUIDUnchanged) {
-				ordinaryErr = errors.Join(writeErr, err)
-				return nil
+		raw, rawAvailable := reader.(nfc.RawTransceiver)
+		newCard, waitErr := s.waitForNewUID(operationCtx, plan.Card, request.NewUID, reader, rawAvailable)
+		if waitErr != nil {
+			if !rawAvailable || !errors.Is(waitErr, errUIDUnchanged) {
+				if writeErr != nil {
+					return nfc.NewError("verify UID write", nfc.CodeVerificationFailed, "the write response was abnormal and the target UID was not observed after reselection", errors.Join(writeErr, waitErr))
+				}
+				return waitErr
 			}
-			if writeErr != nil {
-				return nfc.NewError("verify UID write", nfc.CodeVerificationFailed, "the write response was abnormal and the target UID was not observed after reselection", errors.Join(writeErr, err))
-			}
-			return err
+			return s.writeGen1A(operationCtx, reader, raw, plan, writeErr, waitErr, &result, emit)
 		}
 		return verifyUIDBlock(operationCtx, reader, newCard, plan, &result, emit)
 	})
 	if err != nil {
 		return result, err
 	}
-	if ordinaryErr != nil {
-		emit(UIDWriteEvent{Phase: UIDWriteFallback, Message: "the ordinary CUID/Gen2 write did not change the UID (" + ordinaryErr.Error() + "); trying the Gen1A path"})
-		fallbackErr := s.fallback.Write(ctx, UIDFallbackRequest{TaskID: request.TaskID, Card: request.Card, Block0: result.NewBlock0}, emit)
-		if fallbackErr != nil {
-			return result, nfc.NewError("write UID", nfc.CodeIO, "neither the ordinary write nor the Gen1A write completed", errors.Join(ordinaryErr, fallbackErr))
-		}
-		err = s.devices.WithReader(ctx, func(operationCtx context.Context, reader nfc.Reader) error {
-			newCard, waitErr := s.waitForNewUID(operationCtx, request.Card, request.NewUID, reader, false)
-			if waitErr != nil {
-				return nfc.NewError("verify Gen1A UID write", nfc.CodeVerificationFailed, "the target UID was not observed after the Gen1A write", errors.Join(ordinaryErr, waitErr))
-			}
-			plan := UIDWritePlan{Card: request.Card.Clone(), OldBlock0: result.OldBlock0, NewBlock0: result.NewBlock0, KeyType: result.KeyType, Key: result.Key}
-			return verifyUIDBlock(operationCtx, reader, newCard, plan, &result, emit)
-		})
-		if err != nil {
-			return result, err
-		}
-	}
 	emit(UIDWriteEvent{Phase: UIDWriteComplete, Message: "UID and the complete block 0 verified"})
 	return result, nil
+}
+
+// writeGen1A runs the backdoor sequence on the reader that already holds the
+// exclusive lease. The reader is not closed or reopened; the caller reselects
+// and verifies this same reader after raw mode has been left.
+func (s *UIDService) writeGen1A(ctx context.Context, reader nfc.Reader, raw nfc.RawTransceiver, plan UIDWritePlan, writeErr, waitErr error, result *UIDWriteResult, emit func(UIDWriteEvent)) error {
+	emit(UIDWriteEvent{Phase: UIDWriteGen1A, Message: "the ordinary CUID/Gen2 write did not change the UID; trying the in-process Gen1A unlock"})
+	if err := selectExpectedCard(ctx, reader, plan.Card); err != nil {
+		return nfc.NewError("Gen1A write", nfc.CodeCardChanged, "the card identity changed before the Gen1A write", errors.Join(writeErr, waitErr, err))
+	}
+	emit(UIDWriteEvent{Phase: UIDWriteGen1A, Message: "sending the Gen1A unlock and block 0 write; the reader stays open"})
+	gen1aErr := mifare.WriteGen1ABlock0(ctx, raw, plan.Card, plan.NewBlock0)
+	if gen1aErr != nil && !errors.Is(gen1aErr, mifare.ErrGen1AWriteUncertain) {
+		code := nfc.CodeUnsupported
+		if category, ok := nfc.ErrorCodeOf(gen1aErr); ok && category != nfc.CodeUnsupported {
+			code = category
+		}
+		detail := "the card did not accept the Gen1A block 0 write; no UID change was observed"
+		if errors.Is(gen1aErr, nfc.ErrUnsupported) && !errors.Is(gen1aErr, mifare.ErrGen1ANotSupported) {
+			detail = "the reader could not run the Gen1A raw-frame sequence; no UID change was observed"
+		}
+		return nfc.NewError("write UID", code, detail, errors.Join(writeErr, waitErr, gen1aErr))
+	}
+	if gen1aErr != nil {
+		emit(UIDWriteEvent{Phase: UIDWriteReselect, Message: "the Gen1A write response was uncertain; reselecting and verifying the actual result"})
+	}
+	newCard, verifyErr := s.waitForNewUID(ctx, plan.Card, result.NewBlock0[0:4], reader, false)
+	if verifyErr != nil {
+		return nfc.NewError("verify Gen1A UID write", nfc.CodeVerificationFailed, "the target UID was not observed after the Gen1A write", errors.Join(writeErr, gen1aErr, verifyErr))
+	}
+	return verifyUIDBlock(ctx, reader, newCard, plan, result, emit)
 }
 
 var errUIDUnchanged = errors.New("UID remained unchanged")

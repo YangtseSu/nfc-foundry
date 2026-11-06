@@ -90,9 +90,6 @@ func engineChecks(ctx context.Context, locator *runtimebundle.Locator) []Check {
 		{id: "mfoc-hardnested", name: "MFOC-Hardnested", version: attack.HardnestedVersion, check: func(ctx context.Context) error {
 			return attack.NewHardnestedEngine(locator, attack.MFoCInvocation{}).Available(ctx)
 		}},
-		{id: "nfc-mfsetuid", name: "nfc-mfsetuid", version: attack.MFSetUIDVersion, check: func(ctx context.Context) error {
-			return attack.NewMFSetUIDEngine(locator, attack.MFSetUIDInvocation{}).Available(ctx)
-		}},
 	}
 	result := make([]Check, 0, len(checks))
 	for _, candidate := range checks {

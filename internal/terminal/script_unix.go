@@ -59,10 +59,6 @@ Common commands (run only against cards/systems you own or are authorized to tes
   mfoc -h
   mfcuk -h
   mfoc-hardnested -h
-  nfc-mfsetuid -h
-
-  # DANGEROUS: nfc-mfsetuid writes a full 16-byte block 0 to compatible cards.
-  # Inspect its help and make a backup before considering it.
 
 The PATH change applies only to this terminal. Close it, then reconnect the reader in NFCX.
 

@@ -86,8 +86,11 @@ No card was present on the reader during this session, so the card-dependent
 CLI commands could not be repeated on hardware. Phase 02 already recorded
 Classic keyscan, complete dump, and verified write acceptance on this reader;
 Phase 03 exercises the same `app.Service`/workflow paths through the CLI with
-the mock transport. A PN532 UART card run remains the final hardware gate for
-the CLI.
+the mock transport. Phase 04 later repeated the card-dependent CLI commands on
+this ACR122U with a Gen1A test card: `classic keyscan`, complete `classic
+dump`, full `classic restore`, and `uid set` in both directions passed with
+verified readback. A PN532 UART CLI repeat remains desirable but is no longer
+the only hardware gate.
 
 ## Problems encountered
 
@@ -119,7 +122,8 @@ the CLI.
 
 ## Blockers and follow-up
 
-- Final card-dependent CLI acceptance on the PN532 UART setup waits for a card
-  on the validated reader.
-- Native Go Gen1A remains Phase 04; the existing `nfc-mfsetuid` fallback is
-  still referenced by the UID path and diagnostic until that phase lands.
+- Final card-dependent CLI acceptance was completed in Phase 04 on the
+  attached ACR122U: `classic keyscan`, complete `classic dump`, and `uid set`
+  in both directions with verified readback all passed.
+- Native Go Gen1A landed in Phase 04. The external `nfc-mfsetuid` fallback,
+  diagnostic check, and release metadata entry were removed.

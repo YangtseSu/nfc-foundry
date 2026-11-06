@@ -95,7 +95,7 @@ func NewServiceWithOptions(options Options) *Service {
 		dumpService:      dumpService,
 		restoreService:   workflow.NewRestoreService(manager),
 		classicIO:        workflow.NewClassicIO(manager),
-		uidService:       workflow.NewUIDService(manager, workflow.FileUIDBackupStore{Root: uidBackupRoot}, workflow.NewGen1AUIDWriter(manager, locator)),
+		uidService:       workflow.NewUIDService(manager, workflow.FileUIDBackupStore{Root: uidBackupRoot}),
 		fixtureAttack:    attack.NewCoordinator(manager, attack.NewFixtureEngine(locator)),
 		mfocAttack:       mfocAttack,
 		mfcukPipeline:    mfcukPipeline,

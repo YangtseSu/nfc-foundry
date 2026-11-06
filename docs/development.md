@@ -40,7 +40,7 @@ remaining migration is:
 2. make `libnfc-ng` a pure library (done);
 3. replace Wails with MyGo (done);
 4. expose `nfctl` (done);
-5. port Gen1A to Go;
+5. port Gen1A to Go (done);
 6. add Type 2/NDEF;
 7. expand validated readers and add the APDU foundation.
 

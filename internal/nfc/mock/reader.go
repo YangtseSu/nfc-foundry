@@ -19,6 +19,9 @@ type ReaderFuncs struct {
 	WriteBlock        func(context.Context, byte, [nfc.BlockSize]byte) error
 	WriteTrailer      func(context.Context, byte, [nfc.BlockSize]byte) error
 	WriteManufacturer func(context.Context, [nfc.BlockSize]byte) error
+	SetRawMode        func(context.Context, bool) error
+	TransceiveBytes   func(context.Context, []byte) ([]byte, error)
+	TransceiveBits    func(context.Context, []byte, int) ([]byte, int, error)
 }
 
 // Reader is a thread-safe, configurable implementation of nfc.Reader.
@@ -196,6 +199,51 @@ func (r *Reader) WriteManufacturerBlock(ctx context.Context, data [nfc.BlockSize
 	return nfc.NewError("write manufacturer block", nfc.CodeUnsupported, "mock manufacturer block write is not configured", nil)
 }
 
+func (r *Reader) SetRawMode(ctx context.Context, enabled bool) error {
+	r.opMu.Lock()
+	defer r.opMu.Unlock()
+	if err := contextError(ctx, "set raw mode"); err != nil {
+		return err
+	}
+	if !r.isOpen() {
+		return nfc.NewError("set raw mode", nfc.CodeNotOpen, "", nil)
+	}
+	if r.funcs.SetRawMode != nil {
+		return r.funcs.SetRawMode(ctx, enabled)
+	}
+	return nfc.NewError("set raw mode", nfc.CodeUnsupported, "mock raw mode is not configured", nil)
+}
+
+func (r *Reader) TransceiveBytes(ctx context.Context, tx []byte) ([]byte, error) {
+	r.opMu.Lock()
+	defer r.opMu.Unlock()
+	if err := contextError(ctx, "transceive bytes"); err != nil {
+		return nil, err
+	}
+	if !r.isOpen() {
+		return nil, nfc.NewError("transceive bytes", nfc.CodeNotOpen, "", nil)
+	}
+	if r.funcs.TransceiveBytes != nil {
+		return r.funcs.TransceiveBytes(ctx, tx)
+	}
+	return nil, nfc.NewError("transceive bytes", nfc.CodeUnsupported, "mock raw transceive is not configured", nil)
+}
+
+func (r *Reader) TransceiveBits(ctx context.Context, tx []byte, txBits int) ([]byte, int, error) {
+	r.opMu.Lock()
+	defer r.opMu.Unlock()
+	if err := contextError(ctx, "transceive bits"); err != nil {
+		return nil, 0, err
+	}
+	if !r.isOpen() {
+		return nil, 0, nfc.NewError("transceive bits", nfc.CodeNotOpen, "", nil)
+	}
+	if r.funcs.TransceiveBits != nil {
+		return r.funcs.TransceiveBits(ctx, tx, txBits)
+	}
+	return nil, 0, nfc.NewError("transceive bits", nfc.CodeUnsupported, "mock raw transceive is not configured", nil)
+}
+
 func (r *Reader) isOpen() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -219,3 +267,4 @@ func contextError(ctx context.Context, op string) error {
 var _ nfc.Reader = (*Reader)(nil)
 var _ nfc.ClassicTrailerWriter = (*Reader)(nil)
 var _ nfc.ClassicManufacturerWriter = (*Reader)(nil)
+var _ nfc.RawTransceiver = (*Reader)(nil)

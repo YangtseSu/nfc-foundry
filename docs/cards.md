@@ -37,6 +37,14 @@ Rules:
 - Abort if UID, ATQA, or SAK changes mid-operation.
 - Keep `.mfd`/`.bin` compatibility; metadata goes in a sidecar JSON file.
 
+Block 0 writes are limited to 4-byte UID Classic 1K special cards. The workflow
+first attempts the ordinary CUID/Gen2 manufacturer write, then the in-process
+Gen1A unlock when that leaves the UID unchanged. It backs up block 0 before
+either attempt, keeps the reader open, and requires the new UID and complete
+block 0 readback after reselection. This path is hardware-validated on an
+ACR122U (`acr122_usb`) with a Gen1A test card. FUID/UFUID cards and non-4-byte
+UIDs are not supported.
+
 ## Type 2: Ultralight and NTAG21x
 
 Type 2 tags use 4-byte pages and plain `READ (0x30)`, `FAST_READ (0x3A)`,

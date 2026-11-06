@@ -164,9 +164,9 @@ shell tests already cover the view transitions.
 - The recovery engines are built by the `nfc-foundry-git` package and resolve
   from `/usr/lib/nfc-foundry`; the three versions expected by `internal/attack`
   were verified in a packaged self-check.
-- `nfc-mfsetuid` remains referenced by the diagnostic and release metadata
-  until Phase 04 replaces Gen1A with native Go. It is not bundled by the new
-  runtime package.
+- `nfc-mfsetuid` was referenced by the diagnostic and release metadata until
+  Phase 04 replaced Gen1A with native Go. It was not bundled by the new runtime
+  package.
 - `nfctl` is still Phase 03.
 
 ## Deviations from the spec

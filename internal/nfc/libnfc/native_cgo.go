@@ -17,6 +17,7 @@ import (
 
 const (
 	maxEnumeratedDevices = 32
+	maxRawFrame          = 264
 	detailBufferSize     = 512
 )
 
@@ -251,6 +252,88 @@ func (cgoNative) writeManufacturerBlock(handle nativeHandle, data [nfc.BlockSize
 			length,
 		)
 	})
+}
+
+func (cgoNative) setRawMode(handle nativeHandle, enabled bool) nativeResult {
+	native, result := cgoHandleFrom(handle)
+	if result.code != nativeOK {
+		return result
+	}
+	return callWithDetail(func(detail *C.char, capacity C.size_t, length *C.size_t) C.int {
+		return C.nfcx_reader_set_raw_mode(
+			native.ptr,
+			C.bool(enabled),
+			detail,
+			capacity,
+			length,
+		)
+	})
+}
+
+func (cgoNative) transceiveBytes(handle nativeHandle, tx []byte) ([]byte, nativeResult) {
+	native, result := cgoHandleFrom(handle)
+	if result.code != nativeOK {
+		return nil, result
+	}
+	if len(tx) == 0 || len(tx) > maxRawFrame {
+		return nil, nativeResult{code: nativeInvalidArgument, detail: "raw frame is empty or exceeds the shim limit"}
+	}
+	output := make([]byte, maxRawFrame)
+	var outputLength C.size_t
+	result = callWithDetail(func(detail *C.char, capacity C.size_t, length *C.size_t) C.int {
+		return C.nfcx_reader_transceive_bytes(
+			native.ptr,
+			(*C.uint8_t)(unsafe.Pointer(&tx[0])),
+			C.size_t(len(tx)),
+			(*C.uint8_t)(unsafe.Pointer(&output[0])),
+			C.size_t(len(output)),
+			&outputLength,
+			detail,
+			capacity,
+			length,
+		)
+	})
+	if result.code != nativeOK {
+		return nil, result
+	}
+	if outputLength > C.size_t(len(output)) {
+		return nil, nativeResult{code: nativeInternal, detail: "C shim returned an invalid raw response length"}
+	}
+	return output[:int(outputLength)], result
+}
+
+func (cgoNative) transceiveBits(handle nativeHandle, tx []byte, txBits int) ([]byte, int, nativeResult) {
+	native, result := cgoHandleFrom(handle)
+	if result.code != nativeOK {
+		return nil, 0, result
+	}
+	if len(tx) == 0 || len(tx) > maxRawFrame || txBits <= 0 || txBits > len(tx)*8 {
+		return nil, 0, nativeResult{code: nativeInvalidArgument, detail: "invalid raw bit frame"}
+	}
+	output := make([]byte, maxRawFrame)
+	var outputBits C.size_t
+	result = callWithDetail(func(detail *C.char, capacity C.size_t, length *C.size_t) C.int {
+		return C.nfcx_reader_transceive_bits(
+			native.ptr,
+			(*C.uint8_t)(unsafe.Pointer(&tx[0])),
+			C.size_t(len(tx)),
+			C.size_t(txBits),
+			(*C.uint8_t)(unsafe.Pointer(&output[0])),
+			C.size_t(len(output)),
+			&outputBits,
+			detail,
+			capacity,
+			length,
+		)
+	})
+	if result.code != nativeOK {
+		return nil, 0, result
+	}
+	if outputBits > C.size_t(len(output)*8) {
+		return nil, 0, nativeResult{code: nativeInternal, detail: "C shim returned an invalid raw bit count"}
+	}
+	length := (int(outputBits) + 7) / 8
+	return output[:length], int(outputBits), result
 }
 
 func cgoHandleFrom(handle nativeHandle) (*cgoHandle, nativeResult) {

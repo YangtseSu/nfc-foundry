@@ -91,6 +91,17 @@ type ClassicManufacturerWriter interface {
 	WriteManufacturerBlock(ctx context.Context, data [BlockSize]byte) error
 }
 
+// RawTransceiver is an intentionally separate capability for card protocols
+// that need bit-level or manually framed commands, such as the Gen1A backdoor.
+// The caller must enable raw mode for the whole sequence and disable it on
+// every exit path. Implementations must keep ordinary card operations and the
+// raw frame stream mutually exclusive.
+type RawTransceiver interface {
+	SetRawMode(ctx context.Context, enabled bool) error
+	TransceiveBytes(ctx context.Context, tx []byte) ([]byte, error)
+	TransceiveBits(ctx context.Context, tx []byte, txBits int) ([]byte, int, error)
+}
+
 // DeviceDescriber is an optional Reader capability used after Open when a
 // backend can provide a friendly device name that enumeration cannot obtain.
 type DeviceDescriber interface {

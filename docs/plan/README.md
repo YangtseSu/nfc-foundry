@@ -8,7 +8,7 @@ Status legend: `done`, `in progress`, `pending`, `conditional`.
 | 01 | `libnfc-ng` pure library, Linux build, AUR package | done |
 | 02 | MyGo shell and service decoupling | done |
 | 03 | `nfctl` unified CLI | done |
-| 04 | Native Go Gen1A; remove `nfc-mfsetuid` | pending |
+| 04 | Native Go Gen1A; remove `nfc-mfsetuid` | done |
 | 05 | Type 2 / NTAG21x and NDEF | pending |
 | 06 | Reader expansion and capability matrix | pending |
 | 07 | ISO14443-4 APDU and DESFire read | pending |

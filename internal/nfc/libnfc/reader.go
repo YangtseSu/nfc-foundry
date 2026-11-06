@@ -285,6 +285,60 @@ func (r *Reader) WriteManufacturerBlock(ctx context.Context, data [nfc.BlockSize
 	return err
 }
 
+// SetRawMode enters or leaves the raw-frame transport used by bit-level card
+// protocols. Leaving raw mode always clears the selected card so the next
+// CardInfo performs a fresh selection.
+func (r *Reader) SetRawMode(ctx context.Context, enabled bool) error {
+	handle, finish, err := r.beginOperation(ctx, "set raw mode")
+	if err != nil {
+		return err
+	}
+	defer finish()
+	result := r.native.setRawMode(handle, enabled)
+	err = operationError(ctx, "set raw mode", result)
+	if !enabled || err == nil {
+		r.clearSelectedCard()
+	}
+	return err
+}
+
+// TransceiveBytes sends one manually framed byte sequence after the caller has
+// enabled raw mode. The returned buffer is owned by Go.
+func (r *Reader) TransceiveBytes(ctx context.Context, tx []byte) ([]byte, error) {
+	if len(tx) == 0 {
+		return nil, nfc.NewError("transceive bytes", nfc.CodeInvalidArgument, "raw frame must not be empty", nil)
+	}
+	handle, finish, err := r.beginOperation(ctx, "transceive bytes")
+	if err != nil {
+		return nil, err
+	}
+	defer finish()
+	response, result := r.native.transceiveBytes(handle, tx)
+	if err := operationError(ctx, "transceive bytes", result); err != nil {
+		return nil, err
+	}
+	return response, nil
+}
+
+// TransceiveBits sends a bit-level frame after the caller has enabled raw
+// mode. It returns the copied response bytes and the number of valid response
+// bits.
+func (r *Reader) TransceiveBits(ctx context.Context, tx []byte, txBits int) ([]byte, int, error) {
+	if len(tx) == 0 || txBits <= 0 || txBits > len(tx)*8 {
+		return nil, 0, nfc.NewError("transceive bits", nfc.CodeInvalidArgument, "invalid raw bit frame", nil)
+	}
+	handle, finish, err := r.beginOperation(ctx, "transceive bits")
+	if err != nil {
+		return nil, 0, err
+	}
+	defer finish()
+	response, bits, result := r.native.transceiveBits(handle, tx, txBits)
+	if err := operationError(ctx, "transceive bits", result); err != nil {
+		return nil, 0, err
+	}
+	return response, bits, nil
+}
+
 // WriteSectorTrailer performs only the native 16-byte trailer write. The
 // protected restore workflow is responsible for access-bit validation,
 // identity checks, authentication with the current key, and verification with
@@ -311,6 +365,8 @@ func (r *Reader) WriteSectorTrailer(ctx context.Context, block byte, data [nfc.B
 }
 
 var _ nfc.ClassicTrailerWriter = (*Reader)(nil)
+var _ nfc.ClassicManufacturerWriter = (*Reader)(nil)
+var _ nfc.RawTransceiver = (*Reader)(nil)
 
 func (r *Reader) selectedLayoutForBlock(op string, block byte) (mifare.Layout, error) {
 	r.stateMu.Lock()

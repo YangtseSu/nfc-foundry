@@ -28,6 +28,16 @@ type fakeNative struct {
 	readResult              nativeResult
 	writeResult             nativeResult
 	manufacturerWriteResult nativeResult
+	rawModeResult           nativeResult
+	rawModeState            bool
+	rawModeCalls            []bool
+	transceiveBytesResult   nativeResult
+	transceiveBytesResponse []byte
+	transceiveFrames        [][]byte
+	transceiveBitsResult    nativeResult
+	transceiveBitsResponse  []byte
+	transceiveBitsCount     int
+	transceiveBitFrames     []rawBitFrame
 	authBlock               byte
 	authCommand             byte
 	authKey                 nfc.Key
@@ -163,6 +173,41 @@ func (f *fakeNative) writeManufacturerBlock(_ nativeHandle, data [nfc.BlockSize]
 	return f.manufacturerWriteResult
 }
 
+type rawBitFrame struct {
+	data []byte
+	bits int
+}
+
+func (f *fakeNative) setRawMode(_ nativeHandle, enabled bool) nativeResult {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rawModeCalls = append(f.rawModeCalls, enabled)
+	if f.rawModeResult.code == nativeOK {
+		f.rawModeState = enabled
+	}
+	return f.rawModeResult
+}
+
+func (f *fakeNative) transceiveBytes(_ nativeHandle, tx []byte) ([]byte, nativeResult) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.transceiveFrames = append(f.transceiveFrames, append([]byte(nil), tx...))
+	if f.transceiveBytesResult.code != nativeOK {
+		return nil, f.transceiveBytesResult
+	}
+	return append([]byte(nil), f.transceiveBytesResponse...), nativeResult{code: nativeOK}
+}
+
+func (f *fakeNative) transceiveBits(_ nativeHandle, tx []byte, bits int) ([]byte, int, nativeResult) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.transceiveBitFrames = append(f.transceiveBitFrames, rawBitFrame{data: append([]byte(nil), tx...), bits: bits})
+	if f.transceiveBitsResult.code != nativeOK {
+		return nil, 0, f.transceiveBitsResult
+	}
+	return append([]byte(nil), f.transceiveBitsResponse...), f.transceiveBitsCount, nativeResult{code: nativeOK}
+}
+
 func TestReaderAcceptsAndCopiesSupportedUIDLengths(t *testing.T) {
 	for _, uidLength := range []int{4, 7, 10} {
 		t.Run(fmt.Sprintf("%d-byte", uidLength), func(t *testing.T) {
@@ -227,6 +272,76 @@ func TestReaderRejectsInvalidUIDLength(t *testing.T) {
 	}
 	if _, err := reader.CardInfo(context.Background()); !errors.Is(err, nfc.ErrInternal) {
 		t.Fatalf("CardInfo() error = %v; want ErrInternal", err)
+	}
+}
+
+func TestReaderRawModeAndTransceiveBindings(t *testing.T) {
+	native := &fakeNative{
+		card:                    nfc.CardInfo{UID: []byte{1, 2, 3, 4}, ATQA: [2]byte{4, 0}, SAK: 0x08},
+		transceiveBytesResponse: []byte{0x0a},
+		transceiveBitsResponse:  []byte{0x0a},
+		transceiveBitsCount:     4,
+	}
+	reader := (&Backend{native: native}).NewReader()
+	if err := reader.Open(context.Background(), "mock:test"); err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	if _, err := reader.CardInfo(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := reader.SetRawMode(context.Background(), true); err != nil {
+		t.Fatal(err)
+	}
+	response, err := reader.TransceiveBytes(context.Background(), []byte{0x50, 0x00, 0x57, 0xcd})
+	if err != nil || string(response) != "\x0a" {
+		t.Fatalf("TransceiveBytes() = %x, %v", response, err)
+	}
+	bitsResponse, bits, err := reader.TransceiveBits(context.Background(), []byte{0x40}, 7)
+	if err != nil || bits != 4 || string(bitsResponse) != "\x0a" {
+		t.Fatalf("TransceiveBits() = %x, %d, %v", bitsResponse, bits, err)
+	}
+	if err := reader.SetRawMode(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+
+	native.mu.Lock()
+	defer native.mu.Unlock()
+	if len(native.rawModeCalls) != 2 || !native.rawModeCalls[0] || native.rawModeCalls[1] {
+		t.Fatalf("raw mode calls = %v", native.rawModeCalls)
+	}
+	if len(native.transceiveFrames) != 1 || string(native.transceiveFrames[0]) != "\x50\x00\x57\xcd" {
+		t.Fatalf("byte frames = %x", native.transceiveFrames)
+	}
+	if len(native.transceiveBitFrames) != 1 || native.transceiveBitFrames[0].bits != 7 || string(native.transceiveBitFrames[0].data) != "\x40" {
+		t.Fatalf("bit frames = %+v", native.transceiveBitFrames)
+	}
+}
+
+func TestReaderRejectsInvalidRawBitFrameBeforeNativeCall(t *testing.T) {
+	native := &fakeNative{}
+	reader := (&Backend{native: native}).NewReader()
+	if err := reader.Open(context.Background(), "mock:test"); err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	if _, _, err := reader.TransceiveBits(context.Background(), []byte{0x40}, 9); !errors.Is(err, nfc.ErrInvalidArgument) {
+		t.Fatalf("TransceiveBits() error = %v; want ErrInvalidArgument", err)
+	}
+	if _, err := reader.TransceiveBytes(context.Background(), nil); !errors.Is(err, nfc.ErrInvalidArgument) {
+		t.Fatalf("TransceiveBytes() error = %v; want ErrInvalidArgument", err)
+	}
+	native.mu.Lock()
+	defer native.mu.Unlock()
+	if len(native.transceiveFrames) != 0 || len(native.transceiveBitFrames) != 0 {
+		t.Fatal("invalid raw frames reached the native driver")
+	}
+}
+
+func TestReaderRawModeRequiresOpen(t *testing.T) {
+	reader := (&Backend{native: &fakeNative{}}).NewReader()
+	if err := reader.SetRawMode(context.Background(), true); !errors.Is(err, nfc.ErrNotOpen) {
+		t.Fatalf("SetRawMode() error = %v; want ErrNotOpen", err)
 	}
 }
 

@@ -15,7 +15,7 @@ func TestLockedComponentsUsesRepositoryLocks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(components) != 5 || components[0].ID != "libnfc" || components[0].Version != "1.8.0" {
+	if len(components) != 4 || components[0].ID != "libnfc" || components[0].Version != "1.8.0" {
 		t.Fatalf("components = %#v", components)
 	}
 }

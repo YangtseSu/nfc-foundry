@@ -107,4 +107,7 @@ type nativeDriver interface {
 	readBlock(nativeHandle, byte) ([nfc.BlockSize]byte, nativeResult)
 	writeBlock(nativeHandle, byte, [nfc.BlockSize]byte) nativeResult
 	writeManufacturerBlock(nativeHandle, [nfc.BlockSize]byte) nativeResult
+	setRawMode(nativeHandle, bool) nativeResult
+	transceiveBytes(nativeHandle, []byte) ([]byte, nativeResult)
+	transceiveBits(nativeHandle, []byte, int) ([]byte, int, nativeResult)
 }

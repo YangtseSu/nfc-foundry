@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/YangtseSu/nfc-foundry/internal/mifare"
 	"github.com/YangtseSu/nfc-foundry/internal/nfc"
 	"github.com/YangtseSu/nfc-foundry/internal/nfc/mock"
 	"github.com/YangtseSu/nfc-foundry/internal/workflow"
@@ -56,6 +57,13 @@ func uidFixtureReader(t *testing.T, order *[]string, changeUID bool, writeErr er
 				afterWrite()
 			}
 			return writeErr
+		},
+		SetRawMode: func(context.Context, bool) error { return nil },
+		TransceiveBytes: func(context.Context, []byte) ([]byte, error) {
+			return nil, nfc.NewError("transceive bytes", nfc.CodeTimeout, "no response", nil)
+		},
+		TransceiveBits: func(context.Context, []byte, int) ([]byte, int, error) {
+			return nil, 0, nfc.NewError("transceive bits", nfc.CodeTimeout, "no response", nil)
 		},
 	})
 	return reader, card, block0
@@ -158,7 +166,7 @@ func TestUIDWriteTreatsAcceptedCommandWithoutNewUIDAsFailure(t *testing.T) {
 	result, err := service.Write(ctx, workflow.UIDWriteRequest{
 		Card: card, NewUID: []byte{5, 6, 7, 8}, Sector0Keys: workflow.SectorKeys{Sector: 0, KeyA: &key},
 	}, nil)
-	if !errors.Is(err, nfc.ErrTimeout) || result.Verified || result.BackupPath == "" {
+	if !errors.Is(err, mifare.ErrGen1ANotSupported) || result.Verified || result.BackupPath == "" {
 		t.Fatalf("result=%+v error=%v", result, err)
 	}
 }
