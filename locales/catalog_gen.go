@@ -2313,3 +2313,787 @@ func Type2NDEFURIPlaceholder() string { return In(i18n.Locale()).Type2NDEFURIPla
 func (msgs Messages) Type2NDEFURIPlaceholder() string {
 	return Catalog.Format(msgs.locale, "type2NDEFURIPlaceholder", nil)
 }
+
+// NdefTplText says "Text"
+// in the language the app shows.
+func NdefTplText() string { return In(i18n.Locale()).NdefTplText() }
+
+// NdefTplText says "Text"
+// in the language of msgs.
+func (msgs Messages) NdefTplText() string {
+	return Catalog.Format(msgs.locale, "ndefTplText", nil)
+}
+
+// NdefTplURI says "URL / URI"
+// in the language the app shows.
+func NdefTplURI() string { return In(i18n.Locale()).NdefTplURI() }
+
+// NdefTplURI says "URL / URI"
+// in the language of msgs.
+func (msgs Messages) NdefTplURI() string {
+	return Catalog.Format(msgs.locale, "ndefTplURI", nil)
+}
+
+// NdefTplCustom says "Custom URI"
+// in the language the app shows.
+func NdefTplCustom() string { return In(i18n.Locale()).NdefTplCustom() }
+
+// NdefTplCustom says "Custom URI"
+// in the language of msgs.
+func (msgs Messages) NdefTplCustom() string {
+	return Catalog.Format(msgs.locale, "ndefTplCustom", nil)
+}
+
+// NdefTplSearch says "Search"
+// in the language the app shows.
+func NdefTplSearch() string { return In(i18n.Locale()).NdefTplSearch() }
+
+// NdefTplSearch says "Search"
+// in the language of msgs.
+func (msgs Messages) NdefTplSearch() string {
+	return Catalog.Format(msgs.locale, "ndefTplSearch", nil)
+}
+
+// NdefTplPayment says "Payment link"
+// in the language the app shows.
+func NdefTplPayment() string { return In(i18n.Locale()).NdefTplPayment() }
+
+// NdefTplPayment says "Payment link"
+// in the language of msgs.
+func (msgs Messages) NdefTplPayment() string {
+	return Catalog.Format(msgs.locale, "ndefTplPayment", nil)
+}
+
+// NdefTplSocial says "Social profile"
+// in the language the app shows.
+func NdefTplSocial() string { return In(i18n.Locale()).NdefTplSocial() }
+
+// NdefTplSocial says "Social profile"
+// in the language of msgs.
+func (msgs Messages) NdefTplSocial() string {
+	return Catalog.Format(msgs.locale, "ndefTplSocial", nil)
+}
+
+// NdefTplApp says "Application"
+// in the language the app shows.
+func NdefTplApp() string { return In(i18n.Locale()).NdefTplApp() }
+
+// NdefTplApp says "Application"
+// in the language of msgs.
+func (msgs Messages) NdefTplApp() string {
+	return Catalog.Format(msgs.locale, "ndefTplApp", nil)
+}
+
+// NdefTplEmail says "Email"
+// in the language the app shows.
+func NdefTplEmail() string { return In(i18n.Locale()).NdefTplEmail() }
+
+// NdefTplEmail says "Email"
+// in the language of msgs.
+func (msgs Messages) NdefTplEmail() string {
+	return Catalog.Format(msgs.locale, "ndefTplEmail", nil)
+}
+
+// NdefTplContact says "Contact"
+// in the language the app shows.
+func NdefTplContact() string { return In(i18n.Locale()).NdefTplContact() }
+
+// NdefTplContact says "Contact"
+// in the language of msgs.
+func (msgs Messages) NdefTplContact() string {
+	return Catalog.Format(msgs.locale, "ndefTplContact", nil)
+}
+
+// NdefTplPhone says "Phone"
+// in the language the app shows.
+func NdefTplPhone() string { return In(i18n.Locale()).NdefTplPhone() }
+
+// NdefTplPhone says "Phone"
+// in the language of msgs.
+func (msgs Messages) NdefTplPhone() string {
+	return Catalog.Format(msgs.locale, "ndefTplPhone", nil)
+}
+
+// NdefTplLocation says "Location"
+// in the language the app shows.
+func NdefTplLocation() string { return In(i18n.Locale()).NdefTplLocation() }
+
+// NdefTplLocation says "Location"
+// in the language of msgs.
+func (msgs Messages) NdefTplLocation() string {
+	return Catalog.Format(msgs.locale, "ndefTplLocation", nil)
+}
+
+// NdefTplAddress says "Address"
+// in the language the app shows.
+func NdefTplAddress() string { return In(i18n.Locale()).NdefTplAddress() }
+
+// NdefTplAddress says "Address"
+// in the language of msgs.
+func (msgs Messages) NdefTplAddress() string {
+	return Catalog.Format(msgs.locale, "ndefTplAddress", nil)
+}
+
+// NdefTplBluetooth says "Bluetooth"
+// in the language the app shows.
+func NdefTplBluetooth() string { return In(i18n.Locale()).NdefTplBluetooth() }
+
+// NdefTplBluetooth says "Bluetooth"
+// in the language of msgs.
+func (msgs Messages) NdefTplBluetooth() string {
+	return Catalog.Format(msgs.locale, "ndefTplBluetooth", nil)
+}
+
+// NdefTplWiFi says "Wi-Fi"
+// in the language the app shows.
+func NdefTplWiFi() string { return In(i18n.Locale()).NdefTplWiFi() }
+
+// NdefTplWiFi says "Wi-Fi"
+// in the language of msgs.
+func (msgs Messages) NdefTplWiFi() string {
+	return Catalog.Format(msgs.locale, "ndefTplWiFi", nil)
+}
+
+// NdefTplSmartPoster says "Smart Poster"
+// in the language the app shows.
+func NdefTplSmartPoster() string { return In(i18n.Locale()).NdefTplSmartPoster() }
+
+// NdefTplSmartPoster says "Smart Poster"
+// in the language of msgs.
+func (msgs Messages) NdefTplSmartPoster() string {
+	return Catalog.Format(msgs.locale, "ndefTplSmartPoster", nil)
+}
+
+// NdefFieldText says "Text"
+// in the language the app shows.
+func NdefFieldText() string { return In(i18n.Locale()).NdefFieldText() }
+
+// NdefFieldText says "Text"
+// in the language of msgs.
+func (msgs Messages) NdefFieldText() string {
+	return Catalog.Format(msgs.locale, "ndefFieldText", nil)
+}
+
+// NdefFieldURI says "URL / URI"
+// in the language the app shows.
+func NdefFieldURI() string { return In(i18n.Locale()).NdefFieldURI() }
+
+// NdefFieldURI says "URL / URI"
+// in the language of msgs.
+func (msgs Messages) NdefFieldURI() string {
+	return Catalog.Format(msgs.locale, "ndefFieldURI", nil)
+}
+
+// NdefFieldSearchPrefix says "Search URL prefix"
+// in the language the app shows.
+func NdefFieldSearchPrefix() string { return In(i18n.Locale()).NdefFieldSearchPrefix() }
+
+// NdefFieldSearchPrefix says "Search URL prefix"
+// in the language of msgs.
+func (msgs Messages) NdefFieldSearchPrefix() string {
+	return Catalog.Format(msgs.locale, "ndefFieldSearchPrefix", nil)
+}
+
+// NdefFieldQuery says "Search query"
+// in the language the app shows.
+func NdefFieldQuery() string { return In(i18n.Locale()).NdefFieldQuery() }
+
+// NdefFieldQuery says "Search query"
+// in the language of msgs.
+func (msgs Messages) NdefFieldQuery() string {
+	return Catalog.Format(msgs.locale, "ndefFieldQuery", nil)
+}
+
+// NdefFieldPackage says "Android package"
+// in the language the app shows.
+func NdefFieldPackage() string { return In(i18n.Locale()).NdefFieldPackage() }
+
+// NdefFieldPackage says "Android package"
+// in the language of msgs.
+func (msgs Messages) NdefFieldPackage() string {
+	return Catalog.Format(msgs.locale, "ndefFieldPackage", nil)
+}
+
+// NdefFieldTo says "To"
+// in the language the app shows.
+func NdefFieldTo() string { return In(i18n.Locale()).NdefFieldTo() }
+
+// NdefFieldTo says "To"
+// in the language of msgs.
+func (msgs Messages) NdefFieldTo() string {
+	return Catalog.Format(msgs.locale, "ndefFieldTo", nil)
+}
+
+// NdefFieldSubject says "Subject"
+// in the language the app shows.
+func NdefFieldSubject() string { return In(i18n.Locale()).NdefFieldSubject() }
+
+// NdefFieldSubject says "Subject"
+// in the language of msgs.
+func (msgs Messages) NdefFieldSubject() string {
+	return Catalog.Format(msgs.locale, "ndefFieldSubject", nil)
+}
+
+// NdefFieldBody says "Body"
+// in the language the app shows.
+func NdefFieldBody() string { return In(i18n.Locale()).NdefFieldBody() }
+
+// NdefFieldBody says "Body"
+// in the language of msgs.
+func (msgs Messages) NdefFieldBody() string {
+	return Catalog.Format(msgs.locale, "ndefFieldBody", nil)
+}
+
+// NdefFieldName says "Name"
+// in the language the app shows.
+func NdefFieldName() string { return In(i18n.Locale()).NdefFieldName() }
+
+// NdefFieldName says "Name"
+// in the language of msgs.
+func (msgs Messages) NdefFieldName() string {
+	return Catalog.Format(msgs.locale, "ndefFieldName", nil)
+}
+
+// NdefFieldOrganization says "Organization"
+// in the language the app shows.
+func NdefFieldOrganization() string { return In(i18n.Locale()).NdefFieldOrganization() }
+
+// NdefFieldOrganization says "Organization"
+// in the language of msgs.
+func (msgs Messages) NdefFieldOrganization() string {
+	return Catalog.Format(msgs.locale, "ndefFieldOrganization", nil)
+}
+
+// NdefFieldJobTitle says "Job title"
+// in the language the app shows.
+func NdefFieldJobTitle() string { return In(i18n.Locale()).NdefFieldJobTitle() }
+
+// NdefFieldJobTitle says "Job title"
+// in the language of msgs.
+func (msgs Messages) NdefFieldJobTitle() string {
+	return Catalog.Format(msgs.locale, "ndefFieldJobTitle", nil)
+}
+
+// NdefFieldPhone says "Phone"
+// in the language the app shows.
+func NdefFieldPhone() string { return In(i18n.Locale()).NdefFieldPhone() }
+
+// NdefFieldPhone says "Phone"
+// in the language of msgs.
+func (msgs Messages) NdefFieldPhone() string {
+	return Catalog.Format(msgs.locale, "ndefFieldPhone", nil)
+}
+
+// NdefFieldEmail says "Email"
+// in the language the app shows.
+func NdefFieldEmail() string { return In(i18n.Locale()).NdefFieldEmail() }
+
+// NdefFieldEmail says "Email"
+// in the language of msgs.
+func (msgs Messages) NdefFieldEmail() string {
+	return Catalog.Format(msgs.locale, "ndefFieldEmail", nil)
+}
+
+// NdefFieldAddress says "Address"
+// in the language the app shows.
+func NdefFieldAddress() string { return In(i18n.Locale()).NdefFieldAddress() }
+
+// NdefFieldAddress says "Address"
+// in the language of msgs.
+func (msgs Messages) NdefFieldAddress() string {
+	return Catalog.Format(msgs.locale, "ndefFieldAddress", nil)
+}
+
+// NdefFieldURL says "URL"
+// in the language the app shows.
+func NdefFieldURL() string { return In(i18n.Locale()).NdefFieldURL() }
+
+// NdefFieldURL says "URL"
+// in the language of msgs.
+func (msgs Messages) NdefFieldURL() string {
+	return Catalog.Format(msgs.locale, "ndefFieldURL", nil)
+}
+
+// NdefFieldNote says "Note"
+// in the language the app shows.
+func NdefFieldNote() string { return In(i18n.Locale()).NdefFieldNote() }
+
+// NdefFieldNote says "Note"
+// in the language of msgs.
+func (msgs Messages) NdefFieldNote() string {
+	return Catalog.Format(msgs.locale, "ndefFieldNote", nil)
+}
+
+// NdefFieldLatitude says "Latitude"
+// in the language the app shows.
+func NdefFieldLatitude() string { return In(i18n.Locale()).NdefFieldLatitude() }
+
+// NdefFieldLatitude says "Latitude"
+// in the language of msgs.
+func (msgs Messages) NdefFieldLatitude() string {
+	return Catalog.Format(msgs.locale, "ndefFieldLatitude", nil)
+}
+
+// NdefFieldLongitude says "Longitude"
+// in the language the app shows.
+func NdefFieldLongitude() string { return In(i18n.Locale()).NdefFieldLongitude() }
+
+// NdefFieldLongitude says "Longitude"
+// in the language of msgs.
+func (msgs Messages) NdefFieldLongitude() string {
+	return Catalog.Format(msgs.locale, "ndefFieldLongitude", nil)
+}
+
+// NdefFieldLabel says "Label"
+// in the language the app shows.
+func NdefFieldLabel() string { return In(i18n.Locale()).NdefFieldLabel() }
+
+// NdefFieldLabel says "Label"
+// in the language of msgs.
+func (msgs Messages) NdefFieldLabel() string {
+	return Catalog.Format(msgs.locale, "ndefFieldLabel", nil)
+}
+
+// NdefFieldSSID says "SSID"
+// in the language the app shows.
+func NdefFieldSSID() string { return In(i18n.Locale()).NdefFieldSSID() }
+
+// NdefFieldSSID says "SSID"
+// in the language of msgs.
+func (msgs Messages) NdefFieldSSID() string {
+	return Catalog.Format(msgs.locale, "ndefFieldSSID", nil)
+}
+
+// NdefFieldSecurity says "Security"
+// in the language the app shows.
+func NdefFieldSecurity() string { return In(i18n.Locale()).NdefFieldSecurity() }
+
+// NdefFieldSecurity says "Security"
+// in the language of msgs.
+func (msgs Messages) NdefFieldSecurity() string {
+	return Catalog.Format(msgs.locale, "ndefFieldSecurity", nil)
+}
+
+// NdefFieldPassword says "Password"
+// in the language the app shows.
+func NdefFieldPassword() string { return In(i18n.Locale()).NdefFieldPassword() }
+
+// NdefFieldPassword says "Password"
+// in the language of msgs.
+func (msgs Messages) NdefFieldPassword() string {
+	return Catalog.Format(msgs.locale, "ndefFieldPassword", nil)
+}
+
+// NdefFieldAuth says "Authentication"
+// in the language the app shows.
+func NdefFieldAuth() string { return In(i18n.Locale()).NdefFieldAuth() }
+
+// NdefFieldAuth says "Authentication"
+// in the language of msgs.
+func (msgs Messages) NdefFieldAuth() string {
+	return Catalog.Format(msgs.locale, "ndefFieldAuth", nil)
+}
+
+// NdefFieldEncryption says "Encryption"
+// in the language the app shows.
+func NdefFieldEncryption() string { return In(i18n.Locale()).NdefFieldEncryption() }
+
+// NdefFieldEncryption says "Encryption"
+// in the language of msgs.
+func (msgs Messages) NdefFieldEncryption() string {
+	return Catalog.Format(msgs.locale, "ndefFieldEncryption", nil)
+}
+
+// NdefFieldNetworkKey says "Network key"
+// in the language the app shows.
+func NdefFieldNetworkKey() string { return In(i18n.Locale()).NdefFieldNetworkKey() }
+
+// NdefFieldNetworkKey says "Network key"
+// in the language of msgs.
+func (msgs Messages) NdefFieldNetworkKey() string {
+	return Catalog.Format(msgs.locale, "ndefFieldNetworkKey", nil)
+}
+
+// NdefFieldMAC says "MAC address"
+// in the language the app shows.
+func NdefFieldMAC() string { return In(i18n.Locale()).NdefFieldMAC() }
+
+// NdefFieldMAC says "MAC address"
+// in the language of msgs.
+func (msgs Messages) NdefFieldMAC() string {
+	return Catalog.Format(msgs.locale, "ndefFieldMAC", nil)
+}
+
+// NdefFieldBTAddress says "Bluetooth address"
+// in the language the app shows.
+func NdefFieldBTAddress() string { return In(i18n.Locale()).NdefFieldBTAddress() }
+
+// NdefFieldBTAddress says "Bluetooth address"
+// in the language of msgs.
+func (msgs Messages) NdefFieldBTAddress() string {
+	return Catalog.Format(msgs.locale, "ndefFieldBTAddress", nil)
+}
+
+// NdefFieldBTName says "Device name"
+// in the language the app shows.
+func NdefFieldBTName() string { return In(i18n.Locale()).NdefFieldBTName() }
+
+// NdefFieldBTName says "Device name"
+// in the language of msgs.
+func (msgs Messages) NdefFieldBTName() string {
+	return Catalog.Format(msgs.locale, "ndefFieldBTName", nil)
+}
+
+// NdefFieldBTClass says "Device class"
+// in the language the app shows.
+func NdefFieldBTClass() string { return In(i18n.Locale()).NdefFieldBTClass() }
+
+// NdefFieldBTClass says "Device class"
+// in the language of msgs.
+func (msgs Messages) NdefFieldBTClass() string {
+	return Catalog.Format(msgs.locale, "ndefFieldBTClass", nil)
+}
+
+// NdefFieldPayload says "Payload"
+// in the language the app shows.
+func NdefFieldPayload() string { return In(i18n.Locale()).NdefFieldPayload() }
+
+// NdefFieldPayload says "Payload"
+// in the language of msgs.
+func (msgs Messages) NdefFieldPayload() string {
+	return Catalog.Format(msgs.locale, "ndefFieldPayload", nil)
+}
+
+// NdefFieldTitle says "Title"
+// in the language the app shows.
+func NdefFieldTitle() string { return In(i18n.Locale()).NdefFieldTitle() }
+
+// NdefFieldTitle says "Title"
+// in the language of msgs.
+func (msgs Messages) NdefFieldTitle() string {
+	return Catalog.Format(msgs.locale, "ndefFieldTitle", nil)
+}
+
+// NdefSecurityOpen says "Open"
+// in the language the app shows.
+func NdefSecurityOpen() string { return In(i18n.Locale()).NdefSecurityOpen() }
+
+// NdefSecurityOpen says "Open"
+// in the language of msgs.
+func (msgs Messages) NdefSecurityOpen() string {
+	return Catalog.Format(msgs.locale, "ndefSecurityOpen", nil)
+}
+
+// NdefSecurityWPA says "WPA-Personal"
+// in the language the app shows.
+func NdefSecurityWPA() string { return In(i18n.Locale()).NdefSecurityWPA() }
+
+// NdefSecurityWPA says "WPA-Personal"
+// in the language of msgs.
+func (msgs Messages) NdefSecurityWPA() string {
+	return Catalog.Format(msgs.locale, "ndefSecurityWPA", nil)
+}
+
+// NdefSecurityWPA2 says "WPA2-Personal"
+// in the language the app shows.
+func NdefSecurityWPA2() string { return In(i18n.Locale()).NdefSecurityWPA2() }
+
+// NdefSecurityWPA2 says "WPA2-Personal"
+// in the language of msgs.
+func (msgs Messages) NdefSecurityWPA2() string {
+	return Catalog.Format(msgs.locale, "ndefSecurityWPA2", nil)
+}
+
+// NdefSecurityWPA2WPA says "WPA/WPA2 Personal"
+// in the language the app shows.
+func NdefSecurityWPA2WPA() string { return In(i18n.Locale()).NdefSecurityWPA2WPA() }
+
+// NdefSecurityWPA2WPA says "WPA/WPA2 Personal"
+// in the language of msgs.
+func (msgs Messages) NdefSecurityWPA2WPA() string {
+	return Catalog.Format(msgs.locale, "ndefSecurityWPA2WPA", nil)
+}
+
+// NdefKindText says "Text"
+// in the language the app shows.
+func NdefKindText() string { return In(i18n.Locale()).NdefKindText() }
+
+// NdefKindText says "Text"
+// in the language of msgs.
+func (msgs Messages) NdefKindText() string {
+	return Catalog.Format(msgs.locale, "ndefKindText", nil)
+}
+
+// NdefKindURI says "URI"
+// in the language the app shows.
+func NdefKindURI() string { return In(i18n.Locale()).NdefKindURI() }
+
+// NdefKindURI says "URI"
+// in the language of msgs.
+func (msgs Messages) NdefKindURI() string {
+	return Catalog.Format(msgs.locale, "ndefKindURI", nil)
+}
+
+// NdefKindSmartPoster says "Smart Poster"
+// in the language the app shows.
+func NdefKindSmartPoster() string { return In(i18n.Locale()).NdefKindSmartPoster() }
+
+// NdefKindSmartPoster says "Smart Poster"
+// in the language of msgs.
+func (msgs Messages) NdefKindSmartPoster() string {
+	return Catalog.Format(msgs.locale, "ndefKindSmartPoster", nil)
+}
+
+// NdefKindVCard says "Contact"
+// in the language the app shows.
+func NdefKindVCard() string { return In(i18n.Locale()).NdefKindVCard() }
+
+// NdefKindVCard says "Contact"
+// in the language of msgs.
+func (msgs Messages) NdefKindVCard() string {
+	return Catalog.Format(msgs.locale, "ndefKindVCard", nil)
+}
+
+// NdefKindWiFi says "Wi-Fi"
+// in the language the app shows.
+func NdefKindWiFi() string { return In(i18n.Locale()).NdefKindWiFi() }
+
+// NdefKindWiFi says "Wi-Fi"
+// in the language of msgs.
+func (msgs Messages) NdefKindWiFi() string {
+	return Catalog.Format(msgs.locale, "ndefKindWiFi", nil)
+}
+
+// NdefKindBluetooth says "Bluetooth"
+// in the language the app shows.
+func NdefKindBluetooth() string { return In(i18n.Locale()).NdefKindBluetooth() }
+
+// NdefKindBluetooth says "Bluetooth"
+// in the language of msgs.
+func (msgs Messages) NdefKindBluetooth() string {
+	return Catalog.Format(msgs.locale, "ndefKindBluetooth", nil)
+}
+
+// NdefKindApp says "Application"
+// in the language the app shows.
+func NdefKindApp() string { return In(i18n.Locale()).NdefKindApp() }
+
+// NdefKindApp says "Application"
+// in the language of msgs.
+func (msgs Messages) NdefKindApp() string {
+	return Catalog.Format(msgs.locale, "ndefKindApp", nil)
+}
+
+// NdefKindMIME says "MIME"
+// in the language the app shows.
+func NdefKindMIME() string { return In(i18n.Locale()).NdefKindMIME() }
+
+// NdefKindMIME says "MIME"
+// in the language of msgs.
+func (msgs Messages) NdefKindMIME() string {
+	return Catalog.Format(msgs.locale, "ndefKindMIME", nil)
+}
+
+// NdefKindExternal says "External"
+// in the language the app shows.
+func NdefKindExternal() string { return In(i18n.Locale()).NdefKindExternal() }
+
+// NdefKindExternal says "External"
+// in the language of msgs.
+func (msgs Messages) NdefKindExternal() string {
+	return Catalog.Format(msgs.locale, "ndefKindExternal", nil)
+}
+
+// NdefKindAbsoluteURI says "Absolute URI"
+// in the language the app shows.
+func NdefKindAbsoluteURI() string { return In(i18n.Locale()).NdefKindAbsoluteURI() }
+
+// NdefKindAbsoluteURI says "Absolute URI"
+// in the language of msgs.
+func (msgs Messages) NdefKindAbsoluteURI() string {
+	return Catalog.Format(msgs.locale, "ndefKindAbsoluteURI", nil)
+}
+
+// NdefKindUnknown says "Unknown"
+// in the language the app shows.
+func NdefKindUnknown() string { return In(i18n.Locale()).NdefKindUnknown() }
+
+// NdefKindUnknown says "Unknown"
+// in the language of msgs.
+func (msgs Messages) NdefKindUnknown() string {
+	return Catalog.Format(msgs.locale, "ndefKindUnknown", nil)
+}
+
+// NdefKindJSON says "JSON"
+// in the language the app shows.
+func NdefKindJSON() string { return In(i18n.Locale()).NdefKindJSON() }
+
+// NdefKindJSON says "JSON"
+// in the language of msgs.
+func (msgs Messages) NdefKindJSON() string {
+	return Catalog.Format(msgs.locale, "ndefKindJSON", nil)
+}
+
+// NdefShowRaw says "Show raw"
+// in the language the app shows.
+func NdefShowRaw() string { return In(i18n.Locale()).NdefShowRaw() }
+
+// NdefShowRaw says "Show raw"
+// in the language of msgs.
+func (msgs Messages) NdefShowRaw() string {
+	return Catalog.Format(msgs.locale, "ndefShowRaw", nil)
+}
+
+// NdefHideRaw says "Hide raw"
+// in the language the app shows.
+func NdefHideRaw() string { return In(i18n.Locale()).NdefHideRaw() }
+
+// NdefHideRaw says "Hide raw"
+// in the language of msgs.
+func (msgs Messages) NdefHideRaw() string {
+	return Catalog.Format(msgs.locale, "ndefHideRaw", nil)
+}
+
+// NdefTemplate says "Template"
+// in the language the app shows.
+func NdefTemplate() string { return In(i18n.Locale()).NdefTemplate() }
+
+// NdefTemplate says "Template"
+// in the language of msgs.
+func (msgs Messages) NdefTemplate() string {
+	return Catalog.Format(msgs.locale, "ndefTemplate", nil)
+}
+
+// NdefWriteTemplate says "Write NDEF"
+// in the language the app shows.
+func NdefWriteTemplate() string { return In(i18n.Locale()).NdefWriteTemplate() }
+
+// NdefWriteTemplate says "Write NDEF"
+// in the language of msgs.
+func (msgs Messages) NdefWriteTemplate() string {
+	return Catalog.Format(msgs.locale, "ndefWriteTemplate", nil)
+}
+
+// NdefConfirmTemplateTitle says "Write {template}?"
+// in the language the app shows.
+func NdefConfirmTemplateTitle(template string) string {
+	return In(i18n.Locale()).NdefConfirmTemplateTitle(template)
+}
+
+// NdefConfirmTemplateTitle says "Write {template}?"
+// in the language of msgs.
+func (msgs Messages) NdefConfirmTemplateTitle(template string) string {
+	return Catalog.Format(msgs.locale, "ndefConfirmTemplateTitle", map[string]any{"template": template})
+}
+
+// NdefConfirmTemplateMessage says "A {template} NDEF message of {length} bytes will replace the NDEF area. A full-image backup is written first and ever…"
+// in the language the app shows.
+func NdefConfirmTemplateMessage(template string, length int) string {
+	return In(i18n.Locale()).NdefConfirmTemplateMessage(template, length)
+}
+
+// NdefConfirmTemplateMessage says "A {template} NDEF message of {length} bytes will replace the NDEF area. A full-image backup is written first and ever…"
+// in the language of msgs.
+func (msgs Messages) NdefConfirmTemplateMessage(template string, length int) string {
+	return Catalog.Format(msgs.locale, "ndefConfirmTemplateMessage", map[string]any{"template": template, "length": length})
+}
+
+// NdefRawPayload says "Raw payload"
+// in the language the app shows.
+func NdefRawPayload() string { return In(i18n.Locale()).NdefRawPayload() }
+
+// NdefRawPayload says "Raw payload"
+// in the language of msgs.
+func (msgs Messages) NdefRawPayload() string {
+	return Catalog.Format(msgs.locale, "ndefRawPayload", nil)
+}
+
+// NdefRawMessage says "Raw message"
+// in the language the app shows.
+func NdefRawMessage() string { return In(i18n.Locale()).NdefRawMessage() }
+
+// NdefRawMessage says "Raw message"
+// in the language of msgs.
+func (msgs Messages) NdefRawMessage() string {
+	return Catalog.Format(msgs.locale, "ndefRawMessage", nil)
+}
+
+// NdefNoFields says "No decoded fields."
+// in the language the app shows.
+func NdefNoFields() string { return In(i18n.Locale()).NdefNoFields() }
+
+// NdefNoFields says "No decoded fields."
+// in the language of msgs.
+func (msgs Messages) NdefNoFields() string {
+	return Catalog.Format(msgs.locale, "ndefNoFields", nil)
+}
+
+// NdefTplSMS says "SMS"
+// in the language the app shows.
+func NdefTplSMS() string { return In(i18n.Locale()).NdefTplSMS() }
+
+// NdefTplSMS says "SMS"
+// in the language of msgs.
+func (msgs Messages) NdefTplSMS() string {
+	return Catalog.Format(msgs.locale, "ndefTplSMS", nil)
+}
+
+// NdefFieldNumber says "Phone number"
+// in the language the app shows.
+func NdefFieldNumber() string { return In(i18n.Locale()).NdefFieldNumber() }
+
+// NdefFieldNumber says "Phone number"
+// in the language of msgs.
+func (msgs Messages) NdefFieldNumber() string {
+	return Catalog.Format(msgs.locale, "ndefFieldNumber", nil)
+}
+
+// NdefKindURL says "URL"
+// in the language the app shows.
+func NdefKindURL() string { return In(i18n.Locale()).NdefKindURL() }
+
+// NdefKindURL says "URL"
+// in the language of msgs.
+func (msgs Messages) NdefKindURL() string {
+	return Catalog.Format(msgs.locale, "ndefKindURL", nil)
+}
+
+// NdefKindEmail says "Email"
+// in the language the app shows.
+func NdefKindEmail() string { return In(i18n.Locale()).NdefKindEmail() }
+
+// NdefKindEmail says "Email"
+// in the language of msgs.
+func (msgs Messages) NdefKindEmail() string {
+	return Catalog.Format(msgs.locale, "ndefKindEmail", nil)
+}
+
+// NdefKindPhone says "Phone"
+// in the language the app shows.
+func NdefKindPhone() string { return In(i18n.Locale()).NdefKindPhone() }
+
+// NdefKindPhone says "Phone"
+// in the language of msgs.
+func (msgs Messages) NdefKindPhone() string {
+	return Catalog.Format(msgs.locale, "ndefKindPhone", nil)
+}
+
+// NdefKindSMS says "SMS"
+// in the language the app shows.
+func NdefKindSMS() string { return In(i18n.Locale()).NdefKindSMS() }
+
+// NdefKindSMS says "SMS"
+// in the language of msgs.
+func (msgs Messages) NdefKindSMS() string {
+	return Catalog.Format(msgs.locale, "ndefKindSMS", nil)
+}
+
+// NdefKindLocation says "Location"
+// in the language the app shows.
+func NdefKindLocation() string { return In(i18n.Locale()).NdefKindLocation() }
+
+// NdefKindLocation says "Location"
+// in the language of msgs.
+func (msgs Messages) NdefKindLocation() string {
+	return Catalog.Format(msgs.locale, "ndefKindLocation", nil)
+}

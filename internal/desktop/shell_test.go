@@ -70,6 +70,12 @@ func (f *fakeBackend) StartType2NDEFWrite(request app.Type2NDEFWriteStartRequest
 	f.mu.Unlock()
 	return app.TaskDTO{ID: "type2-ndef-1", Name: "ndef", Status: "running"}, nil
 }
+func (f *fakeBackend) PreviewType2NDEF(request app.Type2NDEFWriteStartRequestDTO) (app.Type2NDEFPreviewDTO, error) {
+	return app.Type2NDEFPreviewDTO{Template: request.Template, Length: 16}, nil
+}
+func (f *fakeBackend) GetType2NDEFTemplates() []app.Type2NDEFTemplateDTO {
+	return app.Type2NDEFTemplates()
+}
 func (f *fakeBackend) StartReadCard(bool) (app.TaskDTO, error) {
 	f.mu.Lock()
 	f.readStarts++
@@ -408,8 +414,8 @@ func TestType2ViewsRenderLoadedDump(t *testing.T) {
 		CC:         app.Type2CCDTO{Valid: true, Raw: "E1101200", Capacity: 144, Writable: true},
 		Protection: app.Type2ProtectionDTO{StaticLock: "0000", DynamicLock: "000000", Auth0: 255, Access: 0x00},
 		NDEF: &app.Type2NDEFDTO{
-			Present: true, Length: 12, Raw: "D101085402656E68656C6C6F", Text: "hello",
-			Records: []app.Type2NDEFRecordDTO{{TNF: 1, Type: "T", Text: "hello"}},
+			Present: true, Length: 12, Raw: "D101085402656E68656C6C6F", Text: "hello", Summary: "hello",
+			Records: []app.Type2NDEFRecordDTO{{TNF: 1, Type: "T", Kind: "text", Summary: "hello", Text: "hello"}},
 		},
 	}
 	model := newShell(backend)
@@ -497,13 +503,14 @@ func TestType2NDEFWriteConfirmationSubmitsRequest(t *testing.T) {
 	model := newShell(backend)
 	tester := ui.NewTester(model.view, 1360, 860)
 	model.selectedTab = tabNDEF
-	model.ndefInput = "hello"
+	model.selectNdefTemplate("text")
+	model.setNdefField("text", "hello")
 	tester.Frame()
 	if err := tester.Click("Write NDEF"); err != nil {
 		t.Fatal(err)
 	}
 	tester.Frame()
-	if !tester.HasText("Write NDEF message?") {
+	if !tester.HasText("Write Text?") {
 		t.Fatalf("confirmation texts: %q", tester.Texts())
 	}
 	if err := tester.Click("Confirm write"); err != nil {
@@ -522,7 +529,7 @@ func TestType2NDEFWriteConfirmationSubmitsRequest(t *testing.T) {
 	backend.mu.Lock()
 	writes := append([]app.Type2NDEFWriteStartRequestDTO(nil), backend.type2NDEFWrites...)
 	backend.mu.Unlock()
-	if len(writes) != 1 || writes[0].Mode != "text" || writes[0].Text != "hello" {
+	if len(writes) != 1 || writes[0].Template != "text" || writes[0].Fields["text"] != "hello" {
 		t.Fatalf("NDEF request = %+v", writes)
 	}
 }
@@ -532,7 +539,8 @@ func TestType2WriteCancelStartsNothing(t *testing.T) {
 	model := newShell(backend)
 	tester := ui.NewTester(model.view, 1360, 860)
 	model.selectedTab = tabNDEF
-	model.ndefInput = "hello"
+	model.selectNdefTemplate("text")
+	model.setNdefField("text", "hello")
 	tester.Frame()
 	if err := tester.Click("Write NDEF"); err != nil {
 		t.Fatal(err)
@@ -596,13 +604,13 @@ func TestType2MemorySelectionUpdatesEditor(t *testing.T) {
 	}
 }
 
-func TestType2NDEFURIModeSubmitsURI(t *testing.T) {
+func TestType2NDEFURITemplateSubmitsURI(t *testing.T) {
 	backend := loadedType2Fixture()
 	model := newShell(backend)
 	tester := ui.NewTester(model.view, 1360, 860)
 	model.selectedTab = tabNDEF
-	model.ndefMode = "uri"
-	model.ndefInput = "https://example.com"
+	model.selectNdefTemplate("uri")
+	model.setNdefField("uri", "https://example.com")
 	tester.Frame()
 	if err := tester.Click("Write NDEF"); err != nil {
 		t.Fatal(err)
@@ -624,7 +632,118 @@ func TestType2NDEFURIModeSubmitsURI(t *testing.T) {
 	backend.mu.Lock()
 	writes := append([]app.Type2NDEFWriteStartRequestDTO(nil), backend.type2NDEFWrites...)
 	backend.mu.Unlock()
-	if len(writes) != 1 || writes[0].Mode != "uri" || writes[0].URI != "https://example.com" || writes[0].Text != "" {
+	if len(writes) != 1 || writes[0].Template != "uri" || writes[0].Fields["uri"] != "https://example.com" {
 		t.Fatalf("URI request = %+v", writes)
+	}
+}
+
+func TestType2NDEFDecodedRecordView(t *testing.T) {
+	backend := loadedType2Fixture()
+	backend.type2.NDEF = &app.Type2NDEFDTO{
+		Present: true, Length: 120, Raw: "D2...", Summary: "Ada Lovelace",
+		Records: []app.Type2NDEFRecordDTO{
+			{
+				TNF: 2, Type: "text/vcard", Kind: "vcard", Summary: "Ada Lovelace",
+				Payload: "424547494E3A5643415244",
+				Fields: []app.Type2NDEFRecordFieldDTO{
+					{Key: "name", Value: "Ada Lovelace"},
+					{Key: "organization", Value: "Analytical Engines"},
+					{Key: "email", Value: "ada@example.com"},
+				},
+			},
+			{
+				TNF: 2, Type: "application/vnd.wfa.wsc", Kind: "wifi", Summary: "Foundry Lab",
+				Fields: []app.Type2NDEFRecordFieldDTO{
+					{Key: "ssid", Value: "Foundry Lab"},
+					{Key: "auth", Value: "WPA2-Personal"},
+					{Key: "encryption", Value: "AES"},
+					{Key: "network_key", Value: "••••••"},
+					{Key: "mac", Value: "FF:FF:FF:FF:FF:FF"},
+				},
+			},
+		},
+	}
+	model := newShell(backend)
+	tester := ui.NewTester(model.view, 1360, 860)
+	model.selectedTab = tabNDEF
+	tester.Frame()
+	for _, text := range []string{"Ada Lovelace", "Organization", "Analytical Engines", "SSID", "WPA2-Personal", "AES", "••••••"} {
+		if !tester.HasText(text) {
+			t.Fatalf("missing %q in decoded NDEF view: %q", text, tester.Texts())
+		}
+	}
+	if tester.HasText("42 45 47 49") {
+		t.Fatalf("raw payload shown by default: %q", tester.Texts())
+	}
+	if err := tester.Click("Show raw"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if !tester.HasText("Raw payload") || !tester.HasText("42 45 47 49") {
+		t.Fatalf("raw payload not shown after toggle: %q", tester.Texts())
+	}
+}
+
+func TestType2NDEFTemplateFieldsRender(t *testing.T) {
+	backend := loadedType2Fixture()
+	model := newShell(backend)
+	tester := ui.NewTester(model.view, 1360, 860)
+	model.selectedTab = tabNDEF
+	model.selectNdefTemplate("contact")
+	tester.Frame()
+	for _, text := range []string{"Name", "Organization", "Job title", "Phone", "Email", "Address", "URL", "Note"} {
+		if !tester.HasText(text) {
+			t.Fatalf("missing contact field %q: %q", text, tester.Texts())
+		}
+	}
+	model.selectNdefTemplate("wifi")
+	tester.Frame()
+	for _, text := range []string{"SSID", "Security", "Password", "WPA2-Personal"} {
+		if !tester.HasText(text) {
+			t.Fatalf("missing Wi-Fi field %q: %q", text, tester.Texts())
+		}
+	}
+	model.selectNdefTemplate("search")
+	tester.Frame()
+	if !tester.HasText("Search URL prefix") || !tester.HasText("Search query") {
+		t.Fatalf("missing search fields: %q", tester.Texts())
+	}
+}
+
+func TestType2NDEFWiFiTemplateSubmitsFields(t *testing.T) {
+	backend := loadedType2Fixture()
+	model := newShell(backend)
+	tester := ui.NewTester(model.view, 1360, 860)
+	model.selectedTab = tabNDEF
+	model.selectNdefTemplate("wifi")
+	model.setNdefField("ssid", "Foundry Lab")
+	model.setNdefField("password", "password123")
+	model.setNdefField("security", "wpa2")
+	tester.Frame()
+	if err := tester.Click("Write NDEF"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if err := tester.Click("Confirm write"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		backend.mu.Lock()
+		count := len(backend.type2NDEFWrites)
+		backend.mu.Unlock()
+		if count == 1 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	backend.mu.Lock()
+	writes := append([]app.Type2NDEFWriteStartRequestDTO(nil), backend.type2NDEFWrites...)
+	backend.mu.Unlock()
+	if len(writes) != 1 || writes[0].Template != "wifi" ||
+		writes[0].Fields["ssid"] != "Foundry Lab" ||
+		writes[0].Fields["password"] != "password123" ||
+		writes[0].Fields["security"] != "wpa2" {
+		t.Fatalf("Wi-Fi request = %+v", writes)
 	}
 }

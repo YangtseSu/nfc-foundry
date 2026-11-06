@@ -57,14 +57,23 @@ type Type2ProtectionDTO struct {
 	PackSet      bool   `json:"packSet"`
 }
 
+// Type2NDEFRecordFieldDTO is one decoded record attribute.
+type Type2NDEFRecordFieldDTO struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
 // Type2NDEFRecordDTO is one decoded NDEF record.
 type Type2NDEFRecordDTO struct {
-	TNF     byte   `json:"tnf"`
-	Type    string `json:"type"`
-	ID      string `json:"id,omitempty"`
-	Payload string `json:"payload"`
-	Text    string `json:"text,omitempty"`
-	URI     string `json:"uri,omitempty"`
+	TNF     byte                      `json:"tnf"`
+	Type    string                    `json:"type"`
+	ID      string                    `json:"id,omitempty"`
+	Payload string                    `json:"payload"`
+	Text    string                    `json:"text,omitempty"`
+	URI     string                    `json:"uri,omitempty"`
+	Kind    string                    `json:"kind"`
+	Summary string                    `json:"summary,omitempty"`
+	Fields  []Type2NDEFRecordFieldDTO `json:"fields,omitempty"`
 }
 
 // Type2NDEFDTO is the parsed NDEF TLV.
@@ -75,6 +84,7 @@ type Type2NDEFDTO struct {
 	Records []Type2NDEFRecordDTO `json:"records"`
 	Text    string               `json:"text,omitempty"`
 	URI     string               `json:"uri,omitempty"`
+	Summary string               `json:"summary,omitempty"`
 }
 
 // Type2PageDTO is one page row.
@@ -132,13 +142,49 @@ type Type2WriteStartRequestDTO struct {
 	Password string              `json:"password,omitempty"`
 }
 
-// Type2NDEFWriteStartRequestDTO starts a GUI NDEF-write task with a Text or
-// URI message.
+// Type2NDEFWriteStartRequestDTO starts a GUI NDEF-write task from a common
+// template.
 type Type2NDEFWriteStartRequestDTO struct {
-	Mode     string `json:"mode"`
-	Text     string `json:"text,omitempty"`
-	URI      string `json:"uri,omitempty"`
-	Password string `json:"password,omitempty"`
+	Template string            `json:"template"`
+	Fields   map[string]string `json:"fields"`
+	Password string            `json:"password,omitempty"`
+}
+
+// Type2NDEFPreviewDTO reports the encoded message size before a write.
+type Type2NDEFPreviewDTO struct {
+	Template string `json:"template"`
+	Length   int    `json:"length"`
+}
+
+// Type2NDEFTemplateFieldDTO is one field of a common NDEF template.
+type Type2NDEFTemplateFieldDTO struct {
+	ID       string   `json:"id"`
+	Kind     string   `json:"kind"`
+	Required bool     `json:"required"`
+	Options  []string `json:"options,omitempty"`
+}
+
+// Type2NDEFTemplateDTO is one common NDEF message shape.
+type Type2NDEFTemplateDTO struct {
+	ID     string                      `json:"id"`
+	Fields []Type2NDEFTemplateFieldDTO `json:"fields"`
+}
+
+// Type2NDEFTemplates returns the supported common NDEF templates.
+func Type2NDEFTemplates() []Type2NDEFTemplateDTO {
+	templates := type2.Templates()
+	result := make([]Type2NDEFTemplateDTO, len(templates))
+	for index, template := range templates {
+		fields := make([]Type2NDEFTemplateFieldDTO, len(template.Fields))
+		for fieldIndex, field := range template.Fields {
+			fields[fieldIndex] = Type2NDEFTemplateFieldDTO{
+				ID: field.ID, Kind: field.Kind, Required: field.Required,
+				Options: append([]string(nil), field.Options...),
+			}
+		}
+		result[index] = Type2NDEFTemplateDTO{ID: template.ID, Fields: fields}
+	}
+	return result
 }
 
 // Type2WriteResultDTO reports planned, written, and verified pages.
@@ -243,29 +289,24 @@ func (s *Service) StartType2NDEFWrite(request Type2NDEFWriteStartRequestDTO) (Ta
 }
 
 func encodeType2NDEF(request Type2NDEFWriteStartRequestDTO) ([]byte, error) {
-	switch strings.ToLower(strings.TrimSpace(request.Mode)) {
-	case "text":
-		if strings.TrimSpace(request.Text) == "" {
-			return nil, nfc.NewError("encode NDEF", nfc.CodeInvalidArgument, "text message must not be empty", nil)
-		}
-		message, err := type2.EncodeTextMessage(request.Text, "en")
-		if err != nil {
-			return nil, nfc.NewError("encode NDEF", nfc.CodeInvalidArgument, err.Error(), err)
-		}
-		return message, nil
-	case "uri":
-		uri := strings.TrimSpace(request.URI)
-		if uri == "" {
-			return nil, nfc.NewError("encode NDEF", nfc.CodeInvalidArgument, "URI message must not be empty", nil)
-		}
-		message, err := type2.EncodeURIMessage(uri)
-		if err != nil {
-			return nil, nfc.NewError("encode NDEF", nfc.CodeInvalidArgument, err.Error(), err)
-		}
-		return message, nil
-	default:
-		return nil, nfc.NewError("encode NDEF", nfc.CodeInvalidArgument, "NDEF mode must be text or uri", nil)
+	if strings.TrimSpace(request.Template) == "" {
+		return nil, nfc.NewError("encode NDEF", nfc.CodeInvalidArgument, "NDEF template is required", nil)
 	}
+	message, err := type2.EncodeTemplate(request.Template, request.Fields)
+	if err != nil {
+		return nil, nfc.NewError("encode NDEF", nfc.CodeInvalidArgument, err.Error(), err)
+	}
+	return message, nil
+}
+
+// PreviewType2NDEF validates and sizes a template message without touching the
+// card or creating a task.
+func (s *Service) PreviewType2NDEF(request Type2NDEFWriteStartRequestDTO) (Type2NDEFPreviewDTO, error) {
+	message, err := encodeType2NDEF(request)
+	if err != nil {
+		return Type2NDEFPreviewDTO{}, err
+	}
+	return Type2NDEFPreviewDTO{Template: request.Template, Length: len(message)}, nil
 }
 
 // Type2Snapshot returns the latest Type 2 dump, if any.
@@ -565,11 +606,17 @@ func type2DumpDTO(document type2.Document, includeSecrets bool) Type2DumpDTO {
 			Text: document.NDEF.Text, URI: document.NDEF.URI,
 		}
 		for _, record := range document.NDEF.Records {
+			fields := make([]Type2NDEFRecordFieldDTO, len(record.Fields))
+			for index, field := range record.Fields {
+				fields[index] = Type2NDEFRecordFieldDTO{Key: field.Key, Value: field.Value}
+			}
 			ndef.Records = append(ndef.Records, Type2NDEFRecordDTO{
 				TNF: record.TNF, Type: record.Type, ID: record.ID, Payload: record.Payload,
-				Text: record.Text, URI: record.URI,
+				Text: record.Text, URI: record.URI, Kind: record.Kind, Summary: record.Summary,
+				Fields: fields,
 			})
 		}
+		ndef.Summary = document.NDEF.Summary
 		dto.NDEF = ndef
 	}
 	return dto

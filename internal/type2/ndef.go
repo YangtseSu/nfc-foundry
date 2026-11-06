@@ -17,14 +17,23 @@ const (
 	tlvTerminator    byte = 0xFE
 )
 
+// Field is one decoded, human-readable record attribute.
+type Field struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
 // Record is one validated NDEF record.
 type Record struct {
-	TNF     byte   `json:"tnf"`
-	Type    string `json:"type"`
-	ID      string `json:"id,omitempty"`
-	Payload string `json:"payload"`
-	Text    string `json:"text,omitempty"`
-	URI     string `json:"uri,omitempty"`
+	TNF     byte    `json:"tnf"`
+	Type    string  `json:"type"`
+	ID      string  `json:"id,omitempty"`
+	Payload string  `json:"payload"`
+	Text    string  `json:"text,omitempty"`
+	URI     string  `json:"uri,omitempty"`
+	Kind    string  `json:"kind"`
+	Summary string  `json:"summary,omitempty"`
+	Fields  []Field `json:"fields,omitempty"`
 }
 
 // NDEF is a parsed NDEF TLV.
@@ -35,6 +44,7 @@ type NDEF struct {
 	Records []Record `json:"records"`
 	Text    string   `json:"text,omitempty"`
 	URI     string   `json:"uri,omitempty"`
+	Summary string   `json:"summary,omitempty"`
 }
 
 type tlv struct {
@@ -114,6 +124,9 @@ func ParseNDEF(area []byte) (*NDEF, error) {
 		}
 		if result.URI == "" && record.URI != "" {
 			result.URI = record.URI
+		}
+		if result.Summary == "" && record.Summary != "" {
+			result.Summary = record.Summary
 		}
 	}
 	return result, nil
@@ -196,12 +209,7 @@ func ParseMessage(message []byte) ([]Record, error) {
 			TNF: tnf, Type: string(typeBytes), ID: strings.ToUpper(hex.EncodeToString(idBytes)),
 			Payload: strings.ToUpper(hex.EncodeToString(payload)),
 		}
-		switch {
-		case tnf == 0x01 && string(typeBytes) == "T":
-			record.Text = decodeTextPayload(payload)
-		case tnf == 0x01 && string(typeBytes) == "U":
-			record.URI = decodeURIPayload(payload)
-		}
+		decodeRecord(&record, payload)
 		records = append(records, record)
 		first = false
 		if me {

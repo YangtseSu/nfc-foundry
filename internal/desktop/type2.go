@@ -11,11 +11,12 @@ import (
 )
 
 type type2WriteIntent struct {
-	Kind    string
-	Page    int
-	Hex     string
-	Mode    string
-	Message string
+	Kind     string
+	Page     int
+	Hex      string
+	Template string
+	Fields   map[string]string
+	Length   int
 }
 
 func (s *shell) type2MemoryView(c *ui.Context, p palette) {
@@ -123,9 +124,22 @@ func (s *shell) type2NDEFView(c *ui.Context, p palette) {
 			ui.Text(c, spacedHex(s.type2.CC.Raw)).Font("monospace").FontSize(10).
 				TextColor(p.muted).Selectable().Wrap()
 		})
-		ui.Column(c).Padding(14).Gap(9).Background(p.surface).Radius(10).
+		ui.Column(c).Padding(14).Gap(10).Background(p.surface).Radius(10).
 			Border(1, p.border).Children(func() {
-			ui.Text(c, l.Type2NDEFPanel()).FontSize(12.5).Bold().TextColor(p.text)
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, l.Type2NDEFPanel()).FontSize(12.5).Bold().TextColor(p.text)
+				if s.type2.NDEF != nil {
+					ui.Text(c, l.Type2Records(len(s.type2.NDEF.Records))).FontSize(10).TextColor(p.faint)
+				}
+				ui.Spacer(c)
+				rawLabel := l.NdefShowRaw()
+				if s.ndefShowRaw {
+					rawLabel = l.NdefHideRaw()
+				}
+				if linkButton(c, p, rawLabel).Clicked() {
+					s.ndefShowRaw = !s.ndefShowRaw
+				}
+			})
 			switch {
 			case s.type2.NDEFError != "":
 				ui.Text(c, l.Type2NDEFError(s.type2.NDEFError)).FontSize(10.5).
@@ -133,28 +147,52 @@ func (s *shell) type2NDEFView(c *ui.Context, p palette) {
 			case s.type2.NDEF == nil || !s.type2.NDEF.Present:
 				ui.Text(c, l.Type2NoNDEF()).FontSize(10.5).TextColor(p.muted).Wrap()
 			default:
-				if s.type2.NDEF.Text != "" {
-					ui.Text(c, l.Type2TextRecord()).FontSize(10).Bold().TextColor(p.muted)
-					ui.Text(c, s.type2.NDEF.Text).FontSize(11).TextColor(p.text).Selectable().Wrap()
+				for _, record := range s.type2.NDEF.Records {
+					s.ndefRecordCard(c, p, record)
 				}
-				if s.type2.NDEF.URI != "" {
-					ui.Text(c, l.Type2URIRecord()).FontSize(10).Bold().TextColor(p.muted)
-					ui.Text(c, s.type2.NDEF.URI).FontSize(11).TextColor(p.accent).Selectable().Wrap()
+				if s.ndefShowRaw {
+					ui.Text(c, l.NdefRawMessage()).FontSize(9.5).Bold().TextColor(p.faint)
+					ui.Text(c, spacedHex(s.type2.NDEF.Raw)).Font("monospace").FontSize(9).
+						TextColor(p.faint).Selectable().Wrap()
 				}
-				ui.Text(c, l.Type2Records(len(s.type2.NDEF.Records))).FontSize(10).
-					TextColor(p.faint)
-				for index, record := range s.type2.NDEF.Records {
-					ui.Textf(c, "%d · TNF %d · %s", index+1, record.TNF, record.Type).
-						Font("monospace").FontSize(9.5).TextColor(p.muted).Wrap()
-					if record.Payload != "" && record.Text == "" && record.URI == "" {
-						ui.Text(c, spacedHex(record.Payload)).Font("monospace").FontSize(9).
-							TextColor(p.faint).Selectable().Wrap()
-					}
-				}
-				ui.Text(c, spacedHex(s.type2.NDEF.Raw)).Font("monospace").FontSize(9).
-					TextColor(p.faint).Selectable().Wrap()
 			}
 		})
+	})
+}
+
+func (s *shell) ndefRecordCard(c *ui.Context, p palette, record app.Type2NDEFRecordDTO) {
+	l := s.locales()
+	ui.Column(c).Padding(10).Gap(6).Background(p.surfaceAlt).Radius(8).
+		Border(1, p.border).Children(func() {
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+			pill(c, ndefKindLabel(l, record.Kind), p.accent, p.accentSoft, p.accentBorder)
+			ui.Text(c, record.Summary).FontSize(11).Bold().TextColor(p.text).
+				Grow(1).Wrap()
+		})
+		if record.Text != "" && len(record.Fields) == 0 {
+			ui.Text(c, record.Text).FontSize(10.5).TextColor(p.text).Selectable().Wrap()
+		}
+		if record.URI != "" && len(record.Fields) == 0 {
+			ui.Text(c, record.URI).FontSize(10.5).TextColor(p.accent).Selectable().Wrap()
+		}
+		for _, field := range record.Fields {
+			ui.Row(c).Gap(8).AlignItems(ui.Start).Children(func() {
+				ui.Text(c, ndefFieldLabel(l, field.Key)).Width(104).Shrink(0).
+					FontSize(9.5).TextColor(p.faint).Wrap()
+				ui.Text(c, field.Value).FontSize(10).TextColor(p.text).
+					Grow(1).Selectable().Wrap()
+			})
+		}
+		if len(record.Fields) == 0 && record.Text == "" && record.URI == "" {
+			ui.Text(c, l.NdefNoFields()).FontSize(9.5).TextColor(p.faint).Wrap()
+		}
+		if s.ndefShowRaw {
+			ui.Textf(c, "TNF %d · %s", record.TNF, record.Type).Font("monospace").
+				FontSize(9).TextColor(p.faint).Wrap()
+			ui.Text(c, l.NdefRawPayload()).FontSize(9).Bold().TextColor(p.faint)
+			ui.Text(c, spacedHex(record.Payload)).Font("monospace").FontSize(8.5).
+				TextColor(p.faint).Selectable().Wrap()
+		}
 	})
 }
 
@@ -221,7 +259,11 @@ func (s *shell) type2Inspector(c *ui.Context, p palette) {
 				ui.Text(c, l.Type2NDEFError(s.type2.NDEFError)).FontSize(9.5).
 					TextColor(p.warning).Wrap()
 			} else if s.type2.NDEF != nil && s.type2.NDEF.Present {
-				fieldRow(c, p, l.Type2NDEFPanel(), l.Type2Records(len(s.type2.NDEF.Records)))
+				summary := s.type2.NDEF.Summary
+				if summary == "" {
+					summary = l.Type2Records(len(s.type2.NDEF.Records))
+				}
+				fieldRow(c, p, l.Type2NDEFPanel(), summary)
 			} else {
 				fieldRow(c, p, l.Type2NDEFPanel(), l.Type2NoNDEF())
 			}
@@ -234,46 +276,133 @@ func (s *shell) type2Inspector(c *ui.Context, p palette) {
 
 func (s *shell) type2NDEFEditor(c *ui.Context, p palette) {
 	l := s.locales()
+	current, ok := ndefTemplateByID(s.ndefTemplates, s.ndefTemplate)
+	if !ok {
+		if len(s.ndefTemplates) == 0 {
+			return
+		}
+		s.selectNdefTemplate(s.ndefTemplates[0].ID)
+		current, _ = ndefTemplateByID(s.ndefTemplates, s.ndefTemplate)
+	}
 	ui.Column(c).Padding(14).Gap(9).Background(p.surface).Radius(10).
 		Border(1, p.border).Children(func() {
-		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, l.Type2NDEFPanel()).FontSize(12.5).Bold().TextColor(p.text)
-			ui.Spacer(c)
-			if s.ndefMode == "uri" {
-				if primaryButton(c, p, l.Type2URIRecord()).Height(26).Clicked() {
-					s.ndefMode = "uri"
-				}
-			} else if ui.Button(c, l.Type2URIRecord()).Height(26).FontSize(10).Clicked() {
-				s.ndefMode = "uri"
-				s.ndefInput = ""
+		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, l.NdefTemplate()).FontSize(10).TextColor(p.muted).Shrink(0)
+			labels := make([]string, len(s.ndefTemplates))
+			ids := make([]string, len(s.ndefTemplates))
+			for index, template := range s.ndefTemplates {
+				labels[index] = ndefTemplateLabel(l, template.ID)
+				ids[index] = template.ID
 			}
-			if s.ndefMode == "text" {
-				if primaryButton(c, p, l.Type2TextRecord()).Height(26).Clicked() {
-					s.ndefMode = "text"
+			selected := ndefTemplateLabel(l, current.ID)
+			selector := ui.Select(c, &selected, labels)
+			if selector.Changed() {
+				for index, label := range labels {
+					if label == selected {
+						s.selectNdefTemplate(ids[index])
+						break
+					}
 				}
-			} else if ui.Button(c, l.Type2TextRecord()).Height(26).FontSize(10).Clicked() {
-				s.ndefMode = "text"
-				s.ndefInput = ""
 			}
 		})
-		placeholder := l.Type2NDEFTextPlaceholder()
-		if s.ndefMode == "uri" {
-			placeholder = l.Type2NDEFURIPlaceholder()
+		for _, field := range current.Fields {
+			value := s.ndefField(field.ID)
+			label := ndefFieldLabel(l, field.ID)
+			ui.Column(c).Gap(4).Children(func() {
+				ui.Text(c, label).FontSize(9.5).TextColor(p.muted)
+				if field.Kind == "select" {
+					options := make([]string, len(field.Options))
+					for index, option := range field.Options {
+						options[index] = ndefSecurityLabel(l, option)
+					}
+					selected := ndefSecurityLabel(l, *value)
+					if selected == "" && len(options) > 0 {
+						selected = options[0]
+						*value = field.Options[0]
+					}
+					selector := ui.Select(c, &selected, options)
+					if selector.Changed() {
+						for index, option := range options {
+							if option == selected {
+								*value = field.Options[index]
+								break
+							}
+						}
+					}
+				} else {
+					placeholder := label
+					switch field.ID {
+					case "text":
+						placeholder = l.Type2NDEFTextPlaceholder()
+					case "uri":
+						placeholder = l.Type2NDEFURIPlaceholder()
+					}
+					input := ui.TextInput(c, value).Placeholder(placeholder)
+					if input.Submitted() {
+						s.requestType2NDEFWrite()
+					}
+				}
+			})
 		}
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-			input := ui.TextInput(c, &s.ndefInput).Placeholder(placeholder)
-			if input.Submitted() {
-				s.requestType2NDEFWrite()
-			}
-		})
-		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, l.Type2WriteBackupHint()).FontSize(9).TextColor(p.faint).Grow(1).Wrap()
-			if ui.Button(c, l.Type2WriteNDEF()).Height(28).FontSize(10).
-				Disabled(s.type2WriteBusy() || strings.TrimSpace(s.ndefInput) == "").Clicked() {
+			if ui.Button(c, l.NdefWriteTemplate()).Height(28).FontSize(10).
+				Disabled(s.type2WriteBusy() || !s.ndefTemplateReady() || !s.type2.CC.Valid).Clicked() {
 				s.requestType2NDEFWrite()
 			}
 		})
 	})
+}
+
+func (s *shell) selectNdefTemplate(id string) {
+	s.ndefTemplate = id
+	s.ndefFields = make(map[string]*string)
+	switch id {
+	case "search":
+		s.setNdefField("search_prefix", "https://duckduckgo.com/?q=")
+	case "wifi":
+		s.setNdefField("security", "wpa2")
+	}
+}
+
+func (s *shell) ndefField(id string) *string {
+	if value, ok := s.ndefFields[id]; ok {
+		return value
+	}
+	value := new(string)
+	s.ndefFields[id] = value
+	return value
+}
+
+func (s *shell) setNdefField(id, value string) {
+	pointer := s.ndefField(id)
+	*pointer = value
+}
+
+func (s *shell) ndefCurrentTemplate() (app.Type2NDEFTemplateDTO, bool) {
+	return ndefTemplateByID(s.ndefTemplates, s.ndefTemplate)
+}
+
+func (s *shell) ndefTemplateReady() bool {
+	template, ok := s.ndefCurrentTemplate()
+	if !ok {
+		return false
+	}
+	for _, field := range template.Fields {
+		if !field.Required {
+			continue
+		}
+		if strings.TrimSpace(*s.ndefField(field.ID)) == "" {
+			return false
+		}
+	}
+	if s.ndefTemplate == "wifi" {
+		security := strings.TrimSpace(*s.ndefField("security"))
+		if security != "open" && strings.TrimSpace(*s.ndefField("password")) == "" {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *shell) syncType2PageSelection(reset bool) {
@@ -333,16 +462,21 @@ func (s *shell) requestType2PageWrite() {
 }
 
 func (s *shell) requestType2NDEFWrite() {
-	message := strings.TrimSpace(s.ndefInput)
-	if message == "" {
-		s.errorText = s.locales().Type2NDEFEmpty()
+	template, ok := s.ndefCurrentTemplate()
+	if !ok {
 		return
 	}
-	mode := s.ndefMode
-	if mode == "" {
-		mode = "text"
+	fields := make(map[string]string, len(template.Fields))
+	for _, field := range template.Fields {
+		fields[field.ID] = *s.ndefField(field.ID)
 	}
-	s.type2WriteIntent = &type2WriteIntent{Kind: "ndef", Mode: mode, Message: message}
+	request := app.Type2NDEFWriteStartRequestDTO{Template: template.ID, Fields: fields}
+	preview, err := s.api.PreviewType2NDEF(request)
+	if err != nil {
+		s.errorText = s.locales().Type2WriteFailed(err.Error())
+		return
+	}
+	s.type2WriteIntent = &type2WriteIntent{Kind: "ndef", Template: template.ID, Fields: fields, Length: preview.Length}
 	s.type2WriteOpen = true
 }
 
@@ -355,13 +489,9 @@ func (s *shell) startType2Write(intent type2WriteIntent) {
 				Pages: []app.Type2PageWriteDTO{{Page: intent.Page, Hex: intent.Hex}},
 			})
 		} else {
-			request := app.Type2NDEFWriteStartRequestDTO{Mode: intent.Mode}
-			if intent.Mode == "uri" {
-				request.URI = intent.Message
-			} else {
-				request.Text = intent.Message
-			}
-			_, err = s.api.StartType2NDEFWrite(request)
+			_, err = s.api.StartType2NDEFWrite(app.Type2NDEFWriteStartRequestDTO{
+				Template: intent.Template, Fields: intent.Fields,
+			})
 		}
 		s.update(func() {
 			s.pendingOps--
@@ -387,12 +517,9 @@ func (s *shell) type2WriteDialog(c *ui.Context) {
 		title = l.Type2ConfirmPageTitle(intent.Page)
 		message = l.Type2ConfirmPageMessage(intent.Page, spacedHex(intent.Hex))
 	} else {
-		mode := l.Type2TextRecord()
-		if intent.Mode == "uri" {
-			mode = l.Type2URIRecord()
-		}
-		title = l.Type2ConfirmNDEFTitle()
-		message = l.Type2ConfirmNDEFMessage(mode, len([]byte(intent.Message)))
+		template := ndefTemplateLabel(l, intent.Template)
+		title = l.NdefConfirmTemplateTitle(template)
+		message = l.NdefConfirmTemplateMessage(template, intent.Length)
 	}
 	result := ui.AlertDialog(c, &s.type2WriteOpen, title, message, l.CommonCancel(), l.Type2ConfirmWrite())
 	if result == -1 {

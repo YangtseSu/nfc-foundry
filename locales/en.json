@@ -440,5 +440,100 @@
         "type": "String"
       }
     }
-  }
+  },
+  "ndefTplText": "Text",
+  "ndefTplURI": "URL / URI",
+  "ndefTplCustom": "Custom URI",
+  "ndefTplSearch": "Search",
+  "ndefTplPayment": "Payment link",
+  "ndefTplSocial": "Social profile",
+  "ndefTplApp": "Application",
+  "ndefTplEmail": "Email",
+  "ndefTplContact": "Contact",
+  "ndefTplPhone": "Phone",
+  "ndefTplLocation": "Location",
+  "ndefTplAddress": "Address",
+  "ndefTplBluetooth": "Bluetooth",
+  "ndefTplWiFi": "Wi-Fi",
+  "ndefTplSmartPoster": "Smart Poster",
+  "ndefFieldText": "Text",
+  "ndefFieldURI": "URL / URI",
+  "ndefFieldSearchPrefix": "Search URL prefix",
+  "ndefFieldQuery": "Search query",
+  "ndefFieldPackage": "Android package",
+  "ndefFieldTo": "To",
+  "ndefFieldSubject": "Subject",
+  "ndefFieldBody": "Body",
+  "ndefFieldName": "Name",
+  "ndefFieldOrganization": "Organization",
+  "ndefFieldJobTitle": "Job title",
+  "ndefFieldPhone": "Phone",
+  "ndefFieldEmail": "Email",
+  "ndefFieldAddress": "Address",
+  "ndefFieldURL": "URL",
+  "ndefFieldNote": "Note",
+  "ndefFieldLatitude": "Latitude",
+  "ndefFieldLongitude": "Longitude",
+  "ndefFieldLabel": "Label",
+  "ndefFieldSSID": "SSID",
+  "ndefFieldSecurity": "Security",
+  "ndefFieldPassword": "Password",
+  "ndefFieldAuth": "Authentication",
+  "ndefFieldEncryption": "Encryption",
+  "ndefFieldNetworkKey": "Network key",
+  "ndefFieldMAC": "MAC address",
+  "ndefFieldBTAddress": "Bluetooth address",
+  "ndefFieldBTName": "Device name",
+  "ndefFieldBTClass": "Device class",
+  "ndefFieldPayload": "Payload",
+  "ndefFieldTitle": "Title",
+  "ndefSecurityOpen": "Open",
+  "ndefSecurityWPA": "WPA-Personal",
+  "ndefSecurityWPA2": "WPA2-Personal",
+  "ndefSecurityWPA2WPA": "WPA/WPA2 Personal",
+  "ndefKindText": "Text",
+  "ndefKindURI": "URI",
+  "ndefKindSmartPoster": "Smart Poster",
+  "ndefKindVCard": "Contact",
+  "ndefKindWiFi": "Wi-Fi",
+  "ndefKindBluetooth": "Bluetooth",
+  "ndefKindApp": "Application",
+  "ndefKindMIME": "MIME",
+  "ndefKindExternal": "External",
+  "ndefKindAbsoluteURI": "Absolute URI",
+  "ndefKindUnknown": "Unknown",
+  "ndefKindJSON": "JSON",
+  "ndefShowRaw": "Show raw",
+  "ndefHideRaw": "Hide raw",
+  "ndefTemplate": "Template",
+  "ndefWriteTemplate": "Write NDEF",
+  "ndefConfirmTemplateTitle": "Write {template}?",
+  "ndefConfirmTemplateMessage": "A {template} NDEF message of {length} bytes will replace the NDEF area. A full-image backup is written first and every changed page is read back.",
+  "ndefRawPayload": "Raw payload",
+  "ndefRawMessage": "Raw message",
+  "ndefNoFields": "No decoded fields.",
+  "@ndefConfirmTemplateTitle": {
+    "placeholders": {
+      "template": {
+        "type": "String"
+      }
+    }
+  },
+  "@ndefConfirmTemplateMessage": {
+    "placeholders": {
+      "template": {
+        "type": "String"
+      },
+      "length": {
+        "type": "int"
+      }
+    }
+  },
+  "ndefTplSMS": "SMS",
+  "ndefFieldNumber": "Phone number",
+  "ndefKindURL": "URL",
+  "ndefKindEmail": "Email",
+  "ndefKindPhone": "Phone",
+  "ndefKindSMS": "SMS",
+  "ndefKindLocation": "Location"
 }

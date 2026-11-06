@@ -196,11 +196,13 @@ Pages 0-3, static lock bytes, and the capability container are never written. Ev
 `$XDG_CONFIG_HOME/NFC Foundry/type2-backups/` and verifies each page by
 read-back. A dump is accepted only for the same product and UID.
 
-`ndef read` prints the NDEF text or URI, record summary, and raw bytes;
-`--raw` prints only the message hex. It exits 3 when the tag has no valid
-capability container or contains malformed NDEF. `ndef write` accepts a raw
-NDEF message from `--file` or `--hex`, validates the record layout and TLV
-capacity, refuses to overwrite a preceding lock/memory-control TLV, and
+`ndef read` decodes and prints the record kind, summary, and fields. It covers
+Text, URI, Smart Poster, vCard, MIME text/JSON, Wi-Fi WSC, Bluetooth BR/EDR
+easy pairing, and Android Application Records. `--raw` prints only the message
+hex. It exits 3 when the tag has no valid capability container or contains
+malformed NDEF. `ndef write` accepts a raw NDEF message from `--file` or
+`--hex`; the GUI provides the common templates. It validates the record layout
+and TLV capacity, refuses to overwrite a preceding lock/memory-control TLV, and
 verifies the complete NDEF area by read-back.
 
 ### Diagnostics and keys

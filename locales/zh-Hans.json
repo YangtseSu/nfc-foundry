@@ -293,5 +293,100 @@
         "type": "String"
       }
     }
-  }
+  },
+  "ndefTplText": "文本",
+  "ndefTplURI": "URL / URI",
+  "ndefTplCustom": "自定义 URI",
+  "ndefTplSearch": "搜索",
+  "ndefTplPayment": "付款链接",
+  "ndefTplSocial": "社交主页",
+  "ndefTplApp": "应用程序",
+  "ndefTplEmail": "邮件",
+  "ndefTplContact": "联系人",
+  "ndefTplPhone": "电话号码",
+  "ndefTplLocation": "位置",
+  "ndefTplAddress": "地址",
+  "ndefTplBluetooth": "蓝牙",
+  "ndefTplWiFi": "Wi-Fi",
+  "ndefTplSmartPoster": "智能海报",
+  "ndefFieldText": "文本",
+  "ndefFieldURI": "URL / URI",
+  "ndefFieldSearchPrefix": "搜索 URL 前缀",
+  "ndefFieldQuery": "搜索关键词",
+  "ndefFieldPackage": "Android 包名",
+  "ndefFieldTo": "收件人",
+  "ndefFieldSubject": "主题",
+  "ndefFieldBody": "正文",
+  "ndefFieldName": "姓名",
+  "ndefFieldOrganization": "组织",
+  "ndefFieldJobTitle": "职位",
+  "ndefFieldPhone": "电话",
+  "ndefFieldEmail": "邮箱",
+  "ndefFieldAddress": "地址",
+  "ndefFieldURL": "URL",
+  "ndefFieldNote": "备注",
+  "ndefFieldLatitude": "纬度",
+  "ndefFieldLongitude": "经度",
+  "ndefFieldLabel": "标签",
+  "ndefFieldSSID": "SSID",
+  "ndefFieldSecurity": "安全类型",
+  "ndefFieldPassword": "密码",
+  "ndefFieldAuth": "认证方式",
+  "ndefFieldEncryption": "加密方式",
+  "ndefFieldNetworkKey": "网络密钥",
+  "ndefFieldMAC": "MAC 地址",
+  "ndefFieldBTAddress": "蓝牙地址",
+  "ndefFieldBTName": "设备名称",
+  "ndefFieldBTClass": "设备类别",
+  "ndefFieldPayload": "负载",
+  "ndefFieldTitle": "标题",
+  "ndefSecurityOpen": "开放",
+  "ndefSecurityWPA": "WPA-Personal",
+  "ndefSecurityWPA2": "WPA2-Personal",
+  "ndefSecurityWPA2WPA": "WPA/WPA2 Personal",
+  "ndefKindText": "文本",
+  "ndefKindURI": "URI",
+  "ndefKindSmartPoster": "智能海报",
+  "ndefKindVCard": "联系人",
+  "ndefKindWiFi": "Wi-Fi",
+  "ndefKindBluetooth": "蓝牙",
+  "ndefKindApp": "应用程序",
+  "ndefKindMIME": "MIME",
+  "ndefKindExternal": "外部记录",
+  "ndefKindAbsoluteURI": "绝对 URI",
+  "ndefKindUnknown": "未知",
+  "ndefKindJSON": "JSON",
+  "ndefShowRaw": "显示原始数据",
+  "ndefHideRaw": "隐藏原始数据",
+  "ndefTemplate": "模板",
+  "ndefWriteTemplate": "写入 NDEF",
+  "ndefConfirmTemplateTitle": "写入{template}？",
+  "ndefConfirmTemplateMessage": "将用 {length} 字节的{template} NDEF 消息替换 NDEF 区域。写入前会保存完整镜像备份，并回读每个变更页。",
+  "ndefRawPayload": "原始负载",
+  "ndefRawMessage": "原始消息",
+  "ndefNoFields": "没有可显示的字段。",
+  "@ndefConfirmTemplateTitle": {
+    "placeholders": {
+      "template": {
+        "type": "String"
+      }
+    }
+  },
+  "@ndefConfirmTemplateMessage": {
+    "placeholders": {
+      "template": {
+        "type": "String"
+      },
+      "length": {
+        "type": "int"
+      }
+    }
+  },
+  "ndefTplSMS": "短信",
+  "ndefFieldNumber": "电话号码",
+  "ndefKindURL": "URL",
+  "ndefKindEmail": "邮件",
+  "ndefKindPhone": "电话",
+  "ndefKindSMS": "短信",
+  "ndefKindLocation": "位置"
 }

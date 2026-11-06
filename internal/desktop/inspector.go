@@ -50,6 +50,9 @@ func (s *shell) inspectorSub() string {
 		return l.Type2NoData()
 	case tabNDEF:
 		if s.type2.Loaded && s.type2.NDEF != nil && s.type2.NDEF.Present {
+			if s.type2.NDEF.Summary != "" {
+				return s.type2.NDEF.Summary
+			}
 			return l.Type2Records(len(s.type2.NDEF.Records))
 		}
 		return l.Type2NoNDEF()

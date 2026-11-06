@@ -81,8 +81,12 @@ Write rules:
 NDEF read/write is implemented:
 
 - parse and validate the capability container and NDEF TLV;
-- read NDEF messages from Type 2 user memory;
-- write NDEF with length/TLV validation and read-back;
+- read and decode Text, URI, Smart Poster, MIME `text/plain`, vCard, JSON,
+  Wi-Fi WSC, Bluetooth BR/EDR easy pairing, and Android Application Records;
+- write Text, URL/URI, custom URI, search, payment, social, application,
+  email, contact, phone, SMS, location, address, Bluetooth, Wi-Fi, and Smart
+  Poster templates;
+- hide raw payload/message hex by default and show it only on request;
 - refuse to overwrite lock bytes, configuration pages, or a preceding
   lock/memory-control TLV;
 - report unsupported or malformed NDEF without modifying the tag.

@@ -28,6 +28,8 @@ type Backend interface {
 	StartType2Read(password string) (app.TaskDTO, error)
 	StartType2Write(app.Type2WriteStartRequestDTO) (app.TaskDTO, error)
 	StartType2NDEFWrite(app.Type2NDEFWriteStartRequestDTO) (app.TaskDTO, error)
+	PreviewType2NDEF(app.Type2NDEFWriteStartRequestDTO) (app.Type2NDEFPreviewDTO, error)
+	GetType2NDEFTemplates() []app.Type2NDEFTemplateDTO
 	StartKeyScan(discardDirty bool) (app.TaskDTO, error)
 	CancelTask(taskID string) error
 }

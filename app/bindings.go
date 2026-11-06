@@ -70,9 +70,17 @@ func (b *Bindings) StartType2Write(request Type2WriteStartRequestDTO) (TaskDTO, 
 	return b.service.StartType2Write(request)
 }
 
-// StartType2NDEFWrite starts a confirmed Text or URI NDEF write.
+// StartType2NDEFWrite starts a confirmed template NDEF write.
 func (b *Bindings) StartType2NDEFWrite(request Type2NDEFWriteStartRequestDTO) (TaskDTO, error) {
 	return b.service.StartType2NDEFWrite(request)
 }
+
+// PreviewType2NDEF validates a template and returns its encoded size.
+func (b *Bindings) PreviewType2NDEF(request Type2NDEFWriteStartRequestDTO) (Type2NDEFPreviewDTO, error) {
+	return b.service.PreviewType2NDEF(request)
+}
+
+// GetType2NDEFTemplates returns the common NDEF templates.
+func (b *Bindings) GetType2NDEFTemplates() []Type2NDEFTemplateDTO { return Type2NDEFTemplates() }
 
 func (b *Bindings) CancelTask(taskID string) error { return b.service.CancelTask(taskID) }

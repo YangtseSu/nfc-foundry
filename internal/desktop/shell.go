@@ -109,8 +109,10 @@ type shell struct {
 	type2PageChosen    int
 	type2PageInput     string
 	type2PageInputPage int
-	ndefMode           string
-	ndefInput          string
+	ndefTemplate       string
+	ndefFields         map[string]*string
+	ndefTemplates      []app.Type2NDEFTemplateDTO
+	ndefShowRaw        bool
 	type2WriteOpen     bool
 	type2WriteIntent   *type2WriteIntent
 	keyChosen          string
@@ -130,7 +132,8 @@ func newShell(api Backend) *shell {
 		selectedTab:        tabBlocks,
 		type2PageChosen:    -1,
 		type2PageInputPage: -1,
-		ndefMode:           "text",
+		ndefTemplate:       "text",
+		ndefFields:         make(map[string]*string),
 	}
 	s.reloadSnapshot()
 	return s
@@ -157,6 +160,7 @@ func (s *shell) reloadSnapshot() {
 	}
 	s.workbench = s.api.GetWorkbench()
 	s.type2 = s.api.GetType2Dump()
+	s.ndefTemplates = s.api.GetType2NDEFTemplates()
 	s.syncType2PageSelection(true)
 	s.keys = append([]app.KeyDTO(nil), s.api.GetKeyCatalog()...)
 	s.clampSelections()

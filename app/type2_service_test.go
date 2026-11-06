@@ -121,7 +121,7 @@ func TestServiceType2PageWriteTask(t *testing.T) {
 
 func TestServiceType2NDEFWriteTask(t *testing.T) {
 	service, _, recorder := newType2AppService(t)
-	if _, err := service.StartType2NDEFWrite(Type2NDEFWriteStartRequestDTO{Mode: "text", Text: "hello"}); err != nil {
+	if _, err := service.StartType2NDEFWrite(Type2NDEFWriteStartRequestDTO{Template: "text", Fields: map[string]string{"text": "hello"}}); err != nil {
 		t.Fatal(err)
 	}
 	event := recorder.waitTask(t)
@@ -152,13 +152,31 @@ func TestServiceType2WriteFailureReportsBackup(t *testing.T) {
 }
 
 func TestEncodeType2NDEFValidation(t *testing.T) {
-	if _, err := encodeType2NDEF(Type2NDEFWriteStartRequestDTO{Mode: "text", Text: "  "}); err == nil {
+	if _, err := encodeType2NDEF(Type2NDEFWriteStartRequestDTO{Template: "text", Fields: map[string]string{"text": "  "}}); err == nil {
 		t.Fatal("empty text was accepted")
 	}
-	if _, err := encodeType2NDEF(Type2NDEFWriteStartRequestDTO{Mode: "uri", URI: ""}); err == nil {
+	if _, err := encodeType2NDEF(Type2NDEFWriteStartRequestDTO{Template: "uri", Fields: map[string]string{"uri": ""}}); err == nil {
 		t.Fatal("empty URI was accepted")
 	}
-	if _, err := encodeType2NDEF(Type2NDEFWriteStartRequestDTO{Mode: "other"}); err == nil {
+	if _, err := encodeType2NDEF(Type2NDEFWriteStartRequestDTO{Template: "other"}); err == nil {
 		t.Fatal("unknown mode was accepted")
+	}
+}
+
+func TestPreviewType2NDEF(t *testing.T) {
+	preview, err := (&Service{}).PreviewType2NDEF(Type2NDEFWriteStartRequestDTO{
+		Template: "contact",
+		Fields:   map[string]string{"name": "Ada Lovelace", "email": "ada@example.com"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Template != "contact" || preview.Length == 0 {
+		t.Fatalf("preview = %+v", preview)
+	}
+	if _, err := (&Service{}).PreviewType2NDEF(Type2NDEFWriteStartRequestDTO{
+		Template: "contact", Fields: map[string]string{},
+	}); err == nil {
+		t.Fatal("missing contact name was accepted")
 	}
 }

@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -300,5 +301,42 @@ func TestCLIType2VerificationFailureReportsBackup(t *testing.T) {
 	}
 	if envelope.Error == nil || !strings.Contains(envelope.Error.Message, "full-image backup") {
 		t.Fatalf("error did not report the backup: %+v (stderr: %s)", envelope.Error, harness.stderr.String())
+	}
+}
+
+func TestCLINDEFReadDecodesVCard(t *testing.T) {
+	tag := mock.NewType2Tag(type2.ProductNTAG215, nil)
+	harness, _ := newType2Harness(t, tag)
+	message, err := type2.EncodeVCardMessage(map[string]string{
+		"name": "Ada Lovelace", "organization": "Analytical Engines", "email": "ada@example.com",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, _ := harness.run("ndef", "write", "--hex", strings.ToUpper(hex.EncodeToString(message)), "--yes", "--json")
+	if code != 0 {
+		t.Fatalf("ndef write exit %d: %s", code, harness.stderr.String())
+	}
+	code, envelope := harness.run("ndef", "read", "--json")
+	if code != 0 {
+		t.Fatalf("ndef read exit %d: %s", code, harness.stderr.String())
+	}
+	var read struct {
+		NDEF *app.Type2NDEFDTO `json:"ndef"`
+	}
+	decodeResult(t, envelope, &read)
+	if read.NDEF == nil || len(read.NDEF.Records) != 1 {
+		t.Fatalf("NDEF = %+v", read.NDEF)
+	}
+	record := read.NDEF.Records[0]
+	if record.Kind != "vcard" || record.Summary != "Ada Lovelace" {
+		t.Fatalf("record = %+v", record)
+	}
+	fields := map[string]string{}
+	for _, field := range record.Fields {
+		fields[field.Key] = field.Value
+	}
+	if fields["organization"] != "Analytical Engines" || fields["email"] != "ada@example.com" {
+		t.Fatalf("fields = %+v", record.Fields)
 	}
 }

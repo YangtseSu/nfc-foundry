@@ -420,14 +420,96 @@ func (r *Runner) printType2Page(page app.Type2PageDTO) {
 }
 
 func (r *Runner) printNDEF(ndef app.Type2NDEFDTO) {
-	if ndef.Text != "" {
-		r.out.humanf("text:    %s\n", ndef.Text)
-	}
-	if ndef.URI != "" {
-		r.out.humanf("uri:     %s\n", ndef.URI)
+	if ndef.Summary != "" {
+		r.out.humanf("summary: %s\n", ndef.Summary)
 	}
 	for index, record := range ndef.Records {
-		r.out.humanf("record %d: tnf=%d type=%q payload=%s\n", index, record.TNF, record.Type, record.Payload)
+		r.out.humanf("record %d: %s", index+1, record.Kind)
+		if record.Summary != "" {
+			r.out.humanf(" · %s", record.Summary)
+		}
+		r.out.humanf("\n")
+		if record.Text != "" && len(record.Fields) == 0 {
+			r.out.humanf("  %s: %s\n", ndefFieldName("text"), record.Text)
+		}
+		if record.URI != "" && len(record.Fields) == 0 {
+			r.out.humanf("  %s: %s\n", ndefFieldName("uri"), record.URI)
+		}
+		for _, field := range record.Fields {
+			r.out.humanf("  %s: %s\n", ndefFieldName(field.Key), field.Value)
+		}
+		if len(record.Fields) == 0 && record.Text == "" && record.URI == "" {
+			r.out.humanf("  type: %s\n", record.Type)
+		}
+	}
+}
+
+func ndefFieldName(key string) string {
+	switch key {
+	case "text":
+		return "text"
+	case "uri":
+		return "uri"
+	case "search_prefix":
+		return "search URL prefix"
+	case "query":
+		return "search query"
+	case "package":
+		return "Android package"
+	case "to":
+		return "to"
+	case "subject":
+		return "subject"
+	case "body":
+		return "body"
+	case "name":
+		return "name"
+	case "organization":
+		return "organization"
+	case "job_title":
+		return "job title"
+	case "phone":
+		return "phone"
+	case "email":
+		return "email"
+	case "address":
+		return "address"
+	case "url":
+		return "URL"
+	case "note":
+		return "note"
+	case "latitude":
+		return "latitude"
+	case "longitude":
+		return "longitude"
+	case "label":
+		return "label"
+	case "ssid":
+		return "SSID"
+	case "security":
+		return "security"
+	case "password":
+		return "password"
+	case "auth":
+		return "authentication"
+	case "encryption":
+		return "encryption"
+	case "network_key":
+		return "network key"
+	case "mac":
+		return "MAC address"
+	case "bt_address":
+		return "Bluetooth address"
+	case "bt_name":
+		return "device name"
+	case "bt_class":
+		return "device class"
+	case "payload":
+		return "payload"
+	case "title":
+		return "title"
+	default:
+		return key
 	}
 }
 
