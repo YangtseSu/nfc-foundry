@@ -10,6 +10,9 @@ Status legend: `done`, `in progress`, `pending`, `conditional`.
 | 03 | `nfctl` unified CLI | done |
 | 04 | Native Go Gen1A; remove `nfc-mfsetuid` | done |
 | 05 | Type 2 / NTAG21x and NDEF | done |
+| 05b | GUI Type 2 page and NDEF writes | done |
+| 05c | Classic GUI writes and advanced bulk write | pending |
+| 05d | Advanced Type 2 protected GUI writes | pending |
 | 06 | Reader expansion and capability matrix | pending |
 | 07 | ISO14443-4 APDU and DESFire read | pending |
 | 08 | FeliCa / Type 3 NDEF scope | conditional |
