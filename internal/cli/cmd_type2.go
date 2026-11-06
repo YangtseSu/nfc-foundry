@@ -508,6 +508,18 @@ func ndefFieldName(key string) string {
 		return "payload"
 	case "title":
 		return "title"
+	case "dpp_uri":
+		return "DPP bootstrapping URI"
+	case "dpp_mac":
+		return "DPP MAC"
+	case "dpp_version":
+		return "DPP version"
+	case "dpp_channels":
+		return "DPP channels"
+	case "dpp_key":
+		return "DPP public key"
+	case "dpp_info":
+		return "DPP information"
 	default:
 		return key
 	}

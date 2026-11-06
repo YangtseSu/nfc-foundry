@@ -388,5 +388,14 @@
   "ndefKindEmail": "邮件",
   "ndefKindPhone": "电话",
   "ndefKindSMS": "短信",
-  "ndefKindLocation": "位置"
+  "ndefKindLocation": "位置",
+  "ndefTplDPP": "WPA3 / Easy Connect（DPP URI）",
+  "ndefKindDPP": "WPA3 / DPP",
+  "ndefFieldDPPMAC": "DPP MAC",
+  "ndefFieldDPPVersion": "DPP 版本",
+  "ndefFieldDPPChannels": "DPP 信道",
+  "ndefFieldDPPKey": "DPP 公钥",
+  "ndefFieldDPPInfo": "DPP 信息",
+  "ndefSecurityWPA3Transition": "WPA2/WPA3 过渡（WPA2 凭据）",
+  "ndefFieldDPPURI": "DPP 引导 URI"
 }

@@ -66,6 +66,36 @@ func TestParseFoldedVCard(t *testing.T) {
 	}
 }
 
+func TestWiFiTransitionModeUsesWPA2Credential(t *testing.T) {
+	message, err := EncodeWiFiMessage("Foundry Lab", "correct horse battery staple", "wpa2-wpa3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := parseSingle(t, message)
+	values := fieldMap(record.Fields)
+	if values["auth"] != "WPA2-Personal" || values["encryption"] != "AES" {
+		t.Fatalf("transition fields = %+v", record.Fields)
+	}
+}
+
+func TestDPPBootstrappingURI(t *testing.T) {
+	message, err := EncodeTemplate("dpp", map[string]string{
+		"dpp_uri": "DPP:C:81/1;M:010203040506;V:2;K:ABCDEF;;",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := parseSingle(t, message)
+	if record.Kind != KindDPP || record.Summary != "010203040506" {
+		t.Fatalf("record = %+v", record)
+	}
+	values := fieldMap(record.Fields)
+	if values["dpp_mac"] != "010203040506" || values["dpp_version"] != "2" ||
+		values["dpp_channels"] != "81/1" || values["dpp_key"] != "present (6 characters)" {
+		t.Fatalf("DPP fields = %+v", record.Fields)
+	}
+}
+
 func TestWiFiRoundTrip(t *testing.T) {
 	message, err := EncodeWiFiMessage("Foundry Lab", "correct horse battery staple", "wpa2")
 	if err != nil {
@@ -133,6 +163,7 @@ func TestTemplateEncoders(t *testing.T) {
 		{"bluetooth", map[string]string{"address": "01:02:03:04:05:06", "name": "Speaker"}, KindBluetooth},
 		{"wifi", map[string]string{"ssid": "Foundry", "password": "password123", "security": "wpa2"}, KindWiFi},
 		{"smartposter", map[string]string{"uri": "https://example.com", "title": "Example"}, KindSmartPoster},
+		{"dpp", map[string]string{"dpp_uri": "DPP:C:81/1;M:010203040506;V:2;K:ABCDEF;;"}, KindDPP},
 	}
 	for _, test := range tests {
 		message, err := EncodeTemplate(test.template, test.fields)
@@ -157,6 +188,7 @@ func TestTemplateRequiredFields(t *testing.T) {
 		{"wifi", map[string]string{"ssid": "Foundry", "security": "wpa2"}},
 		{"location", map[string]string{"latitude": "200", "longitude": "0"}},
 		{"sms", map[string]string{}},
+		{"dpp", map[string]string{"dpp_uri": "https://example.com"}},
 		{"bluetooth", map[string]string{"address": "bad"}},
 	} {
 		if _, err := EncodeTemplate(test.template, test.fields); !errors.Is(err, ErrMalformedNDEF) {

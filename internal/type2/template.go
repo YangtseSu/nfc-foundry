@@ -65,9 +65,10 @@ var ndefTemplates = []Template{
 	}},
 	{ID: "wifi", Fields: []TemplateField{
 		{ID: "ssid", Required: true},
-		{ID: "security", Kind: "select", Required: true, Options: []string{"wpa2", "wpa", "wpa2-wpa", "open"}},
+		{ID: "security", Kind: "select", Required: true, Options: []string{"wpa2", "wpa2-wpa3", "wpa", "wpa2-wpa", "open"}},
 		{ID: "password"},
 	}},
+	{ID: "dpp", Fields: []TemplateField{{ID: "dpp_uri", Required: true}}},
 	{ID: "smartposter", Fields: []TemplateField{
 		{ID: "uri", Required: true},
 		{ID: "job_title"},
@@ -221,6 +222,18 @@ func EncodeTemplate(template string, fields map[string]string) ([]byte, error) {
 			security = "wpa2"
 		}
 		return EncodeWiFiMessage(ssid, fields["password"], security)
+	case "dpp":
+		uri, err := required("dpp_uri")
+		if err != nil {
+			return nil, err
+		}
+		if !strings.HasPrefix(uri, "DPP:") {
+			return nil, fmt.Errorf("%w: DPP bootstrapping URI must start with DPP:", ErrMalformedNDEF)
+		}
+		if !strings.Contains(uri, "K:") {
+			return nil, fmt.Errorf("%w: DPP bootstrapping URI must contain a public key", ErrMalformedNDEF)
+		}
+		return EncodeURIMessage(uri)
 	case "smartposter":
 		uri, err := required("uri")
 		if err != nil {

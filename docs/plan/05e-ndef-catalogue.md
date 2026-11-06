@@ -34,12 +34,16 @@ Templates:
 - Location (`geo:` latitude/longitude/optional label)
 - Address (`geo:0,0?q=`)
 - Bluetooth easy pairing (address + optional name)
-- Wi-Fi WSC (SSID + security + password)
+- Wi-Fi WSC (SSID + security + password), including an explicitly labeled
+  WPA2/WPA3 transition option
+- WPA3 / Easy Connect DPP bootstrapping URI
 - Smart Poster (URI + title)
 
 The search template accepts a provider URL prefix, not a single hard-coded
 search engine. The Wi-Fi security choices are Open, WPA-Personal, WPA2-Personal,
-and WPA/WPA2 mixed.
+WPA/WPA2 mixed, and WPA2/WPA3 transition using a WPA2 credential. WPA3-only
+onboarding uses a DPP URI provided by a configurator, because WSC 2.0 has no
+WPA3/SAE authentication type.
 
 ## Decoded read view
 

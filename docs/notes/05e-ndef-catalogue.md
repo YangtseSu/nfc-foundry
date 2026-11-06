@@ -19,10 +19,17 @@ Date: 2026-11-07
 - Added the common template catalogue:
   - Text, URL/URI, custom URI, search, payment link, social profile,
     application, email, contact, phone, SMS, location, address, Bluetooth,
-    Wi-Fi, Smart Poster.
+    Wi-Fi, Smart Poster, and WPA3/DPP bootstrapping.
 - Search uses a user-editable provider URL prefix (default DuckDuckGo), not a
   hard-coded search engine.
-- Wi-Fi security supports Open, WPA-Personal, WPA2-Personal, and WPA/WPA2 mixed.
+- Wi-Fi security supports Open, WPA-Personal, WPA2-Personal, WPA/WPA2 mixed,
+  and an explicitly labeled WPA2/WPA3 transition option that uses a WPA2
+  credential.
+- Added a WPA3 / Easy Connect template that writes a DPP bootstrapping URI as
+  a standard URI record. The WSC 2.0 credential format has no WPA3/SAE
+  authentication type; WPA3-only onboarding uses DPP instead. The template
+  accepts a URI supplied by an AP/configurator; it does not generate a DPP key
+  pair or perform DPP authentication.
 - Wi-Fi network keys are masked in read views; the editor still accepts the
   password for writing.
 - The GUI NDEF editor now uses a template selector with dynamic fields.
@@ -49,6 +56,11 @@ Date: 2026-11-07
   vCard as:
   `summary: 苏长江 / record 1: vcard · 苏长江 / name: 苏长江 / phone: ...`
   instead of a `42 45 49 ...` hex dump.
+
+- The running GUI held the reader lock during the final Wi-Fi/DPP write test, so
+  those two write paths were covered by unit tests and mock-tag service tests,
+  not by a new hardware write. The vCard read and earlier NDEF write/restore
+  paths were hardware-tested.
 
 ## Limitations
 

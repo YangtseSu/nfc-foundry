@@ -15,6 +15,7 @@ const (
 	KindPhone       = "phone"
 	KindSMS         = "sms"
 	KindLocation    = "location"
+	KindDPP         = "dpp"
 	KindSmartPoster = "smartposter"
 	KindVCard       = "vcard"
 	KindWiFi        = "wifi"
@@ -187,6 +188,8 @@ func decodeURI(record *Record) {
 	record.Summary = uri
 	lower := strings.ToLower(uri)
 	switch {
+	case strings.HasPrefix(lower, "dpp:"):
+		decodeDPP(record)
 	case strings.HasPrefix(lower, "http://"), strings.HasPrefix(lower, "https://"):
 		record.Kind = KindURL
 	case strings.HasPrefix(lower, "mailto:"):
@@ -245,4 +248,37 @@ func splitURIQuery(value string) (string, string) {
 		return value, ""
 	}
 	return head, tail
+}
+
+func decodeDPP(record *Record) {
+	record.Kind = KindDPP
+	record.Summary = "DPP bootstrapping"
+	body := strings.TrimPrefix(record.URI, "DPP:")
+	mac := ""
+	for _, token := range strings.Split(body, ";") {
+		if token == "" {
+			continue
+		}
+		key, value, ok := strings.Cut(token, ":")
+		if !ok || value == "" {
+			continue
+		}
+		switch key {
+		case "M":
+			mac = value
+			record.Fields = append(record.Fields, Field{Key: "dpp_mac", Value: value})
+		case "V":
+			record.Fields = append(record.Fields, Field{Key: "dpp_version", Value: value})
+		case "C":
+			record.Fields = append(record.Fields, Field{Key: "dpp_channels", Value: value})
+		case "K":
+			record.Fields = append(record.Fields, Field{Key: "dpp_key", Value: fmt.Sprintf("present (%d characters)", len(value))})
+		case "I":
+			record.Fields = append(record.Fields, Field{Key: "dpp_info", Value: value})
+		}
+	}
+	record.Fields = append(record.Fields, Field{Key: "uri", Value: record.URI})
+	if mac != "" {
+		record.Summary = mac
+	}
 }

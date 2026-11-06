@@ -3097,3 +3097,93 @@ func NdefKindLocation() string { return In(i18n.Locale()).NdefKindLocation() }
 func (msgs Messages) NdefKindLocation() string {
 	return Catalog.Format(msgs.locale, "ndefKindLocation", nil)
 }
+
+// NdefTplDPP says "WPA3 / Easy Connect (DPP URI)"
+// in the language the app shows.
+func NdefTplDPP() string { return In(i18n.Locale()).NdefTplDPP() }
+
+// NdefTplDPP says "WPA3 / Easy Connect (DPP URI)"
+// in the language of msgs.
+func (msgs Messages) NdefTplDPP() string {
+	return Catalog.Format(msgs.locale, "ndefTplDPP", nil)
+}
+
+// NdefKindDPP says "WPA3 / DPP"
+// in the language the app shows.
+func NdefKindDPP() string { return In(i18n.Locale()).NdefKindDPP() }
+
+// NdefKindDPP says "WPA3 / DPP"
+// in the language of msgs.
+func (msgs Messages) NdefKindDPP() string {
+	return Catalog.Format(msgs.locale, "ndefKindDPP", nil)
+}
+
+// NdefFieldDPPMAC says "DPP MAC"
+// in the language the app shows.
+func NdefFieldDPPMAC() string { return In(i18n.Locale()).NdefFieldDPPMAC() }
+
+// NdefFieldDPPMAC says "DPP MAC"
+// in the language of msgs.
+func (msgs Messages) NdefFieldDPPMAC() string {
+	return Catalog.Format(msgs.locale, "ndefFieldDPPMAC", nil)
+}
+
+// NdefFieldDPPVersion says "DPP version"
+// in the language the app shows.
+func NdefFieldDPPVersion() string { return In(i18n.Locale()).NdefFieldDPPVersion() }
+
+// NdefFieldDPPVersion says "DPP version"
+// in the language of msgs.
+func (msgs Messages) NdefFieldDPPVersion() string {
+	return Catalog.Format(msgs.locale, "ndefFieldDPPVersion", nil)
+}
+
+// NdefFieldDPPChannels says "DPP channels"
+// in the language the app shows.
+func NdefFieldDPPChannels() string { return In(i18n.Locale()).NdefFieldDPPChannels() }
+
+// NdefFieldDPPChannels says "DPP channels"
+// in the language of msgs.
+func (msgs Messages) NdefFieldDPPChannels() string {
+	return Catalog.Format(msgs.locale, "ndefFieldDPPChannels", nil)
+}
+
+// NdefFieldDPPKey says "DPP public key"
+// in the language the app shows.
+func NdefFieldDPPKey() string { return In(i18n.Locale()).NdefFieldDPPKey() }
+
+// NdefFieldDPPKey says "DPP public key"
+// in the language of msgs.
+func (msgs Messages) NdefFieldDPPKey() string {
+	return Catalog.Format(msgs.locale, "ndefFieldDPPKey", nil)
+}
+
+// NdefFieldDPPInfo says "DPP information"
+// in the language the app shows.
+func NdefFieldDPPInfo() string { return In(i18n.Locale()).NdefFieldDPPInfo() }
+
+// NdefFieldDPPInfo says "DPP information"
+// in the language of msgs.
+func (msgs Messages) NdefFieldDPPInfo() string {
+	return Catalog.Format(msgs.locale, "ndefFieldDPPInfo", nil)
+}
+
+// NdefSecurityWPA3Transition says "WPA2/WPA3 transition (WPA2 credential)"
+// in the language the app shows.
+func NdefSecurityWPA3Transition() string { return In(i18n.Locale()).NdefSecurityWPA3Transition() }
+
+// NdefSecurityWPA3Transition says "WPA2/WPA3 transition (WPA2 credential)"
+// in the language of msgs.
+func (msgs Messages) NdefSecurityWPA3Transition() string {
+	return Catalog.Format(msgs.locale, "ndefSecurityWPA3Transition", nil)
+}
+
+// NdefFieldDPPURI says "DPP bootstrapping URI"
+// in the language the app shows.
+func NdefFieldDPPURI() string { return In(i18n.Locale()).NdefFieldDPPURI() }
+
+// NdefFieldDPPURI says "DPP bootstrapping URI"
+// in the language of msgs.
+func (msgs Messages) NdefFieldDPPURI() string {
+	return Catalog.Format(msgs.locale, "ndefFieldDPPURI", nil)
+}

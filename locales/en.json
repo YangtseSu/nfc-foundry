@@ -535,5 +535,14 @@
   "ndefKindEmail": "Email",
   "ndefKindPhone": "Phone",
   "ndefKindSMS": "SMS",
-  "ndefKindLocation": "Location"
+  "ndefKindLocation": "Location",
+  "ndefTplDPP": "WPA3 / Easy Connect (DPP URI)",
+  "ndefKindDPP": "WPA3 / DPP",
+  "ndefFieldDPPMAC": "DPP MAC",
+  "ndefFieldDPPVersion": "DPP version",
+  "ndefFieldDPPChannels": "DPP channels",
+  "ndefFieldDPPKey": "DPP public key",
+  "ndefFieldDPPInfo": "DPP information",
+  "ndefSecurityWPA3Transition": "WPA2/WPA3 transition (WPA2 credential)",
+  "ndefFieldDPPURI": "DPP bootstrapping URI"
 }

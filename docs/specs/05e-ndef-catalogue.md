@@ -104,6 +104,7 @@ External type `android.com:pkg`, payload is the package name.
 | `address` | `address` |
 | `bluetooth` | `address`, `name` |
 | `wifi` | `ssid`, `password`, `security` |
+| `dpp` | `dpp_uri` |
 | `smartposter` | `uri`, `title` |
 
 Search appends a URL-escaped query to the provider prefix. Email uses `mailto:`

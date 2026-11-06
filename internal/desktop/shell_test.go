@@ -708,6 +708,11 @@ func TestType2NDEFTemplateFieldsRender(t *testing.T) {
 	if !tester.HasText("Search URL prefix") || !tester.HasText("Search query") {
 		t.Fatalf("missing search fields: %q", tester.Texts())
 	}
+	model.selectNdefTemplate("dpp")
+	tester.Frame()
+	if !tester.HasText("DPP bootstrapping URI") || !tester.HasText("WPA3 / Easy Connect (DPP URI)") {
+		t.Fatalf("missing DPP fields: %q", tester.Texts())
+	}
 }
 
 func TestType2NDEFWiFiTemplateSubmitsFields(t *testing.T) {

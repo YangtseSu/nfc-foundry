@@ -52,7 +52,7 @@ func EncodeWiFiMessage(ssid, password, security string) ([]byte, error) {
 		}
 	case "wpa":
 		auth, encryption = wscAuthWPAPersonal, wscEncTKIP
-	case "wpa2":
+	case "wpa2", "wpa2-wpa3":
 		auth, encryption = wscAuthWPA2Personal, wscEncAES
 	case "wpa2-wpa":
 		auth, encryption = wscAuthWPAPersonal|wscAuthWPA2Personal, wscEncTKIP|wscEncAES

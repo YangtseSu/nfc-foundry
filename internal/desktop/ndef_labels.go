@@ -39,6 +39,8 @@ func ndefTemplateLabel(l locales.Messages, id string) string {
 		return l.NdefTplWiFi()
 	case "smartposter":
 		return l.NdefTplSmartPoster()
+	case "dpp":
+		return l.NdefTplDPP()
 	default:
 		return id
 	}
@@ -110,6 +112,18 @@ func ndefFieldLabel(l locales.Messages, key string) string {
 		return l.NdefFieldPayload()
 	case "title":
 		return l.NdefFieldTitle()
+	case "dpp_uri":
+		return l.NdefFieldDPPURI()
+	case "dpp_mac":
+		return l.NdefFieldDPPMAC()
+	case "dpp_version":
+		return l.NdefFieldDPPVersion()
+	case "dpp_channels":
+		return l.NdefFieldDPPChannels()
+	case "dpp_key":
+		return l.NdefFieldDPPKey()
+	case "dpp_info":
+		return l.NdefFieldDPPInfo()
 	default:
 		return key
 	}
@@ -131,6 +145,8 @@ func ndefKindLabel(l locales.Messages, kind string) string {
 		return l.NdefKindSMS()
 	case "location":
 		return l.NdefKindLocation()
+	case "dpp":
+		return l.NdefKindDPP()
 	case "smartposter":
 		return l.NdefKindSmartPoster()
 	case "vcard":
@@ -164,6 +180,8 @@ func ndefSecurityLabel(l locales.Messages, value string) string {
 		return l.NdefSecurityWPA2()
 	case "wpa2-wpa":
 		return l.NdefSecurityWPA2WPA()
+	case "wpa2-wpa3":
+		return l.NdefSecurityWPA3Transition()
 	default:
 		return value
 	}

@@ -84,15 +84,17 @@ NDEF read/write is implemented:
 - read and decode Text, URI, Smart Poster, MIME `text/plain`, vCard, JSON,
   Wi-Fi WSC, Bluetooth BR/EDR easy pairing, and Android Application Records;
 - write Text, URL/URI, custom URI, search, payment, social, application,
-  email, contact, phone, SMS, location, address, Bluetooth, Wi-Fi, and Smart
-  Poster templates;
+  email, contact, phone, SMS, location, address, Bluetooth, Wi-Fi, Smart
+  Poster, and WPA3/DPP bootstrapping templates;
 - hide raw payload/message hex by default and show it only on request;
 - refuse to overwrite lock bytes, configuration pages, or a preceding
   lock/memory-control TLV;
 - report unsupported or malformed NDEF without modifying the tag.
 
-The GUI writes one user page at a time and Text/URI NDEF messages after an
-explicit confirmation. Configuration, dynamic lock, PWD/PACK, static lock, and
+The GUI writes one user page at a time and template-based NDEF messages after
+an explicit confirmation. WPA3-only onboarding is represented by a DPP
+bootstrapping URI, because the WSC 2.0 credential format has no WPA3/SAE
+authentication type. Configuration, dynamic lock, PWD/PACK, static lock, and
 pages 0-3 remain CLI-only behind the protected-restore confirmations.
 
 Type 2 dumps include PWD and PACK pages so a full restore is possible; write
