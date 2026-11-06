@@ -99,7 +99,11 @@ func (s *shell) topbarCapacityChip(c *ui.Context, p palette) {
 			ui.Text(c, value).Font("monospace").FontSize(10.5).TextColor(p.topbarText).SingleLine()
 		case familyType2:
 			ui.Text(c, l.TabNDEF()).FontSize(11.5).TextColor(p.topbarMuted).SingleLine()
-			ui.Text(c, l.Phase05()).Font("monospace").FontSize(10.5).TextColor(p.topbarText).SingleLine()
+			value := "—"
+			if s.type2.Loaded && s.type2.NDEF != nil && s.type2.NDEF.Present {
+				value = l.Type2Capacity(s.type2.NDEF.Length)
+			}
+			ui.Text(c, value).Font("monospace").FontSize(10.5).TextColor(p.topbarText).SingleLine()
 		}
 	})
 }

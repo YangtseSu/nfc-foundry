@@ -19,6 +19,7 @@ make test
 make build
 make check
 make libnfc-ng-hardware-smoke LIBNFC_DEVICE=pn532_uart:/dev/ttyUSB0
+make libnfc-type2-hardware-test LIBNFC_DEVICE=acr122_usb:001:005
 ```
 
 - `libnfc-ng-build`: build/install the fork into the development prefix.
@@ -30,6 +31,10 @@ make libnfc-ng-hardware-smoke LIBNFC_DEVICE=pn532_uart:/dev/ttyUSB0
   lint`.
 - `libnfc-ng-hardware-smoke`: explicit PN532 UART enumeration; never part of
   ordinary CI.
+- `libnfc-type2-hardware-test`: read-only Type 2 validation by default; set
+  `NFCX_HARDWARE_TYPE2_CONFIRM=I_OWN_THIS_TAG` and
+  `NFCX_TEST_TYPE2_BACKUP_DIR=<directory>` to exercise NDEF write, restore,
+  and read-back. `NFCX_TEST_TYPE2_PWD` provides an optional four-byte password.
 
 ## Current baseline and migration
 
@@ -41,7 +46,7 @@ remaining migration is:
 3. replace Wails with MyGo (done);
 4. expose `nfctl` (done);
 5. port Gen1A to Go (done);
-6. add Type 2/NDEF;
+6. add Type 2/NDEF (done);
 7. expand validated readers and add the APDU foundation.
 
 ## Testing

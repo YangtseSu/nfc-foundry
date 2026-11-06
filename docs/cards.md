@@ -10,8 +10,8 @@ real-hardware validation.
 |---|---|---|---|---|
 | MIFARE Classic 1K | Yes | Blocks, dump | User blocks; trailers/block 0 guarded | Current baseline |
 | MIFARE Classic 4K | Yes | Blocks, dump | User blocks; trailers/block 0 guarded | Current baseline |
-| MIFARE Ultralight | Yes | Pages | User pages | Planned |
-| NTAG213/215/216 | Yes | Pages, NDEF | User pages, NDEF | Planned; NDEF committed |
+| MIFARE Ultralight | Yes | Pages, dump | User pages | Current; original-Ultralight fallback not hardware-tested |
+| NTAG213/215/216 | Yes | Pages, dump, NDEF | User pages, NDEF | Current; NTAG215 hardware-tested on ACR122U |
 | ISO/IEC 14443-4 | ATS/APDU | APDU | Application-specific | Later |
 | DESFire | ISO14443-4 + auth | Files | Guarded | Later |
 | FeliCa / NFC Forum Type 3 | IDm/PMm | TBD | TBD | Not committed |
@@ -48,7 +48,9 @@ UIDs are not supported.
 ## Type 2: Ultralight and NTAG21x
 
 Type 2 tags use 4-byte pages and plain `READ (0x30)`, `FAST_READ (0x3A)`,
-`WRITE (0xA2)`, and optional `PWD_AUTH (0x1B)`. There is no Crypto1.
+`WRITE (0xA2)`, `GET_VERSION (0x60)`, and optional `PWD_AUTH (0x1B)`. There is
+no Crypto1. The application sends these commands as CRC-A framed raw frames
+through `RawTransceiver`; this is the hardware-validated path on the ACR122U.
 
 NTAG21x memory map:
 
@@ -72,15 +74,26 @@ Write rules:
 - Keep a full 540-byte-image path for NTAG215-style analysis, but expose user
   memory as the normal dump unit.
 - Never write UID pages through a normal Type 2 command; UID is read-only on
-  genuine NTAG.
+  genuine NTAG. Pages 0-3, including static lock bytes and the capability
+  container, are never written; dynamic lock bytes are the only lock area
+  restored by `type2 restore --protected`.
 
-NDEF is a committed feature:
+NDEF read/write is implemented:
 
 - parse and validate the capability container and NDEF TLV;
 - read NDEF messages from Type 2 user memory;
 - write NDEF with length/TLV validation and read-back;
-- refuse to overwrite lock bytes or configuration pages;
+- refuse to overwrite lock bytes, configuration pages, or a preceding
+  lock/memory-control TLV;
 - report unsupported or malformed NDEF without modifying the tag.
+
+Type 2 dumps include PWD and PACK pages so a full restore is possible; write
+them with mode 0600 and treat them as sensitive. The CLI masks those pages
+unless `--show-keys` is set.
+
+The NTAG215 path (full dump, NDEF write, restore, and read-back) is validated on
+an ACR122U. NTAG213/216 use the same commands and geometry model but have not
+been hardware-tested.
 
 ## ISO/IEC 14443-4 and DESFire
 

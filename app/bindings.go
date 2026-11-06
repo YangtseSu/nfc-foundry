@@ -57,4 +57,12 @@ func (b *Bindings) StartReadCard(discardDirty bool) (TaskDTO, error) {
 	return b.service.StartReadCard(discardDirty)
 }
 
+// GetType2Dump returns the latest Type 2 memory snapshot.
+func (b *Bindings) GetType2Dump() Type2DumpDTO { return b.service.Type2Snapshot() }
+
+// StartType2Read loads the current Type 2 tag into the workbench.
+func (b *Bindings) StartType2Read(password string) (TaskDTO, error) {
+	return b.service.StartType2Read(password)
+}
+
 func (b *Bindings) CancelTask(taskID string) error { return b.service.CancelTask(taskID) }

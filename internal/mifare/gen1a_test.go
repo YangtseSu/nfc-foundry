@@ -6,6 +6,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/YangtseSu/nfc-foundry/internal/iso14443a"
 	"github.com/YangtseSu/nfc-foundry/internal/nfc"
 )
 
@@ -52,15 +53,15 @@ func gen1ATestBlock0() [nfc.BlockSize]byte {
 }
 
 func TestCRCAMatchesUpstreamFrames(t *testing.T) {
-	halt := crcA([]byte{mifareHalt, 0x00})
-	write := crcA([]byte{mifareWrite, 0x00})
+	halt := iso14443a.CRCA([]byte{mifareHalt, 0x00})
+	write := iso14443a.CRCA([]byte{mifareWrite, 0x00})
 	if halt != [2]byte{0x57, 0xcd} {
 		t.Fatalf("HALT CRC = %x; want 57cd", halt)
 	}
 	if write != [2]byte{0x5f, 0xb1} {
 		t.Fatalf("write CRC = %x; want 5fb1", write)
 	}
-	if frame := withCRCA([]byte{mifareHalt, 0x00}); !bytes.Equal(frame, []byte{0x50, 0x00, 0x57, 0xcd}) {
+	if frame := iso14443a.WithCRCA([]byte{mifareHalt, 0x00}); !bytes.Equal(frame, []byte{0x50, 0x00, 0x57, 0xcd}) {
 		t.Fatalf("HALT frame = %x", frame)
 	}
 }
@@ -92,7 +93,7 @@ func TestWriteGen1ABlock0ReplaysUpstreamSequence(t *testing.T) {
 		{0x50, 0x00, 0x57, 0xcd},
 		{0x43},
 		{0xa0, 0x00, 0x5f, 0xb1},
-		withCRCA(block0[:]),
+		iso14443a.WithCRCA(block0[:]),
 	}
 	if len(transport.bytesCalls) != len(wantBytes) {
 		t.Fatalf("byte calls = %x", transport.bytesCalls)

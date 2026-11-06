@@ -642,24 +642,16 @@ func (msgs Messages) ClassicSubtitle(blocks int, sectors int, keys int) string {
 	return Catalog.Format(msgs.locale, "classicSubtitle", map[string]any{"blocks": blocks, "sectors": sectors, "keys": keys})
 }
 
-// Type2Subtitle says "NFC Forum Type 2 · memory and NDEF arrive in Phase 05"
+// Type2Subtitle says "{product} · {pages} pages · {bytes} bytes user memory"
 // in the language the app shows.
-func Type2Subtitle() string { return In(i18n.Locale()).Type2Subtitle() }
-
-// Type2Subtitle says "NFC Forum Type 2 · memory and NDEF arrive in Phase 05"
-// in the language of msgs.
-func (msgs Messages) Type2Subtitle() string {
-	return Catalog.Format(msgs.locale, "type2Subtitle", nil)
+func Type2Subtitle(product string, pages int, bytes int) string {
+	return In(i18n.Locale()).Type2Subtitle(product, pages, bytes)
 }
 
-// Phase05 says "Phase 05"
-// in the language the app shows.
-func Phase05() string { return In(i18n.Locale()).Phase05() }
-
-// Phase05 says "Phase 05"
+// Type2Subtitle says "{product} · {pages} pages · {bytes} bytes user memory"
 // in the language of msgs.
-func (msgs Messages) Phase05() string {
-	return Catalog.Format(msgs.locale, "phase05", nil)
+func (msgs Messages) Type2Subtitle(product string, pages int, bytes int) string {
+	return Catalog.Format(msgs.locale, "type2Subtitle", map[string]any{"product": product, "pages": pages, "bytes": bytes})
 }
 
 // TabBlocks says "Blocks"
@@ -1748,28 +1740,6 @@ func (msgs Messages) ScanStarted() string {
 	return Catalog.Format(msgs.locale, "scanStarted", nil)
 }
 
-// FeatureDeferred says "{feature} arrives in {phase}."
-// in the language the app shows.
-func FeatureDeferred(feature string, phase string) string {
-	return In(i18n.Locale()).FeatureDeferred(feature, phase)
-}
-
-// FeatureDeferred says "{feature} arrives in {phase}."
-// in the language of msgs.
-func (msgs Messages) FeatureDeferred(feature string, phase string) string {
-	return Catalog.Format(msgs.locale, "featureDeferred", map[string]any{"feature": feature, "phase": phase})
-}
-
-// FeatureDeferredDetail says "This build reads MIFARE Classic cards only. No NDEF records are read or synthesized."
-// in the language the app shows.
-func FeatureDeferredDetail() string { return In(i18n.Locale()).FeatureDeferredDetail() }
-
-// FeatureDeferredDetail says "This build reads MIFARE Classic cards only. No NDEF records are read or synthesized."
-// in the language of msgs.
-func (msgs Messages) FeatureDeferredDetail() string {
-	return Catalog.Format(msgs.locale, "featureDeferredDetail", nil)
-}
-
 // ActionNoDump says "No dump loaded"
 // in the language the app shows.
 func ActionNoDump() string { return In(i18n.Locale()).ActionNoDump() }
@@ -1868,4 +1838,294 @@ func TopDump() string { return In(i18n.Locale()).TopDump() }
 // in the language of msgs.
 func (msgs Messages) TopDump() string {
 	return Catalog.Format(msgs.locale, "topDump", nil)
+}
+
+// Type2NoData says "Read the tag to load Type 2 memory."
+// in the language the app shows.
+func Type2NoData() string { return In(i18n.Locale()).Type2NoData() }
+
+// Type2NoData says "Read the tag to load Type 2 memory."
+// in the language of msgs.
+func (msgs Messages) Type2NoData() string {
+	return Catalog.Format(msgs.locale, "type2NoData", nil)
+}
+
+// Type2MemoryPanel says "Page memory"
+// in the language the app shows.
+func Type2MemoryPanel() string { return In(i18n.Locale()).Type2MemoryPanel() }
+
+// Type2MemoryPanel says "Page memory"
+// in the language of msgs.
+func (msgs Messages) Type2MemoryPanel() string {
+	return Catalog.Format(msgs.locale, "type2MemoryPanel", nil)
+}
+
+// Type2PageColumn says "Page"
+// in the language the app shows.
+func Type2PageColumn() string { return In(i18n.Locale()).Type2PageColumn() }
+
+// Type2PageColumn says "Page"
+// in the language of msgs.
+func (msgs Messages) Type2PageColumn() string {
+	return Catalog.Format(msgs.locale, "type2PageColumn", nil)
+}
+
+// Type2RegionColumn says "Region"
+// in the language the app shows.
+func Type2RegionColumn() string { return In(i18n.Locale()).Type2RegionColumn() }
+
+// Type2RegionColumn says "Region"
+// in the language of msgs.
+func (msgs Messages) Type2RegionColumn() string {
+	return Catalog.Format(msgs.locale, "type2RegionColumn", nil)
+}
+
+// Type2DataColumn says "Data"
+// in the language the app shows.
+func Type2DataColumn() string { return In(i18n.Locale()).Type2DataColumn() }
+
+// Type2DataColumn says "Data"
+// in the language of msgs.
+func (msgs Messages) Type2DataColumn() string {
+	return Catalog.Format(msgs.locale, "type2DataColumn", nil)
+}
+
+// Type2ASCIIColumn says "ASCII"
+// in the language the app shows.
+func Type2ASCIIColumn() string { return In(i18n.Locale()).Type2ASCIIColumn() }
+
+// Type2ASCIIColumn says "ASCII"
+// in the language of msgs.
+func (msgs Messages) Type2ASCIIColumn() string {
+	return Catalog.Format(msgs.locale, "type2ASCIIColumn", nil)
+}
+
+// Type2CapabilityPanel says "Capability container"
+// in the language the app shows.
+func Type2CapabilityPanel() string { return In(i18n.Locale()).Type2CapabilityPanel() }
+
+// Type2CapabilityPanel says "Capability container"
+// in the language of msgs.
+func (msgs Messages) Type2CapabilityPanel() string {
+	return Catalog.Format(msgs.locale, "type2CapabilityPanel", nil)
+}
+
+// Type2NDEFPanel says "NDEF message"
+// in the language the app shows.
+func Type2NDEFPanel() string { return In(i18n.Locale()).Type2NDEFPanel() }
+
+// Type2NDEFPanel says "NDEF message"
+// in the language of msgs.
+func (msgs Messages) Type2NDEFPanel() string {
+	return Catalog.Format(msgs.locale, "type2NDEFPanel", nil)
+}
+
+// Type2NoNDEF says "No NDEF message on this tag."
+// in the language the app shows.
+func Type2NoNDEF() string { return In(i18n.Locale()).Type2NoNDEF() }
+
+// Type2NoNDEF says "No NDEF message on this tag."
+// in the language of msgs.
+func (msgs Messages) Type2NoNDEF() string {
+	return Catalog.Format(msgs.locale, "type2NoNDEF", nil)
+}
+
+// Type2NDEFError says "NDEF unavailable: {message}"
+// in the language the app shows.
+func Type2NDEFError(message string) string { return In(i18n.Locale()).Type2NDEFError(message) }
+
+// Type2NDEFError says "NDEF unavailable: {message}"
+// in the language of msgs.
+func (msgs Messages) Type2NDEFError(message string) string {
+	return Catalog.Format(msgs.locale, "type2NDEFError", map[string]any{"message": message})
+}
+
+// Type2ProtectionPanel says "Protection state"
+// in the language the app shows.
+func Type2ProtectionPanel() string { return In(i18n.Locale()).Type2ProtectionPanel() }
+
+// Type2ProtectionPanel says "Protection state"
+// in the language of msgs.
+func (msgs Messages) Type2ProtectionPanel() string {
+	return Catalog.Format(msgs.locale, "type2ProtectionPanel", nil)
+}
+
+// Type2StaticLock says "Static lock"
+// in the language the app shows.
+func Type2StaticLock() string { return In(i18n.Locale()).Type2StaticLock() }
+
+// Type2StaticLock says "Static lock"
+// in the language of msgs.
+func (msgs Messages) Type2StaticLock() string {
+	return Catalog.Format(msgs.locale, "type2StaticLock", nil)
+}
+
+// Type2DynamicLock says "Dynamic lock"
+// in the language the app shows.
+func Type2DynamicLock() string { return In(i18n.Locale()).Type2DynamicLock() }
+
+// Type2DynamicLock says "Dynamic lock"
+// in the language of msgs.
+func (msgs Messages) Type2DynamicLock() string {
+	return Catalog.Format(msgs.locale, "type2DynamicLock", nil)
+}
+
+// Type2Auth0 says "AUTH0"
+// in the language the app shows.
+func Type2Auth0() string { return In(i18n.Locale()).Type2Auth0() }
+
+// Type2Auth0 says "AUTH0"
+// in the language of msgs.
+func (msgs Messages) Type2Auth0() string {
+	return Catalog.Format(msgs.locale, "type2Auth0", nil)
+}
+
+// Type2Access says "ACCESS"
+// in the language the app shows.
+func Type2Access() string { return In(i18n.Locale()).Type2Access() }
+
+// Type2Access says "ACCESS"
+// in the language of msgs.
+func (msgs Messages) Type2Access() string {
+	return Catalog.Format(msgs.locale, "type2Access", nil)
+}
+
+// Type2Protect says "PROT"
+// in the language the app shows.
+func Type2Protect() string { return In(i18n.Locale()).Type2Protect() }
+
+// Type2Protect says "PROT"
+// in the language of msgs.
+func (msgs Messages) Type2Protect() string {
+	return Catalog.Format(msgs.locale, "type2Protect", nil)
+}
+
+// Type2ConfigLocked says "CFGLCK"
+// in the language the app shows.
+func Type2ConfigLocked() string { return In(i18n.Locale()).Type2ConfigLocked() }
+
+// Type2ConfigLocked says "CFGLCK"
+// in the language of msgs.
+func (msgs Messages) Type2ConfigLocked() string {
+	return Catalog.Format(msgs.locale, "type2ConfigLocked", nil)
+}
+
+// Type2AuthLimit says "AUTHLIM"
+// in the language the app shows.
+func Type2AuthLimit() string { return In(i18n.Locale()).Type2AuthLimit() }
+
+// Type2AuthLimit says "AUTHLIM"
+// in the language of msgs.
+func (msgs Messages) Type2AuthLimit() string {
+	return Catalog.Format(msgs.locale, "type2AuthLimit", nil)
+}
+
+// Type2Password says "Password"
+// in the language the app shows.
+func Type2Password() string { return In(i18n.Locale()).Type2Password() }
+
+// Type2Password says "Password"
+// in the language of msgs.
+func (msgs Messages) Type2Password() string {
+	return Catalog.Format(msgs.locale, "type2Password", nil)
+}
+
+// Type2Pack says "PACK"
+// in the language the app shows.
+func Type2Pack() string { return In(i18n.Locale()).Type2Pack() }
+
+// Type2Pack says "PACK"
+// in the language of msgs.
+func (msgs Messages) Type2Pack() string {
+	return Catalog.Format(msgs.locale, "type2Pack", nil)
+}
+
+// Type2Set says "Set"
+// in the language the app shows.
+func Type2Set() string { return In(i18n.Locale()).Type2Set() }
+
+// Type2Set says "Set"
+// in the language of msgs.
+func (msgs Messages) Type2Set() string {
+	return Catalog.Format(msgs.locale, "type2Set", nil)
+}
+
+// Type2NotSet says "Not set"
+// in the language the app shows.
+func Type2NotSet() string { return In(i18n.Locale()).Type2NotSet() }
+
+// Type2NotSet says "Not set"
+// in the language of msgs.
+func (msgs Messages) Type2NotSet() string {
+	return Catalog.Format(msgs.locale, "type2NotSet", nil)
+}
+
+// Type2Records says "{count, plural, =0 {No records} one {# record} other {# records}}"
+// in the language the app shows.
+func Type2Records(count int) string { return In(i18n.Locale()).Type2Records(count) }
+
+// Type2Records says "{count, plural, =0 {No records} one {# record} other {# records}}"
+// in the language of msgs.
+func (msgs Messages) Type2Records(count int) string {
+	return Catalog.Format(msgs.locale, "type2Records", map[string]any{"count": count})
+}
+
+// Type2Capacity says "{capacity} bytes"
+// in the language the app shows.
+func Type2Capacity(capacity int) string { return In(i18n.Locale()).Type2Capacity(capacity) }
+
+// Type2Capacity says "{capacity} bytes"
+// in the language of msgs.
+func (msgs Messages) Type2Capacity(capacity int) string {
+	return Catalog.Format(msgs.locale, "type2Capacity", map[string]any{"capacity": capacity})
+}
+
+// Type2NotFormatted says "Not NDEF formatted"
+// in the language the app shows.
+func Type2NotFormatted() string { return In(i18n.Locale()).Type2NotFormatted() }
+
+// Type2NotFormatted says "Not NDEF formatted"
+// in the language of msgs.
+func (msgs Messages) Type2NotFormatted() string {
+	return Catalog.Format(msgs.locale, "type2NotFormatted", nil)
+}
+
+// Type2ReadOnly says "Read-only"
+// in the language the app shows.
+func Type2ReadOnly() string { return In(i18n.Locale()).Type2ReadOnly() }
+
+// Type2ReadOnly says "Read-only"
+// in the language of msgs.
+func (msgs Messages) Type2ReadOnly() string {
+	return Catalog.Format(msgs.locale, "type2ReadOnly", nil)
+}
+
+// Type2Writable says "Writable"
+// in the language the app shows.
+func Type2Writable() string { return In(i18n.Locale()).Type2Writable() }
+
+// Type2Writable says "Writable"
+// in the language of msgs.
+func (msgs Messages) Type2Writable() string {
+	return Catalog.Format(msgs.locale, "type2Writable", nil)
+}
+
+// Type2TextRecord says "Text"
+// in the language the app shows.
+func Type2TextRecord() string { return In(i18n.Locale()).Type2TextRecord() }
+
+// Type2TextRecord says "Text"
+// in the language of msgs.
+func (msgs Messages) Type2TextRecord() string {
+	return Catalog.Format(msgs.locale, "type2TextRecord", nil)
+}
+
+// Type2URIRecord says "URI"
+// in the language the app shows.
+func Type2URIRecord() string { return In(i18n.Locale()).Type2URIRecord() }
+
+// Type2URIRecord says "URI"
+// in the language of msgs.
+func (msgs Messages) Type2URIRecord() string {
+	return Catalog.Format(msgs.locale, "type2URIRecord", nil)
 }

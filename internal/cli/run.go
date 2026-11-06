@@ -83,6 +83,10 @@ func (r *Runner) dispatch(ctx context.Context, args []string) error {
 		return r.cmdCard(ctx, args[1:])
 	case "classic":
 		return r.cmdClassic(ctx, args[1:])
+	case "type2":
+		return r.cmdType2(ctx, args[1:])
+	case "ndef":
+		return r.cmdNDEF(ctx, args[1:])
 	case "recover":
 		return r.cmdRecover(ctx, args[1:])
 	case "uid":
@@ -130,6 +134,13 @@ Commands:
   classic dump FILE                 Read the card into a dump file
   classic restore FILE              Restore a complete dump (requires --yes)
   classic keyscan                   Verify known keys on the card
+  type2 info                        Detect the Type 2 product
+  type2 read [--page N] [--all]     Read Type 2 pages
+  type2 write --page N --data H     Write one user page (requires --yes)
+  type2 dump FILE                   Save a Type 2 JSON dump
+  type2 restore FILE                Restore a Type 2 dump (requires --yes)
+  ndef read [--raw]                 Read the NDEF message
+  ndef write --file F|--hex H       Write an NDEF message (requires --yes)
   recover nested|darkside|hardnested  Run an external key-recovery engine
   uid set UID                       Write a 4-byte UID on a supported card
   diag                              Run the release self-check

@@ -17,6 +17,7 @@ import (
 	"github.com/YangtseSu/nfc-foundry/internal/nfc"
 	runtimebundle "github.com/YangtseSu/nfc-foundry/internal/runtime"
 	"github.com/YangtseSu/nfc-foundry/internal/terminal"
+	"github.com/YangtseSu/nfc-foundry/internal/type2"
 	"github.com/YangtseSu/nfc-foundry/internal/workbench"
 	"github.com/YangtseSu/nfc-foundry/internal/workflow"
 )
@@ -28,6 +29,7 @@ const (
 	WorkbenchEventName  = "nfc-foundry:workbench"
 	KeyEventName        = "nfc-foundry:sector-keys"
 	KeyCatalogEventName = "nfc-foundry:key-catalog"
+	Type2EventName      = "nfc-foundry:type2"
 
 	TaskEventStarted   = "started"
 	TaskEventProgress  = "progress"
@@ -118,6 +120,10 @@ type Service struct {
 	restoreService   *workflow.RestoreService
 	classicIO        *workflow.ClassicIO
 	uidService       *workflow.UIDService
+	type2Service     *workflow.Type2Service
+	type2Mu          sync.Mutex
+	type2Dump        type2.Document
+	type2Loaded      bool
 	fixtureAttack    *attack.Coordinator
 	mfocAttack       *workflow.MFoCService
 	mfcukPipeline    *workflow.MFCUKPipelineService
@@ -262,6 +268,8 @@ func cardDTO(card nfc.CardInfo) CardDTO {
 		label = "MIFARE Classic 1K"
 	case nfc.CardTypeMIFAREClassic4K:
 		label = "MIFARE Classic 4K"
+	case nfc.CardTypeType2:
+		label = "NFC Forum Type 2"
 	}
 	return CardDTO{
 		Present:   true,

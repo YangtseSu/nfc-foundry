@@ -11,8 +11,9 @@ type deviceListResult struct {
 }
 
 type cardResult struct {
-	Device app.DeviceDTO `json:"device"`
-	Card   app.CardDTO   `json:"card"`
+	Device app.DeviceDTO     `json:"device"`
+	Card   app.CardDTO       `json:"card"`
+	Type2  *app.Type2InfoDTO `json:"type2,omitempty"`
 }
 
 type classicReadResult struct {
@@ -99,6 +100,24 @@ type keysImportResult struct {
 	Ignored    int                  `json:"ignored"`
 	Issues     []app.ImportIssueDTO `json:"issues"`
 	Keys       int                  `json:"keys"`
+}
+
+type type2PageResult struct {
+	Page app.Type2PageDTO `json:"page"`
+}
+
+type type2DumpFileResult struct {
+	Path        string `json:"path"`
+	Product     string `json:"product"`
+	ProductName string `json:"productName"`
+	PageCount   int    `json:"pageCount"`
+	UserBytes   int    `json:"userBytes"`
+}
+
+type ndefReadResult struct {
+	CC   app.Type2CCDTO    `json:"cc"`
+	NDEF *app.Type2NDEFDTO `json:"ndef"`
+	Raw  bool              `json:"raw"`
 }
 
 type keysExportResult struct {

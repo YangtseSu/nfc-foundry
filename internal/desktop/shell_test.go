@@ -12,13 +12,15 @@ import (
 )
 
 type fakeBackend struct {
-	mu         sync.Mutex
-	dashboard  app.DashboardDTO
-	workbench  app.WorkbenchDTO
-	keys       []app.KeyDTO
-	connects   []string
-	readStarts int
-	scanStarts int
+	mu          sync.Mutex
+	dashboard   app.DashboardDTO
+	workbench   app.WorkbenchDTO
+	keys        []app.KeyDTO
+	connects    []string
+	readStarts  int
+	scanStarts  int
+	type2Starts int
+	type2       app.Type2DumpDTO
 }
 
 func (f *fakeBackend) GetDashboard() app.DashboardDTO { return f.dashboard }
@@ -46,6 +48,13 @@ func (f *fakeBackend) ExportKeyDictionary() (app.ExportResultDTO, error) {
 	return app.ExportResultDTO{Count: len(f.keys)}, nil
 }
 func (f *fakeBackend) GetWorkbench() app.WorkbenchDTO { return f.workbench }
+func (f *fakeBackend) GetType2Dump() app.Type2DumpDTO { return f.type2 }
+func (f *fakeBackend) StartType2Read(string) (app.TaskDTO, error) {
+	f.mu.Lock()
+	f.type2Starts++
+	f.mu.Unlock()
+	return app.TaskDTO{ID: "type2-1", Name: "type2", Status: "running"}, nil
+}
 func (f *fakeBackend) StartReadCard(bool) (app.TaskDTO, error) {
 	f.mu.Lock()
 	f.readStarts++
@@ -206,28 +215,53 @@ func TestShellRendersWorkbenchAndClassicTabs(t *testing.T) {
 	}
 }
 
-func TestType2TabsAreReservedWithoutFakeData(t *testing.T) {
-	model := newShell(type2Fixture())
+func TestType2TabsAreLiveWithoutFakeData(t *testing.T) {
+	backend := type2Fixture()
+	model := newShell(backend)
 	tester := ui.NewTester(model.view, 1360, 860)
 
-	if model.selectedTab != tabDetails {
-		t.Fatalf("selected tab = %q, want details", model.selectedTab)
+	if model.selectedTab != tabMemory {
+		t.Fatalf("selected tab = %q, want memory", model.selectedTab)
 	}
-	for _, text := range []string{"Memory", "NDEF", "Protection", "Details", "Phase 05"} {
+	for _, text := range []string{"Memory", "NDEF", "Protection", "Details"} {
 		if !tester.HasText(text) {
 			t.Fatalf("missing %q in type 2 workbench: %q", text, tester.Texts())
 		}
 	}
-	if tester.HasText("Text · en") || tester.HasText("188 B") || tester.HasText("Message records") {
-		t.Fatalf("type 2 workbench showed synthetic NDEF data: %q", tester.Texts())
+	if tester.HasText("Phase 05") {
+		t.Fatalf("type 2 workbench still advertises Phase 05: %q", tester.Texts())
 	}
-	if err := tester.Click("NDEF"); err != nil {
+	if !tester.HasText("Read the tag to load Type 2 memory.") {
+		t.Fatalf("missing Type 2 read hint: %q", tester.Texts())
+	}
+	model.selectedTab = tabNDEF
+	tester.Frame()
+	if model.selectedTab != tabNDEF {
+		t.Fatalf("NDEF tab selection = %q", model.selectedTab)
+	}
+	if !tester.HasText("Read the tag to load Type 2 memory.") {
+		t.Fatalf("missing NDEF empty state: %q", tester.Texts())
+	}
+}
+
+func TestType2ReadActionStartsType2Task(t *testing.T) {
+	backend := type2Fixture()
+	model := newShell(backend)
+	tester := ui.NewTester(model.view, 1360, 860)
+	if err := tester.Click("Read card"); err != nil {
 		t.Fatal(err)
 	}
-	tester.Frame()
-	if model.selectedTab != tabDetails {
-		t.Fatalf("disabled NDEF tab became %q", model.selectedTab)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		backend.mu.Lock()
+		starts := backend.type2Starts
+		backend.mu.Unlock()
+		if starts == 1 {
+			return
+		}
+		time.Sleep(time.Millisecond)
 	}
+	t.Fatal("Read card did not start a Type 2 task")
 }
 
 func TestShellConnectsExactReader(t *testing.T) {
@@ -324,7 +358,8 @@ func TestCatalogTranslationsAreComplete(t *testing.T) {
 		{"blocksEmpty", en.BlocksEmpty(), zh.BlocksEmpty()},
 		{"cardEmpty", en.CardEmpty(), zh.CardEmpty()},
 		{"railHealth", en.RailHealth(), zh.RailHealth()},
-		{"featureDeferredDetail", en.FeatureDeferredDetail(), zh.FeatureDeferredDetail()},
+		{"type2NoData", en.Type2NoData(), zh.Type2NoData()},
+		{"type2MemoryPanel", en.Type2MemoryPanel(), zh.Type2MemoryPanel()},
 	}
 	for _, check := range checks {
 		if check.en == "" || check.zh == "" {
@@ -339,5 +374,46 @@ func TestCatalogTranslationsAreComplete(t *testing.T) {
 func TestPercent(t *testing.T) {
 	if percent(0) != "" || percent(42) != fmt.Sprintf("%d%%", 42) {
 		t.Fatalf("percent = %q", percent(42))
+	}
+}
+
+func TestType2ViewsRenderLoadedDump(t *testing.T) {
+	backend := type2Fixture()
+	backend.type2 = app.Type2DumpDTO{
+		Loaded: true,
+		Info: app.Type2InfoDTO{
+			Product: "ntag213", ProductName: "NTAG213", UID: "04 E1 9C 2A 7B 54 80",
+			TotalPages: 45, UserPages: app.Type2PageRangeDTO{Start: 4, End: 39}, UserBytes: 144,
+		},
+		Pages: []app.Type2PageDTO{
+			{Page: 0, Region: "uid", Hex: "04E19C2A", ASCII: "...."},
+			{Page: 3, Region: "capability", Hex: "E1101200", ASCII: "...."},
+			{Page: 4, Region: "user", Hex: "D101085402656E68656C6C6F", ASCII: "...."},
+		},
+		CC:         app.Type2CCDTO{Valid: true, Raw: "E1101200", Capacity: 144, Writable: true},
+		Protection: app.Type2ProtectionDTO{StaticLock: "0000", DynamicLock: "000000", Auth0: 255, Access: 0x00},
+		NDEF: &app.Type2NDEFDTO{
+			Present: true, Length: 12, Raw: "D101085402656E68656C6C6F", Text: "hello",
+			Records: []app.Type2NDEFRecordDTO{{TNF: 1, Type: "T", Text: "hello"}},
+		},
+	}
+	model := newShell(backend)
+	tester := ui.NewTester(model.view, 1360, 860)
+
+	if !tester.HasText("Page memory") || !tester.HasText("E1 10 12 00") || !tester.HasText("capability") {
+		t.Fatalf("memory view texts: %q", tester.Texts())
+	}
+	if !tester.HasText("NTAG213 · 45 pages · 144 bytes user memory") {
+		t.Fatalf("Type 2 subtitle: %q", tester.Texts())
+	}
+	model.selectedTab = tabNDEF
+	tester.Frame()
+	if !tester.HasText("hello") || !tester.HasText("NDEF message") {
+		t.Fatalf("NDEF view texts: %q", tester.Texts())
+	}
+	model.selectedTab = tabProtection
+	tester.Frame()
+	if !tester.HasText("Static lock") || !tester.HasText("CFGLCK") || !tester.HasText("AUTH0") {
+		t.Fatalf("protection view texts: %q", tester.Texts())
 	}
 }

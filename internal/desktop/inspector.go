@@ -43,8 +43,18 @@ func (s *shell) inspectorSub() string {
 		return l.NoSectorSelected()
 	case tabDetails:
 		return l.CardInspectorSub()
-	case tabMemory, tabNDEF, tabProtection:
-		return l.Phase05()
+	case tabMemory:
+		if s.type2.Loaded {
+			return s.type2.Info.ProductName
+		}
+		return l.Type2NoData()
+	case tabNDEF:
+		if s.type2.Loaded && s.type2.NDEF != nil && s.type2.NDEF.Present {
+			return l.Type2Records(len(s.type2.NDEF.Records))
+		}
+		return l.Type2NoNDEF()
+	case tabProtection:
+		return l.Type2ProtectionPanel()
 	default:
 		return l.NoCardSelected()
 	}
@@ -75,7 +85,7 @@ func (s *shell) inspector(c *ui.Context, p palette) {
 		}
 		s.inspectorEmpty(c, p, s.locales().CardEmpty())
 	case tabMemory, tabNDEF, tabProtection:
-		s.inspectorEmpty(c, p, s.locales().FeatureDeferredDetail())
+		s.type2Inspector(c, p)
 	default:
 		s.inspectorEmpty(c, p, s.locales().CardEmpty())
 	}

@@ -88,6 +88,12 @@ func (r *Runner) cmdCard(ctx context.Context, args []string) error {
 	}
 	result := cardResult{Device: device, Card: card}
 	r.printCard(device, card)
+	if card.TypeCode == "nfc_type2" {
+		if info, infoErr := r.service.Type2Info(ctx); infoErr == nil {
+			result.Type2 = &info
+			r.out.humanf("product: %s\n", info.ProductName)
+		}
+	}
 	r.out.emit("card.info", device.ConnString, &card, nil, result)
 	return nil
 }

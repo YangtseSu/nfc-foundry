@@ -9,7 +9,7 @@ Status legend: `done`, `in progress`, `pending`, `conditional`.
 | 02 | MyGo shell and service decoupling | done |
 | 03 | `nfctl` unified CLI | done |
 | 04 | Native Go Gen1A; remove `nfc-mfsetuid` | done |
-| 05 | Type 2 / NTAG21x and NDEF | pending |
+| 05 | Type 2 / NTAG21x and NDEF | done |
 | 06 | Reader expansion and capability matrix | pending |
 | 07 | ISO14443-4 APDU and DESFire read | pending |
 | 08 | FeliCa / Type 3 NDEF scope | conditional |

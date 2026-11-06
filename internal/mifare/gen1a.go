@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/YangtseSu/nfc-foundry/internal/iso14443a"
 	"github.com/YangtseSu/nfc-foundry/internal/nfc"
 )
 
@@ -33,31 +34,6 @@ var (
 	// matching new UID and block 0 still count as success.
 	ErrGen1AWriteUncertain = errors.New("Gen1A block 0 write response was not acknowledged")
 )
-
-// CRC-A is the ISO/IEC 14443-3 CRC used by MIFARE Classic frames.
-func crcA(data []byte) [2]byte {
-	crc := uint16(0x6363)
-	for _, value := range data {
-		crc ^= uint16(value)
-		for range 8 {
-			if crc&1 != 0 {
-				crc = (crc >> 1) ^ 0x8408
-			} else {
-				crc >>= 1
-			}
-		}
-	}
-	return [2]byte{byte(crc), byte(crc >> 8)}
-}
-
-func withCRCA(data []byte) []byte {
-	frame := make([]byte, len(data)+2)
-	copy(frame, data)
-	crc := crcA(data)
-	frame[len(data)] = crc[0]
-	frame[len(data)+1] = crc[1]
-	return frame
-}
 
 func isGen1AACK(response []byte) bool {
 	return len(response) == 1 && (response[0] == mifareACK || response[0] == mifareACK<<4)
@@ -104,7 +80,7 @@ func WriteGen1ABlock0(ctx context.Context, transport nfc.RawTransceiver, card nf
 }
 
 func gen1aHalt(ctx context.Context, transport nfc.RawTransceiver) error {
-	_, err := transport.TransceiveBytes(ctx, withCRCA([]byte{mifareHalt, 0x00}))
+	_, err := transport.TransceiveBytes(ctx, iso14443a.WithCRCA([]byte{mifareHalt, 0x00}))
 	if err == nil {
 		return nil
 	}
@@ -149,7 +125,7 @@ func gen1aUnlock(ctx context.Context, transport nfc.RawTransceiver) error {
 }
 
 func gen1aWrite(ctx context.Context, transport nfc.RawTransceiver, block0 [nfc.BlockSize]byte) error {
-	response, err := transport.TransceiveBytes(ctx, withCRCA([]byte{mifareWrite, 0x00}))
+	response, err := transport.TransceiveBytes(ctx, iso14443a.WithCRCA([]byte{mifareWrite, 0x00}))
 	if err != nil {
 		if fatalRawError(ctx, err) {
 			return err
@@ -163,7 +139,7 @@ func gen1aWrite(ctx context.Context, transport nfc.RawTransceiver, block0 [nfc.B
 			"the card answered the Gen1A block 0 write command with an unexpected frame",
 			ErrGen1AWriteUncertain)
 	}
-	response, err = transport.TransceiveBytes(ctx, withCRCA(block0[:]))
+	response, err = transport.TransceiveBytes(ctx, iso14443a.WithCRCA(block0[:]))
 	if err != nil {
 		if fatalRawError(ctx, err) {
 			return err

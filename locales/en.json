@@ -60,8 +60,7 @@
   "badgeClassic": "Classic",
   "badgeType2": "Type 2",
   "classicSubtitle": "{blocks} blocks · {sectors} sectors · {keys, plural, =0 {no keys verified} one {# key verified} other {# keys verified}}",
-  "type2Subtitle": "NFC Forum Type 2 · memory and NDEF arrive in Phase 05",
-  "phase05": "Phase 05",
+  "type2Subtitle": "{product} · {pages} pages · {bytes} bytes user memory",
   "tabBlocks": "Blocks",
   "tabKeys": "Keys",
   "tabDetails": "Details",
@@ -170,8 +169,6 @@
   "activityKindKeyRecovery": "Key recovery",
   "readStarted": "Reading the card…",
   "scanStarted": "Scanning keys…",
-  "featureDeferred": "{feature} arrives in {phase}.",
-  "featureDeferredDetail": "This build reads MIFARE Classic cards only. No NDEF records are read or synthesized.",
   "actionNoDump": "No dump loaded",
   "actionBlocks": "{count, plural, =0 {No blocks} one {# block} other {# blocks}}",
   "actionKeys": "{count, plural, =0 {No keys} one {# key} other {# keys}}",
@@ -328,5 +325,68 @@
       }
     }
   },
-  "topDump": "Dump"
+  "topDump": "Dump",
+  "type2NoData": "Read the tag to load Type 2 memory.",
+  "type2MemoryPanel": "Page memory",
+  "type2PageColumn": "Page",
+  "type2RegionColumn": "Region",
+  "type2DataColumn": "Data",
+  "type2ASCIIColumn": "ASCII",
+  "type2CapabilityPanel": "Capability container",
+  "type2NDEFPanel": "NDEF message",
+  "type2NoNDEF": "No NDEF message on this tag.",
+  "type2NDEFError": "NDEF unavailable: {message}",
+  "type2ProtectionPanel": "Protection state",
+  "type2StaticLock": "Static lock",
+  "type2DynamicLock": "Dynamic lock",
+  "type2Auth0": "AUTH0",
+  "type2Access": "ACCESS",
+  "type2Protect": "PROT",
+  "type2ConfigLocked": "CFGLCK",
+  "type2AuthLimit": "AUTHLIM",
+  "type2Password": "Password",
+  "type2Pack": "PACK",
+  "type2Set": "Set",
+  "type2NotSet": "Not set",
+  "type2Records": "{count, plural, =0 {No records} one {# record} other {# records}}",
+  "type2Capacity": "{capacity} bytes",
+  "type2NotFormatted": "Not NDEF formatted",
+  "type2ReadOnly": "Read-only",
+  "type2Writable": "Writable",
+  "type2TextRecord": "Text",
+  "type2URIRecord": "URI",
+  "@type2Subtitle": {
+    "placeholders": {
+      "product": {
+        "type": "String"
+      },
+      "pages": {
+        "type": "int"
+      },
+      "bytes": {
+        "type": "int"
+      }
+    }
+  },
+  "@type2NDEFError": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  },
+  "@type2Records": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@type2Capacity": {
+    "placeholders": {
+      "capacity": {
+        "type": "int"
+      }
+    }
+  }
 }

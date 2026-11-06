@@ -23,7 +23,9 @@ type Backend interface {
 	ImportKeyDictionary() (app.ImportReportDTO, error)
 	ExportKeyDictionary() (app.ExportResultDTO, error)
 	GetWorkbench() app.WorkbenchDTO
+	GetType2Dump() app.Type2DumpDTO
 	StartReadCard(discardDirty bool) (app.TaskDTO, error)
+	StartType2Read(password string) (app.TaskDTO, error)
 	StartKeyScan(discardDirty bool) (app.TaskDTO, error)
 	CancelTask(taskID string) error
 }

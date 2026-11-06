@@ -82,8 +82,12 @@ func (s *shell) workspace(c *ui.Context, p palette) {
 				s.keysView(c, p)
 			case tabDetails:
 				s.detailsView(c, p)
-			case tabMemory, tabNDEF, tabProtection:
-				s.deferredView(c, p, s.tabLabel(s.selectedTab))
+			case tabMemory:
+				s.type2MemoryView(c, p)
+			case tabNDEF:
+				s.type2NDEFView(c, p)
+			case tabProtection:
+				s.type2ProtectionView(c, p)
 			default:
 				s.emptyWorkspace(c, p)
 			}
@@ -100,7 +104,10 @@ func (s *shell) cardSubtitle() string {
 		}
 		return l.ClassicSubtitle(len(s.workbench.Blocks), s.sectorCount(), s.verifiedKeyCount())
 	case familyType2:
-		return l.Type2Subtitle()
+		if !s.type2.Loaded {
+			return l.Type2NoData()
+		}
+		return l.Type2Subtitle(s.type2.Info.ProductName, s.type2.Info.TotalPages, s.type2.Info.UserBytes)
 	case familyUnknown:
 		return l.CardUnsupported()
 	default:
@@ -189,20 +196,6 @@ func (s *shell) emptyWorkspace(c *ui.Context, p palette) {
 			ui.Icon(c, cardIcon).FontSize(28).TextColor(p.faint)
 			ui.Text(c, s.locales().CardEmpty()).FontSize(10.5).TextColor(p.muted).
 				TextAlign(ui.Center).Wrap()
-		})
-	})
-}
-
-func (s *shell) deferredView(c *ui.Context, p palette, feature string) {
-	ui.Column(c).Grow(1).AlignItems(ui.Center).Justify(ui.Center).Children(func() {
-		ui.Column(c).Width(420).Padding(20).Gap(8).AlignItems(ui.Center).
-			Background(p.surface).Radius(10).Border(1, p.border).Children(func() {
-			ui.Icon(c, infoIcon).FontSize(24).TextColor(p.accent)
-			ui.Text(c, feature).FontSize(14).Bold().TextColor(p.text)
-			ui.Text(c, s.locales().FeatureDeferred(feature, s.locales().Phase05())).
-				FontSize(10.5).TextColor(p.muted).TextAlign(ui.Center).Wrap()
-			ui.Text(c, s.locales().FeatureDeferredDetail()).FontSize(10).
-				TextColor(p.faint).TextAlign(ui.Center).Wrap()
 		})
 	})
 }

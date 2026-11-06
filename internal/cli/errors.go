@@ -9,6 +9,7 @@ import (
 	"github.com/YangtseSu/nfc-foundry/internal/attack"
 	"github.com/YangtseSu/nfc-foundry/internal/mifare"
 	"github.com/YangtseSu/nfc-foundry/internal/nfc"
+	"github.com/YangtseSu/nfc-foundry/internal/type2"
 	"github.com/YangtseSu/nfc-foundry/internal/workflow"
 )
 
@@ -36,6 +37,12 @@ func classifyError(err error) (string, int) {
 	case errors.Is(err, app.ErrTrailerConfirm), errors.Is(err, app.ErrUIDConfirm),
 		errors.Is(err, workflow.ErrMFoCAuthorization), errors.Is(err, workflow.ErrMFCUKAuthorization):
 		return "usage", exitUsage
+	case errors.Is(err, type2.ErrNAK):
+		return "operation", exitOperation
+	case errors.Is(err, type2.ErrMalformedCC), errors.Is(err, type2.ErrMalformedTLV),
+		errors.Is(err, type2.ErrMalformedNDEF), errors.Is(err, type2.ErrCapacity),
+		errors.Is(err, type2.ErrProtectedPage), errors.Is(err, type2.ErrUnsupportedTLV):
+		return "validation", exitValidation
 	case errors.Is(err, app.ErrCardRequired), errors.Is(err, app.ErrOperationRunning):
 		return "hardware", exitHardware
 	case errors.Is(err, app.ErrDirtyWorkbench), errors.Is(err, app.ErrPreflightRequired),

@@ -85,6 +85,7 @@ type shell struct {
 	connection    app.ConnectionDTO
 	card          *app.CardDTO
 	workbench     app.WorkbenchDTO
+	type2         app.Type2DumpDTO
 	sectorKeys    []app.SectorKeyDTO
 	keys          []app.KeyDTO
 
@@ -109,6 +110,7 @@ type shell struct {
 	keyChosenRow   int
 
 	blockList    ui.ListState
+	type2List    ui.ListState
 	sectorList   ui.ListState
 	keyList      ui.ListState
 	activityList ui.ListState
@@ -144,6 +146,7 @@ func (s *shell) reloadSnapshot() {
 		}
 	}
 	s.workbench = s.api.GetWorkbench()
+	s.type2 = s.api.GetType2Dump()
 	s.keys = append([]app.KeyDTO(nil), s.api.GetKeyCatalog()...)
 	s.clampSelections()
 }
@@ -316,12 +319,21 @@ func (s *shell) disconnectDevice() {
 }
 
 func (s *shell) readCard() {
-	if s.activeTask != "" || s.pendingOps > 0 || !s.cardPresent() || s.cardFamily() != familyClassic {
+	if s.activeTask != "" || s.pendingOps > 0 || !s.cardPresent() {
+		return
+	}
+	family := s.cardFamily()
+	if family != familyClassic && family != familyType2 {
 		return
 	}
 	s.pendingOps++
 	go func() {
-		_, err := s.api.StartReadCard(false)
+		var err error
+		if family == familyType2 {
+			_, err = s.api.StartType2Read("")
+		} else {
+			_, err = s.api.StartReadCard(false)
+		}
 		s.update(func() {
 			s.pendingOps--
 			if err != nil {
@@ -470,6 +482,9 @@ func (s *shell) clampSelections() {
 	if !s.cardPresent() {
 		s.sectorKeys = nil
 	}
+	if !s.cardPresent() || (s.type2.Loaded && s.type2.Info.UID != "" && s.card.UID != s.type2.Info.UID) {
+		s.type2 = app.Type2DumpDTO{}
+	}
 	s.ensureTab()
 	if len(s.workbench.Blocks) == 0 {
 		s.blockChosen = 0
@@ -571,9 +586,14 @@ func (s *shell) tabSpecs() []tabSpec {
 		}
 	case familyType2:
 		return []tabSpec{
-			{id: tabMemory, label: locales.Messages.TabMemory, enabled: false},
-			{id: tabNDEF, label: locales.Messages.TabNDEF, enabled: false},
-			{id: tabProtection, label: locales.Messages.TabProtection, enabled: false},
+			{id: tabMemory, label: locales.Messages.TabMemory, enabled: true, count: func(s *shell) string {
+				if !s.type2.Loaded {
+					return ""
+				}
+				return fmt.Sprintf("%d", len(s.type2.Pages))
+			}},
+			{id: tabNDEF, label: locales.Messages.TabNDEF, enabled: true},
+			{id: tabProtection, label: locales.Messages.TabProtection, enabled: true},
 			{id: tabDetails, label: locales.Messages.TabDetails, enabled: true},
 		}
 	case familyUnknown:

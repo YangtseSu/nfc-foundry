@@ -16,7 +16,7 @@ output or translated error strings.
 | `--jsonl` | Streaming JSON Lines events plus a final result |
 | `--yes` | Confirm a destructive or active operation |
 | `--dry-run` | Stop after preflight/planning where supported |
-| `--show-keys` | Allow key values and raw engine logs in output |
+| `--show-keys` | Allow key values, Type 2 PWD/PACK pages, and raw engine logs in output |
 | `--timeout <duration>` | Bound the whole command |
 | `--verbose` | Progress and diagnostics on stderr |
 | `--version` | Print build metadata and exit |
@@ -26,8 +26,9 @@ Options may appear before or after the subcommand. `--json` and `--jsonl` are
 mutually exclusive. Human output is written to stdout; diagnostics, progress,
 warnings, and raw engine logs are written to stderr.
 
-`--dry-run` is supported by `classic write`, `classic restore`, and `uid set`.
-Other commands reject it instead of silently ignoring it.
+`--dry-run` is supported by `classic write`, `classic restore`, `uid set`,
+`type2 write`, `type2 restore`, and `ndef write`. Other commands reject it
+instead of silently ignoring it.
 
 ## Device selection and ownership
 
@@ -160,6 +161,48 @@ open reader. It reselects and verifies the complete block 0 before reporting
 success. The reader is not released to an external process; `nfc-mfsetuid` is
 not required.
 
+### Type 2 and NDEF
+
+```text
+nfctl type2 info
+nfctl type2 read [--page N] [--pwd HEX] [--all]
+nfctl type2 write --page N --data HEX [--pwd HEX] [--yes] [--dry-run]
+nfctl type2 dump <file.json> [--pwd HEX]
+nfctl type2 restore <file.json> [--pwd HEX] [--protected] [--yes] \
+    [--confirm-protected] [--dry-run]
+nfctl ndef read [--raw] [--pwd HEX]
+nfctl ndef write (--file <path>|--hex <hex>) [--pwd HEX] [--yes] [--dry-run]
+```
+
+Type 2 commands use the standard selection signature (ATQA `00 44`, SAK `00`);
+`info` and every read/recovery path refine the product with `GET_VERSION`.
+NTAG213/215/216 are distinguished by the storage-size byte. The original
+MIFARE Ultralight fallback is used only when `GET_VERSION` receives a protocol
+NAK and page 0 has a valid BCC0.
+
+`type2 info` prints the detected product, page count, user range, and version.
+`type2 read` loads the full image and prints user pages by default; `--all`
+also prints UID, lock, capability, configuration, password, and PACK pages.
+`--page N` prints one page. PWD and PACK pages are masked as `--------` unless
+`--show-keys` is set, and the optional `--pwd` value is never echoed. Type 2
+JSON dumps contain the PWD and PACK pages and are written with mode 0600; treat
+them as sensitive.
+
+`type2 write` accepts user-memory pages only. Protected pages are rejected;
+they require a confirmed restore. `type2 restore` restores user memory by
+default. `--protected` adds PWD/PACK, configuration, and dynamic-lock pages,
+requires `--yes` and `--confirm-protected`, and writes dynamic lock bytes last.
+Pages 0-3, static lock bytes, and the capability container are never written. Every write creates a full-image backup under
+`$XDG_CONFIG_HOME/NFC Foundry/type2-backups/` and verifies each page by
+read-back. A dump is accepted only for the same product and UID.
+
+`ndef read` prints the NDEF text or URI, record summary, and raw bytes;
+`--raw` prints only the message hex. It exits 3 when the tag has no valid
+capability container or contains malformed NDEF. `ndef write` accepts a raw
+NDEF message from `--file` or `--hex`, validates the record layout and TLV
+capacity, refuses to overwrite a preceding lock/memory-control TLV, and
+verifies the complete NDEF area by read-back.
+
 ### Diagnostics and keys
 
 ```text
@@ -178,8 +221,8 @@ when the report was produced; scripts inspect the `healthy` field.
 value. `keys import` reports valid/added/duplicate/ignored counts and per-line
 issues. `keys export` writes a 0600 dictionary.
 
-Keys are sensitive. Full values and raw engine logs appear only with
-`--show-keys`; no other flag or log level reveals them.
+Keys and Type 2 PWD/PACK pages are sensitive. Full values and raw engine logs
+appear only with `--show-keys`; no other flag or log level reveals them.
 
 ## JSON output
 
@@ -203,11 +246,16 @@ Every `--json` run writes exactly one JSON document to stdout:
 - `result` is command-specific. Stable result keys include `devices`, `card`,
   `block`, `sector`, `kind`, `hex`, `ascii`, `path`, `sidecar`, `complete`,
   `verified`, `total`, `sectors`, `preflight`, `restore`, `mfoc`, `mfcuk`,
-  `keyScan`, and `keys`.
+  `keyScan`, `keys`, `product`, `productName`, `pages`, `page`, `pageCount`,
+  `userPages`, `cc`, `ndef`, `protection`, `backup`, `planned`, `written`, and
+  `skipped`. `product`, `productName`, and `userPages` are top-level for
+  `type2 info` and nested under `info` in a full dump.
 - `command` is one of `list`, `scan`, `scan.watch`, `card.info`,
   `classic.read`, `classic.write`, `classic.dump`, `classic.restore`,
   `classic.keyscan`, `recover.nested`, `recover.darkside`, `recover.hardnested`,
-  `uid.set`, `diag`, `keys.list`, `keys.add`, `keys.import`, `keys.export`.
+  `type2.info`, `type2.read`, `type2.write`, `type2.dump`, `type2.restore`,
+  `ndef.read`, `ndef.write`, `uid.set`, `diag`, `keys.list`, `keys.add`,
+  `keys.import`, `keys.export`.
 
 `--jsonl` emits one compact object per line:
 
@@ -226,8 +274,6 @@ These commands are not registered yet; they arrive with their phases:
 | Command | Phase |
 |---|---|
 | `nfctl pn532 shell` | Phase 04 (raw transceive shim) |
-| `nfctl type2 read|write|dump` | Phase 05 (Type 2 card module) |
-| `nfctl ndef read|write` | Phase 05 |
 | `nfctl apdu --raw <HEX>` | Phase 07 (ISO14443-4 transport) |
 
 An unknown command exits with code 2 and prints usage. Card emulation is not

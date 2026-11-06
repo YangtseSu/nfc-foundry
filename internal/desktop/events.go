@@ -26,6 +26,10 @@ func (s *shell) applyEvent(name string, payload any) {
 			s.sectorKeys = append([]app.SectorKeyDTO(nil), event...)
 			s.clampSelections()
 		}
+	case app.Type2EventName:
+		if event, ok := payload.(app.Type2DumpDTO); ok {
+			s.type2 = event
+		}
 	case app.KeyCatalogEventName:
 		if event, ok := payload.([]app.KeyDTO); ok {
 			s.keys = append([]app.KeyDTO(nil), event...)
@@ -33,6 +37,9 @@ func (s *shell) applyEvent(name string, payload any) {
 		}
 	case app.TaskEventName:
 		if event, ok := payload.(app.TaskEventDetailDTO); ok {
+			if event.Type2 != nil {
+				s.type2 = *event.Type2
+			}
 			s.applyTaskEvent(event)
 		}
 	}

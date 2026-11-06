@@ -33,12 +33,13 @@ func (s *shell) actionBar(c *ui.Context, p palette) {
 				}
 			}
 			classic := s.cardPresent() && s.cardFamily() == familyClassic
+			readable := classic || s.cardPresent() && s.cardFamily() == familyType2
 			if ui.Button(c, l.CommonScanKeys()).Height(32).FontSize(11).
 				Disabled(!classic || busy).Clicked() {
 				s.scanKeys()
 			}
 			if primaryButton(c, p, l.CommonReadCard()).Height(32).
-				Disabled(!classic || busy).Clicked() {
+				Disabled(!readable || busy).Clicked() {
 				s.readCard()
 			}
 		})
@@ -47,6 +48,18 @@ func (s *shell) actionBar(c *ui.Context, p palette) {
 func (s *shell) actionSummary() string {
 	l := s.locales()
 	var parts []string
+	if s.cardFamily() == familyType2 {
+		if !s.type2.Loaded {
+			return l.Type2NoData()
+		}
+		parts = append(parts, l.Type2Subtitle(s.type2.Info.ProductName, s.type2.Info.TotalPages, s.type2.Info.UserBytes))
+		if s.type2.NDEF != nil && s.type2.NDEF.Present {
+			parts = append(parts, l.Type2Records(len(s.type2.NDEF.Records)))
+		} else {
+			parts = append(parts, l.Type2NoNDEF())
+		}
+		return strings.Join(parts, " · ")
+	}
 	if len(s.workbench.Blocks) == 0 {
 		parts = append(parts, l.ActionNoDump())
 	} else {

@@ -7,20 +7,23 @@ import (
 )
 
 func TestInferCardTypeIsConservative(t *testing.T) {
+	type2ATQA := [2]byte{0x00, 0x44}
 	tests := []struct {
+		atqa [2]byte
 		sak  byte
 		want nfc.CardType
 	}{
-		{0x09, nfc.CardTypeMIFAREMini},
-		{0x08, nfc.CardTypeMIFAREClassic1K},
-		{0x18, nfc.CardTypeMIFAREClassic4K},
-		{0x0c, nfc.CardTypeMIFAREClassic1K}, // cascade bit is not product identity
-		{0x00, nfc.CardTypeUnknown},
-		{0x20, nfc.CardTypeUnknown},
+		{[2]byte{0x00, 0x04}, 0x09, nfc.CardTypeMIFAREMini},
+		{[2]byte{0x00, 0x04}, 0x08, nfc.CardTypeMIFAREClassic1K},
+		{[2]byte{0x00, 0x02}, 0x18, nfc.CardTypeMIFAREClassic4K},
+		{[2]byte{0x00, 0x04}, 0x0c, nfc.CardTypeMIFAREClassic1K}, // cascade bit is not product identity
+		{type2ATQA, 0x00, nfc.CardTypeType2},
+		{[2]byte{0x00, 0x04}, 0x00, nfc.CardTypeUnknown},
+		{type2ATQA, 0x20, nfc.CardTypeUnknown},
 	}
 	for _, test := range tests {
-		if got := nfc.InferCardType(nfc.CardInfo{SAK: test.sak}); got != test.want {
-			t.Errorf("InferCardType(SAK=%02X) = %q; want %q", test.sak, got, test.want)
+		if got := nfc.InferCardType(nfc.CardInfo{ATQA: test.atqa, SAK: test.sak}); got != test.want {
+			t.Errorf("InferCardType(ATQA=% X, SAK=%02X) = %q; want %q", test.atqa, test.sak, got, test.want)
 		}
 	}
 }
