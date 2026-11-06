@@ -22,8 +22,9 @@ in [`docs/plan/`](docs/plan/):
 - add NFC Forum Type 2 and NDEF support;
 - validate additional readers and card families one at a time.
 
-Only MIFARE Classic 1K/4K on a PN532 UART reader is currently hardware-tested.
-Do not assume the planned features below are already available.
+MIFARE Classic 1K/4K is hardware-tested on a PN532 UART reader and on the
+ACR122U through `acr122_usb`. Do not assume the planned features below are
+already available.
 
 ## Supported hardware
 
@@ -32,7 +33,8 @@ Do not assume the planned features below are already available.
 | PN532 + FT232RL | `pn532_uart` via `libnfc-ng` | Tested baseline |
 | Other PN532 UART adapters | `pn532_uart` | Expected compatible; not tested |
 | PN53x USB | `pn53x_usb` | Planned; not validated |
-| ACR122U | `acr122_usb` / `acr122_pcsc` | Planned; not validated |
+| ACR122U | `acr122_usb` | Tested: Classic 1K keyscan and complete dump |
+| ACR122U | `acr122_pcsc`, `pcsc` | Not usable for Classic on firmware 2.14; use `acr122_usb` |
 | Other PC/SC readers | `pcsc` | Planned; APDU-oriented |
 
 ## Supported cards

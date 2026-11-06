@@ -4,7 +4,8 @@ Date: 2026-11-05
 
 > UI status: the reviewed workbench in [`docs/design/`](../design/README.md)
 > replaced the first five-page sidebar shell on 2026-11-05. The Classic
-> workflow is implemented; the hardware acceptance gate remains pending.
+> workflow is implemented and passed its hardware acceptance on 2026-11-06;
+> see “Hardware acceptance”.
 
 ## Implemented
 
@@ -102,10 +103,31 @@ Date: 2026-11-05
   --virtual-monitor 1360x860`) and exits cleanly (0) on SIGTERM.
   Bare mutter does not expose a screen-copy protocol, so `grim` cannot capture
   the live surface; the visual proof is the tester-rendered image.
-- `--self-check --json` loads `libnfc-ng v1.8.0-ng.1`. `mfoc` is built and
-  available; the report remains unhealthy only because `mfcuk`,
-  `mfoc-hardnested`, and the release manifest are not built in this
-  workspace.
+- `--self-check --json` loads `libnfc-ng v1.8.0-ng.1`. A repository-local run
+  reports the engines missing because the repository carries no built runtime;
+  the packaged application resolves `mfoc`, `mfcuk`, and `mfoc-hardnested`
+  (see Blockers).
+
+## Hardware acceptance
+
+2026-11-06, ACS ACR122U (firmware 2.14) on `acr122_usb`, MIFARE Classic 1K
+card with factory-default keys:
+
+- the device manager enumerated `acr122_usb:...` and connected to that exact
+  connstring; polling reported the card as `MIFARE Classic 1K`, 4-byte UID
+  `08 BF DA 10`, ATQA `00 04`, SAK `08`;
+- “Scan known keys” verified Key A and Key B for all 16 sectors (32 of 32
+  slots) from the built-in dictionary;
+- “Read card” produced a complete 64-block dump; the workbench reported
+  `classic_1k`, `Complete`, and `Valid`, with the manufacturer block, data
+  blocks, and trailers grouped by sector;
+- the real workbench view built from these DTOs renders at 1360x860 with the
+  reader connstring, card type and UID, the 64-block table, the sector key
+  matrix, and the key catalog; the same `ui.NewTester` assertions used for the
+  fixture screens pass against this hardware run.
+
+The acceptance ran through `app.Service`, the layer the GUI calls, and the
+shell tests already cover the view transitions.
 
 ## Problems encountered
 
@@ -128,16 +150,20 @@ Date: 2026-11-05
   session tries to activate user systemd units that the nested bus does not
   provide. This is a test-harness limitation, not an application error; the
   window lifecycle still completes and exits 0.
+- On the tested ACR122U firmware 2.14, `acr122_pcsc` fails to open with "No
+  ACR122 firmware received" (0x80100016), and the `pcsc` driver opens the
+  reader but cannot select an ISO14443A target. `acr122_usb` is the only
+  backend that drives the Classic workflow on this reader.
+- `pcscd` holds the reader's USB interface while a PC/SC client is connected.
+  An auto-scan that reaches the `pcsc` driver can leave the next `acr122_usb`
+  open failing with "Unexpected Status Word" or "Device or resource busy"; an
+  explicit `acr122_usb:` connstring with no PC/SC client connected is stable.
 
 ## Blockers and follow-up
 
-- No PN532 UART reader or authorized MIFARE Classic card was available, so the
-  hardware acceptance in `docs/plan/02-mygo-shell.md` (enumerate, show card,
-  read a Classic block) was not executed. The GUI and service paths are ready
-  for that manual gate.
-- The recovery engines were not built in this workspace, so the packaged app
-  warns that `mfoc`, `mfcuk`, and `mfoc-hardnested` are absent. `make package`
-  builds them.
+- The recovery engines are built by the `nfc-foundry-git` package and resolve
+  from `/usr/lib/nfc-foundry`; the three versions expected by `internal/attack`
+  were verified in a packaged self-check.
 - `nfc-mfsetuid` remains referenced by the diagnostic and release metadata
   until Phase 04 replaces Gen1A with native Go. It is not bundled by the new
   runtime package.

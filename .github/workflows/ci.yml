@@ -23,7 +23,7 @@ jobs:
       - name: Catalog check
         run: go tool mygo i18n check .
       - name: MyGo UI smoke test
-        run: go test -count=1 -run TestShellRendersCoreScreensAndEvents ./internal/desktop
+        run: go test -count=1 -run '^TestShellRendersWorkbenchAndClassicTabs$' ./internal/desktop
       - name: REUSE compliance
         run: reuse lint
       - name: Build application
