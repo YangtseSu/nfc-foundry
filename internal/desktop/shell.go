@@ -102,12 +102,19 @@ type shell struct {
 	selectedTab tabID
 	tabIndex    int
 
-	blockChosen    int
-	blockRows      []blockRow
-	blockRowChosen int
-	sectorChosen   int
-	keyChosen      string
-	keyChosenRow   int
+	blockChosen        int
+	blockRows          []blockRow
+	blockRowChosen     int
+	sectorChosen       int
+	type2PageChosen    int
+	type2PageInput     string
+	type2PageInputPage int
+	ndefMode           string
+	ndefInput          string
+	type2WriteOpen     bool
+	type2WriteIntent   *type2WriteIntent
+	keyChosen          string
+	keyChosenRow       int
 
 	blockList    ui.ListState
 	type2List    ui.ListState
@@ -118,9 +125,12 @@ type shell struct {
 
 func newShell(api Backend) *shell {
 	s := &shell{
-		api:         api,
-		locale:      "en",
-		selectedTab: tabBlocks,
+		api:                api,
+		locale:             "en",
+		selectedTab:        tabBlocks,
+		type2PageChosen:    -1,
+		type2PageInputPage: -1,
+		ndefMode:           "text",
 	}
 	s.reloadSnapshot()
 	return s
@@ -147,6 +157,7 @@ func (s *shell) reloadSnapshot() {
 	}
 	s.workbench = s.api.GetWorkbench()
 	s.type2 = s.api.GetType2Dump()
+	s.syncType2PageSelection(true)
 	s.keys = append([]app.KeyDTO(nil), s.api.GetKeyCatalog()...)
 	s.clampSelections()
 }
@@ -231,6 +242,7 @@ func (s *shell) view(c *ui.Context) {
 		})
 		s.actionBar(c, p)
 	})
+	s.type2WriteDialog(c)
 }
 
 func languages() []string {
@@ -484,6 +496,7 @@ func (s *shell) clampSelections() {
 	}
 	if !s.cardPresent() || (s.type2.Loaded && s.type2.Info.UID != "" && s.card.UID != s.type2.Info.UID) {
 		s.type2 = app.Type2DumpDTO{}
+		s.syncType2PageSelection(true)
 	}
 	s.ensureTab()
 	if len(s.workbench.Blocks) == 0 {

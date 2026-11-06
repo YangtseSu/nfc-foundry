@@ -126,6 +126,21 @@ type Type2NDEFWriteRequestDTO struct {
 	DryRun   bool   `json:"dryRun"`
 }
 
+// Type2WriteStartRequestDTO starts a GUI page-write task.
+type Type2WriteStartRequestDTO struct {
+	Pages    []Type2PageWriteDTO `json:"pages"`
+	Password string              `json:"password,omitempty"`
+}
+
+// Type2NDEFWriteStartRequestDTO starts a GUI NDEF-write task with a Text or
+// URI message.
+type Type2NDEFWriteStartRequestDTO struct {
+	Mode     string `json:"mode"`
+	Text     string `json:"text,omitempty"`
+	URI      string `json:"uri,omitempty"`
+	Password string `json:"password,omitempty"`
+}
+
 // Type2WriteResultDTO reports planned, written, and verified pages.
 type Type2WriteResultDTO struct {
 	Backup   string        `json:"backup,omitempty"`
@@ -181,6 +196,76 @@ func (s *Service) StartType2Read(password string) (TaskDTO, error) {
 		s.emitOperation(TaskEventDetailDTO{TaskID: taskID, Kind: "type2_read", Type: TaskEventProgress, Progress: 100, Message: "Type 2 memory loaded", Type2: &dto})
 		return nil
 	})
+}
+
+// StartType2Write runs a confirmed Type 2 page write as an asynchronous task.
+func (s *Service) StartType2Write(request Type2WriteStartRequestDTO) (TaskDTO, error) {
+	if len(request.Pages) == 0 {
+		return TaskDTO{}, nfc.NewError("Type 2 write", nfc.CodeInvalidArgument, "at least one page is required", nil)
+	}
+	return s.startOperation("type2_write", "Write Type 2 page", func(ctx context.Context, taskID string) error {
+		s.emitOperation(TaskEventDetailDTO{TaskID: taskID, Kind: "type2_write", Type: TaskEventProgress, Message: "writing Type 2 page"})
+		result, err := s.WriteType2Pages(ctx, Type2WriteRequestDTO{Writes: request.Pages, Password: request.Password})
+		if err != nil {
+			return err
+		}
+		message := fmt.Sprintf("wrote %d page(s), verified %d; backup %s", len(result.Written), len(result.Verified), result.Backup)
+		event := TaskEventDetailDTO{TaskID: taskID, Kind: "type2_write", Type: TaskEventProgress, Progress: 100, Message: message}
+		if result.Dump != nil {
+			event.Type2 = result.Dump
+		}
+		s.emitOperation(event)
+		return nil
+	})
+}
+
+// StartType2NDEFWrite builds a Text or URI NDEF message and writes it as an
+// asynchronous task.
+func (s *Service) StartType2NDEFWrite(request Type2NDEFWriteStartRequestDTO) (TaskDTO, error) {
+	message, err := encodeType2NDEF(request)
+	if err != nil {
+		return TaskDTO{}, err
+	}
+	return s.startOperation("type2_ndef", "Write NDEF message", func(ctx context.Context, taskID string) error {
+		s.emitOperation(TaskEventDetailDTO{TaskID: taskID, Kind: "type2_ndef", Type: TaskEventProgress, Message: "writing NDEF message"})
+		result, writeErr := s.WriteType2NDEF(ctx, Type2NDEFWriteRequestDTO{Message: message, Password: request.Password})
+		if writeErr != nil {
+			return writeErr
+		}
+		text := fmt.Sprintf("wrote %d NDEF bytes, verified %d page(s); backup %s", len(message), len(result.Verified), result.Backup)
+		event := TaskEventDetailDTO{TaskID: taskID, Kind: "type2_ndef", Type: TaskEventProgress, Progress: 100, Message: text}
+		if result.Dump != nil {
+			event.Type2 = result.Dump
+		}
+		s.emitOperation(event)
+		return nil
+	})
+}
+
+func encodeType2NDEF(request Type2NDEFWriteStartRequestDTO) ([]byte, error) {
+	switch strings.ToLower(strings.TrimSpace(request.Mode)) {
+	case "text":
+		if strings.TrimSpace(request.Text) == "" {
+			return nil, nfc.NewError("encode NDEF", nfc.CodeInvalidArgument, "text message must not be empty", nil)
+		}
+		message, err := type2.EncodeTextMessage(request.Text, "en")
+		if err != nil {
+			return nil, nfc.NewError("encode NDEF", nfc.CodeInvalidArgument, err.Error(), err)
+		}
+		return message, nil
+	case "uri":
+		uri := strings.TrimSpace(request.URI)
+		if uri == "" {
+			return nil, nfc.NewError("encode NDEF", nfc.CodeInvalidArgument, "URI message must not be empty", nil)
+		}
+		message, err := type2.EncodeURIMessage(uri)
+		if err != nil {
+			return nil, nfc.NewError("encode NDEF", nfc.CodeInvalidArgument, err.Error(), err)
+		}
+		return message, nil
+	default:
+		return nil, nfc.NewError("encode NDEF", nfc.CodeInvalidArgument, "NDEF mode must be text or uri", nil)
+	}
 }
 
 // Type2Snapshot returns the latest Type 2 dump, if any.

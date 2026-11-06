@@ -15,8 +15,8 @@ the current architecture and migration steps live in [`docs/`](docs/).
 
 The native MyGo shell and the `nfctl` CLI are in place: reader discovery, card
 facts, Classic block operations, dump/restore, key scanning, key recovery, UID
-writes with an in-process Gen1A path, Type 2 page access, NDEF read/write,
-diagnostics, and the key catalog. The remaining migration is tracked in
+writes with an in-process Gen1A path, Type 2 page access, NDEF read/write
+from the CLI and GUI, diagnostics, and the key catalog. The remaining migration is tracked in
 [`docs/plan/`](docs/plan/):
 
 - validate additional readers and the APDU foundation;
@@ -45,7 +45,7 @@ available.
 | Card family | Status |
 |---|---|
 | MIFARE Classic 1K/4K | Read, write, dump, restore, keyscan, recovery |
-| NTAG213/215/216 | Page read/write, dump/restore, NDEF read/write; NTAG215 hardware-tested |
+| NTAG213/215/216 | Page and NDEF read/write from CLI and GUI; NTAG215 hardware-tested |
 | MIFARE Ultralight | Page read/write and dump; original-Ultralight fallback not hardware-tested |
 | ISO/IEC 14443-4 / DESFire | Later; APDU foundation first |
 | FeliCa / NFC Forum Type 3 | Later; NDEF scope to be defined |

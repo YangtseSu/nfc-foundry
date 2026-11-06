@@ -87,9 +87,13 @@ NDEF read/write is implemented:
   lock/memory-control TLV;
 - report unsupported or malformed NDEF without modifying the tag.
 
+The GUI writes one user page at a time and Text/URI NDEF messages after an
+explicit confirmation. Configuration, dynamic lock, PWD/PACK, static lock, and
+pages 0-3 remain CLI-only behind the protected-restore confirmations.
+
 Type 2 dumps include PWD and PACK pages so a full restore is possible; write
-them with mode 0600 and treat them as sensitive. The CLI masks those pages
-unless `--show-keys` is set.
+them with mode 0600 and treat them as sensitive. The CLI masks those pages unless
+`--show-keys` is set; the GUI always masks them.
 
 The NTAG215 path (full dump, NDEF write, restore, and read-back) is validated on
 an ACR122U. NTAG213/216 use the same commands and geometry model but have not

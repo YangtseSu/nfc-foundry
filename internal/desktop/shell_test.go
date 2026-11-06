@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -12,15 +13,17 @@ import (
 )
 
 type fakeBackend struct {
-	mu          sync.Mutex
-	dashboard   app.DashboardDTO
-	workbench   app.WorkbenchDTO
-	keys        []app.KeyDTO
-	connects    []string
-	readStarts  int
-	scanStarts  int
-	type2Starts int
-	type2       app.Type2DumpDTO
+	mu              sync.Mutex
+	dashboard       app.DashboardDTO
+	workbench       app.WorkbenchDTO
+	keys            []app.KeyDTO
+	connects        []string
+	readStarts      int
+	scanStarts      int
+	type2Starts     int
+	type2Writes     []app.Type2WriteStartRequestDTO
+	type2NDEFWrites []app.Type2NDEFWriteStartRequestDTO
+	type2           app.Type2DumpDTO
 }
 
 func (f *fakeBackend) GetDashboard() app.DashboardDTO { return f.dashboard }
@@ -54,6 +57,18 @@ func (f *fakeBackend) StartType2Read(string) (app.TaskDTO, error) {
 	f.type2Starts++
 	f.mu.Unlock()
 	return app.TaskDTO{ID: "type2-1", Name: "type2", Status: "running"}, nil
+}
+func (f *fakeBackend) StartType2Write(request app.Type2WriteStartRequestDTO) (app.TaskDTO, error) {
+	f.mu.Lock()
+	f.type2Writes = append(f.type2Writes, request)
+	f.mu.Unlock()
+	return app.TaskDTO{ID: "type2-write-1", Name: "write", Status: "running"}, nil
+}
+func (f *fakeBackend) StartType2NDEFWrite(request app.Type2NDEFWriteStartRequestDTO) (app.TaskDTO, error) {
+	f.mu.Lock()
+	f.type2NDEFWrites = append(f.type2NDEFWrites, request)
+	f.mu.Unlock()
+	return app.TaskDTO{ID: "type2-ndef-1", Name: "ndef", Status: "running"}, nil
 }
 func (f *fakeBackend) StartReadCard(bool) (app.TaskDTO, error) {
 	f.mu.Lock()
@@ -415,5 +430,201 @@ func TestType2ViewsRenderLoadedDump(t *testing.T) {
 	tester.Frame()
 	if !tester.HasText("Static lock") || !tester.HasText("CFGLCK") || !tester.HasText("AUTH0") {
 		t.Fatalf("protection view texts: %q", tester.Texts())
+	}
+}
+
+func loadedType2Fixture() *fakeBackend {
+	backend := type2Fixture()
+	backend.type2 = app.Type2DumpDTO{
+		Loaded: true,
+		Info: app.Type2InfoDTO{
+			Product: "ntag213", ProductName: "NTAG213", UID: "04 E1 9C 2A 7B 54 80",
+			TotalPages: 45, UserPages: app.Type2PageRangeDTO{Start: 4, End: 39}, UserBytes: 144,
+		},
+		Pages: []app.Type2PageDTO{
+			{Page: 0, Region: "uid", Hex: "04E19C2A", ASCII: "...."},
+			{Page: 1, Region: "uid", Hex: "7B548000", ASCII: "...."},
+			{Page: 2, Region: "static-lock", Hex: "00000000", ASCII: "...."},
+			{Page: 3, Region: "capability", Hex: "E1101200", ASCII: "...."},
+			{Page: 4, Region: "user", Hex: "00000000", ASCII: "....", Editable: true},
+			{Page: 5, Region: "user", Hex: "11111111", ASCII: "....", Editable: true},
+		},
+		CC:         app.Type2CCDTO{Valid: true, Raw: "E1101200", Capacity: 144, Writable: true},
+		Protection: app.Type2ProtectionDTO{StaticLock: "0000", DynamicLock: "000000", Auth0: 255, Access: 0x00},
+	}
+	return backend
+}
+
+func TestType2PageWriteConfirmationSubmitsRequest(t *testing.T) {
+	backend := loadedType2Fixture()
+	model := newShell(backend)
+	tester := ui.NewTester(model.view, 1360, 860)
+	if model.type2PageChosen != 4 || model.type2PageInput != "00000000" {
+		t.Fatalf("initial page selection = %d %q", model.type2PageChosen, model.type2PageInput)
+	}
+	model.type2PageInput = "DEADBEEF"
+	tester.Frame()
+	if err := tester.Click("Write page"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if !tester.HasText("Write page 4?") || !tester.HasText("Confirm write") {
+		t.Fatalf("confirmation texts: %q", tester.Texts())
+	}
+	if err := tester.Click("Confirm write"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		backend.mu.Lock()
+		count := len(backend.type2Writes)
+		backend.mu.Unlock()
+		if count == 1 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	backend.mu.Lock()
+	writes := append([]app.Type2WriteStartRequestDTO(nil), backend.type2Writes...)
+	backend.mu.Unlock()
+	if len(writes) != 1 || len(writes[0].Pages) != 1 || writes[0].Pages[0].Page != 4 || writes[0].Pages[0].Hex != "DEADBEEF" {
+		t.Fatalf("write request = %+v", writes)
+	}
+}
+
+func TestType2NDEFWriteConfirmationSubmitsRequest(t *testing.T) {
+	backend := loadedType2Fixture()
+	model := newShell(backend)
+	tester := ui.NewTester(model.view, 1360, 860)
+	model.selectedTab = tabNDEF
+	model.ndefInput = "hello"
+	tester.Frame()
+	if err := tester.Click("Write NDEF"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if !tester.HasText("Write NDEF message?") {
+		t.Fatalf("confirmation texts: %q", tester.Texts())
+	}
+	if err := tester.Click("Confirm write"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		backend.mu.Lock()
+		count := len(backend.type2NDEFWrites)
+		backend.mu.Unlock()
+		if count == 1 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	backend.mu.Lock()
+	writes := append([]app.Type2NDEFWriteStartRequestDTO(nil), backend.type2NDEFWrites...)
+	backend.mu.Unlock()
+	if len(writes) != 1 || writes[0].Mode != "text" || writes[0].Text != "hello" {
+		t.Fatalf("NDEF request = %+v", writes)
+	}
+}
+
+func TestType2WriteCancelStartsNothing(t *testing.T) {
+	backend := loadedType2Fixture()
+	model := newShell(backend)
+	tester := ui.NewTester(model.view, 1360, 860)
+	model.selectedTab = tabNDEF
+	model.ndefInput = "hello"
+	tester.Frame()
+	if err := tester.Click("Write NDEF"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if err := tester.Click("Cancel"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	backend.mu.Lock()
+	count := len(backend.type2NDEFWrites)
+	backend.mu.Unlock()
+	if count != 0 {
+		t.Fatalf("cancel started %d writes", count)
+	}
+}
+
+func TestType2WriteRejectsInvalidPageAndSystemPage(t *testing.T) {
+	backend := loadedType2Fixture()
+	model := newShell(backend)
+	tester := ui.NewTester(model.view, 1360, 860)
+	model.type2PageInput = "XYZ"
+	tester.Frame()
+	if err := tester.Click("Write page"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(model.errorText, "8 hexadecimal") {
+		t.Fatalf("invalid hex error = %q", model.errorText)
+	}
+	model.type2PageChosen = 3
+	model.type2PageInputPage = -1
+	model.syncType2PageSelection(false)
+	tester.Frame()
+	if !tester.HasText("Select a user-memory page to edit.") {
+		t.Fatalf("system page hint missing: %q", tester.Texts())
+	}
+}
+
+func TestType2WriteFailureShowsBackupPath(t *testing.T) {
+	backend := loadedType2Fixture()
+	model := newShell(backend)
+	model.applyEvent(app.TaskEventName, app.TaskEventDetailDTO{
+		TaskID: "type2-write-1", Kind: "type2_write", Type: "failed",
+		Message: "write failed; full-image backup: /tmp/backup.json",
+	})
+	if !strings.Contains(model.errorText, "/tmp/backup.json") {
+		t.Fatalf("error text = %q", model.errorText)
+	}
+}
+
+func TestType2MemorySelectionUpdatesEditor(t *testing.T) {
+	backend := loadedType2Fixture()
+	model := newShell(backend)
+	tester := ui.NewTester(model.view, 1360, 860)
+	if err := tester.Click("11 11 11 11"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if model.type2PageChosen != 5 || model.type2PageInput != "11111111" {
+		t.Fatalf("selection = %d %q", model.type2PageChosen, model.type2PageInput)
+	}
+}
+
+func TestType2NDEFURIModeSubmitsURI(t *testing.T) {
+	backend := loadedType2Fixture()
+	model := newShell(backend)
+	tester := ui.NewTester(model.view, 1360, 860)
+	model.selectedTab = tabNDEF
+	model.ndefMode = "uri"
+	model.ndefInput = "https://example.com"
+	tester.Frame()
+	if err := tester.Click("Write NDEF"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if err := tester.Click("Confirm write"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		backend.mu.Lock()
+		count := len(backend.type2NDEFWrites)
+		backend.mu.Unlock()
+		if count == 1 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	backend.mu.Lock()
+	writes := append([]app.Type2NDEFWriteStartRequestDTO(nil), backend.type2NDEFWrites...)
+	backend.mu.Unlock()
+	if len(writes) != 1 || writes[0].Mode != "uri" || writes[0].URI != "https://example.com" || writes[0].Text != "" {
+		t.Fatalf("URI request = %+v", writes)
 	}
 }

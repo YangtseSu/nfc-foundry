@@ -2129,3 +2129,187 @@ func Type2URIRecord() string { return In(i18n.Locale()).Type2URIRecord() }
 func (msgs Messages) Type2URIRecord() string {
 	return Catalog.Format(msgs.locale, "type2URIRecord", nil)
 }
+
+// CommonCancel says "Cancel"
+// in the language the app shows.
+func CommonCancel() string { return In(i18n.Locale()).CommonCancel() }
+
+// CommonCancel says "Cancel"
+// in the language of msgs.
+func (msgs Messages) CommonCancel() string {
+	return Catalog.Format(msgs.locale, "commonCancel", nil)
+}
+
+// Type2WritePage says "Write page"
+// in the language the app shows.
+func Type2WritePage() string { return In(i18n.Locale()).Type2WritePage() }
+
+// Type2WritePage says "Write page"
+// in the language of msgs.
+func (msgs Messages) Type2WritePage() string {
+	return Catalog.Format(msgs.locale, "type2WritePage", nil)
+}
+
+// Type2PageHexPlaceholder says "8 hexadecimal digits"
+// in the language the app shows.
+func Type2PageHexPlaceholder() string { return In(i18n.Locale()).Type2PageHexPlaceholder() }
+
+// Type2PageHexPlaceholder says "8 hexadecimal digits"
+// in the language of msgs.
+func (msgs Messages) Type2PageHexPlaceholder() string {
+	return Catalog.Format(msgs.locale, "type2PageHexPlaceholder", nil)
+}
+
+// Type2WriteNDEF says "Write NDEF"
+// in the language the app shows.
+func Type2WriteNDEF() string { return In(i18n.Locale()).Type2WriteNDEF() }
+
+// Type2WriteNDEF says "Write NDEF"
+// in the language of msgs.
+func (msgs Messages) Type2WriteNDEF() string {
+	return Catalog.Format(msgs.locale, "type2WriteNDEF", nil)
+}
+
+// Type2WriteBackupHint says "A full-image backup is written first and every changed page is read back."
+// in the language the app shows.
+func Type2WriteBackupHint() string { return In(i18n.Locale()).Type2WriteBackupHint() }
+
+// Type2WriteBackupHint says "A full-image backup is written first and every changed page is read back."
+// in the language of msgs.
+func (msgs Messages) Type2WriteBackupHint() string {
+	return Catalog.Format(msgs.locale, "type2WriteBackupHint", nil)
+}
+
+// Type2SelectUserPage says "Select a user-memory page to edit."
+// in the language the app shows.
+func Type2SelectUserPage() string { return In(i18n.Locale()).Type2SelectUserPage() }
+
+// Type2SelectUserPage says "Select a user-memory page to edit."
+// in the language of msgs.
+func (msgs Messages) Type2SelectUserPage() string {
+	return Catalog.Format(msgs.locale, "type2SelectUserPage", nil)
+}
+
+// Type2InvalidPageHex says "Page data must be exactly 8 hexadecimal digits."
+// in the language the app shows.
+func Type2InvalidPageHex() string { return In(i18n.Locale()).Type2InvalidPageHex() }
+
+// Type2InvalidPageHex says "Page data must be exactly 8 hexadecimal digits."
+// in the language of msgs.
+func (msgs Messages) Type2InvalidPageHex() string {
+	return Catalog.Format(msgs.locale, "type2InvalidPageHex", nil)
+}
+
+// Type2NDEFEmpty says "Enter text or a URI before writing NDEF."
+// in the language the app shows.
+func Type2NDEFEmpty() string { return In(i18n.Locale()).Type2NDEFEmpty() }
+
+// Type2NDEFEmpty says "Enter text or a URI before writing NDEF."
+// in the language of msgs.
+func (msgs Messages) Type2NDEFEmpty() string {
+	return Catalog.Format(msgs.locale, "type2NDEFEmpty", nil)
+}
+
+// Type2ConfirmWrite says "Confirm write"
+// in the language the app shows.
+func Type2ConfirmWrite() string { return In(i18n.Locale()).Type2ConfirmWrite() }
+
+// Type2ConfirmWrite says "Confirm write"
+// in the language of msgs.
+func (msgs Messages) Type2ConfirmWrite() string {
+	return Catalog.Format(msgs.locale, "type2ConfirmWrite", nil)
+}
+
+// Type2ConfirmPageTitle says "Write page {page}?"
+// in the language the app shows.
+func Type2ConfirmPageTitle(page int) string { return In(i18n.Locale()).Type2ConfirmPageTitle(page) }
+
+// Type2ConfirmPageTitle says "Write page {page}?"
+// in the language of msgs.
+func (msgs Messages) Type2ConfirmPageTitle(page int) string {
+	return Catalog.Format(msgs.locale, "type2ConfirmPageTitle", map[string]any{"page": page})
+}
+
+// Type2ConfirmPageMessage says "Page {page} will become {hex}. A full-image backup is written first and the page is read back before success."
+// in the language the app shows.
+func Type2ConfirmPageMessage(page int, hex string) string {
+	return In(i18n.Locale()).Type2ConfirmPageMessage(page, hex)
+}
+
+// Type2ConfirmPageMessage says "Page {page} will become {hex}. A full-image backup is written first and the page is read back before success."
+// in the language of msgs.
+func (msgs Messages) Type2ConfirmPageMessage(page int, hex string) string {
+	return Catalog.Format(msgs.locale, "type2ConfirmPageMessage", map[string]any{"page": page, "hex": hex})
+}
+
+// Type2ConfirmNDEFTitle says "Write NDEF message?"
+// in the language the app shows.
+func Type2ConfirmNDEFTitle() string { return In(i18n.Locale()).Type2ConfirmNDEFTitle() }
+
+// Type2ConfirmNDEFTitle says "Write NDEF message?"
+// in the language of msgs.
+func (msgs Messages) Type2ConfirmNDEFTitle() string {
+	return Catalog.Format(msgs.locale, "type2ConfirmNDEFTitle", nil)
+}
+
+// Type2ConfirmNDEFMessage says "A {mode} message of {length} bytes will replace the NDEF area. A full-image backup is written first and every changed…"
+// in the language the app shows.
+func Type2ConfirmNDEFMessage(mode string, length int) string {
+	return In(i18n.Locale()).Type2ConfirmNDEFMessage(mode, length)
+}
+
+// Type2ConfirmNDEFMessage says "A {mode} message of {length} bytes will replace the NDEF area. A full-image backup is written first and every changed…"
+// in the language of msgs.
+func (msgs Messages) Type2ConfirmNDEFMessage(mode string, length int) string {
+	return Catalog.Format(msgs.locale, "type2ConfirmNDEFMessage", map[string]any{"mode": mode, "length": length})
+}
+
+// Type2WriteStarted says "Type 2 write started."
+// in the language the app shows.
+func Type2WriteStarted() string { return In(i18n.Locale()).Type2WriteStarted() }
+
+// Type2WriteStarted says "Type 2 write started."
+// in the language of msgs.
+func (msgs Messages) Type2WriteStarted() string {
+	return Catalog.Format(msgs.locale, "type2WriteStarted", nil)
+}
+
+// Type2WriteComplete says "Type 2 write completed."
+// in the language the app shows.
+func Type2WriteComplete() string { return In(i18n.Locale()).Type2WriteComplete() }
+
+// Type2WriteComplete says "Type 2 write completed."
+// in the language of msgs.
+func (msgs Messages) Type2WriteComplete() string {
+	return Catalog.Format(msgs.locale, "type2WriteComplete", nil)
+}
+
+// Type2WriteFailed says "Type 2 write failed: {message}"
+// in the language the app shows.
+func Type2WriteFailed(message string) string { return In(i18n.Locale()).Type2WriteFailed(message) }
+
+// Type2WriteFailed says "Type 2 write failed: {message}"
+// in the language of msgs.
+func (msgs Messages) Type2WriteFailed(message string) string {
+	return Catalog.Format(msgs.locale, "type2WriteFailed", map[string]any{"message": message})
+}
+
+// Type2NDEFTextPlaceholder says "Message text"
+// in the language the app shows.
+func Type2NDEFTextPlaceholder() string { return In(i18n.Locale()).Type2NDEFTextPlaceholder() }
+
+// Type2NDEFTextPlaceholder says "Message text"
+// in the language of msgs.
+func (msgs Messages) Type2NDEFTextPlaceholder() string {
+	return Catalog.Format(msgs.locale, "type2NDEFTextPlaceholder", nil)
+}
+
+// Type2NDEFURIPlaceholder says "https://example.com"
+// in the language the app shows.
+func Type2NDEFURIPlaceholder() string { return In(i18n.Locale()).Type2NDEFURIPlaceholder() }
+
+// Type2NDEFURIPlaceholder says "https://example.com"
+// in the language of msgs.
+func (msgs Messages) Type2NDEFURIPlaceholder() string {
+	return Catalog.Format(msgs.locale, "type2NDEFURIPlaceholder", nil)
+}

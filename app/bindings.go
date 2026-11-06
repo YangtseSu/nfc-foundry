@@ -65,4 +65,14 @@ func (b *Bindings) StartType2Read(password string) (TaskDTO, error) {
 	return b.service.StartType2Read(password)
 }
 
+// StartType2Write starts a confirmed Type 2 page write.
+func (b *Bindings) StartType2Write(request Type2WriteStartRequestDTO) (TaskDTO, error) {
+	return b.service.StartType2Write(request)
+}
+
+// StartType2NDEFWrite starts a confirmed Text or URI NDEF write.
+func (b *Bindings) StartType2NDEFWrite(request Type2NDEFWriteStartRequestDTO) (TaskDTO, error) {
+	return b.service.StartType2NDEFWrite(request)
+}
+
 func (b *Bindings) CancelTask(taskID string) error { return b.service.CancelTask(taskID) }

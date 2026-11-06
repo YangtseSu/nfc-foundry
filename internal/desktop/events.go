@@ -29,6 +29,7 @@ func (s *shell) applyEvent(name string, payload any) {
 	case app.Type2EventName:
 		if event, ok := payload.(app.Type2DumpDTO); ok {
 			s.type2 = event
+			s.syncType2PageSelection(event.Loaded)
 		}
 	case app.KeyCatalogEventName:
 		if event, ok := payload.([]app.KeyDTO); ok {
@@ -39,6 +40,7 @@ func (s *shell) applyEvent(name string, payload any) {
 		if event, ok := payload.(app.TaskEventDetailDTO); ok {
 			if event.Type2 != nil {
 				s.type2 = *event.Type2
+				s.syncType2PageSelection(true)
 			}
 			s.applyTaskEvent(event)
 		}
@@ -120,6 +122,13 @@ func (s *shell) applyTaskEvent(event app.TaskEventDetailDTO) {
 		if parsed, err := time.Parse(time.RFC3339Nano, event.Time); err == nil {
 			when = parsed
 		}
+	}
+	switch {
+	case event.Type == "failed" && (event.Kind == "type2_write" || event.Kind == "type2_ndef"):
+		s.errorText = s.locales().Type2WriteFailed(event.Message)
+	case event.Type == app.TaskEventCompleted && (event.Kind == "type2_write" || event.Kind == "type2_ndef"):
+		s.errorText = ""
+		s.toastText = s.locales().Type2WriteComplete()
 	}
 	entry := logEntry{
 		time:      when,

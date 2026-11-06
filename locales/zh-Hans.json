@@ -241,5 +241,57 @@
         "type": "int"
       }
     }
+  },
+  "commonCancel": "取消",
+  "type2WritePage": "写入页",
+  "type2PageHexPlaceholder": "8 位十六进制",
+  "type2WriteNDEF": "写入 NDEF",
+  "type2WriteBackupHint": "写入前会保存完整镜像备份，并逐页回读校验。",
+  "type2SelectUserPage": "选择一个用户存储页进行编辑。",
+  "type2InvalidPageHex": "页数据必须是 8 位十六进制数字。",
+  "type2NDEFEmpty": "写入 NDEF 前请输入文本或 URI。",
+  "type2ConfirmWrite": "确认写入",
+  "type2ConfirmPageTitle": "写入第 {page} 页？",
+  "type2ConfirmPageMessage": "第 {page} 页将变为 {hex}。写入前会保存完整镜像备份，并在成功后回读该页。",
+  "type2ConfirmNDEFTitle": "写入 NDEF 消息？",
+  "type2ConfirmNDEFMessage": "将用 {length} 字节的{mode}消息替换 NDEF 区域。写入前会保存完整镜像备份，并回读每个变更页。",
+  "type2WriteStarted": "Type 2 写入已开始。",
+  "type2WriteComplete": "Type 2 写入完成。",
+  "type2WriteFailed": "Type 2 写入失败：{message}",
+  "type2NDEFTextPlaceholder": "消息文本",
+  "type2NDEFURIPlaceholder": "https://example.com",
+  "@type2ConfirmPageTitle": {
+    "placeholders": {
+      "page": {
+        "type": "int"
+      }
+    }
+  },
+  "@type2ConfirmPageMessage": {
+    "placeholders": {
+      "page": {
+        "type": "int"
+      },
+      "hex": {
+        "type": "String"
+      }
+    }
+  },
+  "@type2ConfirmNDEFMessage": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      },
+      "length": {
+        "type": "int"
+      }
+    }
+  },
+  "@type2WriteFailed": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
   }
 }

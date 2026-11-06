@@ -26,6 +26,8 @@ type Backend interface {
 	GetType2Dump() app.Type2DumpDTO
 	StartReadCard(discardDirty bool) (app.TaskDTO, error)
 	StartType2Read(password string) (app.TaskDTO, error)
+	StartType2Write(app.Type2WriteStartRequestDTO) (app.TaskDTO, error)
+	StartType2NDEFWrite(app.Type2NDEFWriteStartRequestDTO) (app.TaskDTO, error)
 	StartKeyScan(discardDirty bool) (app.TaskDTO, error)
 	CancelTask(taskID string) error
 }

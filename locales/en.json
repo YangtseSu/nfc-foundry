@@ -388,5 +388,57 @@
         "type": "int"
       }
     }
+  },
+  "commonCancel": "Cancel",
+  "type2WritePage": "Write page",
+  "type2PageHexPlaceholder": "8 hexadecimal digits",
+  "type2WriteNDEF": "Write NDEF",
+  "type2WriteBackupHint": "A full-image backup is written first and every changed page is read back.",
+  "type2SelectUserPage": "Select a user-memory page to edit.",
+  "type2InvalidPageHex": "Page data must be exactly 8 hexadecimal digits.",
+  "type2NDEFEmpty": "Enter text or a URI before writing NDEF.",
+  "type2ConfirmWrite": "Confirm write",
+  "type2ConfirmPageTitle": "Write page {page}?",
+  "type2ConfirmPageMessage": "Page {page} will become {hex}. A full-image backup is written first and the page is read back before success.",
+  "type2ConfirmNDEFTitle": "Write NDEF message?",
+  "type2ConfirmNDEFMessage": "A {mode} message of {length} bytes will replace the NDEF area. A full-image backup is written first and every changed page is read back.",
+  "type2WriteStarted": "Type 2 write started.",
+  "type2WriteComplete": "Type 2 write completed.",
+  "type2WriteFailed": "Type 2 write failed: {message}",
+  "type2NDEFTextPlaceholder": "Message text",
+  "type2NDEFURIPlaceholder": "https://example.com",
+  "@type2ConfirmPageTitle": {
+    "placeholders": {
+      "page": {
+        "type": "int"
+      }
+    }
+  },
+  "@type2ConfirmPageMessage": {
+    "placeholders": {
+      "page": {
+        "type": "int"
+      },
+      "hex": {
+        "type": "String"
+      }
+    }
+  },
+  "@type2ConfirmNDEFMessage": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      },
+      "length": {
+        "type": "int"
+      }
+    }
+  },
+  "@type2WriteFailed": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
   }
 }
