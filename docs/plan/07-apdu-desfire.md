@@ -9,6 +9,7 @@ Add a correct APDU foundation, then read-only DESFire support.
 - Implement RATS/ATS, I-block chaining, status words, and APDU exchange.
 - Add a diagnostic `nfctl apdu --raw` path.
 - Add DESFire application/file enumeration and read.
+- Add ISO14443-4 Type 4 NDEF read/write on top of the APDU transport.
 - Keep authentication and write behind a separate guarded phase.
 - Add fixtures and hardware tests.
 

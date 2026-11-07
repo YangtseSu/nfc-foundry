@@ -14,10 +14,28 @@ Status legend: `done`, `in progress`, `pending`, `conditional`.
 | 05c | Classic GUI writes and advanced bulk write | pending |
 | 05d | Advanced Type 2 protected GUI writes | pending |
 | 05e | NDEF record catalogue and decoded views | done |
+| 05f | NDEF UX and format completion | pending |
+| 05g | NDEF on MIFARE Classic | pending |
 | 06 | Reader expansion and capability matrix | pending |
 | 07 | ISO14443-4 APDU and DESFire read | pending |
 | 08 | FeliCa / Type 3 NDEF scope | conditional |
 | 09 | Card emulation for mobile Linux (scope to be defined) | conditional |
+
+## Feature policy
+
+- Default to implementing every useful capability that is feasible with the
+  current transport and hardware model.
+- "Not hardware-validated" gates advertising and default enablement, not the
+  implementation. Build the code, test it hardware-free, and gate destructive
+  hardware tests explicitly.
+- "Dangerous" is handled with an Advanced mode, per-action confirmation,
+  backups, and read-back verification, not by silently omitting the feature.
+- Only these remain excluded without an explicit product-rule change:
+  generic write-all, UID/0-3 writes on genuine Type 2 tags, non-Linux targets,
+  telemetry, and static linking of libnfc-ng or GPL engines.
+- Features that need a protocol or hardware that does not exist in this
+  architecture (for example full DPP provisioning) are planned separately and
+  marked with their prerequisite.
 
 ## Rules
 
