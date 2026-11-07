@@ -2,26 +2,25 @@
 
 ## Goal
 
-Add GUI writes for Type 2 configuration, dynamic lock, PWD/PACK, and static lock
-behind the shared **Advanced operations** mode. Every operation keeps the
-existing backup, read-back, card-change, and confirmation safety rules.
+Add GUI writes for Type 2 configuration, dynamic lock, PWD/PACK, static lock,
+and capability-container bits behind the shared **Advanced operations** mode.
+Every operation keeps the existing backup, read-back, card-change, and
+confirmation safety rules.
 
-This phase does not write UID pages or the capability container.
+Page 0-1 UID writes on genuine NTAG remain physically read-only. Magic-clone UID
+backdoors are tracked separately in Phase 05h.
 
 ## Repository constraints
 
 - Type 2 pages 0-1 contain the UID and are read-only on genuine NTAG.
-- Page 3 is the capability container/OTP area and is not a normal write target.
+- Page 3 is the capability container; its bits are one-way and can only be
+  ORed, never cleared.
 - Static and dynamic lock bits are one-way. A failed or incorrect lock write can
   permanently reduce or destroy usable memory.
 - Configuration and PWD/PACK writes can lock the tag or make it unreadable.
 - A failed configuration write can brick a card.
-- The existing rule remains: no generic "write everything writable" operation
-  and no UID-page writes through a normal Type 2 command.
-
-If UID/0-3 writes are a product requirement, they need a separate validated
-magic-tag protocol phase and an explicit update to `AGENTS.md`. This phase does
-not add that protocol.
+- Advanced mode may expose these writes, but no genuine-NTAG UID backdoor is
+  faked. Magic-clone UID work is Phase 05h.
 
 ## Advanced operations mode
 
@@ -43,9 +42,11 @@ Phase 05c introduces the session-scoped toggle. Phase 05d reuses it:
   - AUTH0 page and ACCESS flags (PROT, CFGLCK, AUTHLIM);
   - PWD and PACK values;
   - dynamic lock bits;
-  - static lock bits.
-- Show a read-only page 0-3 summary with an explicit "UID/CC is read-only"
-  state.
+  - static lock bits;
+  - capability-container bits with an OR-only preview.
+- Show page 0-1 as read-only UID pages on genuine NTAG.
+- Page 3 writes use OR semantics: show current, mask, and resulting bytes;
+  reject attempts to clear bits.
 - Validate one-way lock bits: pending bits may only be set, never cleared.
 - Perform static-lock writes as a partial page update: read page 2, replace
   bytes 2-3, preserve BCC1 and the internal byte, write, and verify.
@@ -72,7 +73,8 @@ Phase 05c introduces the session-scoped toggle. Phase 05d reuses it:
   `PROTECTED` phrase, and a full-image backup.
 - Lock writes refuse to clear one-way bits.
 - Static lock writes preserve BCC1 and the internal byte.
-- Pages 0-1 and page 3 are shown read-only and cannot be written.
+- Pages 0-1 are shown read-only on genuine NTAG.
+- Page 3 writes are OR-only and show the resulting bytes before confirmation.
 - Every changed page is read back; the final image is verified.
 - Tests cover confirmation refusal, lock-bit validation, static-lock partial
   write, backup failure, read-back mismatch, and card change.
@@ -80,8 +82,6 @@ Phase 05c introduces the session-scoped toggle. Phase 05d reuses it:
 
 ## Non-goals
 
-- No UID/page 0-1 write.
-- No capability-container/page 3 write.
-- No arbitrary page 0-3 editor.
-- No magic-tag UID backdoor.
+- No genuine-NTAG UID/page 0-1 write; magic-clone UID is Phase 05h.
+- No arbitrary page 0-1 editor.
 - No unprotected write path that skips backup or confirmation.

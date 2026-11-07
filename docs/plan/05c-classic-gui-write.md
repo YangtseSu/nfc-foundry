@@ -3,20 +3,19 @@
 ## Goal
 
 Add MIFARE Classic 1K/4K write workflows to the GUI, including a normal block
-editor, full-dump restore, UID/block 0 writes, and an advanced bulk action that
-writes all blocks changed in a validated dump.
+editor, full-dump restore, UID/block 0 writes, and an Advanced bulk action that
+can write all writable blocks from a validated dump or an explicit fill plan.
 
 This phase introduces the shared **Advanced operations** mode used by Phase 05d.
 
-## Repository constraints
+## Policy
 
-- Do not add an unconstrained "write any writable block" escape hatch.
-- The bulk action must operate on a complete, validated dump and the existing
-  Classic restore preflight; it is not a bypass around key, trailer, access-bit,
-  or block-0 checks.
-- Block 0 is never written by the bulk action. UID writes use the existing
-  confirmed `uid set` workflow and supported-card checks.
-- Sector trailers are written last and only through the full-restore
+- Advanced mode may expose a generic bulk write. It remains a UI permission
+  layer, not a protocol bypass.
+- The bulk action uses the Classic restore preflight, a full-image backup,
+  immediate read-back, and stop-on-first-failure.
+- Block 0 and UID are separate operations; the bulk action never writes block 0.
+- Sector trailers are written last and require an explicit advanced trailer
   confirmation.
 
 ## Advanced operations mode
@@ -40,13 +39,17 @@ This phase introduces the shared **Advanced operations** mode used by Phase 05d.
 - Add a dump panel:
   - load a `.bin`, `.mfd`, or `.json` dump;
   - save the current dump;
-  - write only changed blocks (advanced);
-  - full restore (advanced), with trailer confirmation.
+  - write only changed blocks;
+  - full restore;
+  - Advanced `Write all writable blocks` with a scope selector: ordinary data
+    blocks, data + trailers, or full image;
+  - an Advanced fill plan may target all data blocks or all writable blocks with
+    an explicit fill value.
 - Add a UID panel behind advanced mode. It requires the existing exact target
   UID confirmation, supports only 4-byte UID Classic 1K special cards, and
   reports the block-0 backup.
-- Before an advanced bulk write or full restore, save the card's current
-  complete dump as a backup. Abort if the backup cannot be written.
+- Before any bulk write, full restore, fill, or UID operation, save the card's
+  current complete dump as a backup. Abort if the backup cannot be written.
 - Show preflight contents: blocks, trailers, access-condition changes, skipped
   block 0, UID order, and backup path.
 - Add task progress, cancellation, and failure reporting with the backup path.
@@ -56,9 +59,9 @@ This phase introduces the shared **Advanced operations** mode used by Phase 05d.
 
 - An ordinary data block can be edited and written from the GUI with read-back
   verification.
-- The advanced bulk action writes only blocks changed in the loaded complete
-  dump, skips block 0, writes trailers last, and requires the full-restore
-  confirmation.
+- The Advanced bulk action can write all writable blocks from a validated dump
+  or a fill plan, skips block 0, writes trailers last when selected, and
+  requires the advanced confirmation.
 - The advanced mode is off by default and resets on card/device change.
 - A UID write requires advanced mode, the existing exact target confirmation,
   a block-0 backup, and verified reselection.
@@ -68,8 +71,9 @@ This phase introduces the shared **Advanced operations** mode used by Phase 05d.
 
 ## Non-goals
 
-- No arbitrary block-range writer outside a validated dump.
-- No block-0 write through the bulk action.
+- No block-0 write through the bulk action; UID uses the dedicated path.
+- No bypass of authentication, capacity, BCC, access-bit, or card-identity
+  validation.
 - No bypass of trailer/access-bit validation.
 - No GUI write for unsupported UID lengths or non-Classic cards.
 - No Type 2 protected writes; those are Phase 05d.

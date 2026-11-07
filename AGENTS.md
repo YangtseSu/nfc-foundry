@@ -209,21 +209,49 @@ Every write path must include:
 - sector-trailer access-bit complement validation;
 - authentication before writing;
 - sector trailers written after ordinary data blocks;
-- block 0 writes disabled by default;
+- block 0 writes disabled by default; Advanced mode may expose supported
+  special-card UID paths;
 - explicit confirmation for UID, trailer, lock, configuration, and format
-  operations;
+  operations, including Advanced actions;
 - immediate read-back verification;
 - stop on the first unrecoverable failure unless the user explicitly chose a
   defined continue policy;
 - abort if the card UID, ATQA, or SAK changes mid-operation.
 
-Do not add a generic "write everything writable" command. Each card family has
-its own preflight and confirmation rules.
+A generic bulk-write entry may exist only behind Advanced mode. It must use the
+family-specific preflight, full-image backup, read-back verification, and
+confirmation rules; it must never bypass authentication, capacity, BCC,
+access-bit, lock-bit, or card-identity checks.
 
 For Type 2 cards, treat configuration pages, lock bytes, password/PACK, and
-one-way lock bits as dangerous. Default to user-memory access only. A failed
-config write can permanently brick a card; require backups and explicit
-confirmations.
+one-way lock bits as dangerous. Default to user-memory access only. Advanced
+mode may expose configuration, dynamic-lock, static-lock, PWD/PACK, and
+capability-container writes, but every one is one-way or potentially
+card-bricking and requires a backup and explicit confirmation. UID/page 0-1
+writes are not normal Type 2 WRITE operations: genuine NTAG pages are read-only.
+A magic-clone UID path is a separate, explicitly identified backdoor and may
+only be implemented after protocol validation.
+
+## Advanced mode
+
+Advanced mode is the user-authorized path for destructive, one-way, or
+otherwise hidden operations. It is a confirmation and discoverability layer,
+not a protocol bypass.
+
+- Default off and session-scoped; reset on card removal, device change, and
+  application restart.
+- May expose: bulk writes, UID writes on compatible magic cards, static and
+  dynamic lock bits, capability-container bits, configuration, PWD/PACK,
+  formatting, and other irreversible operations.
+- Every action shows the exact target, old/new values, backup path, and
+  read-back plan; dangerous actions require an explicit typed confirmation.
+- A full-image backup is written before the first change and the operation
+  stops at the first unrecoverable failure.
+- Hardware-impossible operations must fail honestly and must never report
+  success. Do not emulate UID writes on genuine read-only pages.
+- Advanced mode does not override authentication, capacity, BCC, access-bit,
+  or card-identity checks. It only removes the default UI restriction.
+- No "do not ask again" switch.
 
 For DESFire or other ISO14443-4 cards, key changes and format operations are
 destructive. Implement them only with a clear file/key model and a tested
@@ -374,6 +402,8 @@ the plan, spec, notes, and README in the same change.
 - No `libnfc` utility installation.
 - No static linking of libnfc-ng or GPL engines into the application.
 - No shell command construction from user input.
-- No generic write-all operation.
-- No claims of unvalidated card or reader support.
+- No unrestricted bulk write outside Advanced mode; Advanced bulk operations
+  still use family-specific preflight, backup, and read-back checks.
+- No claims of unvalidated card or reader support; implementation and tests may
+  exist behind explicit Advanced/hardware gates.
 - No unlicensed copying of upstream code or binaries.

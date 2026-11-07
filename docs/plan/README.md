@@ -16,10 +16,12 @@ Status legend: `done`, `in progress`, `pending`, `conditional`.
 | 05e | NDEF record catalogue and decoded views | done |
 | 05f | NDEF UX and format completion | pending |
 | 05g | NDEF on MIFARE Classic | pending |
+| 05h | Magic Type 2 UID/backdoor operations | pending |
 | 06 | Reader expansion and capability matrix | pending |
 | 07 | ISO14443-4 APDU and DESFire read | pending |
 | 08 | FeliCa / Type 3 NDEF scope | conditional |
 | 09 | Card emulation for mobile Linux (scope to be defined) | conditional |
+| 10 | Full Wi-Fi Easy Connect / DPP | pending |
 
 ## Feature policy
 
@@ -30,9 +32,12 @@ Status legend: `done`, `in progress`, `pending`, `conditional`.
   hardware tests explicitly.
 - "Dangerous" is handled with an Advanced mode, per-action confirmation,
   backups, and read-back verification, not by silently omitting the feature.
-- Only these remain excluded without an explicit product-rule change:
-  generic write-all, UID/0-3 writes on genuine Type 2 tags, non-Linux targets,
-  telemetry, and static linking of libnfc-ng or GPL engines.
+- Advanced mode may expose generic bulk writes and otherwise hidden destructive
+  operations. It is a user-authorized UI layer, not a protocol bypass.
+- Genuine Type 2 UID pages remain physically read-only; magic-clone UID work is
+  a separate validated phase.
+- Non-Linux targets, telemetry, and static linking of libnfc-ng or GPL engines
+  remain out of scope.
 - Features that need a protocol or hardware that does not exist in this
   architecture (for example full DPP provisioning) are planned separately and
   marked with their prerequisite.
