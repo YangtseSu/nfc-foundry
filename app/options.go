@@ -107,6 +107,7 @@ func NewServiceWithOptions(options Options) *Service {
 		classicIO:         workflow.NewClassicIO(manager),
 		uidService:        workflow.NewUIDService(manager, workflow.FileUIDBackupStore{Root: uidBackupRoot}),
 		type2Service:      workflow.NewType2Service(manager, workflow.FileType2BackupStore{Root: type2BackupRoot}),
+		type2BackupRoot:   type2BackupRoot,
 		classicBackupRoot: classicBackupRoot,
 		fixtureAttack:     attack.NewCoordinator(manager, attack.NewFixtureEngine(locator)),
 		mfocAttack:        mfocAttack,

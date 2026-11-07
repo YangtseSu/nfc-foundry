@@ -17,10 +17,12 @@ const (
 	tlvTerminator    byte = 0xFE
 )
 
-// Field is one decoded, human-readable record attribute.
+// Field is one decoded, human-readable record attribute. Sensitive marks a
+// credential that the GUI masks until the user reveals it.
 type Field struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
+	Key       string `json:"key"`
+	Value     string `json:"value"`
+	Sensitive bool   `json:"sensitive,omitempty"`
 }
 
 // Record is one validated NDEF record.

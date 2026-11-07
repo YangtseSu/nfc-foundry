@@ -66,38 +66,100 @@ func uriPayload(uri string) ([]byte, error) {
 	return payload, nil
 }
 
+// SmartPosterOptions carries the optional Smart Poster metadata records.
+type SmartPosterOptions struct {
+	Language     string
+	Action       string
+	ResourceType string
+	ResourceSize uint32
+}
+
 // EncodeSmartPosterMessage builds a Smart Poster record with a nested URI and
 // optional title Text record.
 func EncodeSmartPosterMessage(uri, title string) ([]byte, error) {
+	return EncodeSmartPosterMessageWithOptions(uri, title, SmartPosterOptions{})
+}
+
+// EncodeSmartPosterMessageWithOptions builds a Smart Poster with URI, action,
+// resource type, resource size, and title records in NFC Forum order.
+func EncodeSmartPosterMessageWithOptions(uri, title string, options SmartPosterOptions) ([]byte, error) {
+	payload, err := smartPosterPayload(uri, title, options)
+	if err != nil {
+		return nil, err
+	}
+	return encodeRecord(0x01, "Sp", payload)
+}
+
+func smartPosterPayload(uri, title string, options SmartPosterOptions) ([]byte, error) {
 	uriRecordPayload, err := uriPayload(uri)
 	if err != nil {
 		return nil, err
 	}
+	language := strings.TrimSpace(options.Language)
+	if language == "" {
+		language = "en"
+	}
+	var frames [][]byte
+	appendRecord := func(tnf byte, recordType string, payload []byte) error {
+		frame, err := encodeRecordFrame(tnf, recordType, payload, len(frames) == 0, false)
+		if err != nil {
+			return err
+		}
+		frames = append(frames, frame)
+		return nil
+	}
+	if err := appendRecord(0x01, "U", uriRecordPayload); err != nil {
+		return nil, err
+	}
+	if action := strings.ToLower(strings.TrimSpace(options.Action)); action != "" {
+		var code byte
+		switch action {
+		case "do":
+			code = 0
+		case "save":
+			code = 1
+		case "open":
+			code = 2
+		default:
+			return nil, fmt.Errorf("%w: Smart Poster action must be do, save, or open", ErrMalformedNDEF)
+		}
+		if err := appendRecord(0x01, "act", []byte{code}); err != nil {
+			return nil, err
+		}
+	}
+	if resourceType := strings.TrimSpace(options.ResourceType); resourceType != "" {
+		if !utf8.ValidString(resourceType) {
+			return nil, fmt.Errorf("%w: Smart Poster resource type must be UTF-8", ErrMalformedNDEF)
+		}
+		if err := appendRecord(0x01, "t", []byte(resourceType)); err != nil {
+			return nil, err
+		}
+	}
+	if options.ResourceSize != 0 {
+		var size [4]byte
+		binary.BigEndian.PutUint32(size[:], options.ResourceSize)
+		if err := appendRecord(0x01, "s", size[:]); err != nil {
+			return nil, err
+		}
+	}
+	if title != "" {
+		titlePayload, err := textPayload(title, language)
+		if err != nil {
+			return nil, err
+		}
+		if err := appendRecord(0x01, "T", titlePayload); err != nil {
+			return nil, err
+		}
+	}
+	frames[len(frames)-1][0] |= 0x40
 	var nested []byte
-	if title == "" {
-		nested, err = encodeRecordFrame(0x01, "U", uriRecordPayload, true, true)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		titlePayload, err := textPayload(title, "en")
-		if err != nil {
-			return nil, err
-		}
-		first, err := encodeRecordFrame(0x01, "U", uriRecordPayload, true, false)
-		if err != nil {
-			return nil, err
-		}
-		last, err := encodeRecordFrame(0x01, "T", titlePayload, false, true)
-		if err != nil {
-			return nil, err
-		}
-		nested = append(first, last...)
+	for _, frame := range frames {
+		nested = append(nested, frame...)
 	}
 	if _, err := ParseMessage(nested); err != nil {
 		return nil, err
 	}
-	return encodeRecord(0x01, "Sp", nested)
+	return nested, nil
 }
 
 // EncodeExternalMessage builds one external-type NDEF record.

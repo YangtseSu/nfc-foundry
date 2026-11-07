@@ -1,5 +1,7 @@
 # Phase 05i: NTAG copy and lifecycle operations
 
+Status: done (2026-11-07). See `docs/notes/05i-ntag-lifecycle.md`.
+
 ## Goal
 
 Add useful NTAG lifecycle workflows to the GUI and CLI: content copy, repeated

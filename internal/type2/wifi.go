@@ -33,6 +33,14 @@ type wscAttribute struct {
 // EncodeWiFiMessage builds a Wi-Fi Simple Configuration credential record.
 // security is one of open, wpa, wpa2, or wpa2-wpa.
 func EncodeWiFiMessage(ssid, password, security string) ([]byte, error) {
+	payload, err := wifiPayload(ssid, password, security)
+	if err != nil {
+		return nil, err
+	}
+	return encodeRecord(0x02, "application/vnd.wfa.wsc", payload)
+}
+
+func wifiPayload(ssid, password, security string) ([]byte, error) {
 	if ssid == "" || len(ssid) > 32 {
 		return nil, fmt.Errorf("%w: Wi-Fi SSID must contain 1-32 bytes", ErrMalformedNDEF)
 	}
@@ -85,7 +93,7 @@ func EncodeWiFiMessage(ssid, password, security string) ([]byte, error) {
 	payload = binary.BigEndian.AppendUint16(payload, wscCredential)
 	payload = binary.BigEndian.AppendUint16(payload, uint16(len(inner)))
 	payload = append(payload, inner...)
-	return encodeRecord(0x02, "application/vnd.wfa.wsc", payload)
+	return payload, nil
 }
 
 func parseWSCAttributes(data []byte) ([]wscAttribute, error) {
@@ -142,7 +150,11 @@ func parseWiFiRecord(payload []byte) (string, []Field) {
 		add("encryption", wscEncryptionName(binary.BigEndian.Uint16(value)))
 	}
 	if key := values[wscNetworkKey]; len(key) > 0 {
-		add("network_key", "••••••")
+		if printable := printablePayload(key); printable != "" {
+			fields = append(fields, Field{Key: "network_key", Value: printable, Sensitive: true})
+		} else {
+			fields = append(fields, Field{Key: "network_key", Value: "••••••", Sensitive: true})
+		}
 	}
 	if mac := values[wscMACAddress]; len(mac) == 6 {
 		add("mac", formatMAC(mac))

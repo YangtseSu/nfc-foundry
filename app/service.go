@@ -121,10 +121,14 @@ type Service struct {
 	classicIO         *workflow.ClassicIO
 	uidService        *workflow.UIDService
 	type2Service      *workflow.Type2Service
+	type2BackupRoot   string
 	classicBackupRoot string
 	type2Mu           sync.Mutex
 	type2Dump         type2.Document
 	type2Loaded       bool
+	type2Source       type2.Document
+	type2SourcePath   string
+	type2SourceLoaded bool
 	fixtureAttack     *attack.Coordinator
 	mfocAttack        *workflow.MFoCService
 	mfcukPipeline     *workflow.MFCUKPipelineService

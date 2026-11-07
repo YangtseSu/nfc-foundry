@@ -1,11 +1,13 @@
 package cli_test
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -338,5 +340,232 @@ func TestCLINDEFReadDecodesVCard(t *testing.T) {
 	}
 	if fields["organization"] != "Analytical Engines" || fields["email"] != "ada@example.com" {
 		t.Fatalf("fields = %+v", record.Fields)
+	}
+}
+
+func TestCLINDEFTemplateAndReveal(t *testing.T) {
+	tag := mock.NewType2Tag(type2.ProductNTAG215, nil)
+	harness, _ := newType2Harness(t, tag)
+
+	code, _ := harness.run("ndef", "write", "--template", "text", "--field", "text=hello", "--field", "language=zh-Hans", "--yes", "--json")
+	if code != 0 {
+		t.Fatalf("template write exit %d: %s", code, harness.stderr.String())
+	}
+	code, envelope := harness.run("ndef", "read", "--json")
+	if code != 0 {
+		t.Fatalf("read exit %d: %s", code, harness.stderr.String())
+	}
+	var read struct {
+		NDEF *app.Type2NDEFDTO `json:"ndef"`
+	}
+	decodeResult(t, envelope, &read)
+	if read.NDEF == nil || read.NDEF.Text != "hello" {
+		t.Fatalf("template NDEF = %+v", read.NDEF)
+	}
+
+	code, _ = harness.run("ndef", "write", "--template", "wifi", "--field", "ssid=Foundry", "--field", "security=wpa2", "--field", "password=secret123", "--yes", "--json")
+	if code != 0 {
+		t.Fatalf("wifi write exit %d: %s", code, harness.stderr.String())
+	}
+	code, _ = harness.run("ndef", "read")
+	if code != 0 {
+		t.Fatalf("wifi read exit %d: %s", code, harness.stderr.String())
+	}
+	if strings.Contains(harness.stdout.String(), "secret123") {
+		t.Fatalf("sensitive key leaked by default: %s", harness.stdout.String())
+	}
+	code, _ = harness.run("ndef", "read", "--reveal")
+	if code != 0 {
+		t.Fatalf("reveal read exit %d: %s", code, harness.stderr.String())
+	}
+	if !strings.Contains(harness.stdout.String(), "secret123") {
+		t.Fatalf("reveal did not show the key: %s", harness.stdout.String())
+	}
+}
+
+func TestCLIType2BinaryDumpRoundTrip(t *testing.T) {
+	tag := mock.NewType2Tag(type2.ProductNTAG213, nil)
+	tag.SetPage(4, [4]byte{1, 2, 3, 4})
+	harness, _ := newType2Harness(t, tag)
+	path := filepath.Join(t.TempDir(), "tag.bin")
+	if code, _ := harness.run("type2", "dump", path, "--json"); code != 0 {
+		t.Fatalf("binary dump exit %d: %s", code, harness.stderr.String())
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(data), "NFCT2BIN") {
+		t.Fatalf("binary dump header = %q", data[:8])
+	}
+	tag.SetPage(4, [4]byte{9, 9, 9, 9})
+	if code, _ := harness.run("type2", "restore", path, "--yes", "--json"); code != 0 {
+		t.Fatalf("binary restore exit %d: %s", code, harness.stderr.String())
+	}
+	if page, _ := tag.Page(4); page != [4]byte{1, 2, 3, 4} {
+		t.Fatalf("page 4 after restore = % X", page)
+	}
+}
+
+func TestCLIRepeatedCopyAppliesToEachTarget(t *testing.T) {
+	sourceTag := mock.NewType2Tag(type2.ProductNTAG213, nil)
+	sourceTag.SetPage(4, [4]byte{0xAA, 0xBB, 0xCC, 0xDD})
+	sourceHarness, _ := newType2Harness(t, sourceTag)
+	path := filepath.Join(t.TempDir(), "source.json")
+	if code, _ := sourceHarness.run("type2", "dump", path, "--json"); code != 0 {
+		t.Fatalf("source dump exit %d", code)
+	}
+
+	target1 := mock.NewType2Tag(type2.ProductNTAG213, []byte{0x04, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66})
+	target2 := mock.NewType2Tag(type2.ProductNTAG213, []byte{0x04, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC})
+	switcher := &switchingType2Reader{tags: []*mock.Type2Tag{target1, target2}}
+	reader := mock.NewReaderWithFuncs(mock.ReaderFuncs{
+		CardInfo:        switcher.CardInfo,
+		SetRawMode:      func(context.Context, bool) error { return nil },
+		TransceiveBytes: switcher.TransceiveBytes,
+	})
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "keys.json")
+	locator := runtimebundle.NewLocator(filepath.Join(dir, "runtime"))
+	enumerator := mock.NewEnumerator([]nfc.DeviceInfo{{Name: "Mock Type 2 reader", ConnString: testConnString}}, nil)
+	harness := &testHarness{t: t, keys: keyPath, dir: dir}
+	harness.deps = cli.Dependencies{NewService: func(emitter app.EventEmitter) *app.Service {
+		return app.NewServiceWithOptions(app.Options{
+			Emitter:    emitter,
+			Enumerator: enumerator,
+			NewReader:  func() nfc.Reader { return reader },
+			DeviceConfig: device.Config{
+				PollInterval: 2 * time.Millisecond, PollTimeout: 50 * time.Millisecond,
+				OpenTimeout: time.Second, RemovalMisses: 2,
+				ReconnectBackoffs: []time.Duration{time.Millisecond}, LockDir: filepath.Join(dir, "locks"),
+			},
+			Locator:         locator,
+			KeyStorePath:    keyPath,
+			UIDBackupRoot:   filepath.Join(dir, "uid-backups"),
+			Type2BackupRoot: filepath.Join(dir, "type2-backups"),
+		})
+	}}
+	code, envelope := harness.run("type2", "copy", path, "--repeat", "2", "--yes", "--confirm-copy", "--json")
+	if code != 0 {
+		switcher.mu.Lock()
+		index, removal, writes := switcher.index, switcher.removal, switcher.writes
+		switcher.mu.Unlock()
+		t.Fatalf("repeated copy exit %d: %s %s (index=%d removal=%d writes=%d)", code, harness.stderr.String(), harness.stdout.String(), index, removal, writes)
+	}
+	var result struct {
+		Targets []struct {
+			Card struct {
+				UID string `json:"uid"`
+			} `json:"card"`
+			Result app.Type2WriteResultDTO `json:"result"`
+			Error  string                  `json:"error"`
+		} `json:"targets"`
+	}
+	decodeResult(t, envelope, &result)
+	if len(result.Targets) != 2 || result.Targets[0].Error != "" || result.Targets[1].Error != "" {
+		t.Fatalf("repeated copy result = %+v", result)
+	}
+	for index, tag := range []*mock.Type2Tag{target1, target2} {
+		page, _ := tag.Page(4)
+		if page != [4]byte{0xAA, 0xBB, 0xCC, 0xDD} {
+			t.Fatalf("target %d page 4 = % X", index+1, page)
+		}
+	}
+}
+
+type switchingType2Reader struct {
+	mu        sync.Mutex
+	tags      []*mock.Type2Tag
+	index     int
+	removal   int
+	writes    int
+	lastWrite time.Time
+}
+
+func (s *switchingType2Reader) CardInfo(context.Context) (nfc.CardInfo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.index == 0 && s.writes > 0 && s.removal == 0 && time.Since(s.lastWrite) > 100*time.Millisecond {
+		s.removal = 100
+	}
+	if s.removal > 0 {
+		s.removal--
+		if s.removal == 0 && s.index+1 < len(s.tags) {
+			s.index++
+		}
+		return nfc.CardInfo{}, nfc.ErrNoCard
+	}
+	return s.tags[s.index].CardInfo(), nil
+}
+
+func (s *switchingType2Reader) TransceiveBytes(ctx context.Context, tx []byte) ([]byte, error) {
+	s.mu.Lock()
+	response, err := s.tags[s.index].TransceiveBytes(ctx, tx)
+	if err == nil && len(tx) >= 3 && tx[0] == 0xA2 && len(response) == 1 && response[0] == 0x0A {
+		s.writes++
+		if s.index == 0 {
+			s.lastWrite = time.Now()
+		}
+	}
+	s.mu.Unlock()
+	return response, err
+}
+
+func TestCLIType2CopyEraseLockPassword(t *testing.T) {
+	sourceTag := mock.NewType2Tag(type2.ProductNTAG213, nil)
+	sourceTag.SetPage(4, [4]byte{0xAA, 0xBB, 0xCC, 0xDD})
+	sourceHarness, _ := newType2Harness(t, sourceTag)
+	path := filepath.Join(t.TempDir(), "source.json")
+	if code, _ := sourceHarness.run("type2", "dump", path, "--json"); code != 0 {
+		t.Fatalf("source dump exit %d", code)
+	}
+
+	targetTag := mock.NewType2Tag(type2.ProductNTAG213, []byte{0x04, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66})
+	harness, _ := newType2Harness(t, targetTag)
+	code, envelope := harness.run("type2", "copy", path, "--yes", "--confirm-copy", "--json")
+	if code != 0 {
+		t.Fatalf("copy exit %d: %s", code, harness.stderr.String())
+	}
+	var copyResult app.Type2WriteResultDTO
+	decodeResult(t, envelope, &copyResult)
+	if copyResult.Backup == "" || len(copyResult.Verified) == 0 {
+		t.Fatalf("copy result = %+v", copyResult)
+	}
+	if page, _ := targetTag.Page(4); page != [4]byte{0xAA, 0xBB, 0xCC, 0xDD} {
+		t.Fatalf("copied page 4 = % X", page)
+	}
+
+	code, _ = harness.run("type2", "erase", "--yes", "--confirm-erase", "--json")
+	if code != 0 {
+		t.Fatalf("erase exit %d: %s", code, harness.stderr.String())
+	}
+	if page, _ := targetTag.Page(4); page != [4]byte{} {
+		t.Fatalf("erased page 4 = % X", page)
+	}
+
+	code, _ = harness.run("type2", "lock", "--static-lock", "0002", "--cc-readonly", "--yes", "--confirm-lock", "--json")
+	if code != 0 {
+		t.Fatalf("lock exit %d: %s", code, harness.stderr.String())
+	}
+	if page, _ := targetTag.Page(2); page[2] != 0x02 {
+		t.Fatalf("static lock page = % X", page)
+	}
+	if page, _ := targetTag.Page(3); page[3] != 0x0F {
+		t.Fatalf("CC access page = % X", page)
+	}
+
+	code, _ = harness.run("type2", "password", "set", "--new-pwd", "01020304", "--pack", "AABB", "--auth0", "4", "--protect", "--yes", "--confirm-password", "--json")
+	if code != 0 {
+		t.Fatalf("password set exit %d: %s", code, harness.stderr.String())
+	}
+	if page, _ := targetTag.Page(43); page != [4]byte{1, 2, 3, 4} {
+		t.Fatalf("password page = % X", page)
+	}
+	code, _ = harness.run("type2", "password", "remove", "--current-pwd", "01020304", "--yes", "--confirm-password", "--json")
+	if code != 0 {
+		t.Fatalf("password remove exit %d: %s", code, harness.stderr.String())
+	}
+	if page, _ := targetTag.Page(43); page != [4]byte{0xFF, 0xFF, 0xFF, 0xFF} {
+		t.Fatalf("password page after remove = % X", page)
 	}
 }

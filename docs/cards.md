@@ -74,33 +74,50 @@ Write rules:
 - Keep a full 540-byte-image path for NTAG215-style analysis, but expose user
   memory as the normal dump unit.
 - Never write UID pages through a normal Type 2 command; UID is read-only on
-  genuine NTAG. Pages 0-3, including static lock bytes and the capability
-  container, are never written; dynamic lock bytes are the only lock area
-  restored by `type2 restore --protected`.
+  genuine NTAG. Ordinary `type2 write` and `type2 restore` do not write pages
+  0-3. The Advanced lifecycle commands may write static lock bits (page 2,
+  preserving BCC1/internal bytes) and the capability-container access byte
+  (page 3), under the one-way and confirmation rules below.
 
 NDEF read/write is implemented:
 
 - parse and validate the capability container and NDEF TLV;
 - read and decode Text, URI, Smart Poster, MIME `text/plain`, vCard, JSON,
-  Wi-Fi WSC, Bluetooth BR/EDR easy pairing, and Android Application Records;
+  Wi-Fi WSC, Bluetooth BR/EDR easy pairing, Bluetooth LE OOB, and Android
+  Application Records;
 - write Text, URL/URI, custom URI, search, payment, social, application,
-  email, contact, phone, SMS, location, address, Bluetooth, Wi-Fi, Smart
-  Poster, and WPA3/DPP bootstrapping templates;
+  email, contact, phone, SMS, location, address, Bluetooth BR/EDR, Bluetooth
+  LE, Wi-Fi, Smart Poster, and WPA3/DPP bootstrapping templates;
+- expose search, social, and payment provider presets with an editable URL,
+  a text language selector, and Smart Poster action/type/size metadata;
+- import and export raw NDEF message files, edit raw messages, and build
+  multi-record messages;
+- mask Wi-Fi keys and other sensitive fields until the user reveals them;
 - hide raw payload/message hex by default and show it only on request;
 - refuse to overwrite lock bytes, configuration pages, or a preceding
   lock/memory-control TLV;
 - report unsupported or malformed NDEF without modifying the tag.
 
-The GUI writes one user page at a time and template-based NDEF messages after
-an explicit confirmation. WPA3-only onboarding is represented by a DPP
-bootstrapping URI, because the WSC 2.0 credential format has no WPA3/SAE
-authentication type. NFC Foundry writes and reads the URI only; full DPP
-authentication and provisioning are out of scope. Configuration, dynamic lock, PWD/PACK, static lock, and
-pages 0-3 remain CLI-only behind the protected-restore confirmations.
+The GUI writes one user page at a time and template, raw, or multi-record NDEF
+messages after an explicit confirmation. A password field supplies PWD_AUTH to
+reads and writes. WPA3-only onboarding is represented by a DPP bootstrapping
+URI, because the WSC 2.0 credential format has no WPA3/SAE authentication type.
+NFC Foundry writes and reads the URI only; full DPP authentication and
+provisioning are out of scope.
+
+Advanced mode exposes Type 2 copy, repeated copy, erase, lock, and password
+set/remove. Copy defaults to user memory; the protected path adds PWD/PACK,
+configuration, and writable capability-container bits. Static lock, dynamic
+lock, CC read-only, and CFGLCK are one-way. Password set writes PWD, PACK,
+AUTH0, and PROT; password removal requires the current password and refuses a
+CFGLCK-locked configuration. Every lifecycle action shows old/new values,
+writes a full-image backup, verifies each page, and requires a typed card-UID
+confirmation in the GUI.
 
 Type 2 dumps include PWD and PACK pages so a full restore is possible; write
 them with mode 0600 and treat them as sensitive. The CLI masks those pages unless
-`--show-keys` is set; the GUI always masks them.
+`--show-keys` is set. JSON is the default dump format; `.bin` uses the
+self-describing `NFCT2BIN` full-image format.
 
 The NTAG215 path (full dump, NDEF write, restore, and read-back) is validated on
 an ACR122U. NTAG213/216 use the same commands and geometry model but have not

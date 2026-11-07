@@ -135,11 +135,11 @@ func (s *shell) applyTaskEvent(event app.TaskEventDetailDTO) {
 		}
 	}
 	switch {
-	case event.Type == "failed" && (event.Kind == "type2_write" || event.Kind == "type2_ndef"):
+	case event.Type == "failed" && (event.Kind == "type2_write" || event.Kind == "type2_ndef" || event.Kind == "type2_lifecycle"):
 		s.errorText = s.locales().Type2WriteFailed(event.Message)
 	case event.Type == "failed" && (event.Kind == "write" || event.Kind == "uid_write"):
 		s.errorText = s.locales().ClassicWriteFailed(event.Message)
-	case event.Type == app.TaskEventCompleted && (event.Kind == "type2_write" || event.Kind == "type2_ndef"):
+	case event.Type == app.TaskEventCompleted && (event.Kind == "type2_write" || event.Kind == "type2_ndef" || event.Kind == "type2_lifecycle"):
 		s.errorText = ""
 		s.toastText = s.locales().Type2WriteComplete()
 	case event.Type == app.TaskEventCompleted && event.Kind == "write":

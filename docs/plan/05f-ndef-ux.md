@@ -1,5 +1,7 @@
 # Phase 05f: NDEF UX and format completion
 
+Status: done (2026-11-07). See `docs/notes/05f-ndef-ux.md`.
+
 ## Goal
 
 Finish the useful NDEF workflows that were previously deferred as "not in the

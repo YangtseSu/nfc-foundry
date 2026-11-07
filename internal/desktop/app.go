@@ -39,6 +39,19 @@ type Backend interface {
 	StartType2NDEFWrite(app.Type2NDEFWriteStartRequestDTO) (app.TaskDTO, error)
 	PreviewType2NDEF(app.Type2NDEFWriteStartRequestDTO) (app.Type2NDEFPreviewDTO, error)
 	GetType2NDEFTemplates() []app.Type2NDEFTemplateDTO
+	GetType2NDEFProviders() map[string][]app.Type2ProviderDTO
+	PreviewType2NDEFRaw(app.Type2NDEFRawRequestDTO) (app.Type2NDEFPreviewDTO, error)
+	StartType2NDEFRawWrite(app.Type2NDEFRawRequestDTO) (app.TaskDTO, error)
+	PreviewType2NDEFRecords(app.Type2NDEFRecordsRequestDTO) (app.Type2NDEFPreviewDTO, error)
+	StartType2NDEFRecordsWrite(app.Type2NDEFRecordsRequestDTO) (app.TaskDTO, error)
+	ImportType2NDEF() (app.Type2NDEFImportDTO, error)
+	ExportType2NDEF(raw string) (string, error)
+	LoadType2Source() (app.Type2SourceDTO, error)
+	GetType2Source() app.Type2SourceDTO
+	ExportType2Dump() (string, error)
+	ImportType2Dump() (app.Type2DumpDTO, error)
+	PreviewType2Lifecycle(app.Type2LifecycleRequestDTO) (app.Type2LifecyclePlanDTO, error)
+	StartType2Lifecycle(app.Type2LifecycleRequestDTO) (app.TaskDTO, error)
 	StartKeyScan(discardDirty bool) (app.TaskDTO, error)
 	CancelTask(taskID string) error
 }

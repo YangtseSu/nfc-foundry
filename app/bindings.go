@@ -1,6 +1,10 @@
 package app
 
-import "github.com/YangtseSu/nfc-foundry/internal/diagnostic"
+import (
+	"context"
+
+	"github.com/YangtseSu/nfc-foundry/internal/diagnostic"
+)
 
 // Bindings is the UI-agnostic application facade used by the native shell and,
 // later, by nfctl. It exposes DTOs only; no UI framework type crosses it.
@@ -125,5 +129,65 @@ func (b *Bindings) PreviewType2NDEF(request Type2NDEFWriteStartRequestDTO) (Type
 
 // GetType2NDEFTemplates returns the common NDEF templates.
 func (b *Bindings) GetType2NDEFTemplates() []Type2NDEFTemplateDTO { return Type2NDEFTemplates() }
+
+// GetType2NDEFProviders returns the search, social, and payment presets.
+func (b *Bindings) GetType2NDEFProviders() map[string][]Type2ProviderDTO {
+	return Type2NDEFProviders()
+}
+
+// PreviewType2NDEFRaw validates a raw NDEF message.
+func (b *Bindings) PreviewType2NDEFRaw(request Type2NDEFRawRequestDTO) (Type2NDEFPreviewDTO, error) {
+	return b.service.PreviewType2NDEFRaw(request)
+}
+
+// StartType2NDEFRawWrite starts a raw NDEF write.
+func (b *Bindings) StartType2NDEFRawWrite(request Type2NDEFRawRequestDTO) (TaskDTO, error) {
+	return b.service.StartType2NDEFRawWrite(request)
+}
+
+// PreviewType2NDEFRecords validates a multi-record message.
+func (b *Bindings) PreviewType2NDEFRecords(request Type2NDEFRecordsRequestDTO) (Type2NDEFPreviewDTO, error) {
+	return b.service.PreviewType2NDEFRecords(request)
+}
+
+// StartType2NDEFRecordsWrite starts a multi-record NDEF write.
+func (b *Bindings) StartType2NDEFRecordsWrite(request Type2NDEFRecordsRequestDTO) (TaskDTO, error) {
+	return b.service.StartType2NDEFRecordsWrite(request)
+}
+
+// ImportType2NDEF loads a raw NDEF message through the file dialog.
+func (b *Bindings) ImportType2NDEF() (Type2NDEFImportDTO, error) {
+	return b.service.ImportType2NDEF()
+}
+
+// ExportType2NDEF saves a raw NDEF message through the file dialog.
+func (b *Bindings) ExportType2NDEF(raw string) (string, error) {
+	return b.service.ExportType2NDEF(raw)
+}
+
+// LoadType2Source loads a source image for Advanced copy.
+func (b *Bindings) LoadType2Source() (Type2SourceDTO, error) {
+	return b.service.LoadType2Source()
+}
+
+// GetType2Source returns the loaded copy source.
+func (b *Bindings) GetType2Source() Type2SourceDTO { return b.service.GetType2Source() }
+
+// ExportType2Dump saves the active image as JSON or binary.
+func (b *Bindings) ExportType2Dump() (string, error) { return b.service.ExportType2Dump() }
+
+// ImportType2Dump loads a JSON or binary image into the Type 2 view.
+func (b *Bindings) ImportType2Dump() (Type2DumpDTO, error) { return b.service.ImportType2Dump() }
+
+// PreviewType2Lifecycle returns the exact old/new plan for a destructive Type
+// 2 operation.
+func (b *Bindings) PreviewType2Lifecycle(request Type2LifecycleRequestDTO) (Type2LifecyclePlanDTO, error) {
+	return b.service.PreviewType2Lifecycle(context.Background(), request)
+}
+
+// StartType2Lifecycle executes a previewed lifecycle plan.
+func (b *Bindings) StartType2Lifecycle(request Type2LifecycleRequestDTO) (TaskDTO, error) {
+	return b.service.StartType2Lifecycle(request)
+}
 
 func (b *Bindings) CancelTask(taskID string) error { return b.service.CancelTask(taskID) }

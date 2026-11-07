@@ -69,6 +69,38 @@ func (s *Service) WaitForCard(ctx context.Context) (nfc.CardInfo, error) {
 	}
 }
 
+// WaitForCardRemoval blocks until polling reports that the card left the
+// field. It is used by repeated copy between tags.
+func (s *Service) WaitForCardRemoval(ctx context.Context) error {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		snapshot := s.deviceManager.Snapshot()
+		if snapshot.Card == nil {
+			return nil
+		}
+		switch snapshot.Status {
+		case device.StatusDisconnected:
+			return nfc.NewError("wait for card removal", nfc.CodeNotOpen, "reader is not connected", nil)
+		case device.StatusError:
+			code := snapshot.ErrorCode
+			if code == nfc.CodeUnknown {
+				code = nfc.CodeIO
+			}
+			return nfc.NewError("wait for card removal", code, snapshot.ErrorMessage, nil)
+		}
+		select {
+		case <-ctx.Done():
+			code := nfc.CodeCanceled
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				code = nfc.CodeTimeout
+			}
+			return nfc.NewError("wait for card removal", code, "", ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
 // ReadClassicBlock reads one block with an explicit key or the verified key
 // catalog. It retries the other verified slot only after authentication
 // failures, never after a mutating operation.

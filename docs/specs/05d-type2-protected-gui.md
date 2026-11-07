@@ -5,7 +5,9 @@ Date: 2026-11-07
 ## Goal
 
 Add GUI writes for Type 2 configuration, dynamic lock, PWD/PACK, and static lock
-under the shared advanced mode. Pages 0-1 and page 3 remain read-only.
+under the shared advanced mode. Pages 0-1 remain read-only. Phase 05i owns the
+capability-container access-byte lock and the lifecycle copy/erase/lock/password
+workflows; this phase remains the per-field protected editor.
 
 ## Scope
 
@@ -22,7 +24,8 @@ Read-only:
 
 - pages 0-1: UID and BCC0;
 - page 2 bytes 0-1: BCC1 and internal;
-- page 3: capability container/OTP.
+- page 3: capability container/OTP, except the access-byte lock delivered by
+  Phase 05i.
 
 ## Application surface
 
@@ -125,7 +128,7 @@ Hardware:
 ## Non-goals
 
 - UID/page 0-1 writes.
-- Capability-container/page 3 writes.
+- Capability-container writes other than the Phase 05i access-byte lock.
 - Arbitrary page 0-3 editing.
 - Magic-tag UID protocols.
 - A write path that bypasses advanced mode, backup, or read-back.

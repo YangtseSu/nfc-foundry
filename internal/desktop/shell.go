@@ -76,6 +76,13 @@ type classicWriteIntent struct {
 	UIDPlan   app.UIDWritePreflightDTO
 }
 
+type ndefRecordDraft struct {
+	Kind  string
+	Text  string
+	URI   string
+	Title string
+}
+
 // shell is the native UI view-model. It is only mutated on the UI thread;
 // background work posts updates through Window.Update.
 type shell struct {
@@ -111,26 +118,50 @@ type shell struct {
 	selectedTab tabID
 	tabIndex    int
 
-	advanced          bool
-	classicDialog     string
-	classicDialogOpen bool
-	classicIntent     *classicWriteIntent
-	blockChosen       int
-	blockInput        string
-	blockInputBlock   int
-	blockRows         []blockRow
-	blockRowChosen    int
-	uidInput          string
-	sectorChosen      int
+	advanced           bool
+	classicDialog      string
+	classicDialogOpen  bool
+	classicIntent      *classicWriteIntent
+	blockChosen        int
+	blockInput         string
+	blockInputBlock    int
+	blockRows          []blockRow
+	blockRowChosen     int
+	uidInput           string
+	sectorChosen       int
 	type2PageChosen    int
 	type2PageInput     string
 	type2PageInputPage int
+	type2Password      string
 	ndefTemplate       string
 	ndefFields         map[string]*string
 	ndefTemplates      []app.Type2NDEFTemplateDTO
+	ndefProviders      map[string][]app.Type2ProviderDTO
 	ndefShowRaw        bool
+	ndefReveal         bool
+	ndefMode           string
+	ndefRaw            string
+	ndefDrafts         []ndefRecordDraft
+	ndefRecordRaw      map[int]bool
 	type2WriteOpen     bool
 	type2WriteIntent   *type2WriteIntent
+
+	type2Source        app.Type2SourceDTO
+	type2CopyProtected bool
+	type2CopySameUID   bool
+	type2CopyRepeat    string
+	type2LockStatic    string
+	type2LockDynamic   string
+	type2LockCC        bool
+	type2LockConfig    bool
+	type2PwdNew        string
+	type2PwdPack       string
+	type2PwdAuth0      string
+	type2PwdProtect    bool
+	type2Plan          *app.Type2LifecyclePlanDTO
+	type2PlanRequest   app.Type2LifecycleRequestDTO
+	type2PlanOpen      bool
+	type2PlanConfirm   string
 	keyChosen          string
 	keyChosenRow       int
 
@@ -151,6 +182,9 @@ func newShell(api Backend) *shell {
 		blockInputBlock:    -1,
 		ndefTemplate:       "text",
 		ndefFields:         make(map[string]*string),
+		ndefMode:           "template",
+		ndefRecordRaw:      make(map[int]bool),
+		type2PwdProtect:    true,
 	}
 	s.reloadSnapshot()
 	return s
@@ -177,7 +211,9 @@ func (s *shell) reloadSnapshot() {
 	}
 	s.workbench = s.api.GetWorkbench()
 	s.type2 = s.api.GetType2Dump()
+	s.type2Source = s.api.GetType2Source()
 	s.ndefTemplates = s.api.GetType2NDEFTemplates()
+	s.ndefProviders = s.api.GetType2NDEFProviders()
 	s.syncType2PageSelection(true)
 	s.keys = append([]app.KeyDTO(nil), s.api.GetKeyCatalog()...)
 	s.clampSelections()
@@ -264,6 +300,7 @@ func (s *shell) view(c *ui.Context) {
 		s.actionBar(c, p)
 	})
 	s.type2WriteDialog(c)
+	s.type2PlanDialog(c)
 	s.classicDialogView(c)
 }
 
@@ -360,11 +397,12 @@ func (s *shell) readCard() {
 	if family != familyClassic && family != familyType2 {
 		return
 	}
+	password := s.type2Password
 	s.pendingOps++
 	go func() {
 		var err error
 		if family == familyType2 {
-			_, err = s.api.StartType2Read("")
+			_, err = s.api.StartType2Read(password)
 		} else {
 			_, err = s.api.StartReadCard(false)
 		}
@@ -556,6 +594,22 @@ func (s *shell) resetAdvanced() {
 	s.uidInput = ""
 	s.blockInput = ""
 	s.blockInputBlock = -1
+	s.type2Password = ""
+	s.type2Plan = nil
+	s.type2PlanOpen = false
+	s.type2PlanConfirm = ""
+	s.type2PwdNew = ""
+	s.type2PwdPack = ""
+	s.type2PwdAuth0 = ""
+	s.type2PwdProtect = true
+	s.type2CopyProtected = false
+	s.type2CopySameUID = false
+	s.type2CopyRepeat = ""
+	s.type2LockStatic = ""
+	s.type2LockDynamic = ""
+	s.type2LockCC = false
+	s.type2LockConfig = false
+	s.ndefReveal = false
 }
 
 func (s *shell) cardFamily() cardFamily {

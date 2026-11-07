@@ -1,6 +1,8 @@
 package type2
 
 import (
+	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"net/url"
 	"strings"
@@ -20,6 +22,7 @@ const (
 	KindVCard       = "vcard"
 	KindWiFi        = "wifi"
 	KindBluetooth   = "bluetooth"
+	KindBluetoothLE = "bluetooth-le"
 	KindApp         = "app"
 	KindMIME        = "mime"
 	KindExternal    = "external"
@@ -75,12 +78,32 @@ func decodeSmartPoster(record *Record, payload []byte) {
 		return
 	}
 	title := ""
+	action := ""
+	resourceType := ""
+	resourceSize := ""
 	for _, child := range nested {
 		if record.URI == "" && child.URI != "" {
 			record.URI = child.URI
 		}
 		if title == "" && child.Text != "" {
 			title = child.Text
+		}
+		if child.TNF != 0x01 {
+			continue
+		}
+		switch child.Type {
+		case "act":
+			if raw, err := hex.DecodeString(child.Payload); err == nil && len(raw) == 1 {
+				action = smartPosterActionName(raw[0])
+			}
+		case "t":
+			if raw, err := hex.DecodeString(child.Payload); err == nil {
+				resourceType = strings.TrimSpace(string(raw))
+			}
+		case "s":
+			if raw, err := hex.DecodeString(child.Payload); err == nil && len(raw) == 4 {
+				resourceSize = fmt.Sprintf("%d", binary.BigEndian.Uint32(raw))
+			}
 		}
 	}
 	if title != "" {
@@ -90,13 +113,37 @@ func decodeSmartPoster(record *Record, payload []byte) {
 	if record.URI != "" {
 		record.Fields = append(record.Fields, Field{Key: "uri", Value: record.URI})
 	}
+	if action != "" {
+		record.Fields = append(record.Fields, Field{Key: "action", Value: action})
+	}
+	if resourceType != "" {
+		record.Fields = append(record.Fields, Field{Key: "resource_type", Value: resourceType})
+	}
+	if resourceSize != "" {
+		record.Fields = append(record.Fields, Field{Key: "resource_size", Value: resourceSize})
+	}
 	switch {
 	case title != "":
 		record.Summary = title
 	case record.URI != "":
 		record.Summary = record.URI
+	case action != "":
+		record.Summary = "Smart Poster · " + action
 	default:
 		record.Summary = "Smart Poster"
+	}
+}
+
+func smartPosterActionName(value byte) string {
+	switch value {
+	case 0:
+		return "do"
+	case 1:
+		return "save"
+	case 2:
+		return "open"
+	default:
+		return fmt.Sprintf("0x%02X", value)
 	}
 }
 
@@ -143,6 +190,15 @@ func decodeMIME(record *Record, payload []byte) {
 			record.Summary = summary
 		} else {
 			record.Summary = "Bluetooth pairing"
+		}
+	case "application/vnd.bluetooth.le.oob":
+		summary, fields := parseBluetoothLERecord(payload)
+		record.Kind = KindBluetoothLE
+		record.Fields = fields
+		if summary != "" {
+			record.Summary = summary
+		} else {
+			record.Summary = "Bluetooth LE pairing"
 		}
 	default:
 		if text := printablePayload(payload); text != "" {

@@ -177,8 +177,19 @@ nfctl type2 write --page N --data HEX [--pwd HEX] [--yes] [--dry-run]
 nfctl type2 dump <file.json> [--pwd HEX]
 nfctl type2 restore <file.json> [--pwd HEX] [--protected] [--yes] \
     [--confirm-protected] [--dry-run]
-nfctl ndef read [--raw] [--pwd HEX]
-nfctl ndef write (--file <path>|--hex <hex>) [--pwd HEX] [--yes] [--dry-run]
+nfctl ndef read [--raw] [--reveal] [--pwd HEX]
+nfctl ndef write (--file <path>|--hex <hex>|--template ID [--field K=V]...) \
+    [--pwd HEX] [--yes] [--dry-run]
+nfctl type2 copy SOURCE [--include-protected] [--same-uid-only] [--repeat N] \
+    [--continue-on-error] [--pwd HEX] [--yes] [--confirm-copy] \
+    [--confirm-protected] [--dry-run]
+nfctl type2 erase [--pwd HEX] [--yes] [--confirm-erase] [--dry-run]
+nfctl type2 lock [--static-lock HEX4] [--dynamic-lock HEX6] [--cc-readonly] \
+    [--cfglock] [--pwd HEX] [--yes] [--confirm-lock] [--dry-run]
+nfctl type2 password set --new-pwd HEX --pack HEX [--auth0 N] [--no-protect] \
+    [--current-pwd HEX] [--yes] [--confirm-password] [--dry-run]
+nfctl type2 password remove [--current-pwd HEX] [--yes] \
+    [--confirm-password] [--dry-run]
 ```
 
 Type 2 commands use the standard selection signature (ATQA `00 44`, SAK `00`);
@@ -192,25 +203,60 @@ NAK and page 0 has a valid BCC0.
 also prints UID, lock, capability, configuration, password, and PACK pages.
 `--page N` prints one page. PWD and PACK pages are masked as `--------` unless
 `--show-keys` is set, and the optional `--pwd` value is never echoed. Type 2
-JSON dumps contain the PWD and PACK pages and are written with mode 0600; treat
+dumps contain the PWD and PACK pages and are written with mode 0600; treat
 them as sensitive.
 
+`type2 dump` writes JSON by default and the self-describing `NFCT2BIN` binary
+format when the path ends in `.bin`. `type2 restore` accepts either format.
 `type2 write` accepts user-memory pages only. Protected pages are rejected;
 they require a confirmed restore. `type2 restore` restores user memory by
 default. `--protected` adds PWD/PACK, configuration, and dynamic-lock pages,
 requires `--yes` and `--confirm-protected`, and writes dynamic lock bytes last.
-Pages 0-3, static lock bytes, and the capability container are never written. Every write creates a full-image backup under
+A normal restore does not write pages 0-3. Lifecycle commands may write static
+lock bits page 2 and the capability-container access byte page 3, with the
+rules below. Every write creates a full-image backup under
 `$XDG_CONFIG_HOME/NFC Foundry/type2-backups/` and verifies each page by
-read-back. A dump is accepted only for the same product and UID.
+read-back. A restore is accepted only for the same product and UID.
+
+`type2 copy` copies user memory and NDEF from a JSON or binary dump onto the
+current tag. Source and target must be the same product; different UIDs are
+the normal case. `--same-uid-only` rejects a different target UID.
+`--include-protected` additionally copies PWD, PACK, configuration, and the
+writable capability-container bits when the target allows it; it requires
+`--confirm-protected`. UID pages are never written. `--repeat N` waits for a
+new tag after each target and verifies every target independently. The default
+stops at the first failure; `--continue-on-error` waits for the next tag and
+reports both failures and successes.
+
+`type2 erase` zeroes unlocked user-memory pages. It does not change lock,
+configuration, PWD, or PACK pages and reports that those bits remain.
+
+`type2 lock` applies explicit one-way lock targets. `--static-lock` accepts the
+full 16-bit desired lock value (bit 0 is page 3, bit 1 is page 4, and so on);
+`--dynamic-lock` accepts the three dynamic lock bytes. Existing set bits cannot
+be cleared. `--cc-readonly` sets the capability-container access byte to
+read-only, and `--cfglock` sets CFGLCK. Static lock is written last because it
+can block later writes.
+
+`type2 password set` writes PWD, PACK, AUTH0, and PROT. It protects user memory
+by default; pass `--no-protect` to install the password without enabling PROT.
+`--auth0` selects the first protected page and defaults to the first user page.
+A protected target requires `--current-pwd`. `type2 password remove` restores
+PWD `FF FF FF FF`, PACK `00 00`, AUTH0 `FF`, and clears PROT; it refuses when
+CFGLCK makes the configuration pages read-only.
 
 `ndef read` decodes and prints the record kind, summary, and fields. It covers
 Text, URI, Smart Poster, vCard, MIME text/JSON, Wi-Fi WSC, Bluetooth BR/EDR
-easy pairing, and Android Application Records. `--raw` prints only the message
-hex. It exits 3 when the tag has no valid capability container or contains
-malformed NDEF. `ndef write` accepts a raw NDEF message from `--file` or
-`--hex`; the GUI provides the common templates. It validates the record layout
-and TLV capacity, refuses to overwrite a preceding lock/memory-control TLV, and
-verifies the complete NDEF area by read-back.
+easy pairing, Bluetooth LE OOB, and Android Application Records. Sensitive
+fields such as the Wi-Fi network key are masked unless `--reveal` is passed.
+`--raw` prints only the message hex. It exits 3 when the tag has no valid
+capability container or contains malformed NDEF. `ndef write` accepts a raw NDEF
+message from `--file` or `--hex`, or a common template through `--template` and
+repeatable `--field key=value` options. The template catalogue, provider
+presets, language selector, Smart Poster metadata, and Bluetooth LE record are
+shared with the GUI. It validates the record layout and TLV capacity, refuses
+to overwrite a preceding lock/memory-control TLV, and verifies the complete
+NDEF area by read-back.
 
 ### Diagnostics and keys
 

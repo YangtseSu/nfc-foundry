@@ -35,6 +35,8 @@ func ndefTemplateLabel(l locales.Messages, id string) string {
 		return l.NdefTplAddress()
 	case "bluetooth":
 		return l.NdefTplBluetooth()
+	case "bluetooth-le":
+		return l.NdefTplBluetoothLE()
 	case "wifi":
 		return l.NdefTplWiFi()
 	case "smartposter":
@@ -124,6 +126,30 @@ func ndefFieldLabel(l locales.Messages, key string) string {
 		return l.NdefFieldDPPKey()
 	case "dpp_info":
 		return l.NdefFieldDPPInfo()
+	case "language":
+		return l.NdefFieldLanguage()
+	case "search_provider":
+		return l.NdefFieldSearchProvider()
+	case "social_provider":
+		return l.NdefFieldSocialProvider()
+	case "payment_provider":
+		return l.NdefFieldPaymentProvider()
+	case "handle":
+		return l.NdefFieldHandle()
+	case "address_type":
+		return l.NdefFieldAddressType()
+	case "role":
+		return l.NdefFieldRole()
+	case "action":
+		return l.NdefFieldAction()
+	case "resource_type":
+		return l.NdefFieldResourceType()
+	case "resource_size":
+		return l.NdefFieldResourceSize()
+	case "bt_address_type":
+		return l.NdefFieldBTAddressType()
+	case "bt_role":
+		return l.NdefFieldBTRole()
 	default:
 		return key
 	}
@@ -155,6 +181,8 @@ func ndefKindLabel(l locales.Messages, kind string) string {
 		return l.NdefKindWiFi()
 	case "bluetooth":
 		return l.NdefKindBluetooth()
+	case "bluetooth-le":
+		return l.NdefKindBluetoothLE()
 	case "app":
 		return l.NdefKindApp()
 	case "mime":
@@ -184,6 +212,94 @@ func ndefSecurityLabel(l locales.Messages, value string) string {
 		return l.NdefSecurityWPA3Transition()
 	default:
 		return value
+	}
+}
+
+func ndefOptionLabel(l locales.Messages, field, option string) string {
+	switch field {
+	case "language":
+		return option
+	case "security":
+		return ndefSecurityLabel(l, option)
+	case "search_provider", "social_provider", "payment_provider":
+		return ndefProviderLabel(l, option)
+	case "address_type":
+		switch option {
+		case "public":
+			return l.NdefAddressPublic()
+		case "random":
+			return l.NdefAddressRandom()
+		}
+	case "role":
+		switch option {
+		case "":
+			return l.NdefRoleNone()
+		case "peripheral":
+			return l.NdefRolePeripheral()
+		case "central":
+			return l.NdefRoleCentral()
+		case "both":
+			return l.NdefRoleBoth()
+		}
+	case "action":
+		switch option {
+		case "":
+			return l.NdefActionNone()
+		case "do":
+			return l.NdefActionDo()
+		case "save":
+			return l.NdefActionSave()
+		case "edit":
+			return l.NdefActionOpen()
+		}
+	}
+	return option
+}
+
+func ndefProviderLabel(l locales.Messages, id string) string {
+	switch id {
+	case "duckduckgo":
+		return l.NdefProviderDuckDuckGo()
+	case "google":
+		return l.NdefProviderGoogle()
+	case "bing":
+		return l.NdefProviderBing()
+	case "brave":
+		return l.NdefProviderBrave()
+	case "startpage":
+		return l.NdefProviderStartpage()
+	case "wikipedia":
+		return l.NdefProviderWikipedia()
+	case "github":
+		return l.NdefProviderGitHub()
+	case "x":
+		return l.NdefProviderX()
+	case "mastodon":
+		return l.NdefProviderMastodon()
+	case "linkedin":
+		return l.NdefProviderLinkedIn()
+	case "instagram":
+		return l.NdefProviderInstagram()
+	case "youtube":
+		return l.NdefProviderYouTube()
+	case "facebook":
+		return l.NdefProviderFacebook()
+	case "telegram":
+		return l.NdefProviderTelegram()
+	case "paypal":
+		return l.NdefProviderPayPal()
+	case "venmo":
+		return l.NdefProviderVenmo()
+	case "cashapp":
+		return l.NdefProviderCashApp()
+	case "revolut":
+		return l.NdefProviderRevolut()
+	case "kofi":
+		return l.NdefProviderKofi()
+	case "buymeacoffee":
+		return l.NdefProviderBuyMeACoffee()
+	default:
+		return id
 	}
 }
 

@@ -8,6 +8,14 @@ import (
 // EncodeVCardMessage builds a vCard 3.0 MIME record. The name field is
 // required; the remaining fields are optional.
 func EncodeVCardMessage(fields map[string]string) ([]byte, error) {
+	payload, err := vcardPayload(fields)
+	if err != nil {
+		return nil, err
+	}
+	return encodeRecord(0x02, "text/vcard", payload)
+}
+
+func vcardPayload(fields map[string]string) ([]byte, error) {
 	name := strings.TrimSpace(fields["name"])
 	if name == "" {
 		return nil, fmt.Errorf("%w: contact name is required", ErrMalformedNDEF)
@@ -34,8 +42,7 @@ func EncodeVCardMessage(fields map[string]string) ([]byte, error) {
 	appendLine("URL", fields["url"])
 	appendLine("NOTE", fields["note"])
 	lines = append(lines, "END:VCARD")
-	payload := []byte(strings.Join(lines, "\r\n") + "\r\n")
-	return encodeRecord(0x02, "text/vcard", payload)
+	return []byte(strings.Join(lines, "\r\n") + "\r\n"), nil
 }
 
 func parseVCard(payload []byte) (string, []Field) {

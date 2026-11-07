@@ -194,6 +194,12 @@ func (t *Type2Tag) handle(tx []byte) []byte {
 			data[0] ^= 0xFF
 		}
 		t.pages[page] = data
+		if page == t.geometry.PasswordPage {
+			t.password = data
+		}
+		if page == t.geometry.PackPage {
+			t.pack = [2]byte{data[0], data[1]}
+		}
 		return []byte{0x0A}
 	case 0x1B:
 		if len(tx) != 5 {

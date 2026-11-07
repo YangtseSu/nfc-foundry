@@ -340,6 +340,7 @@
   "type2StaticLock": "Static lock",
   "type2DynamicLock": "Dynamic lock",
   "type2Auth0": "AUTH0",
+  "type2InvalidAuth0": "AUTH0 must be a page between 0 and 255.",
   "type2Access": "ACCESS",
   "type2Protect": "PROT",
   "type2ConfigLocked": "CFGLCK",
@@ -545,6 +546,113 @@
   "ndefFieldDPPInfo": "DPP information",
   "ndefSecurityWPA3Transition": "WPA2/WPA3 transition (WPA2 credential)",
   "ndefFieldDPPURI": "DPP bootstrapping URI",
+  "ndefFieldLanguage": "Language",
+  "ndefFieldSearchProvider": "Search provider",
+  "ndefFieldPaymentProvider": "Payment provider",
+  "ndefFieldSocialProvider": "Social provider",
+  "ndefFieldHandle": "Handle",
+  "ndefProviderDuckDuckGo": "DuckDuckGo",
+  "ndefProviderGoogle": "Google",
+  "ndefProviderBing": "Bing",
+  "ndefProviderBrave": "Brave Search",
+  "ndefProviderStartpage": "Startpage",
+  "ndefProviderWikipedia": "Wikipedia",
+  "ndefProviderGitHub": "GitHub",
+  "ndefProviderX": "X",
+  "ndefProviderMastodon": "Mastodon",
+  "ndefProviderLinkedIn": "LinkedIn",
+  "ndefProviderInstagram": "Instagram",
+  "ndefProviderYouTube": "YouTube",
+  "ndefProviderFacebook": "Facebook",
+  "ndefProviderTelegram": "Telegram",
+  "ndefProviderPayPal": "PayPal",
+  "ndefProviderVenmo": "Venmo",
+  "ndefProviderCashApp": "Cash App",
+  "ndefProviderRevolut": "Revolut",
+  "ndefProviderKofi": "Ko-fi",
+  "ndefProviderBuyMeACoffee": "Buy Me a Coffee",
+  "ndefFieldAddressType": "Address type",
+  "ndefFieldRole": "LE role",
+  "ndefFieldAction": "Action",
+  "ndefFieldResourceType": "Resource type",
+  "ndefFieldResourceSize": "Resource size",
+  "ndefFieldBTAddressType": "LE address type",
+  "ndefFieldBTRole": "LE role",
+  "ndefTplBluetoothLE": "Bluetooth LE",
+  "ndefKindBluetoothLE": "Bluetooth LE",
+  "ndefActionNone": "None",
+  "ndefActionDo": "Do the action",
+  "ndefActionSave": "Save for later",
+  "ndefActionOpen": "Open for editing",
+  "ndefAddressPublic": "Public",
+  "ndefAddressRandom": "Random",
+  "ndefRoleNone": "None",
+  "ndefRolePeripheral": "Peripheral only",
+  "ndefRoleCentral": "Central only",
+  "ndefRoleBoth": "Both",
+  "ndefRevealSecrets": "Reveal secrets",
+  "ndefHideSecrets": "Hide secrets",
+  "ndefMode": "Editor mode",
+  "ndefModeTemplate": "Template",
+  "ndefModeRaw": "Raw message",
+  "ndefModeRecords": "Multi-record",
+  "ndefRawEditorHint": "Paste a complete NDEF message as hexadecimal. It is validated before writing.",
+  "ndefRawPlaceholder": "D1 01 05 54 02 65 6E 68 65 6C 6C 6F",
+  "ndefPreviewError": "Invalid message: {message}",
+  "ndefPreviewLength": "{length} bytes",
+  "ndefRecordsEmpty": "Add a record to build a multi-record message.",
+  "ndefMoveUp": "Up",
+  "ndefMoveDown": "Down",
+  "ndefAddText": "Add text",
+  "ndefAddURI": "Add URL",
+  "ndefAddSmartPoster": "Add Smart Poster",
+  "ndefConfirmRawTitle": "Write a {length}-byte raw message?",
+  "ndefConfirmRawMessage": "A {length}-byte NDEF message will replace the NDEF area. A full-image backup is written first and every changed page is read back.",
+  "ndefConfirmRecordsTitle": "Write {count} records ({length} bytes)?",
+  "ndefConfirmRecordsMessage": "A {count}-record NDEF message of {length} bytes will replace the NDEF area. A full-image backup is written first and every changed page is read back.",
+  "ndefRecordShowRaw": "Show record raw",
+  "ndefRecordHideRaw": "Hide record raw",
+  "ndefCopy": "Copy",
+  "ndefReveal": "Reveal",
+  "ndefCopied": "Copied.",
+  "ndefImportFailed": "Could not import the NDEF message: {message}",
+  "ndefImported": "Imported a {length}-byte NDEF message.",
+  "ndefExportEmpty": "There is no NDEF message to export.",
+  "ndefExportFailed": "Could not export the NDEF message: {message}",
+  "ndefExported": "NDEF message saved to {path}.",
+  "type2PasswordPlaceholder": "8 hex digits",
+  "type2DumpImportFailed": "Could not import the Type 2 dump: {message}",
+  "type2DumpExportFailed": "Could not export the Type 2 dump: {message}",
+  "type2DumpExported": "Type 2 dump saved to {path}.",
+  "type2LifecyclePanel": "Advanced lifecycle",
+  "type2LifecycleWarning": "Copy, erase, lock, and password operations are destructive or one-way. A full-image backup is written first, and every page is read back.",
+  "type2Source": "Copy source",
+  "type2NoSource": "No source image loaded.",
+  "type2SourceSummary": "{product} · {uid}",
+  "type2LoadSource": "Load source",
+  "type2SourceLoadFailed": "Could not load the source image: {message}",
+  "type2CopyToTag": "Copy to this tag",
+  "type2CopyProtected": "Copy protection pages",
+  "type2CopySameUID": "Same UID only",
+  "type2Repeat": "Targets",
+  "type2Erase": "Erase user memory",
+  "type2LockPanel": "Lock bits",
+  "type2CCReadOnly": "CC read-only",
+  "type2ConfigLock": "Lock configuration",
+  "type2ApplyLocks": "Apply locks",
+  "type2PasswordPanel": "Password protection",
+  "type2NewPassword": "New password",
+  "type2SetPassword": "Set password",
+  "type2RemovePassword": "Remove password",
+  "type2LifecycleFailed": "Type 2 operation failed: {message}",
+  "type2LifecycleStarted": "Type 2 operation started.",
+  "type2PlanTitle": "{operation} plan",
+  "type2PlanCard": "Card {uid} · {product}",
+  "type2PlanBackup": "{pages} page(s) will change. A full-image backup is written first.",
+  "type2PlanBackupRoot": "Backup directory: {path}",
+  "type2PlanTypeUID": "Type the UID {uid} to confirm.",
+  "type2PlanConfirm": "Apply",
+  "type2OneWay": " (one-way)",
   "commonNone": "None",
   "classicAdvanced": "Advanced operations",
   "classicAdvancedTitle": "Enable advanced operations?",
@@ -716,6 +824,61 @@
     "placeholders": {
       "message": {
         "type": "String"
+      }
+    }
+  },
+  "@ndefPreviewLength": {
+    "placeholders": {
+      "length": {
+        "type": "int"
+      }
+    }
+  },
+  "@ndefConfirmRawTitle": {
+    "placeholders": {
+      "length": {
+        "type": "int"
+      }
+    }
+  },
+  "@ndefConfirmRawMessage": {
+    "placeholders": {
+      "length": {
+        "type": "int"
+      }
+    }
+  },
+  "@ndefConfirmRecordsTitle": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "length": {
+        "type": "int"
+      }
+    }
+  },
+  "@ndefConfirmRecordsMessage": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "length": {
+        "type": "int"
+      }
+    }
+  },
+  "@ndefImported": {
+    "placeholders": {
+      "length": {
+        "type": "int"
+      }
+    }
+  },
+  "@type2PlanBackup": {
+    "placeholders": {
+      "pages": {
+        "type": "int"
       }
     }
   }

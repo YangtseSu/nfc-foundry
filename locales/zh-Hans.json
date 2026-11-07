@@ -193,6 +193,7 @@
   "type2StaticLock": "静态锁",
   "type2DynamicLock": "动态锁",
   "type2Auth0": "AUTH0",
+  "type2InvalidAuth0": "AUTH0 必须是 0 到 255 之间的页号。",
   "type2Access": "ACCESS",
   "type2Protect": "PROT",
   "type2ConfigLocked": "CFGLCK",
@@ -398,6 +399,113 @@
   "ndefFieldDPPInfo": "DPP 信息",
   "ndefSecurityWPA3Transition": "WPA2/WPA3 过渡（WPA2 凭据）",
   "ndefFieldDPPURI": "DPP 引导 URI",
+  "ndefFieldLanguage": "语言",
+  "ndefFieldSearchProvider": "搜索服务",
+  "ndefFieldPaymentProvider": "支付服务",
+  "ndefFieldSocialProvider": "社交服务",
+  "ndefFieldHandle": "账号",
+  "ndefProviderDuckDuckGo": "DuckDuckGo",
+  "ndefProviderGoogle": "Google",
+  "ndefProviderBing": "Bing",
+  "ndefProviderBrave": "Brave Search",
+  "ndefProviderStartpage": "Startpage",
+  "ndefProviderWikipedia": "维基百科",
+  "ndefProviderGitHub": "GitHub",
+  "ndefProviderX": "X",
+  "ndefProviderMastodon": "Mastodon",
+  "ndefProviderLinkedIn": "LinkedIn",
+  "ndefProviderInstagram": "Instagram",
+  "ndefProviderYouTube": "YouTube",
+  "ndefProviderFacebook": "Facebook",
+  "ndefProviderTelegram": "Telegram",
+  "ndefProviderPayPal": "PayPal",
+  "ndefProviderVenmo": "Venmo",
+  "ndefProviderCashApp": "Cash App",
+  "ndefProviderRevolut": "Revolut",
+  "ndefProviderKofi": "Ko-fi",
+  "ndefProviderBuyMeACoffee": "Buy Me a Coffee",
+  "ndefFieldAddressType": "地址类型",
+  "ndefFieldRole": "LE 角色",
+  "ndefFieldAction": "动作",
+  "ndefFieldResourceType": "资源类型",
+  "ndefFieldResourceSize": "资源大小",
+  "ndefFieldBTAddressType": "LE 地址类型",
+  "ndefFieldBTRole": "LE 角色",
+  "ndefTplBluetoothLE": "蓝牙 LE",
+  "ndefKindBluetoothLE": "蓝牙 LE",
+  "ndefActionNone": "无",
+  "ndefActionDo": "执行动作",
+  "ndefActionSave": "稍后保存",
+  "ndefActionOpen": "打开编辑",
+  "ndefAddressPublic": "公共",
+  "ndefAddressRandom": "随机",
+  "ndefRoleNone": "无",
+  "ndefRolePeripheral": "仅外设",
+  "ndefRoleCentral": "仅主机",
+  "ndefRoleBoth": "两者皆可",
+  "ndefRevealSecrets": "显示敏感值",
+  "ndefHideSecrets": "隐藏敏感值",
+  "ndefMode": "编辑模式",
+  "ndefModeTemplate": "模板",
+  "ndefModeRaw": "原始消息",
+  "ndefModeRecords": "多记录",
+  "ndefRawEditorHint": "以十六进制粘贴完整 NDEF 消息。写入前会先校验。",
+  "ndefRawPlaceholder": "D1 01 05 54 02 65 6E 68 65 6C 6C 6F",
+  "ndefPreviewError": "消息无效：{message}",
+  "ndefPreviewLength": "{length} 字节",
+  "ndefRecordsEmpty": "添加记录以构建多记录消息。",
+  "ndefMoveUp": "上移",
+  "ndefMoveDown": "下移",
+  "ndefAddText": "添加文本",
+  "ndefAddURI": "添加 URL",
+  "ndefAddSmartPoster": "添加 Smart Poster",
+  "ndefConfirmRawTitle": "写入 {length} 字节的原始消息？",
+  "ndefConfirmRawMessage": "{length} 字节的 NDEF 消息将替换 NDEF 区域。写入前会先保存完整镜像备份，并逐页回读校验。",
+  "ndefConfirmRecordsTitle": "写入 {count} 条记录（{length} 字节）？",
+  "ndefConfirmRecordsMessage": "{count} 条记录、共 {length} 字节的 NDEF 消息将替换 NDEF 区域。写入前会先保存完整镜像备份，并逐页回读校验。",
+  "ndefRecordShowRaw": "显示记录原始数据",
+  "ndefRecordHideRaw": "隐藏记录原始数据",
+  "ndefCopy": "复制",
+  "ndefReveal": "显示",
+  "ndefCopied": "已复制。",
+  "ndefImportFailed": "无法导入 NDEF 消息：{message}",
+  "ndefImported": "已导入 {length} 字节的 NDEF 消息。",
+  "ndefExportEmpty": "没有可导出的 NDEF 消息。",
+  "ndefExportFailed": "无法导出 NDEF 消息：{message}",
+  "ndefExported": "NDEF 消息已保存到 {path}。",
+  "type2PasswordPlaceholder": "8 位十六进制",
+  "type2DumpImportFailed": "无法导入 Type 2 转储：{message}",
+  "type2DumpExportFailed": "无法导出 Type 2 转储：{message}",
+  "type2DumpExported": "Type 2 转储已保存到 {path}。",
+  "type2LifecyclePanel": "高级生命周期",
+  "type2LifecycleWarning": "复制、擦除、锁定和密码操作具有破坏性或不可逆。操作前会先写入完整镜像备份，并逐页回读校验。",
+  "type2Source": "复制源",
+  "type2NoSource": "尚未加载源镜像。",
+  "type2SourceSummary": "{product} · {uid}",
+  "type2LoadSource": "加载源镜像",
+  "type2SourceLoadFailed": "无法加载源镜像：{message}",
+  "type2CopyToTag": "复制到当前标签",
+  "type2CopyProtected": "复制保护页",
+  "type2CopySameUID": "仅限相同 UID",
+  "type2Repeat": "目标数量",
+  "type2Erase": "擦除用户存储",
+  "type2LockPanel": "锁定位",
+  "type2CCReadOnly": "CC 只读",
+  "type2ConfigLock": "锁定配置",
+  "type2ApplyLocks": "应用锁定",
+  "type2PasswordPanel": "密码保护",
+  "type2NewPassword": "新密码",
+  "type2SetPassword": "设置密码",
+  "type2RemovePassword": "移除密码",
+  "type2LifecycleFailed": "Type 2 操作失败：{message}",
+  "type2LifecycleStarted": "Type 2 操作已开始。",
+  "type2PlanTitle": "{operation} 计划",
+  "type2PlanCard": "卡片 {uid} · {product}",
+  "type2PlanBackup": "将更改 {pages} 页。操作前会先写入完整镜像备份。",
+  "type2PlanBackupRoot": "备份目录：{path}",
+  "type2PlanTypeUID": "输入 UID {uid} 以确认。",
+  "type2PlanConfirm": "执行",
+  "type2OneWay": "（不可逆）",
   "commonNone": "无",
   "classicAdvanced": "高级操作",
   "classicAdvancedTitle": "启用高级操作？",
@@ -569,6 +677,61 @@
     "placeholders": {
       "message": {
         "type": "String"
+      }
+    }
+  },
+  "@ndefPreviewLength": {
+    "placeholders": {
+      "length": {
+        "type": "int"
+      }
+    }
+  },
+  "@ndefConfirmRawTitle": {
+    "placeholders": {
+      "length": {
+        "type": "int"
+      }
+    }
+  },
+  "@ndefConfirmRawMessage": {
+    "placeholders": {
+      "length": {
+        "type": "int"
+      }
+    }
+  },
+  "@ndefConfirmRecordsTitle": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "length": {
+        "type": "int"
+      }
+    }
+  },
+  "@ndefConfirmRecordsMessage": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "length": {
+        "type": "int"
+      }
+    }
+  },
+  "@ndefImported": {
+    "placeholders": {
+      "length": {
+        "type": "int"
+      }
+    }
+  },
+  "@type2PlanBackup": {
+    "placeholders": {
+      "pages": {
+        "type": "int"
       }
     }
   }

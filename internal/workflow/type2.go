@@ -38,6 +38,7 @@ type Type2WriteResult struct {
 	Written    []int
 	Verified   []int
 	Skipped    []int
+	Changes    []type2.Change
 }
 
 // Type2RestoreRequest restores a validated dump.
@@ -129,7 +130,7 @@ func (s *Type2Service) Write(ctx context.Context, request Type2WriteRequest) (Ty
 		if request.Product != "" && current.Product != request.Product {
 			return nfc.NewError("Type 2 write", nfc.CodeCardChanged, "selected product does not match the dump", nil)
 		}
-		return s.applyWrites(operationCtx, reader, session, current, request.Writes, request.IncludeProtected, request.Password, request.Pack, request.DryRun, &result)
+		return s.applyWrites(operationCtx, reader, session, current, request.Writes, request.IncludeProtected, false, request.Password, request.Pack, request.DryRun, &result)
 	})
 	return result, err
 }
@@ -176,7 +177,7 @@ func (s *Type2Service) WriteNDEF(ctx context.Context, request Type2NDEFWriteRequ
 		if err != nil {
 			return nfc.NewError("plan NDEF write", nfc.CodeInvalidArgument, err.Error(), err)
 		}
-		if err := s.applyWrites(operationCtx, reader, session, current, writes, false, request.Password, request.Pack, request.DryRun, &result); err != nil {
+		if err := s.applyWrites(operationCtx, reader, session, current, writes, false, false, request.Password, request.Pack, request.DryRun, &result); err != nil {
 			return err
 		}
 		if request.DryRun {
@@ -205,6 +206,7 @@ func (s *Type2Service) applyWrites(
 	current type2.Document,
 	writes []type2.PageWrite,
 	includeProtected bool,
+	allowSystem bool,
 	password []byte,
 	pack []byte,
 	dryRun bool,
@@ -221,7 +223,11 @@ func (s *Type2Service) applyWrites(
 			return nfc.NewError("Type 2 write", nfc.CodeInvalidArgument, fmt.Sprintf("page %d is planned more than once", write.Page), nil)
 		}
 		seen[write.Page] = struct{}{}
-		if includeProtected {
+		if allowSystem {
+			if write.Page < 2 || write.Page >= geometry.TotalPages {
+				return nfc.NewError("Type 2 lifecycle write", nfc.CodeInvalidArgument, fmt.Sprintf("page %d is not writable", write.Page), nil)
+			}
+		} else if includeProtected {
 			if err := type2.ValidateWritablePage(geometry, write.Page); err != nil {
 				return nfc.NewError("Type 2 write", nfc.CodeInvalidArgument, err.Error(), err)
 			}
@@ -307,6 +313,25 @@ func (s *Type2Service) applyWrites(
 	}
 	if err := session.Activate(ctx); err != nil {
 		return err
+	}
+	// Decide whether the final read needs PWD_AUTH from the projected image.
+	// A password-removal plan clears PROT and sets PWD FF FF FF FF; sending
+	// that stale password would fail on a tag that no longer requires it.
+	projected, err := current.PageBytes()
+	if err != nil {
+		return err
+	}
+	for index, write := range writes {
+		projected[write.Page] = decoded[index]
+	}
+	protection := type2.DecodeProtection(geometry, projected)
+	if protection.Protect && protection.Auth0 >= 0 && protection.Auth0 != 0xFF &&
+		geometry.PasswordPage >= 0 && geometry.PackPage >= 0 {
+		updatedPassword = append([]byte(nil), projected[geometry.PasswordPage][:]...)
+		updatedPack = append([]byte(nil), projected[geometry.PackPage][0:2]...)
+	} else {
+		updatedPassword = nil
+		updatedPack = nil
 	}
 	final, err := type2.ReadSession(ctx, session, result.Card, type2.ReadOptions{Password: updatedPassword, Pack: updatedPack})
 	if err != nil {

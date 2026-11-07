@@ -107,8 +107,17 @@ func TestWiFiRoundTrip(t *testing.T) {
 	}
 	values := fieldMap(record.Fields)
 	if values["ssid"] != "Foundry Lab" || values["auth"] != "WPA2-Personal" ||
-		values["encryption"] != "AES" || values["network_key"] != "••••••" {
+		values["encryption"] != "AES" || values["network_key"] != "correct horse battery staple" {
 		t.Fatalf("Wi-Fi fields = %+v", record.Fields)
+	}
+	sensitive := false
+	for _, field := range record.Fields {
+		if field.Key == "network_key" && field.Sensitive {
+			sensitive = true
+		}
+	}
+	if !sensitive {
+		t.Fatalf("Wi-Fi network key is not marked sensitive: %+v", record.Fields)
 	}
 	if _, err := EncodeWiFiMessage("Open", "secret", "open"); !errors.Is(err, ErrMalformedNDEF) {
 		t.Fatalf("open network with password error = %v", err)

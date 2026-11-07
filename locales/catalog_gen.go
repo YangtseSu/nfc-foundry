@@ -1980,6 +1980,16 @@ func (msgs Messages) Type2Auth0() string {
 	return Catalog.Format(msgs.locale, "type2Auth0", nil)
 }
 
+// Type2InvalidAuth0 says "AUTH0 must be a page between 0 and 255."
+// in the language the app shows.
+func Type2InvalidAuth0() string { return In(i18n.Locale()).Type2InvalidAuth0() }
+
+// Type2InvalidAuth0 says "AUTH0 must be a page between 0 and 255."
+// in the language of msgs.
+func (msgs Messages) Type2InvalidAuth0() string {
+	return Catalog.Format(msgs.locale, "type2InvalidAuth0", nil)
+}
+
 // Type2Access says "ACCESS"
 // in the language the app shows.
 func Type2Access() string { return In(i18n.Locale()).Type2Access() }
@@ -3186,6 +3196,1092 @@ func NdefFieldDPPURI() string { return In(i18n.Locale()).NdefFieldDPPURI() }
 // in the language of msgs.
 func (msgs Messages) NdefFieldDPPURI() string {
 	return Catalog.Format(msgs.locale, "ndefFieldDPPURI", nil)
+}
+
+// NdefFieldLanguage says "Language"
+// in the language the app shows.
+func NdefFieldLanguage() string { return In(i18n.Locale()).NdefFieldLanguage() }
+
+// NdefFieldLanguage says "Language"
+// in the language of msgs.
+func (msgs Messages) NdefFieldLanguage() string {
+	return Catalog.Format(msgs.locale, "ndefFieldLanguage", nil)
+}
+
+// NdefFieldSearchProvider says "Search provider"
+// in the language the app shows.
+func NdefFieldSearchProvider() string { return In(i18n.Locale()).NdefFieldSearchProvider() }
+
+// NdefFieldSearchProvider says "Search provider"
+// in the language of msgs.
+func (msgs Messages) NdefFieldSearchProvider() string {
+	return Catalog.Format(msgs.locale, "ndefFieldSearchProvider", nil)
+}
+
+// NdefFieldPaymentProvider says "Payment provider"
+// in the language the app shows.
+func NdefFieldPaymentProvider() string { return In(i18n.Locale()).NdefFieldPaymentProvider() }
+
+// NdefFieldPaymentProvider says "Payment provider"
+// in the language of msgs.
+func (msgs Messages) NdefFieldPaymentProvider() string {
+	return Catalog.Format(msgs.locale, "ndefFieldPaymentProvider", nil)
+}
+
+// NdefFieldSocialProvider says "Social provider"
+// in the language the app shows.
+func NdefFieldSocialProvider() string { return In(i18n.Locale()).NdefFieldSocialProvider() }
+
+// NdefFieldSocialProvider says "Social provider"
+// in the language of msgs.
+func (msgs Messages) NdefFieldSocialProvider() string {
+	return Catalog.Format(msgs.locale, "ndefFieldSocialProvider", nil)
+}
+
+// NdefFieldHandle says "Handle"
+// in the language the app shows.
+func NdefFieldHandle() string { return In(i18n.Locale()).NdefFieldHandle() }
+
+// NdefFieldHandle says "Handle"
+// in the language of msgs.
+func (msgs Messages) NdefFieldHandle() string {
+	return Catalog.Format(msgs.locale, "ndefFieldHandle", nil)
+}
+
+// NdefProviderDuckDuckGo says "DuckDuckGo"
+// in the language the app shows.
+func NdefProviderDuckDuckGo() string { return In(i18n.Locale()).NdefProviderDuckDuckGo() }
+
+// NdefProviderDuckDuckGo says "DuckDuckGo"
+// in the language of msgs.
+func (msgs Messages) NdefProviderDuckDuckGo() string {
+	return Catalog.Format(msgs.locale, "ndefProviderDuckDuckGo", nil)
+}
+
+// NdefProviderGoogle says "Google"
+// in the language the app shows.
+func NdefProviderGoogle() string { return In(i18n.Locale()).NdefProviderGoogle() }
+
+// NdefProviderGoogle says "Google"
+// in the language of msgs.
+func (msgs Messages) NdefProviderGoogle() string {
+	return Catalog.Format(msgs.locale, "ndefProviderGoogle", nil)
+}
+
+// NdefProviderBing says "Bing"
+// in the language the app shows.
+func NdefProviderBing() string { return In(i18n.Locale()).NdefProviderBing() }
+
+// NdefProviderBing says "Bing"
+// in the language of msgs.
+func (msgs Messages) NdefProviderBing() string {
+	return Catalog.Format(msgs.locale, "ndefProviderBing", nil)
+}
+
+// NdefProviderBrave says "Brave Search"
+// in the language the app shows.
+func NdefProviderBrave() string { return In(i18n.Locale()).NdefProviderBrave() }
+
+// NdefProviderBrave says "Brave Search"
+// in the language of msgs.
+func (msgs Messages) NdefProviderBrave() string {
+	return Catalog.Format(msgs.locale, "ndefProviderBrave", nil)
+}
+
+// NdefProviderStartpage says "Startpage"
+// in the language the app shows.
+func NdefProviderStartpage() string { return In(i18n.Locale()).NdefProviderStartpage() }
+
+// NdefProviderStartpage says "Startpage"
+// in the language of msgs.
+func (msgs Messages) NdefProviderStartpage() string {
+	return Catalog.Format(msgs.locale, "ndefProviderStartpage", nil)
+}
+
+// NdefProviderWikipedia says "Wikipedia"
+// in the language the app shows.
+func NdefProviderWikipedia() string { return In(i18n.Locale()).NdefProviderWikipedia() }
+
+// NdefProviderWikipedia says "Wikipedia"
+// in the language of msgs.
+func (msgs Messages) NdefProviderWikipedia() string {
+	return Catalog.Format(msgs.locale, "ndefProviderWikipedia", nil)
+}
+
+// NdefProviderGitHub says "GitHub"
+// in the language the app shows.
+func NdefProviderGitHub() string { return In(i18n.Locale()).NdefProviderGitHub() }
+
+// NdefProviderGitHub says "GitHub"
+// in the language of msgs.
+func (msgs Messages) NdefProviderGitHub() string {
+	return Catalog.Format(msgs.locale, "ndefProviderGitHub", nil)
+}
+
+// NdefProviderX says "X"
+// in the language the app shows.
+func NdefProviderX() string { return In(i18n.Locale()).NdefProviderX() }
+
+// NdefProviderX says "X"
+// in the language of msgs.
+func (msgs Messages) NdefProviderX() string {
+	return Catalog.Format(msgs.locale, "ndefProviderX", nil)
+}
+
+// NdefProviderMastodon says "Mastodon"
+// in the language the app shows.
+func NdefProviderMastodon() string { return In(i18n.Locale()).NdefProviderMastodon() }
+
+// NdefProviderMastodon says "Mastodon"
+// in the language of msgs.
+func (msgs Messages) NdefProviderMastodon() string {
+	return Catalog.Format(msgs.locale, "ndefProviderMastodon", nil)
+}
+
+// NdefProviderLinkedIn says "LinkedIn"
+// in the language the app shows.
+func NdefProviderLinkedIn() string { return In(i18n.Locale()).NdefProviderLinkedIn() }
+
+// NdefProviderLinkedIn says "LinkedIn"
+// in the language of msgs.
+func (msgs Messages) NdefProviderLinkedIn() string {
+	return Catalog.Format(msgs.locale, "ndefProviderLinkedIn", nil)
+}
+
+// NdefProviderInstagram says "Instagram"
+// in the language the app shows.
+func NdefProviderInstagram() string { return In(i18n.Locale()).NdefProviderInstagram() }
+
+// NdefProviderInstagram says "Instagram"
+// in the language of msgs.
+func (msgs Messages) NdefProviderInstagram() string {
+	return Catalog.Format(msgs.locale, "ndefProviderInstagram", nil)
+}
+
+// NdefProviderYouTube says "YouTube"
+// in the language the app shows.
+func NdefProviderYouTube() string { return In(i18n.Locale()).NdefProviderYouTube() }
+
+// NdefProviderYouTube says "YouTube"
+// in the language of msgs.
+func (msgs Messages) NdefProviderYouTube() string {
+	return Catalog.Format(msgs.locale, "ndefProviderYouTube", nil)
+}
+
+// NdefProviderFacebook says "Facebook"
+// in the language the app shows.
+func NdefProviderFacebook() string { return In(i18n.Locale()).NdefProviderFacebook() }
+
+// NdefProviderFacebook says "Facebook"
+// in the language of msgs.
+func (msgs Messages) NdefProviderFacebook() string {
+	return Catalog.Format(msgs.locale, "ndefProviderFacebook", nil)
+}
+
+// NdefProviderTelegram says "Telegram"
+// in the language the app shows.
+func NdefProviderTelegram() string { return In(i18n.Locale()).NdefProviderTelegram() }
+
+// NdefProviderTelegram says "Telegram"
+// in the language of msgs.
+func (msgs Messages) NdefProviderTelegram() string {
+	return Catalog.Format(msgs.locale, "ndefProviderTelegram", nil)
+}
+
+// NdefProviderPayPal says "PayPal"
+// in the language the app shows.
+func NdefProviderPayPal() string { return In(i18n.Locale()).NdefProviderPayPal() }
+
+// NdefProviderPayPal says "PayPal"
+// in the language of msgs.
+func (msgs Messages) NdefProviderPayPal() string {
+	return Catalog.Format(msgs.locale, "ndefProviderPayPal", nil)
+}
+
+// NdefProviderVenmo says "Venmo"
+// in the language the app shows.
+func NdefProviderVenmo() string { return In(i18n.Locale()).NdefProviderVenmo() }
+
+// NdefProviderVenmo says "Venmo"
+// in the language of msgs.
+func (msgs Messages) NdefProviderVenmo() string {
+	return Catalog.Format(msgs.locale, "ndefProviderVenmo", nil)
+}
+
+// NdefProviderCashApp says "Cash App"
+// in the language the app shows.
+func NdefProviderCashApp() string { return In(i18n.Locale()).NdefProviderCashApp() }
+
+// NdefProviderCashApp says "Cash App"
+// in the language of msgs.
+func (msgs Messages) NdefProviderCashApp() string {
+	return Catalog.Format(msgs.locale, "ndefProviderCashApp", nil)
+}
+
+// NdefProviderRevolut says "Revolut"
+// in the language the app shows.
+func NdefProviderRevolut() string { return In(i18n.Locale()).NdefProviderRevolut() }
+
+// NdefProviderRevolut says "Revolut"
+// in the language of msgs.
+func (msgs Messages) NdefProviderRevolut() string {
+	return Catalog.Format(msgs.locale, "ndefProviderRevolut", nil)
+}
+
+// NdefProviderKofi says "Ko-fi"
+// in the language the app shows.
+func NdefProviderKofi() string { return In(i18n.Locale()).NdefProviderKofi() }
+
+// NdefProviderKofi says "Ko-fi"
+// in the language of msgs.
+func (msgs Messages) NdefProviderKofi() string {
+	return Catalog.Format(msgs.locale, "ndefProviderKofi", nil)
+}
+
+// NdefProviderBuyMeACoffee says "Buy Me a Coffee"
+// in the language the app shows.
+func NdefProviderBuyMeACoffee() string { return In(i18n.Locale()).NdefProviderBuyMeACoffee() }
+
+// NdefProviderBuyMeACoffee says "Buy Me a Coffee"
+// in the language of msgs.
+func (msgs Messages) NdefProviderBuyMeACoffee() string {
+	return Catalog.Format(msgs.locale, "ndefProviderBuyMeACoffee", nil)
+}
+
+// NdefFieldAddressType says "Address type"
+// in the language the app shows.
+func NdefFieldAddressType() string { return In(i18n.Locale()).NdefFieldAddressType() }
+
+// NdefFieldAddressType says "Address type"
+// in the language of msgs.
+func (msgs Messages) NdefFieldAddressType() string {
+	return Catalog.Format(msgs.locale, "ndefFieldAddressType", nil)
+}
+
+// NdefFieldRole says "LE role"
+// in the language the app shows.
+func NdefFieldRole() string { return In(i18n.Locale()).NdefFieldRole() }
+
+// NdefFieldRole says "LE role"
+// in the language of msgs.
+func (msgs Messages) NdefFieldRole() string {
+	return Catalog.Format(msgs.locale, "ndefFieldRole", nil)
+}
+
+// NdefFieldAction says "Action"
+// in the language the app shows.
+func NdefFieldAction() string { return In(i18n.Locale()).NdefFieldAction() }
+
+// NdefFieldAction says "Action"
+// in the language of msgs.
+func (msgs Messages) NdefFieldAction() string {
+	return Catalog.Format(msgs.locale, "ndefFieldAction", nil)
+}
+
+// NdefFieldResourceType says "Resource type"
+// in the language the app shows.
+func NdefFieldResourceType() string { return In(i18n.Locale()).NdefFieldResourceType() }
+
+// NdefFieldResourceType says "Resource type"
+// in the language of msgs.
+func (msgs Messages) NdefFieldResourceType() string {
+	return Catalog.Format(msgs.locale, "ndefFieldResourceType", nil)
+}
+
+// NdefFieldResourceSize says "Resource size"
+// in the language the app shows.
+func NdefFieldResourceSize() string { return In(i18n.Locale()).NdefFieldResourceSize() }
+
+// NdefFieldResourceSize says "Resource size"
+// in the language of msgs.
+func (msgs Messages) NdefFieldResourceSize() string {
+	return Catalog.Format(msgs.locale, "ndefFieldResourceSize", nil)
+}
+
+// NdefFieldBTAddressType says "LE address type"
+// in the language the app shows.
+func NdefFieldBTAddressType() string { return In(i18n.Locale()).NdefFieldBTAddressType() }
+
+// NdefFieldBTAddressType says "LE address type"
+// in the language of msgs.
+func (msgs Messages) NdefFieldBTAddressType() string {
+	return Catalog.Format(msgs.locale, "ndefFieldBTAddressType", nil)
+}
+
+// NdefFieldBTRole says "LE role"
+// in the language the app shows.
+func NdefFieldBTRole() string { return In(i18n.Locale()).NdefFieldBTRole() }
+
+// NdefFieldBTRole says "LE role"
+// in the language of msgs.
+func (msgs Messages) NdefFieldBTRole() string {
+	return Catalog.Format(msgs.locale, "ndefFieldBTRole", nil)
+}
+
+// NdefTplBluetoothLE says "Bluetooth LE"
+// in the language the app shows.
+func NdefTplBluetoothLE() string { return In(i18n.Locale()).NdefTplBluetoothLE() }
+
+// NdefTplBluetoothLE says "Bluetooth LE"
+// in the language of msgs.
+func (msgs Messages) NdefTplBluetoothLE() string {
+	return Catalog.Format(msgs.locale, "ndefTplBluetoothLE", nil)
+}
+
+// NdefKindBluetoothLE says "Bluetooth LE"
+// in the language the app shows.
+func NdefKindBluetoothLE() string { return In(i18n.Locale()).NdefKindBluetoothLE() }
+
+// NdefKindBluetoothLE says "Bluetooth LE"
+// in the language of msgs.
+func (msgs Messages) NdefKindBluetoothLE() string {
+	return Catalog.Format(msgs.locale, "ndefKindBluetoothLE", nil)
+}
+
+// NdefActionNone says "None"
+// in the language the app shows.
+func NdefActionNone() string { return In(i18n.Locale()).NdefActionNone() }
+
+// NdefActionNone says "None"
+// in the language of msgs.
+func (msgs Messages) NdefActionNone() string {
+	return Catalog.Format(msgs.locale, "ndefActionNone", nil)
+}
+
+// NdefActionDo says "Do the action"
+// in the language the app shows.
+func NdefActionDo() string { return In(i18n.Locale()).NdefActionDo() }
+
+// NdefActionDo says "Do the action"
+// in the language of msgs.
+func (msgs Messages) NdefActionDo() string {
+	return Catalog.Format(msgs.locale, "ndefActionDo", nil)
+}
+
+// NdefActionSave says "Save for later"
+// in the language the app shows.
+func NdefActionSave() string { return In(i18n.Locale()).NdefActionSave() }
+
+// NdefActionSave says "Save for later"
+// in the language of msgs.
+func (msgs Messages) NdefActionSave() string {
+	return Catalog.Format(msgs.locale, "ndefActionSave", nil)
+}
+
+// NdefActionOpen says "Open for editing"
+// in the language the app shows.
+func NdefActionOpen() string { return In(i18n.Locale()).NdefActionOpen() }
+
+// NdefActionOpen says "Open for editing"
+// in the language of msgs.
+func (msgs Messages) NdefActionOpen() string {
+	return Catalog.Format(msgs.locale, "ndefActionOpen", nil)
+}
+
+// NdefAddressPublic says "Public"
+// in the language the app shows.
+func NdefAddressPublic() string { return In(i18n.Locale()).NdefAddressPublic() }
+
+// NdefAddressPublic says "Public"
+// in the language of msgs.
+func (msgs Messages) NdefAddressPublic() string {
+	return Catalog.Format(msgs.locale, "ndefAddressPublic", nil)
+}
+
+// NdefAddressRandom says "Random"
+// in the language the app shows.
+func NdefAddressRandom() string { return In(i18n.Locale()).NdefAddressRandom() }
+
+// NdefAddressRandom says "Random"
+// in the language of msgs.
+func (msgs Messages) NdefAddressRandom() string {
+	return Catalog.Format(msgs.locale, "ndefAddressRandom", nil)
+}
+
+// NdefRoleNone says "None"
+// in the language the app shows.
+func NdefRoleNone() string { return In(i18n.Locale()).NdefRoleNone() }
+
+// NdefRoleNone says "None"
+// in the language of msgs.
+func (msgs Messages) NdefRoleNone() string {
+	return Catalog.Format(msgs.locale, "ndefRoleNone", nil)
+}
+
+// NdefRolePeripheral says "Peripheral only"
+// in the language the app shows.
+func NdefRolePeripheral() string { return In(i18n.Locale()).NdefRolePeripheral() }
+
+// NdefRolePeripheral says "Peripheral only"
+// in the language of msgs.
+func (msgs Messages) NdefRolePeripheral() string {
+	return Catalog.Format(msgs.locale, "ndefRolePeripheral", nil)
+}
+
+// NdefRoleCentral says "Central only"
+// in the language the app shows.
+func NdefRoleCentral() string { return In(i18n.Locale()).NdefRoleCentral() }
+
+// NdefRoleCentral says "Central only"
+// in the language of msgs.
+func (msgs Messages) NdefRoleCentral() string {
+	return Catalog.Format(msgs.locale, "ndefRoleCentral", nil)
+}
+
+// NdefRoleBoth says "Both"
+// in the language the app shows.
+func NdefRoleBoth() string { return In(i18n.Locale()).NdefRoleBoth() }
+
+// NdefRoleBoth says "Both"
+// in the language of msgs.
+func (msgs Messages) NdefRoleBoth() string {
+	return Catalog.Format(msgs.locale, "ndefRoleBoth", nil)
+}
+
+// NdefRevealSecrets says "Reveal secrets"
+// in the language the app shows.
+func NdefRevealSecrets() string { return In(i18n.Locale()).NdefRevealSecrets() }
+
+// NdefRevealSecrets says "Reveal secrets"
+// in the language of msgs.
+func (msgs Messages) NdefRevealSecrets() string {
+	return Catalog.Format(msgs.locale, "ndefRevealSecrets", nil)
+}
+
+// NdefHideSecrets says "Hide secrets"
+// in the language the app shows.
+func NdefHideSecrets() string { return In(i18n.Locale()).NdefHideSecrets() }
+
+// NdefHideSecrets says "Hide secrets"
+// in the language of msgs.
+func (msgs Messages) NdefHideSecrets() string {
+	return Catalog.Format(msgs.locale, "ndefHideSecrets", nil)
+}
+
+// NdefMode says "Editor mode"
+// in the language the app shows.
+func NdefMode() string { return In(i18n.Locale()).NdefMode() }
+
+// NdefMode says "Editor mode"
+// in the language of msgs.
+func (msgs Messages) NdefMode() string {
+	return Catalog.Format(msgs.locale, "ndefMode", nil)
+}
+
+// NdefModeTemplate says "Template"
+// in the language the app shows.
+func NdefModeTemplate() string { return In(i18n.Locale()).NdefModeTemplate() }
+
+// NdefModeTemplate says "Template"
+// in the language of msgs.
+func (msgs Messages) NdefModeTemplate() string {
+	return Catalog.Format(msgs.locale, "ndefModeTemplate", nil)
+}
+
+// NdefModeRaw says "Raw message"
+// in the language the app shows.
+func NdefModeRaw() string { return In(i18n.Locale()).NdefModeRaw() }
+
+// NdefModeRaw says "Raw message"
+// in the language of msgs.
+func (msgs Messages) NdefModeRaw() string {
+	return Catalog.Format(msgs.locale, "ndefModeRaw", nil)
+}
+
+// NdefModeRecords says "Multi-record"
+// in the language the app shows.
+func NdefModeRecords() string { return In(i18n.Locale()).NdefModeRecords() }
+
+// NdefModeRecords says "Multi-record"
+// in the language of msgs.
+func (msgs Messages) NdefModeRecords() string {
+	return Catalog.Format(msgs.locale, "ndefModeRecords", nil)
+}
+
+// NdefRawEditorHint says "Paste a complete NDEF message as hexadecimal. It is validated before writing."
+// in the language the app shows.
+func NdefRawEditorHint() string { return In(i18n.Locale()).NdefRawEditorHint() }
+
+// NdefRawEditorHint says "Paste a complete NDEF message as hexadecimal. It is validated before writing."
+// in the language of msgs.
+func (msgs Messages) NdefRawEditorHint() string {
+	return Catalog.Format(msgs.locale, "ndefRawEditorHint", nil)
+}
+
+// NdefRawPlaceholder says "D1 01 05 54 02 65 6E 68 65 6C 6C 6F"
+// in the language the app shows.
+func NdefRawPlaceholder() string { return In(i18n.Locale()).NdefRawPlaceholder() }
+
+// NdefRawPlaceholder says "D1 01 05 54 02 65 6E 68 65 6C 6C 6F"
+// in the language of msgs.
+func (msgs Messages) NdefRawPlaceholder() string {
+	return Catalog.Format(msgs.locale, "ndefRawPlaceholder", nil)
+}
+
+// NdefPreviewError says "Invalid message: {message}"
+// in the language the app shows.
+func NdefPreviewError(message string) string { return In(i18n.Locale()).NdefPreviewError(message) }
+
+// NdefPreviewError says "Invalid message: {message}"
+// in the language of msgs.
+func (msgs Messages) NdefPreviewError(message string) string {
+	return Catalog.Format(msgs.locale, "ndefPreviewError", map[string]any{"message": message})
+}
+
+// NdefPreviewLength says "{length} bytes"
+// in the language the app shows.
+func NdefPreviewLength(length int) string { return In(i18n.Locale()).NdefPreviewLength(length) }
+
+// NdefPreviewLength says "{length} bytes"
+// in the language of msgs.
+func (msgs Messages) NdefPreviewLength(length int) string {
+	return Catalog.Format(msgs.locale, "ndefPreviewLength", map[string]any{"length": length})
+}
+
+// NdefRecordsEmpty says "Add a record to build a multi-record message."
+// in the language the app shows.
+func NdefRecordsEmpty() string { return In(i18n.Locale()).NdefRecordsEmpty() }
+
+// NdefRecordsEmpty says "Add a record to build a multi-record message."
+// in the language of msgs.
+func (msgs Messages) NdefRecordsEmpty() string {
+	return Catalog.Format(msgs.locale, "ndefRecordsEmpty", nil)
+}
+
+// NdefMoveUp says "Up"
+// in the language the app shows.
+func NdefMoveUp() string { return In(i18n.Locale()).NdefMoveUp() }
+
+// NdefMoveUp says "Up"
+// in the language of msgs.
+func (msgs Messages) NdefMoveUp() string {
+	return Catalog.Format(msgs.locale, "ndefMoveUp", nil)
+}
+
+// NdefMoveDown says "Down"
+// in the language the app shows.
+func NdefMoveDown() string { return In(i18n.Locale()).NdefMoveDown() }
+
+// NdefMoveDown says "Down"
+// in the language of msgs.
+func (msgs Messages) NdefMoveDown() string {
+	return Catalog.Format(msgs.locale, "ndefMoveDown", nil)
+}
+
+// NdefAddText says "Add text"
+// in the language the app shows.
+func NdefAddText() string { return In(i18n.Locale()).NdefAddText() }
+
+// NdefAddText says "Add text"
+// in the language of msgs.
+func (msgs Messages) NdefAddText() string {
+	return Catalog.Format(msgs.locale, "ndefAddText", nil)
+}
+
+// NdefAddURI says "Add URL"
+// in the language the app shows.
+func NdefAddURI() string { return In(i18n.Locale()).NdefAddURI() }
+
+// NdefAddURI says "Add URL"
+// in the language of msgs.
+func (msgs Messages) NdefAddURI() string {
+	return Catalog.Format(msgs.locale, "ndefAddURI", nil)
+}
+
+// NdefAddSmartPoster says "Add Smart Poster"
+// in the language the app shows.
+func NdefAddSmartPoster() string { return In(i18n.Locale()).NdefAddSmartPoster() }
+
+// NdefAddSmartPoster says "Add Smart Poster"
+// in the language of msgs.
+func (msgs Messages) NdefAddSmartPoster() string {
+	return Catalog.Format(msgs.locale, "ndefAddSmartPoster", nil)
+}
+
+// NdefConfirmRawTitle says "Write a {length}-byte raw message?"
+// in the language the app shows.
+func NdefConfirmRawTitle(length int) string { return In(i18n.Locale()).NdefConfirmRawTitle(length) }
+
+// NdefConfirmRawTitle says "Write a {length}-byte raw message?"
+// in the language of msgs.
+func (msgs Messages) NdefConfirmRawTitle(length int) string {
+	return Catalog.Format(msgs.locale, "ndefConfirmRawTitle", map[string]any{"length": length})
+}
+
+// NdefConfirmRawMessage says "A {length}-byte NDEF message will replace the NDEF area. A full-image backup is written first and every changed page …"
+// in the language the app shows.
+func NdefConfirmRawMessage(length int) string { return In(i18n.Locale()).NdefConfirmRawMessage(length) }
+
+// NdefConfirmRawMessage says "A {length}-byte NDEF message will replace the NDEF area. A full-image backup is written first and every changed page …"
+// in the language of msgs.
+func (msgs Messages) NdefConfirmRawMessage(length int) string {
+	return Catalog.Format(msgs.locale, "ndefConfirmRawMessage", map[string]any{"length": length})
+}
+
+// NdefConfirmRecordsTitle says "Write {count} records ({length} bytes)?"
+// in the language the app shows.
+func NdefConfirmRecordsTitle(count int, length int) string {
+	return In(i18n.Locale()).NdefConfirmRecordsTitle(count, length)
+}
+
+// NdefConfirmRecordsTitle says "Write {count} records ({length} bytes)?"
+// in the language of msgs.
+func (msgs Messages) NdefConfirmRecordsTitle(count int, length int) string {
+	return Catalog.Format(msgs.locale, "ndefConfirmRecordsTitle", map[string]any{"count": count, "length": length})
+}
+
+// NdefConfirmRecordsMessage says "A {count}-record NDEF message of {length} bytes will replace the NDEF area. A full-image backup is written first and …"
+// in the language the app shows.
+func NdefConfirmRecordsMessage(count int, length int) string {
+	return In(i18n.Locale()).NdefConfirmRecordsMessage(count, length)
+}
+
+// NdefConfirmRecordsMessage says "A {count}-record NDEF message of {length} bytes will replace the NDEF area. A full-image backup is written first and …"
+// in the language of msgs.
+func (msgs Messages) NdefConfirmRecordsMessage(count int, length int) string {
+	return Catalog.Format(msgs.locale, "ndefConfirmRecordsMessage", map[string]any{"count": count, "length": length})
+}
+
+// NdefRecordShowRaw says "Show record raw"
+// in the language the app shows.
+func NdefRecordShowRaw() string { return In(i18n.Locale()).NdefRecordShowRaw() }
+
+// NdefRecordShowRaw says "Show record raw"
+// in the language of msgs.
+func (msgs Messages) NdefRecordShowRaw() string {
+	return Catalog.Format(msgs.locale, "ndefRecordShowRaw", nil)
+}
+
+// NdefRecordHideRaw says "Hide record raw"
+// in the language the app shows.
+func NdefRecordHideRaw() string { return In(i18n.Locale()).NdefRecordHideRaw() }
+
+// NdefRecordHideRaw says "Hide record raw"
+// in the language of msgs.
+func (msgs Messages) NdefRecordHideRaw() string {
+	return Catalog.Format(msgs.locale, "ndefRecordHideRaw", nil)
+}
+
+// NdefCopy says "Copy"
+// in the language the app shows.
+func NdefCopy() string { return In(i18n.Locale()).NdefCopy() }
+
+// NdefCopy says "Copy"
+// in the language of msgs.
+func (msgs Messages) NdefCopy() string {
+	return Catalog.Format(msgs.locale, "ndefCopy", nil)
+}
+
+// NdefReveal says "Reveal"
+// in the language the app shows.
+func NdefReveal() string { return In(i18n.Locale()).NdefReveal() }
+
+// NdefReveal says "Reveal"
+// in the language of msgs.
+func (msgs Messages) NdefReveal() string {
+	return Catalog.Format(msgs.locale, "ndefReveal", nil)
+}
+
+// NdefCopied says "Copied."
+// in the language the app shows.
+func NdefCopied() string { return In(i18n.Locale()).NdefCopied() }
+
+// NdefCopied says "Copied."
+// in the language of msgs.
+func (msgs Messages) NdefCopied() string {
+	return Catalog.Format(msgs.locale, "ndefCopied", nil)
+}
+
+// NdefImportFailed says "Could not import the NDEF message: {message}"
+// in the language the app shows.
+func NdefImportFailed(message string) string { return In(i18n.Locale()).NdefImportFailed(message) }
+
+// NdefImportFailed says "Could not import the NDEF message: {message}"
+// in the language of msgs.
+func (msgs Messages) NdefImportFailed(message string) string {
+	return Catalog.Format(msgs.locale, "ndefImportFailed", map[string]any{"message": message})
+}
+
+// NdefImported says "Imported a {length}-byte NDEF message."
+// in the language the app shows.
+func NdefImported(length int) string { return In(i18n.Locale()).NdefImported(length) }
+
+// NdefImported says "Imported a {length}-byte NDEF message."
+// in the language of msgs.
+func (msgs Messages) NdefImported(length int) string {
+	return Catalog.Format(msgs.locale, "ndefImported", map[string]any{"length": length})
+}
+
+// NdefExportEmpty says "There is no NDEF message to export."
+// in the language the app shows.
+func NdefExportEmpty() string { return In(i18n.Locale()).NdefExportEmpty() }
+
+// NdefExportEmpty says "There is no NDEF message to export."
+// in the language of msgs.
+func (msgs Messages) NdefExportEmpty() string {
+	return Catalog.Format(msgs.locale, "ndefExportEmpty", nil)
+}
+
+// NdefExportFailed says "Could not export the NDEF message: {message}"
+// in the language the app shows.
+func NdefExportFailed(message string) string { return In(i18n.Locale()).NdefExportFailed(message) }
+
+// NdefExportFailed says "Could not export the NDEF message: {message}"
+// in the language of msgs.
+func (msgs Messages) NdefExportFailed(message string) string {
+	return Catalog.Format(msgs.locale, "ndefExportFailed", map[string]any{"message": message})
+}
+
+// NdefExported says "NDEF message saved to {path}."
+// in the language the app shows.
+func NdefExported(path string) string { return In(i18n.Locale()).NdefExported(path) }
+
+// NdefExported says "NDEF message saved to {path}."
+// in the language of msgs.
+func (msgs Messages) NdefExported(path string) string {
+	return Catalog.Format(msgs.locale, "ndefExported", map[string]any{"path": path})
+}
+
+// Type2PasswordPlaceholder says "8 hex digits"
+// in the language the app shows.
+func Type2PasswordPlaceholder() string { return In(i18n.Locale()).Type2PasswordPlaceholder() }
+
+// Type2PasswordPlaceholder says "8 hex digits"
+// in the language of msgs.
+func (msgs Messages) Type2PasswordPlaceholder() string {
+	return Catalog.Format(msgs.locale, "type2PasswordPlaceholder", nil)
+}
+
+// Type2DumpImportFailed says "Could not import the Type 2 dump: {message}"
+// in the language the app shows.
+func Type2DumpImportFailed(message string) string {
+	return In(i18n.Locale()).Type2DumpImportFailed(message)
+}
+
+// Type2DumpImportFailed says "Could not import the Type 2 dump: {message}"
+// in the language of msgs.
+func (msgs Messages) Type2DumpImportFailed(message string) string {
+	return Catalog.Format(msgs.locale, "type2DumpImportFailed", map[string]any{"message": message})
+}
+
+// Type2DumpExportFailed says "Could not export the Type 2 dump: {message}"
+// in the language the app shows.
+func Type2DumpExportFailed(message string) string {
+	return In(i18n.Locale()).Type2DumpExportFailed(message)
+}
+
+// Type2DumpExportFailed says "Could not export the Type 2 dump: {message}"
+// in the language of msgs.
+func (msgs Messages) Type2DumpExportFailed(message string) string {
+	return Catalog.Format(msgs.locale, "type2DumpExportFailed", map[string]any{"message": message})
+}
+
+// Type2DumpExported says "Type 2 dump saved to {path}."
+// in the language the app shows.
+func Type2DumpExported(path string) string { return In(i18n.Locale()).Type2DumpExported(path) }
+
+// Type2DumpExported says "Type 2 dump saved to {path}."
+// in the language of msgs.
+func (msgs Messages) Type2DumpExported(path string) string {
+	return Catalog.Format(msgs.locale, "type2DumpExported", map[string]any{"path": path})
+}
+
+// Type2LifecyclePanel says "Advanced lifecycle"
+// in the language the app shows.
+func Type2LifecyclePanel() string { return In(i18n.Locale()).Type2LifecyclePanel() }
+
+// Type2LifecyclePanel says "Advanced lifecycle"
+// in the language of msgs.
+func (msgs Messages) Type2LifecyclePanel() string {
+	return Catalog.Format(msgs.locale, "type2LifecyclePanel", nil)
+}
+
+// Type2LifecycleWarning says "Copy, erase, lock, and password operations are destructive or one-way. A full-image backup is written first, and ever…"
+// in the language the app shows.
+func Type2LifecycleWarning() string { return In(i18n.Locale()).Type2LifecycleWarning() }
+
+// Type2LifecycleWarning says "Copy, erase, lock, and password operations are destructive or one-way. A full-image backup is written first, and ever…"
+// in the language of msgs.
+func (msgs Messages) Type2LifecycleWarning() string {
+	return Catalog.Format(msgs.locale, "type2LifecycleWarning", nil)
+}
+
+// Type2Source says "Copy source"
+// in the language the app shows.
+func Type2Source() string { return In(i18n.Locale()).Type2Source() }
+
+// Type2Source says "Copy source"
+// in the language of msgs.
+func (msgs Messages) Type2Source() string {
+	return Catalog.Format(msgs.locale, "type2Source", nil)
+}
+
+// Type2NoSource says "No source image loaded."
+// in the language the app shows.
+func Type2NoSource() string { return In(i18n.Locale()).Type2NoSource() }
+
+// Type2NoSource says "No source image loaded."
+// in the language of msgs.
+func (msgs Messages) Type2NoSource() string {
+	return Catalog.Format(msgs.locale, "type2NoSource", nil)
+}
+
+// Type2SourceSummary says "{product} · {uid}"
+// in the language the app shows.
+func Type2SourceSummary(product string, uid string) string {
+	return In(i18n.Locale()).Type2SourceSummary(product, uid)
+}
+
+// Type2SourceSummary says "{product} · {uid}"
+// in the language of msgs.
+func (msgs Messages) Type2SourceSummary(product string, uid string) string {
+	return Catalog.Format(msgs.locale, "type2SourceSummary", map[string]any{"product": product, "uid": uid})
+}
+
+// Type2LoadSource says "Load source"
+// in the language the app shows.
+func Type2LoadSource() string { return In(i18n.Locale()).Type2LoadSource() }
+
+// Type2LoadSource says "Load source"
+// in the language of msgs.
+func (msgs Messages) Type2LoadSource() string {
+	return Catalog.Format(msgs.locale, "type2LoadSource", nil)
+}
+
+// Type2SourceLoadFailed says "Could not load the source image: {message}"
+// in the language the app shows.
+func Type2SourceLoadFailed(message string) string {
+	return In(i18n.Locale()).Type2SourceLoadFailed(message)
+}
+
+// Type2SourceLoadFailed says "Could not load the source image: {message}"
+// in the language of msgs.
+func (msgs Messages) Type2SourceLoadFailed(message string) string {
+	return Catalog.Format(msgs.locale, "type2SourceLoadFailed", map[string]any{"message": message})
+}
+
+// Type2CopyToTag says "Copy to this tag"
+// in the language the app shows.
+func Type2CopyToTag() string { return In(i18n.Locale()).Type2CopyToTag() }
+
+// Type2CopyToTag says "Copy to this tag"
+// in the language of msgs.
+func (msgs Messages) Type2CopyToTag() string {
+	return Catalog.Format(msgs.locale, "type2CopyToTag", nil)
+}
+
+// Type2CopyProtected says "Copy protection pages"
+// in the language the app shows.
+func Type2CopyProtected() string { return In(i18n.Locale()).Type2CopyProtected() }
+
+// Type2CopyProtected says "Copy protection pages"
+// in the language of msgs.
+func (msgs Messages) Type2CopyProtected() string {
+	return Catalog.Format(msgs.locale, "type2CopyProtected", nil)
+}
+
+// Type2CopySameUID says "Same UID only"
+// in the language the app shows.
+func Type2CopySameUID() string { return In(i18n.Locale()).Type2CopySameUID() }
+
+// Type2CopySameUID says "Same UID only"
+// in the language of msgs.
+func (msgs Messages) Type2CopySameUID() string {
+	return Catalog.Format(msgs.locale, "type2CopySameUID", nil)
+}
+
+// Type2Repeat says "Targets"
+// in the language the app shows.
+func Type2Repeat() string { return In(i18n.Locale()).Type2Repeat() }
+
+// Type2Repeat says "Targets"
+// in the language of msgs.
+func (msgs Messages) Type2Repeat() string {
+	return Catalog.Format(msgs.locale, "type2Repeat", nil)
+}
+
+// Type2Erase says "Erase user memory"
+// in the language the app shows.
+func Type2Erase() string { return In(i18n.Locale()).Type2Erase() }
+
+// Type2Erase says "Erase user memory"
+// in the language of msgs.
+func (msgs Messages) Type2Erase() string {
+	return Catalog.Format(msgs.locale, "type2Erase", nil)
+}
+
+// Type2LockPanel says "Lock bits"
+// in the language the app shows.
+func Type2LockPanel() string { return In(i18n.Locale()).Type2LockPanel() }
+
+// Type2LockPanel says "Lock bits"
+// in the language of msgs.
+func (msgs Messages) Type2LockPanel() string {
+	return Catalog.Format(msgs.locale, "type2LockPanel", nil)
+}
+
+// Type2CCReadOnly says "CC read-only"
+// in the language the app shows.
+func Type2CCReadOnly() string { return In(i18n.Locale()).Type2CCReadOnly() }
+
+// Type2CCReadOnly says "CC read-only"
+// in the language of msgs.
+func (msgs Messages) Type2CCReadOnly() string {
+	return Catalog.Format(msgs.locale, "type2CCReadOnly", nil)
+}
+
+// Type2ConfigLock says "Lock configuration"
+// in the language the app shows.
+func Type2ConfigLock() string { return In(i18n.Locale()).Type2ConfigLock() }
+
+// Type2ConfigLock says "Lock configuration"
+// in the language of msgs.
+func (msgs Messages) Type2ConfigLock() string {
+	return Catalog.Format(msgs.locale, "type2ConfigLock", nil)
+}
+
+// Type2ApplyLocks says "Apply locks"
+// in the language the app shows.
+func Type2ApplyLocks() string { return In(i18n.Locale()).Type2ApplyLocks() }
+
+// Type2ApplyLocks says "Apply locks"
+// in the language of msgs.
+func (msgs Messages) Type2ApplyLocks() string {
+	return Catalog.Format(msgs.locale, "type2ApplyLocks", nil)
+}
+
+// Type2PasswordPanel says "Password protection"
+// in the language the app shows.
+func Type2PasswordPanel() string { return In(i18n.Locale()).Type2PasswordPanel() }
+
+// Type2PasswordPanel says "Password protection"
+// in the language of msgs.
+func (msgs Messages) Type2PasswordPanel() string {
+	return Catalog.Format(msgs.locale, "type2PasswordPanel", nil)
+}
+
+// Type2NewPassword says "New password"
+// in the language the app shows.
+func Type2NewPassword() string { return In(i18n.Locale()).Type2NewPassword() }
+
+// Type2NewPassword says "New password"
+// in the language of msgs.
+func (msgs Messages) Type2NewPassword() string {
+	return Catalog.Format(msgs.locale, "type2NewPassword", nil)
+}
+
+// Type2SetPassword says "Set password"
+// in the language the app shows.
+func Type2SetPassword() string { return In(i18n.Locale()).Type2SetPassword() }
+
+// Type2SetPassword says "Set password"
+// in the language of msgs.
+func (msgs Messages) Type2SetPassword() string {
+	return Catalog.Format(msgs.locale, "type2SetPassword", nil)
+}
+
+// Type2RemovePassword says "Remove password"
+// in the language the app shows.
+func Type2RemovePassword() string { return In(i18n.Locale()).Type2RemovePassword() }
+
+// Type2RemovePassword says "Remove password"
+// in the language of msgs.
+func (msgs Messages) Type2RemovePassword() string {
+	return Catalog.Format(msgs.locale, "type2RemovePassword", nil)
+}
+
+// Type2LifecycleFailed says "Type 2 operation failed: {message}"
+// in the language the app shows.
+func Type2LifecycleFailed(message string) string {
+	return In(i18n.Locale()).Type2LifecycleFailed(message)
+}
+
+// Type2LifecycleFailed says "Type 2 operation failed: {message}"
+// in the language of msgs.
+func (msgs Messages) Type2LifecycleFailed(message string) string {
+	return Catalog.Format(msgs.locale, "type2LifecycleFailed", map[string]any{"message": message})
+}
+
+// Type2LifecycleStarted says "Type 2 operation started."
+// in the language the app shows.
+func Type2LifecycleStarted() string { return In(i18n.Locale()).Type2LifecycleStarted() }
+
+// Type2LifecycleStarted says "Type 2 operation started."
+// in the language of msgs.
+func (msgs Messages) Type2LifecycleStarted() string {
+	return Catalog.Format(msgs.locale, "type2LifecycleStarted", nil)
+}
+
+// Type2PlanTitle says "{operation} plan"
+// in the language the app shows.
+func Type2PlanTitle(operation string) string { return In(i18n.Locale()).Type2PlanTitle(operation) }
+
+// Type2PlanTitle says "{operation} plan"
+// in the language of msgs.
+func (msgs Messages) Type2PlanTitle(operation string) string {
+	return Catalog.Format(msgs.locale, "type2PlanTitle", map[string]any{"operation": operation})
+}
+
+// Type2PlanCard says "Card {uid} · {product}"
+// in the language the app shows.
+func Type2PlanCard(uid string, product string) string {
+	return In(i18n.Locale()).Type2PlanCard(uid, product)
+}
+
+// Type2PlanCard says "Card {uid} · {product}"
+// in the language of msgs.
+func (msgs Messages) Type2PlanCard(uid string, product string) string {
+	return Catalog.Format(msgs.locale, "type2PlanCard", map[string]any{"uid": uid, "product": product})
+}
+
+// Type2PlanBackup says "{pages} page(s) will change. A full-image backup is written first."
+// in the language the app shows.
+func Type2PlanBackup(pages int) string { return In(i18n.Locale()).Type2PlanBackup(pages) }
+
+// Type2PlanBackup says "{pages} page(s) will change. A full-image backup is written first."
+// in the language of msgs.
+func (msgs Messages) Type2PlanBackup(pages int) string {
+	return Catalog.Format(msgs.locale, "type2PlanBackup", map[string]any{"pages": pages})
+}
+
+// Type2PlanBackupRoot says "Backup directory: {path}"
+// in the language the app shows.
+func Type2PlanBackupRoot(path string) string { return In(i18n.Locale()).Type2PlanBackupRoot(path) }
+
+// Type2PlanBackupRoot says "Backup directory: {path}"
+// in the language of msgs.
+func (msgs Messages) Type2PlanBackupRoot(path string) string {
+	return Catalog.Format(msgs.locale, "type2PlanBackupRoot", map[string]any{"path": path})
+}
+
+// Type2PlanTypeUID says "Type the UID {uid} to confirm."
+// in the language the app shows.
+func Type2PlanTypeUID(uid string) string { return In(i18n.Locale()).Type2PlanTypeUID(uid) }
+
+// Type2PlanTypeUID says "Type the UID {uid} to confirm."
+// in the language of msgs.
+func (msgs Messages) Type2PlanTypeUID(uid string) string {
+	return Catalog.Format(msgs.locale, "type2PlanTypeUID", map[string]any{"uid": uid})
+}
+
+// Type2PlanConfirm says "Apply"
+// in the language the app shows.
+func Type2PlanConfirm() string { return In(i18n.Locale()).Type2PlanConfirm() }
+
+// Type2PlanConfirm says "Apply"
+// in the language of msgs.
+func (msgs Messages) Type2PlanConfirm() string {
+	return Catalog.Format(msgs.locale, "type2PlanConfirm", nil)
+}
+
+// Type2OneWay says " (one-way)"
+// in the language the app shows.
+func Type2OneWay() string { return In(i18n.Locale()).Type2OneWay() }
+
+// Type2OneWay says " (one-way)"
+// in the language of msgs.
+func (msgs Messages) Type2OneWay() string {
+	return Catalog.Format(msgs.locale, "type2OneWay", nil)
 }
 
 // CommonNone says "None"

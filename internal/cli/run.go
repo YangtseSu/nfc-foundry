@@ -137,10 +137,15 @@ Commands:
   type2 info                        Detect the Type 2 product
   type2 read [--page N] [--all]     Read Type 2 pages
   type2 write --page N --data H     Write one user page (requires --yes)
-  type2 dump FILE                   Save a Type 2 JSON dump
-  type2 restore FILE                Restore a Type 2 dump (requires --yes)
-  ndef read [--raw]                 Read the NDEF message
-  ndef write --file F|--hex H       Write an NDEF message (requires --yes)
+  type2 dump FILE                   Save a Type 2 JSON or binary dump
+  type2 restore FILE                Restore a Type 2 JSON or binary dump (requires --yes)
+  type2 copy FILE                   Copy a dump to the current tag (requires --yes)
+  type2 erase                       Erase user memory (requires --yes)
+  type2 lock                        Apply lock bits (requires --yes)
+  type2 password set|remove         Set or remove password protection
+  ndef read [--raw] [--reveal]      Read the NDEF message
+  ndef write --file F|--hex H|--template ID --field K=V
+                                     Write an NDEF message (requires --yes)
   recover nested|darkside|hardnested  Run an external key-recovery engine
   uid set UID                       Write a 4-byte UID on a supported card
   diag                              Run the release self-check

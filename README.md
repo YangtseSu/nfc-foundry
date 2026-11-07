@@ -47,7 +47,7 @@ available.
 | Card family | Status |
 |---|---|
 | MIFARE Classic 1K/4K | Read, write, dump, restore, keyscan, recovery; block and restore writes are available from the CLI and GUI |
-| NTAG213/215/216 | Page and NDEF read/write from CLI and GUI; decoded Text, URI, Smart Poster, vCard, Wi-Fi (including DPP bootstrapping), Bluetooth, and app records; NTAG215 hardware-tested |
+| NTAG213/215/216 | Page and NDEF read/write from CLI and GUI; Text language, provider presets, Smart Poster metadata, Bluetooth LE, raw/multi-record editors, file import/export, copy/erase/lock/password lifecycle; decoded Text, URI, Smart Poster, vCard, Wi-Fi (including DPP bootstrapping), Bluetooth, and app records; NTAG215 hardware-tested |
 | MIFARE Ultralight | Page read/write and dump; original-Ultralight fallback not hardware-tested |
 | ISO/IEC 14443-4 / DESFire | Later; APDU foundation first |
 | FeliCa / NFC Forum Type 3 | Later; NDEF scope to be defined |

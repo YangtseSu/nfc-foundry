@@ -21,8 +21,16 @@ type fakeBackend struct {
 	readStarts        int
 	scanStarts        int
 	type2Starts       int
+	type2ReadPassword string
 	type2Writes       []app.Type2WriteStartRequestDTO
 	type2NDEFWrites   []app.Type2NDEFWriteStartRequestDTO
+	type2RawWrites    []app.Type2NDEFRawRequestDTO
+	type2Records      []app.Type2NDEFRecordsRequestDTO
+	type2Plans        []app.Type2LifecycleRequestDTO
+	type2Lifecycles   []app.Type2LifecycleRequestDTO
+	type2Source       app.Type2SourceDTO
+	importedNDEF      *app.Type2NDEFImportDTO
+	exportedNDEF      string
 	type2             app.Type2DumpDTO
 	classicEdits      []classicEditCall
 	classicPreflights []app.WritePreflightRequestDTO
@@ -155,9 +163,10 @@ func (f *fakeBackend) StartUIDWrite(request app.UIDWriteStartRequestDTO) (app.Ta
 	return app.TaskDTO{ID: "uid-1", Name: "uid", Status: "running"}, nil
 }
 func (f *fakeBackend) GetType2Dump() app.Type2DumpDTO { return f.type2 }
-func (f *fakeBackend) StartType2Read(string) (app.TaskDTO, error) {
+func (f *fakeBackend) StartType2Read(password string) (app.TaskDTO, error) {
 	f.mu.Lock()
 	f.type2Starts++
+	f.type2ReadPassword = password
 	f.mu.Unlock()
 	return app.TaskDTO{ID: "type2-1", Name: "type2", Status: "running"}, nil
 }
@@ -178,6 +187,63 @@ func (f *fakeBackend) PreviewType2NDEF(request app.Type2NDEFWriteStartRequestDTO
 }
 func (f *fakeBackend) GetType2NDEFTemplates() []app.Type2NDEFTemplateDTO {
 	return app.Type2NDEFTemplates()
+}
+func (f *fakeBackend) GetType2NDEFProviders() map[string][]app.Type2ProviderDTO {
+	return app.Type2NDEFProviders()
+}
+func (f *fakeBackend) PreviewType2NDEFRaw(request app.Type2NDEFRawRequestDTO) (app.Type2NDEFPreviewDTO, error) {
+	return app.Type2NDEFPreviewDTO{Template: "raw", Length: len(request.Raw) / 2}, nil
+}
+func (f *fakeBackend) StartType2NDEFRawWrite(request app.Type2NDEFRawRequestDTO) (app.TaskDTO, error) {
+	f.mu.Lock()
+	f.type2RawWrites = append(f.type2RawWrites, request)
+	f.mu.Unlock()
+	return app.TaskDTO{ID: "type2-raw-1", Name: "ndef", Status: "running"}, nil
+}
+func (f *fakeBackend) PreviewType2NDEFRecords(request app.Type2NDEFRecordsRequestDTO) (app.Type2NDEFPreviewDTO, error) {
+	return app.Type2NDEFPreviewDTO{Template: "records", Length: len(request.Records) * 8}, nil
+}
+func (f *fakeBackend) StartType2NDEFRecordsWrite(request app.Type2NDEFRecordsRequestDTO) (app.TaskDTO, error) {
+	f.mu.Lock()
+	f.type2Records = append(f.type2Records, request)
+	f.mu.Unlock()
+	return app.TaskDTO{ID: "type2-records-1", Name: "ndef", Status: "running"}, nil
+}
+func (f *fakeBackend) ImportType2NDEF() (app.Type2NDEFImportDTO, error) {
+	if f.importedNDEF == nil {
+		return app.Type2NDEFImportDTO{Path: "message.ndef", Length: 8, Raw: "D1010454657374"}, nil
+	}
+	return *f.importedNDEF, nil
+}
+func (f *fakeBackend) ExportType2NDEF(raw string) (string, error) {
+	f.mu.Lock()
+	f.exportedNDEF = raw
+	f.mu.Unlock()
+	return "message.ndef", nil
+}
+func (f *fakeBackend) LoadType2Source() (app.Type2SourceDTO, error) {
+	return f.type2Source, nil
+}
+func (f *fakeBackend) GetType2Source() app.Type2SourceDTO { return f.type2Source }
+func (f *fakeBackend) ExportType2Dump() (string, error)   { return "type2.bin", nil }
+func (f *fakeBackend) ImportType2Dump() (app.Type2DumpDTO, error) {
+	return f.type2, nil
+}
+func (f *fakeBackend) PreviewType2Lifecycle(request app.Type2LifecycleRequestDTO) (app.Type2LifecyclePlanDTO, error) {
+	f.mu.Lock()
+	f.type2Plans = append(f.type2Plans, request)
+	f.mu.Unlock()
+	return app.Type2LifecyclePlanDTO{
+		Operation: request.Operation, CardUID: "04 A1 B2 C3 D4 E5 F6", ProductName: "NTAG215",
+		Changes: []app.Type2ChangeDTO{{Target: "password", Old: "set", New: "FF FF FF FF", OneWay: true}},
+		Writes:  []app.Type2PageWriteDTO{{Page: 43, Hex: "FFFFFFFF"}}, Token: "type2-plan-token",
+	}, nil
+}
+func (f *fakeBackend) StartType2Lifecycle(request app.Type2LifecycleRequestDTO) (app.TaskDTO, error) {
+	f.mu.Lock()
+	f.type2Lifecycles = append(f.type2Lifecycles, request)
+	f.mu.Unlock()
+	return app.TaskDTO{ID: "type2-lifecycle-1", Name: "lifecycle", Status: "running"}, nil
 }
 func (f *fakeBackend) StartReadCard(bool) (app.TaskDTO, error) {
 	f.mu.Lock()
@@ -1108,4 +1174,236 @@ func waitForUIDWrites(t *testing.T, backend *fakeBackend, count int) []app.UIDWr
 	}
 	t.Fatal("UID write did not start")
 	return nil
+}
+
+func ndefSensitiveFixture() *fakeBackend {
+	backend := loadedType2Fixture()
+	backend.type2.NDEF = &app.Type2NDEFDTO{
+		Present: true, Length: 80, Raw: "D101...", Summary: "Foundry",
+		Records: []app.Type2NDEFRecordDTO{{
+			TNF: 2, Type: "application/vnd.wfa.wsc", Kind: "wifi", Summary: "Foundry",
+			Fields: []app.Type2NDEFRecordFieldDTO{
+				{Key: "ssid", Value: "Foundry"},
+				{Key: "network_key", Value: "secret123", Sensitive: true},
+			},
+		}},
+	}
+	return backend
+}
+
+func TestType2PasswordReachesReadAndPageWrite(t *testing.T) {
+	backend := loadedType2Fixture()
+	model := newShell(backend)
+	tester := ui.NewTester(model.view, 1360, 860)
+	model.type2Password = "01020304"
+	tester.Frame()
+	if err := tester.Click("Read card"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		backend.mu.Lock()
+		starts := backend.type2Starts
+		backend.mu.Unlock()
+		if starts == 1 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	backend.mu.Lock()
+	password := backend.type2ReadPassword
+	backend.mu.Unlock()
+	if password != "01020304" {
+		t.Fatalf("read password = %q", password)
+	}
+
+	model.type2PageInput = "DEADBEEF"
+	tester.Frame()
+	if err := tester.Click("Write page"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if err := tester.Click("Confirm write"); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		backend.mu.Lock()
+		count := len(backend.type2Writes)
+		backend.mu.Unlock()
+		if count == 1 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	backend.mu.Lock()
+	writes := append([]app.Type2WriteStartRequestDTO(nil), backend.type2Writes...)
+	backend.mu.Unlock()
+	if len(writes) != 1 || writes[0].Password != "01020304" {
+		t.Fatalf("page write password = %+v", writes)
+	}
+}
+
+func TestType2NDEFRawAndMultiRecordWrites(t *testing.T) {
+	backend := loadedType2Fixture()
+	model := newShell(backend)
+	tester := ui.NewTester(model.view, 1360, 860)
+	model.selectedTab = tabNDEF
+	model.ndefMode = "raw"
+	model.ndefRaw = "D101085402656E68656C6C6F"
+	tester.Frame()
+	if err := tester.Click("Write NDEF"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if !tester.HasText("Write a 12-byte raw message?") {
+		t.Fatalf("raw confirmation texts: %q", tester.Texts())
+	}
+	if err := tester.Click("Confirm write"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		backend.mu.Lock()
+		count := len(backend.type2RawWrites)
+		backend.mu.Unlock()
+		if count == 1 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	backend.mu.Lock()
+	rawWrites := append([]app.Type2NDEFRawRequestDTO(nil), backend.type2RawWrites...)
+	backend.mu.Unlock()
+	if len(rawWrites) != 1 || rawWrites[0].Raw != model.ndefRaw {
+		t.Fatalf("raw write = %+v", rawWrites)
+	}
+
+	model.ndefMode = "records"
+	model.ndefDrafts = []ndefRecordDraft{{Kind: "text", Text: "hello"}, {Kind: "uri", URI: "https://example.com"}}
+	tester.Frame()
+	if err := tester.Click("Write NDEF"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if !tester.HasText("Write 2 records (16 bytes)?") {
+		t.Fatalf("records confirmation texts: %q", tester.Texts())
+	}
+	if err := tester.Click("Confirm write"); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		backend.mu.Lock()
+		count := len(backend.type2Records)
+		backend.mu.Unlock()
+		if count == 1 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	backend.mu.Lock()
+	records := append([]app.Type2NDEFRecordsRequestDTO(nil), backend.type2Records...)
+	backend.mu.Unlock()
+	if len(records) != 1 || len(records[0].Records) != 2 || records[0].Records[0].Fields["text"] != "hello" {
+		t.Fatalf("record write = %+v", records)
+	}
+}
+
+func TestType2NDEFRevealAndImportExport(t *testing.T) {
+	backend := ndefSensitiveFixture()
+	model := newShell(backend)
+	tester := ui.NewTester(model.view, 1360, 860)
+	model.selectedTab = tabNDEF
+	tester.Frame()
+	if tester.HasText("secret123") || !tester.HasText("••••••") {
+		t.Fatalf("sensitive field was not masked: %q", tester.Texts())
+	}
+	if err := tester.Click("Reveal secrets"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if !tester.HasText("secret123") {
+		t.Fatalf("reveal did not show the key: %q", tester.Texts())
+	}
+
+	if err := tester.Click("Import…"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if model.ndefMode != "raw" || model.ndefRaw != "D1010454657374" {
+		t.Fatalf("import state = %q %q", model.ndefMode, model.ndefRaw)
+	}
+	if err := tester.Click("Export…"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	backend.mu.Lock()
+	exported := backend.exportedNDEF
+	backend.mu.Unlock()
+	if exported != model.ndefRaw {
+		t.Fatalf("exported = %q; want %q", exported, model.ndefRaw)
+	}
+}
+
+func TestType2AdvancedLifecycleRequiresTypedUID(t *testing.T) {
+	backend := loadedType2Fixture()
+	model := newShell(backend)
+	tester := ui.NewTester(model.view, 1360, 860)
+	model.selectedTab = tabProtection
+	tester.Frame()
+	if tester.HasText("Advanced lifecycle") {
+		t.Fatal("lifecycle controls were visible before Advanced mode")
+	}
+	model.advanced = true
+	tester.Frame()
+	if !tester.HasText("Advanced lifecycle") {
+		t.Fatalf("lifecycle controls missing: %q", tester.Texts())
+	}
+	if err := tester.Click("Erase user memory"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		backend.mu.Lock()
+		count := len(backend.type2Plans)
+		backend.mu.Unlock()
+		if count == 1 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	tester.Frame()
+	if !tester.HasText("Type the UID 04 A1 B2 C3 D4 E5 F6 to confirm.") {
+		t.Fatalf("typed confirmation missing: %q", tester.Texts())
+	}
+	_ = tester.Click("Apply")
+	tester.Frame()
+	backend.mu.Lock()
+	starts := len(backend.type2Lifecycles)
+	backend.mu.Unlock()
+	if starts != 0 {
+		t.Fatalf("lifecycle started without the typed UID: %d", starts)
+	}
+	model.type2PlanConfirm = "04 A1 B2 C3 D4 E5 F6"
+	tester.Frame()
+	if err := tester.Click("Apply"); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		backend.mu.Lock()
+		starts = len(backend.type2Lifecycles)
+		backend.mu.Unlock()
+		if starts == 1 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	backend.mu.Lock()
+	lifecycles := append([]app.Type2LifecycleRequestDTO(nil), backend.type2Lifecycles...)
+	backend.mu.Unlock()
+	if len(lifecycles) != 1 || lifecycles[0].Token != "type2-plan-token" || lifecycles[0].Operation != "erase" {
+		t.Fatalf("lifecycle request = %+v", lifecycles)
+	}
 }

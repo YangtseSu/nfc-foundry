@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/json"
@@ -59,8 +60,9 @@ type Type2ProtectionDTO struct {
 
 // Type2NDEFRecordFieldDTO is one decoded record attribute.
 type Type2NDEFRecordFieldDTO struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
+	Key       string `json:"key"`
+	Value     string `json:"value"`
+	Sensitive bool   `json:"sensitive,omitempty"`
 }
 
 // Type2NDEFRecordDTO is one decoded NDEF record.
@@ -189,13 +191,17 @@ func Type2NDEFTemplates() []Type2NDEFTemplateDTO {
 
 // Type2WriteResultDTO reports planned, written, and verified pages.
 type Type2WriteResultDTO struct {
-	Backup   string        `json:"backup,omitempty"`
-	Planned  []int         `json:"planned"`
-	Written  []int         `json:"written"`
-	Verified []int         `json:"verified"`
-	Skipped  []int         `json:"skipped"`
-	DryRun   bool          `json:"dryRun"`
-	Dump     *Type2DumpDTO `json:"dump,omitempty"`
+	Backup    string           `json:"backup,omitempty"`
+	Planned   []int            `json:"planned"`
+	Written   []int            `json:"written"`
+	Verified  []int            `json:"verified"`
+	Skipped   []int            `json:"skipped"`
+	DryRun    bool             `json:"dryRun"`
+	Changes   []Type2ChangeDTO `json:"changes,omitempty"`
+	Operation string           `json:"operation,omitempty"`
+	SourceUID string           `json:"sourceUid,omitempty"`
+	Token     string           `json:"token,omitempty"`
+	Dump      *Type2DumpDTO    `json:"dump,omitempty"`
 }
 
 // Type2Info detects the product without writing.
@@ -399,7 +405,7 @@ func type2WriteFailure(result workflow.Type2WriteResult, dryRun bool) Type2Write
 	return Type2WriteResultDTO{
 		Backup: result.BackupPath, Planned: nonNilInts(result.Planned),
 		Written: nonNilInts(result.Written), Verified: nonNilInts(result.Verified),
-		Skipped: nonNilInts(result.Skipped), DryRun: dryRun,
+		Skipped: nonNilInts(result.Skipped), DryRun: dryRun, Changes: type2ChangeDTOs(result.Changes),
 	}
 }
 
@@ -414,7 +420,7 @@ func (s *Service) finishType2Write(result workflow.Type2WriteResult, dryRun bool
 	dto := Type2WriteResultDTO{
 		Backup: result.BackupPath, Planned: nonNilInts(result.Planned),
 		Written: nonNilInts(result.Written), Verified: nonNilInts(result.Verified),
-		Skipped: nonNilInts(result.Skipped), DryRun: dryRun,
+		Skipped: nonNilInts(result.Skipped), DryRun: dryRun, Changes: type2ChangeDTOs(result.Changes),
 	}
 	if !dryRun {
 		s.storeType2Document(result.Document)
@@ -457,16 +463,26 @@ func (s *Service) LoadType2DumpFile(path string) (type2.Document, error) {
 		return type2.Document{}, err
 	}
 	var document type2.Document
+	if bytes.HasPrefix(data, type2.BinaryDumpMagic[:]) || strings.EqualFold(filepath.Ext(path), ".bin") {
+		if err := document.UnmarshalBinary(data); err != nil {
+			return type2.Document{}, err
+		}
+		return document, nil
+	}
 	if err := json.Unmarshal(data, &document); err != nil {
 		return type2.Document{}, fmt.Errorf("decode Type 2 dump: %w", err)
 	}
 	if err := document.Validate(); err != nil {
 		return type2.Document{}, err
 	}
+	if pages, err := document.PageBytes(); err == nil {
+		document.Refresh(pages)
+	}
 	return document, nil
 }
 
-// SaveType2DumpFile writes a validated Type 2 JSON dump atomically.
+// SaveType2DumpFile writes a validated Type 2 dump atomically. JSON is the
+// default; a .bin extension selects the binary full-image format.
 func (s *Service) SaveType2DumpFile(path string, document type2.Document) error {
 	if strings.TrimSpace(path) == "" {
 		return nfc.NewError("save Type 2 dump", nfc.CodeInvalidArgument, "dump path is required", nil)
@@ -474,11 +490,20 @@ func (s *Service) SaveType2DumpFile(path string, document type2.Document) error 
 	if err := document.Validate(); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(document, "", "  ")
-	if err != nil {
-		return err
+	var data []byte
+	var err error
+	if strings.EqualFold(filepath.Ext(path), ".bin") {
+		data, err = document.MarshalBinary()
+		if err != nil {
+			return err
+		}
+	} else {
+		data, err = json.MarshalIndent(document, "", "  ")
+		if err != nil {
+			return err
+		}
+		data = append(data, '\n')
 	}
-	data = append(data, '\n')
 	directory := filepath.Dir(path)
 	temporary, err := os.CreateTemp(directory, ".type2-dump-*.tmp")
 	if err != nil {
@@ -608,7 +633,7 @@ func type2DumpDTO(document type2.Document, includeSecrets bool) Type2DumpDTO {
 		for _, record := range document.NDEF.Records {
 			fields := make([]Type2NDEFRecordFieldDTO, len(record.Fields))
 			for index, field := range record.Fields {
-				fields[index] = Type2NDEFRecordFieldDTO{Key: field.Key, Value: field.Value}
+				fields[index] = Type2NDEFRecordFieldDTO{Key: field.Key, Value: field.Value, Sensitive: field.Sensitive}
 			}
 			ndef.Records = append(ndef.Records, Type2NDEFRecordDTO{
 				TNF: record.TNF, Type: record.Type, ID: record.ID, Payload: record.Payload,

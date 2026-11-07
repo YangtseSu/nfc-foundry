@@ -46,6 +46,9 @@ var (
 	// ErrUnsupportedTLV means a write was refused because user memory contains
 	// a lock, memory-control, or proprietary TLV that must not be replaced.
 	ErrUnsupportedTLV = errors.New("type 2 user memory contains a protected TLV")
+
+	// ErrUnsupported means the product has no such memory area or command.
+	ErrUnsupported = errors.New("type 2 operation is unsupported for this product")
 )
 
 // FrameTransport is the narrow raw-frame capability a Type 2 session needs.

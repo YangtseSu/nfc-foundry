@@ -14,10 +14,10 @@ Status legend: `done`, `in progress`, `pending`, `conditional`.
 | 05c | Classic GUI writes and advanced bulk write | done |
 | 05d | Advanced Type 2 protected GUI writes | pending |
 | 05e | NDEF record catalogue and decoded views | done |
-| 05f | NDEF UX and format completion | pending |
+| 05f | NDEF UX and format completion | done |
 | 05g | NDEF on MIFARE Classic | pending |
 | 05h | Magic Type 2 UID/backdoor operations | pending |
-| 05i | NTAG copy and lifecycle operations | pending |
+| 05i | NTAG copy and lifecycle operations | done |
 | 06 | Reader expansion and capability matrix | pending |
 | 07 | ISO14443-4 APDU and DESFire read | pending |
 | 08 | FeliCa / Type 3 NDEF scope | conditional |

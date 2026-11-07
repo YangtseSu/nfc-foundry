@@ -180,3 +180,54 @@ func TestPreviewType2NDEF(t *testing.T) {
 		t.Fatal("missing contact name was accepted")
 	}
 }
+
+func TestServiceType2LifecyclePreviewAndStart(t *testing.T) {
+	service, tag, recorder := newType2AppService(t)
+	tag.SetPage(4, [4]byte{1, 2, 3, 4})
+	plan, err := service.PreviewType2Lifecycle(context.Background(), Type2LifecycleRequestDTO{Operation: "erase"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Token == "" || plan.Operation != "erase" || len(plan.Writes) == 0 {
+		t.Fatalf("plan = %+v", plan)
+	}
+	if _, err := service.StartType2Lifecycle(Type2LifecycleRequestDTO{Operation: "erase", Token: "stale"}); err != nil {
+		t.Fatal(err)
+	}
+	event := recorder.waitTask(t)
+	if event.Type != "failed" {
+		t.Fatalf("stale token event = %+v", event)
+	}
+	if page, _ := tag.Page(4); page != [4]byte{1, 2, 3, 4} {
+		t.Fatalf("tag changed with a stale token: % X", page)
+	}
+
+	if _, err := service.StartType2Lifecycle(Type2LifecycleRequestDTO{Operation: "erase", Token: plan.Token}); err != nil {
+		t.Fatal(err)
+	}
+	event = recorder.waitTask(t)
+	if event.Type != TaskEventCompleted {
+		t.Fatalf("erase event = %+v", event)
+	}
+	if page, _ := tag.Page(4); page != [4]byte{} {
+		t.Fatalf("page 4 = % X", page)
+	}
+}
+
+func TestServiceType2NDEFRawAndRecordsPreview(t *testing.T) {
+	service := &Service{}
+	raw, err := service.PreviewType2NDEFRaw(Type2NDEFRawRequestDTO{Raw: "D101085402656E68656C6C6F"})
+	if err != nil || raw.Length != 12 {
+		t.Fatalf("raw preview = %+v, %v", raw, err)
+	}
+	records, err := service.PreviewType2NDEFRecords(Type2NDEFRecordsRequestDTO{Records: []Type2NDEFRecordInputDTO{
+		{Kind: "text", Fields: map[string]string{"text": "hello"}},
+		{Kind: "uri", Fields: map[string]string{"uri": "https://example.com"}},
+	}})
+	if err != nil || records.Length == 0 {
+		t.Fatalf("records preview = %+v, %v", records, err)
+	}
+	if _, err := service.PreviewType2NDEFRaw(Type2NDEFRawRequestDTO{Raw: "ZZ"}); err == nil {
+		t.Fatal("invalid hex was accepted")
+	}
+}
