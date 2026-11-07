@@ -64,8 +64,13 @@ make libnfc-apdu-hardware-test \
 On 2026-11-07 the available ACR122U held the Classic 1K test card
 (`FA B9 CF F4`, SAK `08`). `TestHardwareISODEP` skipped because the card is not
 ISO/IEC 14443-4; the DESFire and Type 4 tests also skipped before touching the
-card. No Type 4 or DESFire card was available, so DESFire identify/read and
-Type 4 NDEF are **not hardware-validated**. Add
+card. A second PN532 UART reader (`pn532_uart:/dev/ttyUSB0`) opened and
+selected a Classic 1K with the same UID but different memory (transport
+trailers and no MAD), so the same Phase 07 tests skipped there as well. The
+existing Classic known-key hardware test passed on the PN532.
+
+No Type 4 or DESFire card was available, so DESFire identify/read and Type 4
+NDEF are **not hardware-validated**. Add
 `NFCX_HARDWARE_TYPE4_WRITE=I_OWN_THIS_TAG` and
 `NFCX_TEST_TYPE4_BACKUP_DIR=/path/to/backups` to authorize the Type 4 write
 test.
