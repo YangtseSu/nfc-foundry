@@ -39,7 +39,7 @@ func TestCardDTOLabelsInferenceAsNonAuthoritative(t *testing.T) {
 	if dto.UID != "04 A1 B2 C3" || dto.UIDLength != 4 || dto.Type != "MIFARE Classic 1K" || !dto.Inferred {
 		t.Fatalf("unexpected card DTO: %+v", dto)
 	}
-	unknown := cardDTO(nfc.CardInfo{UID: []byte{1, 2, 3, 4}, SAK: 0x20})
+	unknown := cardDTO(nfc.CardInfo{UID: []byte{1, 2, 3, 4}, SAK: 0x02})
 	if unknown.Type != "Unknown" || unknown.Inferred {
 		t.Fatalf("unknown card was overstated: %+v", unknown)
 	}

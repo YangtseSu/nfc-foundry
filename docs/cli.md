@@ -185,6 +185,11 @@ nfctl ndef write (--file <path>|--hex <hex>|--template ID [--field K=V]...) \
     [--keys FILE] [--pwd HEX] [--yes] [--dry-run]
 nfctl ndef format --sectors N-M [--keys FILE] [--yes] [--confirm-format] \
     [--dry-run]
+nfctl apdu --raw HEX
+nfctl desfire info
+nfctl desfire apps
+nfctl desfire files AID
+nfctl desfire read AID FILE
 nfctl type2 copy SOURCE [--include-protected] [--same-uid-only] [--repeat N] \
     [--continue-on-error] [--pwd HEX] [--yes] [--confirm-copy] \
     [--confirm-protected] [--dry-run]
@@ -263,8 +268,9 @@ shared with the GUI. It validates the record layout and TLV capacity, refuses
 to overwrite a preceding lock/memory-control TLV, and verifies the complete
 NDEF area by read-back.
 
-`nfctl ndef` selects the implementation from the selected card. Type 2 tags use
-the capability container and user-memory TLV area. MIFARE Classic 1K/4K cards
+`nfctl ndef` selects the implementation from the selected card. Type 4 tags
+(SAK bit 5) use the NFC Forum NDEF application and capability container.
+Type 2 tags use the capability container and user-memory TLV area. MIFARE Classic 1K/4K cards
 use the MIFARE Application Directory: `03 E1` marks NDEF sectors, the TLV area
 is the concatenation of their data blocks without trailers, and MAD2 may skip
 sector 16. `--keys` imports a dictionary and runs the Classic key scan before
@@ -332,16 +338,18 @@ Every `--json` run writes exactly one JSON document to stdout:
   `block`, `sector`, `kind`, `hex`, `ascii`, `path`, `sidecar`, `complete`,
   `verified`, `total`, `sectors`, `preflight`, `restore`, `mfoc`, `mfcuk`,
   `keyScan`, `keys`, `product`, `productName`, `pages`, `page`, `pageCount`,
-  `userPages`, `cc`, `mad`, `application`, `family`, `ndef`, `protection`,
-  `backup`, `planned`, `written`, and `skipped`. `product`, `productName`, and
+  `userPages`, `cc`, `mad`, `application`, `family`, `type4cc`, `ats`, `sw`,
+  `messageLength`, `ndef`, `protection`, `backup`, `planned`, `written`, and
+  `skipped`. `product`, `productName`, and
   `userPages` are top-level for `type2 info` and nested under `info` in a full
   dump.
 - `command` is one of `list`, `scan`, `scan.watch`, `card.info`,
   `classic.read`, `classic.write`, `classic.dump`, `classic.restore`,
   `classic.keyscan`, `recover.nested`, `recover.darkside`, `recover.hardnested`,
   `type2.info`, `type2.read`, `type2.write`, `type2.dump`, `type2.restore`,
-  `ndef.read`, `ndef.write`, `ndef.format`, `uid.set`, `diag`, `keys.list`,
-  `keys.add`, `keys.import`, `keys.export`.
+  `ndef.read`, `ndef.write`, `ndef.format`, `apdu.raw`, `desfire.info`,
+  `desfire.apps`, `desfire.files`, `desfire.read`, `uid.set`, `diag`,
+  `keys.list`, `keys.add`, `keys.import`, `keys.export`.
 
 `--jsonl` emits one compact object per line:
 
@@ -372,3 +380,33 @@ research.
 - barcode experiments;
 - generic "write everything writable";
 - translated CLI output.
+
+
+### ISO/IEC 14443-4, DESFire, and Type 4 NDEF
+
+```text
+nfctl apdu --raw HEX [--json]
+nfctl desfire info|apps|files AID|read AID FILE [--json]
+nfctl ndef read [--raw] [--reveal] [--json]
+nfctl ndef write (...) [--yes] [--dry-run] [--json]
+```
+
+`apdu` activates ISO-DEP with RATS, sends exactly one short command APDU, and
+prints the ATS, response data, and status word. It is a diagnostic path, not a
+write interface.
+
+`desfire` is read-only. `info` prints `GetVersion`; `apps` prints native
+application IDs; `files AID` prints file types, communication modes, access
+rights, and sizes; `read AID FILE` reads a standard or backup file. AID is six
+hexadecimal digits. MAC-protected and enciphered files are refused because no
+authentication is implemented.
+
+Type 4 `ndef read` validates the capability container and decodes the NDEF
+file. Type 4 `ndef write` requires free write access, saves the previous raw
+message under `$XDG_CONFIG_HOME/NFC Foundry/type4-backups/`, writes NLEN and the
+message in chunks, and verifies the complete file. `--dry-run` validates the
+message and capacity without writing.
+
+No PPS, CID/NAD, Type B, extended APDU, DESFire authentication, DESFire write,
+or protected-file read is implemented. Hardware validation on Type 4/DESFire
+cards is pending.

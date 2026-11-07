@@ -19,7 +19,7 @@ func TestInferCardTypeIsConservative(t *testing.T) {
 		{[2]byte{0x00, 0x04}, 0x0c, nfc.CardTypeMIFAREClassic1K}, // cascade bit is not product identity
 		{type2ATQA, 0x00, nfc.CardTypeType2},
 		{[2]byte{0x00, 0x04}, 0x00, nfc.CardTypeUnknown},
-		{type2ATQA, 0x20, nfc.CardTypeUnknown},
+		{type2ATQA, 0x20, nfc.CardTypeISO14443},
 	}
 	for _, test := range tests {
 		if got := nfc.InferCardType(nfc.CardInfo{ATQA: test.atqa, SAK: test.sak}); got != test.want {

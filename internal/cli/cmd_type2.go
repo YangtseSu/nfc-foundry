@@ -313,6 +313,28 @@ func (r *Runner) ndefRead(ctx context.Context, args []string) error {
 		r.out.emit("ndef.read", r.device, r.card, nil, result)
 		return nil
 	}
+	if r.card != nil && nfc.CardType(r.card.TypeCode) == nfc.CardTypeISO14443 {
+		if parsed.value("keys") != "" {
+			return usagef("--keys is only available for MIFARE Classic NDEF")
+		}
+		dto, err := r.service.ReadType4NDEF(ctx)
+		if err != nil {
+			return err
+		}
+		if parsed.bool("raw") {
+			if dto.NDEF != nil && dto.NDEF.Present {
+				r.out.humanf("%s\n", dto.NDEF.Raw)
+			}
+		} else {
+			r.printType4NDEF(dto, parsed.bool("reveal"))
+		}
+		result := ndefReadResult{
+			Family: "type4", Type4: &dto.CC, NDEF: dto.NDEF,
+			MessageLength: dto.MessageLength, Raw: parsed.bool("raw"),
+		}
+		r.out.emit("ndef.read", r.device, r.card, nil, result)
+		return nil
+	}
 	if parsed.value("keys") != "" {
 		return usagef("--keys is only available for MIFARE Classic NDEF")
 	}
@@ -405,6 +427,18 @@ func (r *Runner) ndefWrite(ctx context.Context, args []string) error {
 			app.ClassicNDEFWriteResultDTO
 			KeyScan *keyscanResult `json:"keyScan,omitempty"`
 		}{ClassicNDEFWriteResultDTO: result, KeyScan: keyScan})
+		return nil
+	}
+	if r.card != nil && nfc.CardType(r.card.TypeCode) == nfc.CardTypeISO14443 {
+		if parsed.value("keys") != "" {
+			return usagef("--keys is only available for MIFARE Classic NDEF")
+		}
+		result, err := r.service.WriteType4NDEF(ctx, app.Type4NDEFWriteRequestDTO{Message: message, DryRun: r.global.dryRun})
+		if err != nil {
+			return err
+		}
+		r.printType4NDEFWrite(result)
+		r.out.emit("ndef.write", r.device, r.card, nil, result)
 		return nil
 	}
 	if parsed.value("keys") != "" {
@@ -556,6 +590,31 @@ func (r *Runner) printClassicNDEF(dto app.ClassicNDEFDTO, reveal bool) {
 	}
 	r.out.humanf("ndef:    %d bytes, %d record(s)\n", dto.NDEF.Length, len(dto.NDEF.Records))
 	r.printNDEF(*dto.NDEF, reveal)
+}
+
+func (r *Runner) printType4NDEF(dto app.Type4NDEFDTO, reveal bool) {
+	r.out.humanf("layout:  %s\n", dto.CardType)
+	r.out.humanf("cc:      %s (file %s, max %d bytes, %s)\n", dto.CC.Raw, dto.CC.FileID, dto.CC.MaxMessage,
+		map[bool]string{true: "read-only", false: "writable"}[dto.ReadOnly])
+	if dto.NDEF == nil || !dto.NDEF.Present {
+		r.out.humanf("ndef:    no NDEF message\n")
+		return
+	}
+	r.out.humanf("ndef:    %d bytes, %d record(s)\n", dto.MessageLength, len(dto.NDEF.Records))
+	r.printNDEF(*dto.NDEF, reveal)
+}
+
+func (r *Runner) printType4NDEFWrite(result app.Type4NDEFWriteResultDTO) {
+	if result.DryRun {
+		r.out.humanf("dry run: Type 4 NDEF message validated; no write\n")
+		return
+	}
+	if result.Backup != "" {
+		r.out.humanf("backup:  %s\n", result.Backup)
+	}
+	if result.NDEF != nil && result.NDEF.NDEF != nil {
+		r.out.humanf("ndef:    %d bytes, verified\n", result.NDEF.MessageLength)
+	}
 }
 
 func (r *Runner) printClassicNDEFWrite(result app.ClassicNDEFWriteResultDTO) {

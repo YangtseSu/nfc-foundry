@@ -116,17 +116,19 @@ type type2DumpFileResult struct {
 }
 
 type ndefReadResult struct {
-	Family      string             `json:"family"`
-	Layout      string             `json:"layout,omitempty"`
-	Application bool               `json:"application,omitempty"`
-	CC          *app.Type2CCDTO    `json:"cc,omitempty"`
-	MAD         *app.ClassicMADDTO `json:"mad,omitempty"`
-	Sectors     []int              `json:"sectors,omitempty"`
-	Capacity    int                `json:"capacity,omitempty"`
-	ReadOnly    bool               `json:"readOnly,omitempty"`
-	NDEF        *app.Type2NDEFDTO  `json:"ndef"`
-	Raw         bool               `json:"raw"`
-	KeyScan     *keyscanResult     `json:"keyScan,omitempty"`
+	Family        string             `json:"family"`
+	Layout        string             `json:"layout,omitempty"`
+	Application   bool               `json:"application,omitempty"`
+	CC            *app.Type2CCDTO    `json:"cc,omitempty"`
+	MAD           *app.ClassicMADDTO `json:"mad,omitempty"`
+	Type4         *app.Type4CCDTO    `json:"type4cc,omitempty"`
+	MessageLength int                `json:"messageLength,omitempty"`
+	Sectors       []int              `json:"sectors,omitempty"`
+	Capacity      int                `json:"capacity,omitempty"`
+	ReadOnly      bool               `json:"readOnly,omitempty"`
+	NDEF          *app.Type2NDEFDTO  `json:"ndef"`
+	Raw           bool               `json:"raw"`
+	KeyScan       *keyscanResult     `json:"keyScan,omitempty"`
 }
 
 type keysExportResult struct {

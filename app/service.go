@@ -123,8 +123,10 @@ type Service struct {
 	uidService        *workflow.UIDService
 	type2Service      *workflow.Type2Service
 	classicNDEF       *workflow.ClassicNDEFService
+	apduService       *workflow.APDUService
 	type2BackupRoot   string
 	classicBackupRoot string
+	type4BackupRoot   string
 	type2Mu           sync.Mutex
 	type2Dump         type2.Document
 	type2Loaded       bool
@@ -277,6 +279,8 @@ func cardDTO(card nfc.CardInfo) CardDTO {
 		label = "MIFARE Classic 4K"
 	case nfc.CardTypeType2:
 		label = "NFC Forum Type 2"
+	case nfc.CardTypeISO14443:
+		label = "ISO/IEC 14443-4"
 	}
 	return CardDTO{
 		Present:   true,

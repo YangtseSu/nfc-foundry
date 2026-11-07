@@ -87,6 +87,11 @@ func (r *Runner) dispatch(ctx context.Context, args []string) error {
 		return r.cmdType2(ctx, args[1:])
 	case "ndef":
 		return r.cmdNDEF(ctx, args[1:])
+	case "apdu":
+		r.command = "apdu.raw"
+		return r.cmdAPDU(ctx, args[1:])
+	case "desfire":
+		return r.cmdDESFire(ctx, args[1:])
 	case "recover":
 		return r.cmdRecover(ctx, args[1:])
 	case "uid":
@@ -149,6 +154,9 @@ Commands:
                                      Write an NDEF message (requires --yes)
   ndef format --sectors N-M         Format a Classic NDEF application
                                      (requires --yes --confirm-format)
+  apdu --raw HEX                    Send one diagnostic ISO-DEP APDU
+  desfire info|apps|files AID       Read-only DESFire information
+  desfire read AID FILE             Read one standard DESFire file
   recover nested|darkside|hardnested  Run an external key-recovery engine
   uid set UID                       Write a 4-byte UID on a supported card
   diag                              Run the release self-check

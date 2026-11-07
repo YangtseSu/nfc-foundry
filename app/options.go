@@ -28,6 +28,7 @@ type Options struct {
 	UIDBackupRoot     string
 	Type2BackupRoot   string
 	ClassicBackupRoot string
+	Type4BackupRoot   string
 }
 
 // NewService wires the application service to the current libnfc backend.
@@ -62,6 +63,7 @@ func NewServiceWithOptions(options Options) *Service {
 	uidBackupRoot := options.UIDBackupRoot
 	type2BackupRoot := options.Type2BackupRoot
 	classicBackupRoot := options.ClassicBackupRoot
+	type4BackupRoot := options.Type4BackupRoot
 	if keyStorePath == "" && configRoot != "" {
 		keyStorePath = filepath.Join(configRoot, "NFC Foundry", "keys.json")
 	}
@@ -73,6 +75,9 @@ func NewServiceWithOptions(options Options) *Service {
 	}
 	if classicBackupRoot == "" && configRoot != "" {
 		classicBackupRoot = filepath.Join(configRoot, "NFC Foundry", "classic-backups")
+	}
+	if type4BackupRoot == "" && configRoot != "" {
+		type4BackupRoot = filepath.Join(configRoot, "NFC Foundry", "type4-backups")
 	}
 
 	manager := device.NewManager(enumerator, newReader, deviceEventSink{emitter: emitter}, options.DeviceConfig)
@@ -108,8 +113,10 @@ func NewServiceWithOptions(options Options) *Service {
 		uidService:        workflow.NewUIDService(manager, workflow.FileUIDBackupStore{Root: uidBackupRoot}),
 		type2Service:      workflow.NewType2Service(manager, workflow.FileType2BackupStore{Root: type2BackupRoot}),
 		classicNDEF:       workflow.NewClassicNDEFService(manager, dumpService, workflow.FileClassicNDEFBackupStore{Root: classicBackupRoot}),
+		apduService:       workflow.NewAPDUService(manager),
 		type2BackupRoot:   type2BackupRoot,
 		classicBackupRoot: classicBackupRoot,
+		type4BackupRoot:   type4BackupRoot,
 		fixtureAttack:     attack.NewCoordinator(manager, attack.NewFixtureEngine(locator)),
 		mfocAttack:        mfocAttack,
 		mfcukPipeline:     mfcukPipeline,

@@ -12,13 +12,16 @@ const (
 	CardTypeMIFAREClassic1K CardType = "mifare_classic_1k"
 	CardTypeMIFAREClassic4K CardType = "mifare_classic_4k"
 	CardTypeType2           CardType = "nfc_type2"
+	CardTypeISO14443        CardType = "iso14443_4"
 )
 
-// InferCardType recognizes only unambiguous Classic-family SAK values and the
-// standard Type 2 selection signature (ATQA 00 44, SAK 00). The Type 2 hint is
-// refined to an exact NTAG product only after GET_VERSION.
+// InferCardType recognizes only unambiguous Classic-family SAK values, the
+// standard Type 2 selection signature (ATQA 00 44, SAK 00), and the
+// ISO/IEC 14443-4 SAK bit. The Type 2 hint is refined to an exact NTAG product
+// only after GET_VERSION.
 func InferCardType(card CardInfo) CardType {
-	switch card.SAK &^ 0x04 { // Ignore the ISO14443A cascade bit if a backend retains it.
+	sak := card.SAK &^ 0x04 // Ignore the ISO14443A cascade bit if a backend retains it.
+	switch sak {
 	case 0x09:
 		return CardTypeMIFAREMini
 	case 0x08:
@@ -30,9 +33,11 @@ func InferCardType(card CardInfo) CardType {
 			return CardTypeType2
 		}
 		return CardTypeUnknown
-	default:
-		return CardTypeUnknown
 	}
+	if sak&0x20 != 0 {
+		return CardTypeISO14443
+	}
+	return CardTypeUnknown
 }
 
 // SameCard reports whether two selections identify the same ISO14443A card.

@@ -12,8 +12,8 @@ real-hardware validation.
 | MIFARE Classic 4K | Yes | Blocks, dump, MAD NDEF | User blocks, NDEF data; trailers/block 0 guarded | Current baseline; 4K/MAD2 NDEF pending hardware validation |
 | MIFARE Ultralight | Yes | Pages, dump | User pages | Current; original-Ultralight fallback not hardware-tested |
 | NTAG213/215/216 | Yes | Pages, dump, NDEF | User pages, NDEF | Current; NTAG215 hardware-tested on ACR122U |
-| ISO/IEC 14443-4 | ATS/APDU | APDU | Application-specific | Later |
-| DESFire | ISO14443-4 + auth | Files | Guarded | Later |
+| ISO/IEC 14443-4 | ATS/APDU | APDU, Type 4 NDEF | Type 4 NDEF with free write access | Implemented; hardware pending |
+| DESFire | ISO14443-4 + auth | Version, apps, files, standard/backup reads | Not exposed | Read-only implemented; hardware pending |
 | FeliCa / NFC Forum Type 3 | IDm/PMm | TBD | TBD | Not committed |
 | Jewel / Topaz | Yes | Commands | User bytes | Optional |
 
@@ -71,6 +71,28 @@ Classic NDEF read, write, and format are covered by hardware-free tests and an
 explicit hardware test. MAD1 on a blank Classic 1K was validated on an ACR122U
 (`acr122_usb`) on 2026-11-07: format sectors 1-2, write a Text record, read it
 back, and reformat. Classic 4K/MAD2 and secret-Key-B paths remain pending.
+
+## ISO/IEC 14443-4, DESFire, and Type 4 NDEF
+
+ISO-DEP activation uses RATS over the raw transport. The ATS supplies FSC and
+FWI; command frames are split to FSC and I-block chaining, R(ACK), and WTX are
+handled. PPS, CID/NAD, Type B, and extended APDUs are not implemented.
+
+Read-only DESFire support covers `GetVersion`, `GetApplicationIDs`,
+`SelectApplication`, `GetFileIDs`, `GetFileSettings`, and standard/backup
+`ReadData` over wrapped `90 INS 00 00 ...` commands. DESFire native fields are
+little-endian. Authentication, key changes, formatting, protected-file reads,
+and all writes are out of scope.
+
+Type 4 NDEF reads the `D2760000850101` application, validates the `E103`
+capability container, and reads the NDEF file. Writes require free write access
+(`00`), zero NLEN before writing, write the message in MLc-sized chunks, write
+the new NLEN, and read the complete file back. The previous raw message is
+backed up under `$XDG_CONFIG_HOME/NFC Foundry/type4-backups/`.
+
+`nfctl apdu --raw` is diagnostic only. `nfctl desfire` is read-only.
+`nfctl ndef read/write` dispatches Type 4 when the card SAK has bit 5 set.
+Hardware validation on a Type 4 or DESFire card is pending.
 
 ## Type 2: Ultralight and NTAG21x
 
