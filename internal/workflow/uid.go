@@ -27,9 +27,9 @@ type UIDWriteEvent struct {
 	Message string
 }
 
-// UIDWriteRequest carries the shared safety facts for the ordinary CUID/Gen2
-// attempt and the in-process Gen1A path. Irreversible magic-card configuration
-// commands are deliberately absent.
+// UIDWriteRequest carries the shared safety facts for the ordinary DirectWrite
+// (CUID/Gen2, UFUID, FUID) attempt and the in-process Gen1A path. Irreversible
+// magic-card configuration and lock commands are deliberately absent.
 type UIDWriteRequest struct {
 	TaskID         string
 	Card           nfc.CardInfo
@@ -112,9 +112,10 @@ func (s *UIDService) Preflight(ctx context.Context, request UIDWriteRequest) (UI
 }
 
 // Write repeats preflight under one exclusive lease, persists the original
-// block 0, performs the ordinary CUID/Gen2 write, and falls back to the
-// in-process Gen1A backdoor on the same reader. The card is reselected and the
-// complete block 0 is verified before success is reported.
+// block 0, performs the ordinary DirectWrite, and falls back to the in-process
+// Gen1A backdoor on the same reader only when the UID did not change. The card
+// is reselected and the complete block 0 is verified before success is
+// reported.
 func (s *UIDService) Write(ctx context.Context, request UIDWriteRequest, emit func(UIDWriteEvent)) (UIDWriteResult, error) {
 	request.Card = request.Card.Clone()
 	request.NewUID = append([]byte(nil), request.NewUID...)
@@ -203,7 +204,7 @@ func (s *UIDService) Write(ctx context.Context, request UIDWriteRequest, emit fu
 // exclusive lease. The reader is not closed or reopened; the caller reselects
 // and verifies this same reader after raw mode has been left.
 func (s *UIDService) writeGen1A(ctx context.Context, reader nfc.Reader, raw nfc.RawTransceiver, plan UIDWritePlan, writeErr, waitErr error, result *UIDWriteResult, emit func(UIDWriteEvent)) error {
-	emit(UIDWriteEvent{Phase: UIDWriteGen1A, Message: "the ordinary CUID/Gen2 write did not change the UID; trying the in-process Gen1A unlock"})
+	emit(UIDWriteEvent{Phase: UIDWriteGen1A, Message: "the ordinary DirectWrite did not change the UID; trying the in-process Gen1A unlock"})
 	if err := selectExpectedCard(ctx, reader, plan.Card); err != nil {
 		return nfc.NewError("Gen1A write", nfc.CodeCardChanged, "the card identity changed before the Gen1A write", errors.Join(writeErr, waitErr, err))
 	}

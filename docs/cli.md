@@ -182,11 +182,13 @@ An actual write requires `--yes` and an exact `--confirm-uid` value equal to
 the target UID. Before writing, the service reads the current card into a
 complete backup under `$XDG_CONFIG_HOME/NFC Foundry/classic-backups/`; a failed
 backup aborts the write. It also backs up block 0 under
-`$XDG_CONFIG_HOME/NFC Foundry/uid-backups/`, tries the ordinary CUID/Gen2
+`$XDG_CONFIG_HOME/NFC Foundry/uid-backups/`, tries the ordinary DirectWrite
 manufacturer write, then falls back to the in-process Gen1A unlock on the same
-open reader. It reselects and verifies the complete block 0 before reporting
-success. The reader is not released to an external process; `nfc-mfsetuid` is
-not required.
+open reader. The ordinary path covers CUID/Gen2, UFUID, and FUID cards. It
+reselects the card and verifies the complete block 0 before reporting success.
+The UFUID permanent-lock command is never sent; a locked or already-written FUID card
+fails after reselection and keeps its original block-0 backup. The reader is
+not released to an external process; `nfc-mfsetuid` is not required.
 
 ### Type 2 and NDEF
 

@@ -38,12 +38,23 @@ Rules:
 - Keep `.mfd`/`.bin` compatibility; metadata goes in a sidecar JSON file.
 
 Block 0 writes are limited to 4-byte UID Classic 1K special cards. The workflow
-first attempts the ordinary CUID/Gen2 manufacturer write, then the in-process
-Gen1A unlock when that leaves the UID unchanged. It backs up block 0 before
-either attempt, keeps the reader open, and requires the new UID and complete
-block 0 readback after reselection. This path is hardware-validated on an
-ACR122U (`acr122_usb`) with a Gen1A test card. FUID/UFUID cards and non-4-byte
-UIDs are not supported.
+first attempts an ordinary authenticated DirectWrite to block 0, then the
+in-process Gen1A unlock when that leaves the UID unchanged. The ordinary path
+covers the DirectWrite magic variants:
+
+- CUID/Gen2: block 0 is writable with an ordinary authenticated write.
+- UFUID: block 0 is writable until an irreversible lock command is issued.
+  NFC Foundry never sends that lock command as part of a UID write.
+- FUID: block 0 is write-once. The first write can succeed; a later write fails
+  and is reported honestly.
+
+The application does not claim to identify the exact chip family; it determines
+the result by reselecting and reading back the complete block 0. It backs up
+block 0 before either attempt, keeps the reader open, and requires the new UID
+and complete block-0 readback after reselection. This path is hardware-validated
+on an ACR122U (`acr122_usb`) with a Gen1A test card; UFUID/FUID hardware
+validation is pending. Gen1B/Gen3/APDU magic commands and non-4-byte UIDs are
+unsupported.
 
 ### Classic NDEF
 

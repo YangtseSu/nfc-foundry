@@ -9,6 +9,7 @@ Status legend: `done`, `in progress`, `pending`, `conditional`.
 | 02 | MyGo shell and service decoupling | done |
 | 03 | `nfctl` unified CLI | done |
 | 04 | Native Go Gen1A; remove `nfc-mfsetuid` | done |
+| 04b | DirectWrite magic UID variants (CUID/Gen2, UFUID, FUID) | in progress (UFUID/FUID hardware validation pending) |
 | 05 | Type 2 / NTAG21x and NDEF | done |
 | 05b | GUI Type 2 page and NDEF writes | done |
 | 05c | Classic GUI writes and advanced bulk write | done |

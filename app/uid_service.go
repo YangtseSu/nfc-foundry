@@ -75,7 +75,7 @@ func (s *Service) PreflightUIDWrite(value string) (UIDWritePreflightDTO, error) 
 	preview := uidWritePreviewDTO(plan)
 	return UIDWritePreflightDTO{
 		Token: token, Valid: true, Preview: &preview, BackupPath: backupPath,
-		Warning: "supports CUID/Gen2 normal writes and Gen1A special cards on readers with raw-frame support; ordinary cards with immutable UIDs fail safely.",
+		Warning: "supports DirectWrite magic cards (CUID/Gen2, UFUID, FUID) and Gen1A cards on readers with raw-frame support; locked cards and ordinary cards with immutable UIDs fail safely.",
 	}, nil
 }
 

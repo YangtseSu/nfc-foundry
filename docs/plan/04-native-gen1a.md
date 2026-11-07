@@ -26,4 +26,6 @@ Remove the `nfc-mfsetuid` executable and keep Gen1A block 0 writing in-process.
 ## Non-goals
 
 - No format-all command.
-- No support for FUID/UFUID or non-4-byte UIDs.
+- No 7-byte or 10-byte UIDs.
+- No irreversible UFUID/FUID lock command. DirectWrite variants are covered by
+  Phase 04b.

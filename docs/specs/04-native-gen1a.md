@@ -122,6 +122,7 @@ Explicit hardware:
 ## Non-goals
 
 - No format-all command.
-- No FUID/UFUID support.
+- No irreversible UFUID/FUID lock command. DirectWrite variants are covered by
+  Phase 04b.
 - No non-4-byte UID handling.
 - No card-family logic in libnfc-ng.

@@ -26,8 +26,10 @@ for each; the remaining migration is tracked in
 [`docs/plan/`](docs/plan/).
 
 MIFARE Classic 1K/4K is hardware-tested on a PN532 UART reader and on the
-ACR122U through `acr122_usb`. Gen1A block 0 writes run natively in Go and are
-hardware-tested on the ACR122U; no `nfc-mfsetuid` executable is shipped or
+ACR122U through `acr122_usb`. UID writes run natively in Go: the ordinary
+DirectWrite path covers CUID/Gen2, UFUID, and FUID, and Gen1A cards use the
+in-process backdoor. Gen1A is hardware-tested on the ACR122U; UFUID/FUID
+hardware validation is pending. No `nfc-mfsetuid` executable is shipped or
 required. Type 2 page access and NDEF read/write are hardware-tested on an
 NTAG215 with the ACR122U. Classic NDEF read/write/format is hardware-tested on
 a blank MIFARE Classic 1K with the ACR122U. The ISO-DEP, DESFire read, and
