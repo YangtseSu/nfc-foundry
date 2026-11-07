@@ -168,7 +168,7 @@ func (s *Service) runType2CopySequence(ctx context.Context, taskID string, reque
 }
 
 func (s *Service) buildType2LifecycleRequest(request Type2LifecycleRequestDTO) (workflow.Type2LifecycleRequest, error) {
-	card, err := s.type2Card()
+	card, err := s.type2Card(true)
 	if err != nil {
 		return workflow.Type2LifecycleRequest{}, err
 	}

@@ -12,6 +12,8 @@
 #define NFCX_BLOCK_LENGTH 16
 #define NFCX_FRAME_MAX 264
 #define NFCX_DEVICE_NAME_MAX 256
+#define NFCX_DRIVER_NAME_MAX 32
+#define NFCX_DRIVER_MAX 16
 
 typedef enum {
   NFCX_OK = 0,
@@ -60,9 +62,16 @@ typedef struct {
   size_t handles;
 } nfcx_resource_count;
 
-// Copies the linked libnfc version without exposing a library-owned pointer.
-int nfcx_runtime_version(char *output, size_t output_capacity,
-                         size_t *output_length);
+typedef struct {
+  char version[NFCX_DRIVER_NAME_MAX];
+  size_t driver_count;
+  char drivers[NFCX_DRIVER_MAX][NFCX_DRIVER_NAME_MAX];
+} nfcx_runtime;
+
+// Copies the linked libnfc version and the compiled driver names without
+// exposing any library-owned pointer.
+int nfcx_runtime_info(nfcx_runtime *output, char *detail,
+                      size_t detail_capacity, size_t *detail_length);
 
 // Synchronizes NFCX's discovery defaults with the C runtime environment used
 // by libnfc. This is required on Windows, where Go and the CRT keep separate

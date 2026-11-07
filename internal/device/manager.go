@@ -32,20 +32,13 @@ const (
 	CardRemoved  CardEventType = "removed"
 )
 
-// Capabilities are deliberately conservative. A reader being enumerable or
-// able to perform ordinary Classic I/O does not imply that it supports the
-// raw parity/timing behaviour required by Nested attacks.
-type Capabilities struct {
-	Nested     bool
-	Darkside   bool
-	Hardnested bool
-}
+// Capabilities is the reader profile type. It lives in the nfc package so the
+// transport and application layers share one capability contract.
+type Capabilities = nfc.ReaderCapabilities
 
-// CapabilitiesFor returns the explicitly supported capabilities for a reader
-// profile. Unknown profiles keep the zero-value (all capabilities disabled).
+// CapabilitiesFor returns the explicit profile for a discovered reader.
 func CapabilitiesFor(info nfc.DeviceInfo) Capabilities {
-	pn532UART := strings.HasPrefix(strings.ToLower(info.ConnString), "pn532_uart:")
-	return Capabilities{Nested: pn532UART, Darkside: pn532UART, Hardnested: pn532UART}
+	return nfc.CapabilitiesFor(info.ConnString)
 }
 
 // Snapshot is an immutable copy of the manager state.
@@ -218,7 +211,7 @@ func (m *Manager) ListDevices(ctx context.Context) ([]nfc.DeviceInfo, error) {
 		seen[candidate.ConnString] = struct{}{}
 		result = append(result, candidate)
 	}
-	return result, nil
+	return CollapseReaderDuplicates(result), nil
 }
 
 // Connect replaces any prior connection and starts a cancellable poll loop.

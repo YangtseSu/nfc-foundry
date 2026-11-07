@@ -48,6 +48,11 @@ type nativeResult struct {
 	detail string
 }
 
+type runtimeInfo struct {
+	version string
+	drivers []string
+}
+
 func (r nativeResult) err(op string) error {
 	if r.code == nativeOK {
 		return nil

@@ -13,6 +13,7 @@ import (
 
 	"github.com/YangtseSu/nfc-foundry/internal/attack"
 	"github.com/YangtseSu/nfc-foundry/internal/buildinfo"
+	"github.com/YangtseSu/nfc-foundry/internal/nfc"
 	"github.com/YangtseSu/nfc-foundry/internal/nfc/libnfc"
 	runtimebundle "github.com/YangtseSu/nfc-foundry/internal/runtime"
 )
@@ -56,7 +57,7 @@ func Run(ctx context.Context, locator *runtimebundle.Locator, currentDevice stri
 		Build:            buildinfo.Current(),
 		LibNFC:           libnfc.Info(),
 		CurrentDevice:    redactUserPath(currentDevice),
-		SupportedReaders: []string{"PN532 UART (including PN532 + FT232RL)"},
+		SupportedReaders: advertisedReaders(),
 	}
 	if !report.LibNFC.Available {
 		report.Healthy = false
@@ -72,6 +73,19 @@ func Run(ctx context.Context, locator *runtimebundle.Locator, currentDevice stri
 		report.Healthy = false
 	}
 	return report
+}
+
+// advertisedReaders lists profiles with recorded hardware validation. A
+// compiled driver is deliberately not advertised until its profile says so.
+func advertisedReaders() []string {
+	result := make([]string, 0)
+	for _, profile := range nfc.ReaderProfiles() {
+		if !profile.Advertised() {
+			continue
+		}
+		result = append(result, fmt.Sprintf("%s (%s, %s)", profile.Name, profile.Driver, profile.Validation))
+	}
+	return result
 }
 
 func engineChecks(ctx context.Context, locator *runtimebundle.Locator) []Check {

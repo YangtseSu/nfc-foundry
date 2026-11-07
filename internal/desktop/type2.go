@@ -1068,6 +1068,9 @@ func (s *shell) selectedType2Page() (app.Type2PageDTO, bool) {
 }
 
 func (s *shell) type2WriteBusy() bool {
+	if s.connected() && !s.readerSupports(func(device app.DeviceDTO) bool { return device.Type2Write }) {
+		return true
+	}
 	return s.activeTask != "" || s.pendingOps > 0
 }
 

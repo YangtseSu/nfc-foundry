@@ -104,7 +104,7 @@ func (s *Service) StartType2ProtectionWrite(request Type2ProtectionWriteRequestD
 }
 
 func (s *Service) type2ProtectionWorkflowRequest(request Type2ProtectionWriteRequestDTO) (workflow.Type2LifecycleRequest, error) {
-	card, err := s.type2Card()
+	card, err := s.type2Card(true)
 	if err != nil {
 		return workflow.Type2LifecycleRequest{}, err
 	}

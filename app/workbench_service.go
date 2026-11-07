@@ -315,6 +315,9 @@ func (s *Service) SaveDumpFile(path string) (SaveResultDTO, error) {
 }
 
 func (s *Service) StartKeyScan(discardDirty bool) (TaskDTO, error) {
+	if err := s.requireClassicRead("scan keys"); err != nil {
+		return TaskDTO{}, err
+	}
 	if s.bench.Snapshot().Dirty && !discardDirty {
 		return TaskDTO{}, ErrDirtyWorkbench
 	}
@@ -359,6 +362,9 @@ func scanProgress(card nfc.CardInfo, sector int, keyType nfc.KeyType) int {
 }
 
 func (s *Service) StartReadCard(discardDirty bool) (TaskDTO, error) {
+	if err := s.requireClassicRead("read card"); err != nil {
+		return TaskDTO{}, err
+	}
 	if s.bench.Snapshot().Dirty && !discardDirty {
 		return TaskDTO{}, ErrDirtyWorkbench
 	}
@@ -427,6 +433,9 @@ func appLayoutForCard(card nfc.CardInfo) (mifare.Layout, error) {
 }
 
 func (s *Service) PreflightWrite(input WritePreflightRequestDTO) (WritePreflightDTO, error) {
+	if err := s.requireClassicWrite("write card"); err != nil {
+		return WritePreflightDTO{}, err
+	}
 	mode := input.Mode
 	s.mu.Lock()
 	operationRunning := len(s.operations) != 0
@@ -612,6 +621,9 @@ func validatePostRestoreUIDAccess(dump mifare.Dump) error {
 }
 
 func (s *Service) StartWrite(input WriteStartRequestDTO) (TaskDTO, error) {
+	if err := s.requireClassicWrite("write card"); err != nil {
+		return TaskDTO{}, err
+	}
 	s.mu.Lock()
 	record, exists := s.preflights[input.Token]
 	if exists {

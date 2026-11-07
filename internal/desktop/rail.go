@@ -88,6 +88,19 @@ func (s *shell) readerPanel(c *ui.Context, p palette) {
 
 func (s *shell) readerCaps(c *ui.Context, p palette, device app.DeviceDTO) {
 	caps := []string{device.Transport}
+	l := s.locales()
+	if device.ClassicRead || device.ClassicWrite {
+		caps = append(caps, l.CapClassic())
+	}
+	if device.Type2Read || device.Type2Write {
+		caps = append(caps, l.CapType2())
+	}
+	if device.APDU {
+		caps = append(caps, l.CapISODEP())
+	}
+	if device.RawBits {
+		caps = append(caps, l.CapRawBits())
+	}
 	if device.Nested {
 		caps = append(caps, s.locales().CapNested())
 	}
@@ -95,7 +108,12 @@ func (s *shell) readerCaps(c *ui.Context, p palette, device app.DeviceDTO) {
 		caps = append(caps, s.locales().CapDarkside())
 	}
 	if device.Hardnested {
-		caps = append(caps, s.locales().CapHardnested())
+		caps = append(caps, l.CapHardnested())
+	}
+	if !device.Known {
+		caps = append(caps, l.CapUnverified())
+	} else if device.Validation == "none" {
+		caps = append(caps, l.CapExperimental())
 	}
 	for _, row := range splitCaps(caps, 2) {
 		ui.Row(c).Gap(4).Children(func() {

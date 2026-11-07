@@ -206,7 +206,7 @@ type Type2WriteResultDTO struct {
 
 // Type2Info detects the product without writing.
 func (s *Service) Type2Info(ctx context.Context) (Type2InfoDTO, error) {
-	card, err := s.type2Card()
+	card, err := s.type2Card(false)
 	if err != nil {
 		return Type2InfoDTO{}, err
 	}
@@ -219,7 +219,7 @@ func (s *Service) Type2Info(ctx context.Context) (Type2InfoDTO, error) {
 
 // ReadType2Card reads and stores a complete Type 2 dump.
 func (s *Service) ReadType2Card(ctx context.Context, password string) (Type2DumpDTO, error) {
-	card, err := s.type2Card()
+	card, err := s.type2Card(false)
 	if err != nil {
 		return Type2DumpDTO{}, err
 	}
@@ -338,7 +338,7 @@ func (s *Service) Type2Dump(includeSecrets bool) Type2DumpDTO {
 
 // WriteType2Pages writes ordinary user pages with a backup and read-back.
 func (s *Service) WriteType2Pages(ctx context.Context, request Type2WriteRequestDTO) (Type2WriteResultDTO, error) {
-	card, err := s.type2Card()
+	card, err := s.type2Card(true)
 	if err != nil {
 		return Type2WriteResultDTO{}, err
 	}
@@ -364,7 +364,7 @@ func (s *Service) WriteType2Pages(ctx context.Context, request Type2WriteRequest
 
 // RestoreType2 restores a validated dump with optional protected pages.
 func (s *Service) RestoreType2(ctx context.Context, request Type2RestoreRequestDTO) (Type2WriteResultDTO, error) {
-	card, err := s.type2Card()
+	card, err := s.type2Card(true)
 	if err != nil {
 		return Type2WriteResultDTO{}, err
 	}
@@ -384,7 +384,7 @@ func (s *Service) RestoreType2(ctx context.Context, request Type2RestoreRequestD
 
 // WriteType2NDEF writes one raw NDEF message to a formatted tag.
 func (s *Service) WriteType2NDEF(ctx context.Context, request Type2NDEFWriteRequestDTO) (Type2WriteResultDTO, error) {
-	card, err := s.type2Card()
+	card, err := s.type2Card(true)
 	if err != nil {
 		return Type2WriteResultDTO{}, err
 	}
@@ -536,7 +536,18 @@ func (s *Service) SaveType2DumpFile(path string, document type2.Document) error 
 	return nil
 }
 
-func (s *Service) type2Card() (nfc.CardInfo, error) {
+func (s *Service) type2Card(write bool) (nfc.CardInfo, error) {
+	operation := "read Type 2 card"
+	if write {
+		operation = "write Type 2 card"
+	}
+	if write {
+		if err := s.requireType2Write(operation); err != nil {
+			return nfc.CardInfo{}, err
+		}
+	} else if err := s.requireType2Read(operation); err != nil {
+		return nfc.CardInfo{}, err
+	}
 	snapshot := s.deviceManager.Snapshot()
 	if snapshot.Card == nil {
 		return nfc.CardInfo{}, ErrCardRequired

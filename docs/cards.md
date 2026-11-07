@@ -220,16 +220,44 @@ If it is pursued:
 ## Reader capabilities
 
 Reader capability is separate from card capability. A reader may enumerate a
-card but lack the command path needed for a workflow. The capability model must
-distinguish:
+card but lack the command path needed for a workflow. The application profile
+compiles five drivers:
 
-- enumerate;
-- select ISO14443A/B;
-- Classic read/write;
-- Type 2 read/write;
-- raw bytes;
-- raw bits;
-- PC/SC APDU;
-- Nested/Darkside/Hardnested support (engine + firmware dependent).
+```text
+pn532_uart,pn53x_usb,acr122_usb,acr122_pcsc,pcsc
+```
 
-Never infer all capabilities from "libnfc listed the device".
+| Driver | Select | Classic | Type 2 | Raw bits | ISO-DEP | Recovery | Validation |
+|---|---|---|---|---|---|---|---|
+| `pn532_uart` | yes | read/write | read/write | yes | yes | Nested, Darkside, Hardnested | partial hardware |
+| `pn53x_usb` | yes | read/write | read/write | yes | yes | no | none |
+| `acr122_usb` | yes | read/write | read/write | yes | yes | no | partial hardware |
+| `acr122_pcsc` | yes | read/write | read/write | yes | yes | no | none |
+| `pcsc` | yes | no | no | no | no | no | none |
+
+Rules:
+
+- A known driver that cannot perform an operation returns `CodeUnsupported`
+  before a hardware command is sent. The GUI disables the corresponding read
+  action, and the CLI exits with the hardware/unavailable code.
+- A compiled driver is not advertised as validated support. Only
+  `pn532_uart` and `acr122_usb` have recorded application hardware runs; see
+  the Phase 06 note.
+- Recovery engines remain PN532 UART-only until another reader is validated
+  with them.
+- The generic `pcsc` driver selects ISO/IEC 14443A targets. PC/SC is a
+  smart-card/APDU API (CCID readers, PIV/bank cards, USB tokens such as
+  YubiKey), not a raw NFC transport, so Classic, Type 2, Gen1A, and recovery
+  workflows are not implemented over it and are not planned. A future
+  PC/SC-native APDU transport would cover ISO-DEP/Type 4/DESFire only.
+- `acr122_pcsc` keeps the PN53x raw path through PC/SC escapes but is
+  unvalidated. On the tested ACR122U it did not open reliably; on Linux the
+  direct `acr122_usb` path is the supported one.
+- An ACR122U appears as direct USB, ACR122 PC/SC, and generic PC/SC.
+  Enumeration prefers direct USB and suppresses the matching PC/SC aliases.
+  The cross-process lock treats all ACR122 connstrings as one physical reader;
+  this conservatively serializes multiple ACR122 readers across processes
+  because a PC/SC reader name cannot be mapped back to a USB bus address.
+- An unclassified connstring is reported as an unverified profile. Its
+  operations are still attempted for development backends; it is never
+  advertised as a validated reader.

@@ -1715,3 +1715,43 @@ func TestClassicNDEFFormatPreviewAndConfirm(t *testing.T) {
 		t.Fatalf("format request = %+v", writes)
 	}
 }
+
+func TestType2ActionsAreUnavailableOnLimitedReaderProfile(t *testing.T) {
+	backend := loadedType2Fixture()
+	backend.dashboard.Devices[0] = app.DeviceDTO{
+		ID: "reader-pcsc", Name: "PC/SC reader", ConnString: "pcsc:ACS ACR122U 00 00",
+		Driver: "pcsc", Transport: "PC/SC", Available: true, Known: true, Validation: "none",
+	}
+	backend.dashboard.SelectedDevice = "reader-pcsc"
+	backend.connects = nil
+	model := newShell(backend)
+	tester := ui.NewTester(model.view, 1360, 860)
+	tester.Frame()
+
+	if !tester.HasText("PC/SC") || !tester.HasText("Experimental") {
+		t.Fatalf("capability pills: %q", tester.Texts())
+	}
+	if tester.HasText("Classic") {
+		t.Fatalf("limited reader advertises Classic operations: %q", tester.Texts())
+	}
+	if !tester.HasText("The selected reader cannot perform Type 2 page operations. Use a PN53x reader.") {
+		t.Fatalf("missing unsupported-reader notice: %q", tester.Texts())
+	}
+	if err := tester.Click("Read card"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if reads, _ := backend.taskStarts(); reads != 0 {
+		t.Fatalf("Read card started %d task(s) on a reader without Type 2 support", reads)
+	}
+
+	model.type2PageInput = "DEADBEEF"
+	tester.Frame()
+	if err := tester.Click("Write page"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if tester.HasText("Write page 4?") {
+		t.Fatalf("Type 2 write confirmation opened on an unsupported reader: %q", tester.Texts())
+	}
+}

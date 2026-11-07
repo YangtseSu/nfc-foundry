@@ -20,11 +20,10 @@ from the CLI and GUI, Classic NDEF read/write/format through the MIFARE
 Application Directory, an ISO/IEC 14443-4 APDU foundation with read-only
 DESFire access and Type 4 NDEF, diagnostics, and the key catalog. Classic GUI writes
 cover ordinary data blocks, changed-block writes, full restore with a mandatory
-pre-write backup, and advanced UID writes. The remaining migration is tracked in
-[`docs/plan/`](docs/plan/):
-
-- validate additional readers and the APDU foundation;
-- add read-only DESFire support after the APDU layer.
+pre-write backup, and advanced UID writes. The reader layer compiles the five
+drivers in the application profile and reports an explicit capability profile
+for each; the remaining migration is tracked in
+[`docs/plan/`](docs/plan/).
 
 MIFARE Classic 1K/4K is hardware-tested on a PN532 UART reader and on the
 ACR122U through `acr122_usb`. Gen1A block 0 writes run natively in Go and are
@@ -39,12 +38,21 @@ the planned features below are already available.
 
 | Reader | Backend | Status |
 |---|---|---|
-| PN532 + FT232RL | `pn532_uart` via `libnfc-ng` | Tested baseline |
+| PN532 + FT232RL | `pn532_uart` via `libnfc-ng` | Tested baseline: Classic and card selection; ISO-DEP card workflows pending |
 | Other PN532 UART adapters | `pn532_uart` | Expected compatible; not tested |
-| PN53x USB | `pn53x_usb` | Planned; not validated |
+| PN53x USB | `pn53x_usb` | Compiled in the application profile; not hardware-validated |
 | ACR122U | `acr122_usb` | Tested: Classic 1K keyscan, dump/restore, Gen1A UID write, Classic 1K MAD1 NDEF read/write/format, and NTAG215 page/NDEF I/O; ISO-DEP/Type 4/DESFire hardware pending |
-| ACR122U | `acr122_pcsc`, `pcsc` | Not usable for Classic on firmware 2.14; use `acr122_usb` |
-| Other PC/SC readers | `pcsc` | Planned; APDU-oriented |
+| ACR122U | `acr122_pcsc` | Compiled but not validated; open failed or timed out on the tested firmware |
+| ACR122U | `pcsc` | Selection only; PC/SC is an APDU/smart-card path, not a raw NFC transport |
+| Other PC/SC readers | `pcsc` | Selection only; APDU transport not implemented; Classic/Type 2 are out of scope |
+
+`pn53x_usb` is for NXP PN531/PN533 USB dongles, SCM SCL3711/SCL3712,
+Sony PaSoRi RC-S360, and ASK LoGO. ACR122U is `acr122_usb`, and a PN532 UART
+adapter is `pn532_uart`; neither appears as `pn53x_usb`.
+
+One ACR122U can enumerate as direct USB and two PC/SC aliases. NFC Foundry
+prefers direct USB, hides the matching PC/SC aliases, and uses one physical
+lock for every ACR122 connstring so two processes cannot claim the same reader.
 
 ## Supported cards
 
@@ -98,7 +106,7 @@ Requirements on Arch Linux:
 - Go 1.27.3 or newer;
 - MyGo's native UI dependencies (install what `mygo doctor` reports);
 - a C compiler, `pkgconf`, `make`, `autoconf`, `automake`, and `libtool`;
-- `libusb` and `pcsclite` development files if those transports are enabled.
+- `libusb-compat` and `pcsclite` development files if those transports are enabled.
 
 ```sh
 make libnfc-ng-build
@@ -131,13 +139,15 @@ nfctl recover nested|darkside|hardnested
 nfctl uid set
 nfctl diag
 nfctl keys list|add|import|export
+nfctl type2 info|read|write|dump|restore|copy|erase|lock|password
+nfctl ndef read|write
+nfctl apdu [--raw HEX]
+nfctl desfire info|apps|files|read
 ```
 
-`nfctl type2`, `nfctl ndef`, `nfctl pn532 shell`, and `nfctl apdu` arrive with
-their card/transport phases. Destructive commands require `--yes`; trailer and
-UID writes also require their specific confirmation flags. `--json` and
-`--jsonl` output is intended for scripts and CI. See
-[`docs/cli.md`](docs/cli.md) for the stable contract.
+Destructive commands require `--yes`; trailer and UID writes also require their
+specific confirmation flags. `--json` and `--jsonl` output is intended for
+scripts and CI. See [`docs/cli.md`](docs/cli.md) for the stable contract.
 
 ## Distribution
 

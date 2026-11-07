@@ -35,7 +35,7 @@ func acquireReaderLock(dir, connString string) (*readerLock, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	sum := sha256.Sum256([]byte(connString))
+	sum := sha256.Sum256([]byte(readerLockIdentity(connString)))
 	path := filepath.Join(dir, fmt.Sprintf("reader-%x.lock", sum[:16]))
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {

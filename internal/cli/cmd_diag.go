@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 func (r *Runner) cmdDiag(_ context.Context, args []string) error {
@@ -26,6 +27,7 @@ func (r *Runner) cmdDiag(_ context.Context, args []string) error {
 			}
 		}
 		r.out.humanf("libnfc-ng: %s\n", runtime)
+		r.out.humanf("drivers: %s\n", strings.Join(report.LibNFC.Drivers, ", "))
 		for _, check := range report.Engines {
 			status := "ok"
 			if !check.OK {

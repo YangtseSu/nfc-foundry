@@ -105,6 +105,9 @@ func (s *Service) WaitForCardRemoval(ctx context.Context) error {
 // catalog. It retries the other verified slot only after authentication
 // failures, never after a mutating operation.
 func (s *Service) ReadClassicBlock(ctx context.Context, block int, override *ClassicKeyOverride) (ClassicBlockResult, error) {
+	if err := s.requireClassicRead("read block"); err != nil {
+		return ClassicBlockResult{}, err
+	}
 	card, layout, candidates, err := s.classicBlockContext(block, override)
 	if err != nil {
 		return ClassicBlockResult{}, err
@@ -132,6 +135,9 @@ func (s *Service) ReadClassicBlock(ctx context.Context, block int, override *Cla
 // immediate read-back verification. Block 0 and sector trailers are rejected;
 // those paths belong to uid set and the restore workflow.
 func (s *Service) WriteClassicBlock(ctx context.Context, block int, data [nfc.BlockSize]byte, override *ClassicKeyOverride) (ClassicBlockResult, error) {
+	if err := s.requireClassicWrite("write block"); err != nil {
+		return ClassicBlockResult{}, err
+	}
 	card, layout, candidates, err := s.classicBlockContext(block, override)
 	if err != nil {
 		return ClassicBlockResult{}, err

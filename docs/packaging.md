@@ -29,13 +29,16 @@ fork; do not rely on deleting them after `make install`.
 Dependencies follow the enabled driver set:
 
 - `pn532_uart`: no extra runtime dependency beyond glibc;
-- `pn53x_usb` / `acr122_usb`: `libusb`;
+- `pn53x_usb` / `acr122_usb`: `libusb-compat` (which provides the libusb-0.1
+  API used by libnfc and depends on `libusb`);
 - `acr122_pcsc` / `pcsc`: `pcsclite`.
 
-The initial package builds the explicit profile
-`pn532_uart,pn53x_usb,acr122_usb,acr122_pcsc,pcsc`. Only `pn532_uart` is
-advertised as validated; the others are compiled but remain experimental in
-the capability matrix.
+The package builds the explicit profile
+`pn532_uart,pn53x_usb,acr122_usb,acr122_pcsc,pcsc`. The capability matrix in
+`internal/nfc` decides what each driver may claim. `pn532_uart` and
+`acr122_usb` have recorded application hardware runs; `pn53x_usb` and
+`acr122_pcsc` are compiled but unvalidated; the generic `pcsc` driver exposes
+selection only because NFC Foundry has no PC/SC-native APDU transport yet.
 
 This profile is a package/build choice. The library's own default driver set
 must remain the upstream default, and `--with-drivers=all` must continue to
@@ -72,7 +75,7 @@ Dependencies:
 
 - `glibc`;
 - `libnfc-ng`;
-- `libusb` when USB transports are enabled;
+- `libusb-compat` when USB transports are enabled;
 - `pcsclite` when PC/SC is enabled; `pcscd` is optional at runtime;
 - MyGo native runtime libraries as reported by `mygo doctor` on Arch; the
   native UI does not use WebKitGTK;
@@ -84,12 +87,15 @@ and the build-time libraries needed by `libnfc-ng`.
 ## Permissions
 
 - PN532 UART: add the user to `dialout`; do not run the app as root.
-- PN53x/ACR122 USB: ship a udev rule using `TAG+="uaccess"` or a documented
-  group; do not use world-writable `MODE="0666"`.
-- PC/SC: `pcscd` must be running. Report an actionable error if it is absent or
-  the reader is claimed by another daemon.
-- Direct USB and `pcscd` can claim the same reader. Do not run both paths
-  against one device simultaneously.
+- PN53x/ACR122 USB: install `resources/udev/70-nfc-foundry.rules` as
+  `/usr/lib/udev/rules.d/70-nfc-foundry.rules`. It grants `TAG+="uaccess"` for
+  the supported USB IDs. Do not use world-writable `MODE="0666"`.
+- PC/SC: `pcscd` must be running. An open failure names `pcscd` and the
+  competing-claim possibility.
+- Direct USB and `pcscd` can claim the same reader. Enumeration prefers direct
+  USB for an ACR122U and suppresses its PC/SC aliases, and the cross-process
+  lock treats the ACR122 USB and PC/SC connstrings as one physical reader. For
+  other readers, use one path at a time.
 
 ## GitHub CI
 
@@ -144,6 +150,8 @@ nfc-foundry-<version>-linux-amd64/
     mfoc-hardnested
     LICENSES/
     source.lock
+  udev/
+    70-nfc-foundry.rules
   LICENSES/
   NOTICE
   THIRD_PARTY_NOTICES.md

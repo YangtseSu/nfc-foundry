@@ -6,6 +6,8 @@ LIBNFC_COMMIT="c1eb612d8f6032179e6994439802db1fdca1221a"
 LIBNFC_SOURCE_URL="https://github.com/YangtseSu/libnfc-ng.git"
 LIBNFC_LICENSE="LGPL-3.0-or-later"
 LIBNFC_UTILS_LICENSE="BSD-2-Clause"
-LIBNFC_DRIVERS="pn532_uart"
+# Application build profile (not the library default): USB and PC/SC drivers
+# are compiled; the capability matrix in internal/nfc controls advertising.
+LIBNFC_DRIVERS="pn532_uart,pn53x_usb,acr122_usb,acr122_pcsc,pcsc"
 LIBNFC_PKG_CONFIG="libnfc-ng"
 LIBNFC_LIBRARY="libnfcng.so.6"

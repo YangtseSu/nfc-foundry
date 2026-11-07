@@ -147,3 +147,22 @@ func TestReaderLockRejectsOtherProcess(t *testing.T) {
 		t.Fatalf("cross-process connect error = %v; want ErrReaderLocked", err)
 	}
 }
+
+func TestACR122AliasesShareOnePhysicalLock(t *testing.T) {
+	config := testConfig(t)
+	first := device.NewManager(mock.NewEnumerator(nil, nil), func() nfc.Reader { return mock.NewReader() }, nil, config)
+	if err := first.Connect(context.Background(), "acr122_usb:001:004"); err != nil {
+		t.Fatalf("USB connect: %v", err)
+	}
+	t.Cleanup(first.Shutdown)
+
+	for _, connString := range []string{
+		"acr122_pcsc:ACS ACR122U PICC Interface 00 00",
+		"pcsc:ACS ACR122U PICC Interface 00 00",
+	} {
+		second := device.NewManager(mock.NewEnumerator(nil, nil), func() nfc.Reader { return mock.NewReader() }, nil, config)
+		if err := second.Connect(context.Background(), connString); !errors.Is(err, device.ErrReaderLocked) {
+			t.Fatalf("%s connect error = %v; want ErrReaderLocked", connString, err)
+		}
+	}
+}

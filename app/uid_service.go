@@ -25,6 +25,9 @@ type uidPreflightRecord struct {
 }
 
 func (s *Service) PreflightUIDWrite(value string) (UIDWritePreflightDTO, error) {
+	if err := s.requireClassicWrite("UID write"); err != nil {
+		return UIDWritePreflightDTO{}, err
+	}
 	s.mu.Lock()
 	operationRunning := len(s.operations) != 0
 	s.mu.Unlock()
@@ -77,6 +80,9 @@ func (s *Service) PreflightUIDWrite(value string) (UIDWritePreflightDTO, error) 
 }
 
 func (s *Service) StartUIDWrite(input UIDWriteStartRequestDTO) (TaskDTO, error) {
+	if err := s.requireClassicWrite("UID write"); err != nil {
+		return TaskDTO{}, err
+	}
 	s.mu.Lock()
 	record, exists := s.uidPreflights[input.Token]
 	if exists {

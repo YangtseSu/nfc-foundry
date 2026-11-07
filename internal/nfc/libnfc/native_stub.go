@@ -12,8 +12,8 @@ type stubNative struct{}
 
 func platformNative() nativeDriver { return stubNative{} }
 
-func platformRuntimeVersion() (string, nativeResult) {
-	return "", stubNative{}.unavailable()
+func platformRuntimeInfo() (runtimeInfo, nativeResult) {
+	return runtimeInfo{}, stubNative{}.unavailable()
 }
 
 func (stubNative) unavailable() nativeResult {

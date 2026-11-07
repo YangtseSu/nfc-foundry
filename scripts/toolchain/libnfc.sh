@@ -66,7 +66,7 @@ Commands:
   verify               Verify identity, driver set, and runtime files.
   smoke                Compile and run the env-only device enumeration smoke.
   repeatability-check  Build and verify twice in independent temporary trees.
-  hardware-smoke CONN  Enumerate one explicit pn532_uart connstring.
+  hardware-smoke CONN  Enumerate one explicit raw-capable PN53x connstring.
 
 Optional environment:
   NFCX_LIBNFC_SOURCE_DIR      Use an existing libnfc-ng checkout.
@@ -290,9 +290,9 @@ hardware_smoke() {
     return 2
   fi
   case "$connstring" in
-    pn532_uart:*) ;;
+    pn532_uart:*|pn53x_usb:*|acr122_usb:*|acr122_pcsc:*) ;;
     *)
-      echo "libnfc-ng hardware smoke: only pn532_uart connstrings are accepted in this stage" >&2
+      echo "libnfc-ng hardware smoke: use a raw-capable PN53x connstring: pn532_uart, pn53x_usb, acr122_usb, or acr122_pcsc" >&2
       return 2
       ;;
   esac

@@ -127,6 +127,22 @@ func TestPN532DeviceDTOAdvertisesSeparateAttackCapabilities(t *testing.T) {
 	if !dto.Nested || !dto.Darkside || !dto.Hardnested {
 		t.Fatalf("device DTO=%+v", dto)
 	}
+	if !dto.Known || !dto.ClassicRead || !dto.ClassicWrite || !dto.Type2Read || !dto.Type2Write || !dto.APDU {
+		t.Fatalf("device DTO lost card capabilities: %+v", dto)
+	}
+	if dto.Validation != "partial" {
+		t.Fatalf("device DTO validation = %q", dto.Validation)
+	}
+}
+
+func TestGenericPCSCDeviceDTOAdvertisesOnlySelection(t *testing.T) {
+	dto := deviceDTO(nfc.DeviceInfo{ConnString: "pcsc:ACS ACR122U PICC Interface 00 00"})
+	if !dto.Known || dto.Transport != "PC/SC" {
+		t.Fatalf("device DTO=%+v", dto)
+	}
+	if dto.ClassicRead || dto.ClassicWrite || dto.Type2Read || dto.Type2Write || dto.APDU || dto.RawBytes || dto.RawBits {
+		t.Fatalf("generic PC/SC DTO overstates support: %+v", dto)
+	}
 }
 
 func TestKeyRecoveryTaskDTOCarriesFiveStepReportWithoutKeyMaterial(t *testing.T) {

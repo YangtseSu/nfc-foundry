@@ -35,11 +35,11 @@ pkg-config name, and header prefix change. Consumers must build with
 
 ## Capabilities and safety
 
-No card or reader capability is added. The initial Arch profile compiles
-`pn532_uart,pn53x_usb,acr122_usb,acr122_pcsc,pcsc`; only `pn532_uart` is
-advertised as validated. The build disables system configuration files and
-keeps environment-variable device selection, so `LIBNFC_DEVICE` must work
-without `/etc/nfc`.
+No card or reader capability is added by this phase. The Arch profile compiles
+`pn532_uart,pn53x_usb,acr122_usb,acr122_pcsc,pcsc`; Phase 06 owns the
+per-driver capability matrix and the hardware-validation claims. The build
+disables system configuration files and keeps environment-variable device
+selection, so `LIBNFC_DEVICE` must work without `/etc/nfc`.
 
 The required `LIBNFC_DEVICE` fix removes the `CONFFILES` guard around
 `user_defined_devices` in `nfc_list_devices`.

@@ -8,7 +8,8 @@
 - A C toolchain, `pkgconf`, `make`, `autoconf`, `automake`, and `libtool`.
 - `libusb`/`pcsclite` development files for the transports being built.
 - `reuse` for license compliance.
-- A PN532 UART reader and authorized test cards for hardware work.
+- A PN532 UART reader and/or ACR122U, plus authorized test cards, for hardware
+  work. PN53x USB is compiled but has no recorded validation hardware.
 
 ## Commands
 
@@ -19,7 +20,8 @@ make test
 make build
 make check
 make libnfc-ng-hardware-smoke LIBNFC_DEVICE=pn532_uart:/dev/ttyUSB0
-make libnfc-type2-hardware-test LIBNFC_DEVICE=acr122_usb:001:005
+make libnfc-binding-hardware-smoke LIBNFC_DEVICE=acr122_usb:001:004
+make libnfc-type2-hardware-test LIBNFC_DEVICE=acr122_usb:001:004
 make libnfc-type2-protected-hardware-test LIBNFC_DEVICE=acr122_usb:001:005 \
   NFCX_HARDWARE_TYPE2_PROTECTED_CONFIRM=I_OWN_THIS_DISPOSABLE_TAG \
   NFCX_TEST_TYPE2_BACKUP_DIR=<directory> \
@@ -33,8 +35,11 @@ make libnfc-type2-protected-hardware-test LIBNFC_DEVICE=acr122_usb:001:005 \
 - `build`: native application plus the private runtime directory.
 - `check`: `go test`, `go vet`, catalogue validation, UI tests, and `reuse
   lint`.
-- `libnfc-ng-hardware-smoke`: explicit PN532 UART enumeration; never part of
-  ordinary CI.
+- `libnfc-ng-hardware-smoke`: explicit raw-capable PN53x enumeration; never
+  part of ordinary CI.
+- `libnfc-binding-hardware-smoke`: open/close lifecycle and repeated card
+  selection on the driver named by `LIBNFC_DEVICE`. The accepted drivers are
+  `pn532_uart`, `pn53x_usb`, `acr122_usb`, and `acr122_pcsc`.
 - `libnfc-type2-hardware-test`: read-only Type 2 validation by default; set
   `NFCX_HARDWARE_TYPE2_CONFIRM=I_OWN_THIS_TAG` and
   `NFCX_TEST_TYPE2_BACKUP_DIR=<directory>` to exercise NDEF write, restore,
@@ -57,14 +62,19 @@ remaining migration is:
 4. expose `nfctl` (done);
 5. port Gen1A to Go (done);
 6. add Type 2/NDEF (done);
-7. expand validated readers and add the APDU foundation.
+7. expand validated readers and add the APDU foundation (reader capability
+   matrix and profile in place; PN53x USB hardware and the PC/SC-native APDU
+   transport remain open).
 
 ## Testing
 
 Required checks:
 
 - `go test ./...` without the `libnfc` build tag;
-- `go test -tags libnfc ./...` with the development SDK;
+- `make libnfc-binding-test`, which runs `go test -tags libnfc ./...` against
+  the development SDK;
+- `make libnfc-ng-verify`, which checks that the SDK was built with the
+  application driver profile;
 - `reuse lint`;
 - `go vet ./...`;
 - CLI command tests with a mock transport;

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"strings"
 
 	"github.com/YangtseSu/nfc-foundry/app"
 )
@@ -24,6 +25,9 @@ func (r *Runner) cmdList(ctx context.Context, args []string) error {
 	}
 	for _, device := range devices {
 		r.out.humanf("%s  %s\n", device.ConnString, device.Name)
+		if capabilities := readerCapabilitySummary(device); capabilities != "" {
+			r.out.humanf("  %s\n", capabilities)
+		}
 	}
 	r.out.emit("list", "", nil, nil, result)
 	return nil
@@ -100,6 +104,9 @@ func (r *Runner) cmdCard(ctx context.Context, args []string) error {
 
 func (r *Runner) printCard(device app.DeviceDTO, card app.CardDTO) {
 	r.out.humanf("reader: %s\n", device.ConnString)
+	if capabilities := readerCapabilitySummary(device); capabilities != "" {
+		r.out.humanf("caps:   %s\n", capabilities)
+	}
 	r.out.humanf("card:   %s\n", card.Type)
 	r.out.humanf("uid:    %s\n", card.UID)
 	r.out.humanf("atqa:   %s\n", card.ATQA)
@@ -132,6 +139,60 @@ func (r *Runner) watchCards(ctx context.Context, device app.DeviceDTO) error {
 			}
 		}
 	}
+}
+
+// readerCapabilitySummary is the compact human form of the capability profile.
+func readerCapabilitySummary(device app.DeviceDTO) string {
+	parts := make([]string, 0, 6)
+	switch {
+	case device.ClassicRead && device.ClassicWrite:
+		parts = append(parts, "classic read/write")
+	case device.ClassicRead:
+		parts = append(parts, "classic read")
+	case device.ClassicWrite:
+		parts = append(parts, "classic write")
+	}
+	switch {
+	case device.Type2Read && device.Type2Write:
+		parts = append(parts, "type2 read/write")
+	case device.Type2Read:
+		parts = append(parts, "type2 read")
+	case device.Type2Write:
+		parts = append(parts, "type2 write")
+	}
+	if device.APDU {
+		parts = append(parts, "iso-dep")
+	}
+	if device.RawBits {
+		parts = append(parts, "raw bits")
+	} else if device.RawBytes {
+		parts = append(parts, "raw bytes")
+	}
+	var recovery []string
+	if device.Nested {
+		recovery = append(recovery, "nested")
+	}
+	if device.Darkside {
+		recovery = append(recovery, "darkside")
+	}
+	if device.Hardnested {
+		recovery = append(recovery, "hardnested")
+	}
+	if len(recovery) > 0 {
+		parts = append(parts, "recovery "+strings.Join(recovery, "/"))
+	}
+	switch device.Validation {
+	case "partial":
+		parts = append(parts, "partially hardware-validated")
+	case "none":
+		parts = append(parts, "not hardware-validated")
+	default:
+		parts = append(parts, "unverified profile")
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, ", ")
 }
 
 func (r *Runner) keySlotLabel(verified bool) string {

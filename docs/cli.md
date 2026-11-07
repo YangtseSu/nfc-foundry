@@ -74,8 +74,25 @@ nfctl card info
 ```
 
 `list` enumerates readers without opening one. `scan` selects one reader, waits
-for a card, and prints reader, UID, ATQA, SAK, inferred type, and recovery
-capabilities. `card info` requires a card and prints the same card facts.
+for a card, and prints reader capabilities, UID, ATQA, SAK, and inferred type.
+`card info` requires a card and prints the same facts.
+
+Both `list` and `scan` expose the reader capability profile in JSON:
+`driver`, `known`, `classicRead`, `classicWrite`, `type2Read`, `type2Write`,
+`rawBytes`, `rawBits`, `apdu`, `nested`, `darkside`, `hardnested`, and
+`validation`. Human output prints a compact capability line.
+
+An operation the selected reader cannot perform fails before any card command
+with `CodeUnsupported` (exit 4) and a message naming the missing capability.
+Examples are Classic or Type 2 on the generic `pcsc` driver, and any raw-frame
+workflow on a reader without raw support. The JSON error code remains
+`hardware` because the reader cannot provide the operation, not because the
+card failed.
+
+An ACR122U may enumerate as direct USB and two PC/SC aliases. `list` keeps the
+direct-USB entry and hides the matching PC/SC aliases. An explicitly passed
+`--device` connstring is still honored, but the cross-process lock treats all
+ACR122 connstrings as one physical reader.
 
 `scan --watch` prints appearance/removal events until interrupted. It requires
 human or `--jsonl` output; `--json` is rejected because a watch has no single

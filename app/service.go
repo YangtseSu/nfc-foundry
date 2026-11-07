@@ -299,15 +299,30 @@ func deviceDTO(info nfc.DeviceInfo) DeviceDTO {
 	if name == "" {
 		name = info.ConnString
 	}
+	capabilities := device.CapabilitiesFor(info)
+	transport := capabilities.Transport
+	if transport == "" {
+		transport = transportLabel(info.ConnString)
+	}
 	return DeviceDTO{
-		ID:         deviceID(info.ConnString),
-		Name:       name,
-		ConnString: info.ConnString,
-		Transport:  transportLabel(info.ConnString),
-		Available:  info.ConnString != "",
-		Nested:     device.CapabilitiesFor(info).Nested,
-		Darkside:   device.CapabilitiesFor(info).Darkside,
-		Hardnested: device.CapabilitiesFor(info).Hardnested,
+		ID:           deviceID(info.ConnString),
+		Name:         name,
+		ConnString:   info.ConnString,
+		Driver:       string(capabilities.Driver),
+		Transport:    transport,
+		Available:    info.ConnString != "",
+		Known:        capabilities.Known,
+		ClassicRead:  capabilities.ClassicRead,
+		ClassicWrite: capabilities.ClassicWrite,
+		Type2Read:    capabilities.Type2Read,
+		Type2Write:   capabilities.Type2Write,
+		RawBytes:     capabilities.RawBytes,
+		RawBits:      capabilities.RawBits,
+		APDU:         capabilities.APDU,
+		Nested:       capabilities.Nested,
+		Darkside:     capabilities.Darkside,
+		Hardnested:   capabilities.Hardnested,
+		Validation:   string(capabilities.Validation),
 	}
 }
 

@@ -31,17 +31,33 @@ type cgoNative struct{}
 
 func platformNative() nativeDriver { return cgoNative{} }
 
-func platformRuntimeVersion() (string, nativeResult) {
-	var output [64]C.char
-	var outputLength C.size_t
-	code := C.nfcx_runtime_version(&output[0], C.size_t(len(output)), &outputLength)
-	if code != C.NFCX_OK {
-		return "", nativeResult{code: int(code), detail: "libnfc version is unavailable"}
+func platformRuntimeInfo() (runtimeInfo, nativeResult) {
+	var output C.nfcx_runtime
+	var detail [detailBufferSize]C.char
+	var detailLength C.size_t
+	code := C.nfcx_runtime_info(
+		&output,
+		&detail[0],
+		C.size_t(len(detail)),
+		&detailLength,
+	)
+	result := cgoResult(code, &detail[0], detailLength, len(detail))
+	if result.code != nativeOK {
+		return runtimeInfo{}, result
 	}
-	if outputLength >= C.size_t(len(output)) {
-		return "", nativeResult{code: nativeInternal, detail: "libnfc returned an invalid version length"}
+	count := int(output.driver_count)
+	if count < 0 || count > int(C.NFCX_DRIVER_MAX) {
+		return runtimeInfo{}, nativeResult{code: nativeInternal, detail: "libnfc returned an invalid driver count"}
 	}
-	return C.GoStringN(&output[0], C.int(outputLength)), nativeResult{code: nativeOK}
+	drivers := make([]string, 0, count)
+	for index := 0; index < count; index++ {
+		name := C.GoString(&output.drivers[index][0])
+		if name == "" {
+			return runtimeInfo{}, nativeResult{code: nativeInternal, detail: "libnfc returned an empty driver name"}
+		}
+		drivers = append(drivers, name)
+	}
+	return runtimeInfo{version: C.GoString(&output.version[0]), drivers: drivers}, result
 }
 
 func (cgoNative) listDevices() ([]nfc.DeviceInfo, nativeResult) {

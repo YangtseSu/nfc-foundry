@@ -3,6 +3,7 @@ package desktop
 import (
 	"strings"
 
+	"github.com/YangtseSu/nfc-foundry/app"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -32,8 +33,11 @@ func (s *shell) actionBar(c *ui.Context, p palette) {
 					s.cancelActiveTask()
 				}
 			}
-			classic := s.cardPresent() && s.cardFamily() == familyClassic
-			readable := classic || s.cardPresent() && s.cardFamily() == familyType2
+			classic := s.cardPresent() && s.cardFamily() == familyClassic &&
+				s.readerSupports(func(device app.DeviceDTO) bool { return device.ClassicRead })
+			type2 := s.cardPresent() && s.cardFamily() == familyType2 &&
+				s.readerSupports(func(device app.DeviceDTO) bool { return device.Type2Read })
+			readable := classic || type2
 			if ui.Button(c, l.CommonScanKeys()).Height(32).FontSize(11).
 				Disabled(!classic || busy).Clicked() {
 				s.scanKeys()
@@ -48,6 +52,10 @@ func (s *shell) actionBar(c *ui.Context, p palette) {
 func (s *shell) actionSummary() string {
 	l := s.locales()
 	var parts []string
+	if s.cardFamily() == familyType2 && s.connected() &&
+		!s.readerSupports(func(device app.DeviceDTO) bool { return device.Type2Read }) {
+		return l.ReaderUnsupportedType2()
+	}
 	if s.cardFamily() == familyType2 {
 		if !s.type2.Loaded {
 			return l.Type2NoData()

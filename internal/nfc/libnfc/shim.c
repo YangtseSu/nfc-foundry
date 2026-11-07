@@ -65,27 +65,98 @@ static void set_detail(const char *source, char *output, size_t capacity,
   output[copied] = '\0';
 }
 
-int nfcx_runtime_version(char *output, size_t output_capacity,
-                         size_t *output_length) {
-  const char *version = nfc_version();
-  if (version == NULL || output == NULL || output_capacity == 0) {
-    if (output_length != NULL) {
-      *output_length = 0;
+// libnfc keeps its registered drivers in a process-global list. The list is
+// not part of the public API, but the fork exports the symbol and its layout is
+// stable. Read only the name field; scan_type and callbacks are not touched.
+struct nfcx_driver_min {
+  const char *name;
+};
+
+struct nfcx_driver_list_min {
+  const struct nfcx_driver_list_min *next;
+  const struct nfcx_driver_min *driver;
+};
+
+extern const struct nfcx_driver_list_min *nfc_drivers;
+
+static bool driver_names_captured = false;
+static size_t captured_driver_count = 0;
+static char captured_driver_names[NFCX_DRIVER_MAX][NFCX_DRIVER_NAME_MAX];
+static atomic_flag driver_names_lock = ATOMIC_FLAG_INIT;
+
+static void lock_driver_names(void) {
+  while (atomic_flag_test_and_set(&driver_names_lock)) {
+    // The capture is short and runs once; a spin avoids a pthread dependency.
+  }
+}
+
+static void unlock_driver_names(void) {
+  atomic_flag_clear(&driver_names_lock);
+}
+
+static void capture_driver_names(void) {
+  if (driver_names_captured) {
+    return;
+  }
+  nfc_context *context = NULL;
+  bool own_context = nfc_drivers == NULL;
+  if (own_context) {
+    nfc_init(&context);
+    if (context == NULL) {
+      return;
     }
+  }
+  size_t count = 0;
+  for (const struct nfcx_driver_list_min *node = nfc_drivers;
+       node != NULL && count < NFCX_DRIVER_MAX; node = node->next) {
+    const char *name = node->driver == NULL ? NULL : node->driver->name;
+    if (name == NULL || name[0] == '\0') {
+      continue;
+    }
+    size_t length = strlen(name);
+    if (length >= NFCX_DRIVER_NAME_MAX) {
+      continue;
+    }
+    memcpy(captured_driver_names[count], name, length + 1);
+    count++;
+  }
+  captured_driver_count = count;
+  driver_names_captured = true;
+  if (own_context) {
+    nfc_exit(context);
+  }
+}
+
+int nfcx_runtime_info(nfcx_runtime *output, char *detail,
+                      size_t detail_capacity, size_t *detail_length) {
+  if (output == NULL) {
+    set_detail("runtime info output is required", detail, detail_capacity,
+               detail_length);
     return NFCX_ERR_INVALID_ARGUMENT;
   }
-  size_t length = strlen(version);
-  if (length >= output_capacity) {
-    if (output_length != NULL) {
-      *output_length = length;
-    }
-    output[0] = '\0';
+  memset(output, 0, sizeof(*output));
+  const char *version = nfc_version();
+  if (version == NULL) {
+    set_detail("libnfc version is unavailable", detail, detail_capacity,
+               detail_length);
     return NFCX_ERR_INTERNAL;
   }
-  memcpy(output, version, length + 1);
-  if (output_length != NULL) {
-    *output_length = length;
+  size_t version_length = strlen(version);
+  if (version_length >= NFCX_DRIVER_NAME_MAX) {
+    set_detail("libnfc version exceeds the shim buffer", detail,
+               detail_capacity, detail_length);
+    return NFCX_ERR_INTERNAL;
   }
+  memcpy(output->version, version, version_length + 1);
+  lock_driver_names();
+  capture_driver_names();
+  output->driver_count = captured_driver_count;
+  for (size_t index = 0; index < captured_driver_count; ++index) {
+    memcpy(output->drivers[index], captured_driver_names[index],
+           strlen(captured_driver_names[index]) + 1);
+  }
+  unlock_driver_names();
+  set_detail(NULL, detail, detail_capacity, detail_length);
   return NFCX_OK;
 }
 

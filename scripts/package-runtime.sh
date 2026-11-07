@@ -27,6 +27,7 @@ rm -rf "$APP_ROOT"
 mkdir -p "$APP_ROOT" "$DESTINATION"
 install -m 0755 "$APP_PATH" "$APP_ROOT/nfc-foundry"
 install -m 0755 "$CLI_PATH" "$APP_ROOT/nfctl"
+install -Dm0644 "$REPO_ROOT/resources/udev/70-nfc-foundry.rules" "$APP_ROOT/udev/70-nfc-foundry.rules"
 
 for library in "$SOURCE"/libnfcng.so*; do
   [[ -e "$library" || -L "$library" ]] && cp -P "$library" "$DESTINATION/"

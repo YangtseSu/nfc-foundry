@@ -17,8 +17,11 @@ func TestRunWithoutBundledRuntimeReportsActionableFailures(t *testing.T) {
 	if report.Manifest.Found || report.Manifest.Detail == "" {
 		t.Fatalf("manifest status = %#v", report.Manifest)
 	}
-	if len(report.Engines) != 3 || len(report.LibNFC.Drivers) != 1 {
+	if len(report.Engines) != 3 {
 		t.Fatalf("report omitted runtime checks: %#v", report)
+	}
+	if len(report.SupportedReaders) == 0 {
+		t.Fatalf("report omitted validated reader profiles: %#v", report)
 	}
 	if report.Build.OS != runtime.GOOS || report.Build.Architecture != runtime.GOARCH {
 		t.Fatalf("build platform = %#v", report.Build)

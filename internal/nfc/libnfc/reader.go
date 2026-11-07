@@ -5,6 +5,7 @@ package libnfc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 
@@ -95,7 +96,7 @@ func (r *Reader) Open(ctx context.Context, connString string) error {
 				return permissionErr
 			}
 		}
-		return err
+		return wrapOpenHint(connString, err)
 	}
 	if err := contextError(ctx, "open"); err != nil {
 		_ = r.native.close(handle)
@@ -165,6 +166,9 @@ func (r *Reader) Close() error {
 // CardInfo selects one ISO/IEC 14443A target and returns copied UID, ATQA and
 // SAK values.
 func (r *Reader) CardInfo(ctx context.Context) (nfc.CardInfo, error) {
+	if err := r.requireCapability("card info", func(c nfc.ReaderCapabilities) bool { return c.SelectISO14443A }, "ISO/IEC 14443A card selection"); err != nil {
+		return nfc.CardInfo{}, err
+	}
 	handle, finish, err := r.beginOperation(ctx, "card info")
 	if err != nil {
 		return nfc.CardInfo{}, err
@@ -188,6 +192,9 @@ func (r *Reader) CardInfo(ctx context.Context) (nfc.CardInfo, error) {
 
 // Authenticate selects Key A or Key B for the sector containing block.
 func (r *Reader) Authenticate(ctx context.Context, block byte, keyType nfc.KeyType, key nfc.Key) error {
+	if err := r.requireCapability("authenticate", func(c nfc.ReaderCapabilities) bool { return c.ClassicRead }, "MIFARE Classic read operations"); err != nil {
+		return err
+	}
 	command, valid := authenticationCommand(keyType)
 	if !valid {
 		return nfc.NewError("authenticate", nfc.CodeInvalidArgument, "unknown key type", nil)
@@ -208,6 +215,9 @@ func (r *Reader) Authenticate(ctx context.Context, block byte, keyType nfc.KeyTy
 
 // ReadBlock reads one authenticated 16-byte MIFARE Classic block.
 func (r *Reader) ReadBlock(ctx context.Context, block byte) ([nfc.BlockSize]byte, error) {
+	if err := r.requireCapability("read block", func(c nfc.ReaderCapabilities) bool { return c.ClassicRead }, "MIFARE Classic read operations"); err != nil {
+		return [nfc.BlockSize]byte{}, err
+	}
 	handle, finish, err := r.beginOperation(ctx, "read block")
 	if err != nil {
 		return [nfc.BlockSize]byte{}, err
@@ -228,6 +238,9 @@ func (r *Reader) ReadBlock(ctx context.Context, block byte) ([nfc.BlockSize]byte
 // readback. Manufacturer and sector trailer blocks require separate protected
 // workflows and are rejected here.
 func (r *Reader) WriteBlock(ctx context.Context, block byte, data [nfc.BlockSize]byte) error {
+	if err := r.requireCapability("write block", func(c nfc.ReaderCapabilities) bool { return c.ClassicWrite }, "MIFARE Classic write operations"); err != nil {
+		return err
+	}
 	if block == 0 {
 		return nfc.NewError("write block", nfc.CodeInvalidArgument, "ordinary writes to manufacturer block 0 are forbidden", nil)
 	}
@@ -268,6 +281,9 @@ func (r *Reader) WriteBlock(ctx context.Context, block byte, data [nfc.BlockSize
 // the UID invalidates the selected target identity. The protected UID workflow
 // must reselect and verify the card before it reports success.
 func (r *Reader) WriteManufacturerBlock(ctx context.Context, data [nfc.BlockSize]byte) error {
+	if err := r.requireCapability("write manufacturer block", func(c nfc.ReaderCapabilities) bool { return c.ClassicWrite }, "MIFARE Classic write operations"); err != nil {
+		return err
+	}
 	handle, finish, err := r.beginOperation(ctx, "write manufacturer block")
 	if err != nil {
 		return err
@@ -289,6 +305,9 @@ func (r *Reader) WriteManufacturerBlock(ctx context.Context, data [nfc.BlockSize
 // protocols. Leaving raw mode always clears the selected card so the next
 // CardInfo performs a fresh selection.
 func (r *Reader) SetRawMode(ctx context.Context, enabled bool) error {
+	if err := r.requireCapability("set raw mode", func(c nfc.ReaderCapabilities) bool { return c.RawBytes || c.RawBits }, "raw-frame mode"); err != nil {
+		return err
+	}
 	handle, finish, err := r.beginOperation(ctx, "set raw mode")
 	if err != nil {
 		return err
@@ -305,6 +324,9 @@ func (r *Reader) SetRawMode(ctx context.Context, enabled bool) error {
 // TransceiveBytes sends one manually framed byte sequence after the caller has
 // enabled raw mode. The returned buffer is owned by Go.
 func (r *Reader) TransceiveBytes(ctx context.Context, tx []byte) ([]byte, error) {
+	if err := r.requireCapability("transceive bytes", func(c nfc.ReaderCapabilities) bool { return c.RawBytes }, "raw byte frames"); err != nil {
+		return nil, err
+	}
 	if len(tx) == 0 {
 		return nil, nfc.NewError("transceive bytes", nfc.CodeInvalidArgument, "raw frame must not be empty", nil)
 	}
@@ -324,6 +346,9 @@ func (r *Reader) TransceiveBytes(ctx context.Context, tx []byte) ([]byte, error)
 // mode. It returns the copied response bytes and the number of valid response
 // bits.
 func (r *Reader) TransceiveBits(ctx context.Context, tx []byte, txBits int) ([]byte, int, error) {
+	if err := r.requireCapability("transceive bits", func(c nfc.ReaderCapabilities) bool { return c.RawBits }, "raw bit frames"); err != nil {
+		return nil, 0, err
+	}
 	if len(tx) == 0 || txBits <= 0 || txBits > len(tx)*8 {
 		return nil, 0, nfc.NewError("transceive bits", nfc.CodeInvalidArgument, "invalid raw bit frame", nil)
 	}
@@ -345,6 +370,9 @@ func (r *Reader) TransceiveBits(ctx context.Context, tx []byte, txBits int) ([]b
 // the replacement keys. Keeping this separate preserves the ordinary write
 // API's block-0 and trailer protections.
 func (r *Reader) WriteSectorTrailer(ctx context.Context, block byte, data [nfc.BlockSize]byte) error {
+	if err := r.requireCapability("write sector trailer", func(c nfc.ReaderCapabilities) bool { return c.ClassicWrite }, "MIFARE Classic write operations"); err != nil {
+		return err
+	}
 	handle, finish, err := r.beginOperation(ctx, "write sector trailer")
 	if err != nil {
 		return err
@@ -367,6 +395,18 @@ func (r *Reader) WriteSectorTrailer(ctx context.Context, block byte, data [nfc.B
 var _ nfc.ClassicTrailerWriter = (*Reader)(nil)
 var _ nfc.ClassicManufacturerWriter = (*Reader)(nil)
 var _ nfc.RawTransceiver = (*Reader)(nil)
+
+// requireCapability rejects operations the selected driver profile does not
+// implement before any native command is sent.
+func (r *Reader) requireCapability(op string, allowed func(nfc.ReaderCapabilities) bool, feature string) error {
+	r.stateMu.Lock()
+	connString := r.device.ConnString
+	r.stateMu.Unlock()
+	if allowed(nfc.CapabilitiesFor(connString)) {
+		return nil
+	}
+	return nfc.NewError(op, nfc.CodeUnsupported, fmt.Sprintf("reader %q does not support %s", connString, feature), nil)
+}
 
 func (r *Reader) selectedLayoutForBlock(op string, block byte) (mifare.Layout, error) {
 	r.stateMu.Lock()

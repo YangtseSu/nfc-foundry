@@ -258,6 +258,9 @@ func (s *Service) WriteType4NDEF(ctx context.Context, request Type4NDEFWriteRequ
 }
 
 func (s *Service) iso14443Card() (nfc.CardInfo, error) {
+	if err := s.requireAPDU("APDU operation"); err != nil {
+		return nfc.CardInfo{}, err
+	}
 	snapshot := s.deviceManager.Snapshot()
 	if snapshot.Card == nil {
 		return nfc.CardInfo{}, ErrCardRequired

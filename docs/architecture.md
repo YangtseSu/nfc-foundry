@@ -7,7 +7,7 @@ and two presentation surfaces: the MyGo native GUI and the `nfctl` CLI.
 MyGo native GUI            nfctl CLI
         \                    /
          Go application services
-         |-- device manager and lock
+         |-- device manager, reader capability profiles, and lock
          |-- card-family modules
          |-- dump/restore and write safety
          `-- external engine adapters
@@ -47,6 +47,7 @@ stable error codes, never libnfc pointers. It provides:
 The core is independent of the GUI and process execution:
 
 - `Reader`/`Transport` interfaces for device access;
+- per-driver capability profiles that gate operations before hardware access;
 - card-family modules (Classic with the in-process Gen1A sequence and MAD-based
   NDEF, Type 2/NTAG with NDEF, ISO14443-4/Type 4/DESFire read, FeliCa);
 - dump/restore validation, key catalog, key scan, recovery orchestration;
@@ -65,8 +66,10 @@ The GUI and CLI call this layer. They do not perform NFC I/O themselves.
 
 One process owns a reader at a time. Within the application, one global device
 manager serialises the GUI, CLI, polling, and external engines. Across
-processes, use a lock file keyed by the exact connstring so a CLI command and
-the GUI cannot open the same reader concurrently.
+processes, a lock file prevents a CLI command and the GUI from opening the same
+reader concurrently. The lock is keyed by the exact connstring, except for
+ACR122 readers: direct USB, `acr122_pcsc`, and an ACR122-named `pcsc` entry are
+one physical reader and share one lock identity.
 
 External engine handoff:
 
@@ -81,6 +84,23 @@ External engine handoff:
 
 Native Gen1A writing does not use this handoff. It stays in-process through the
 raw shim API.
+
+## Reader capability model
+
+The application compiles the profile
+`pn532_uart,pn53x_usb,acr122_usb,acr122_pcsc,pcsc`. Every known driver has an
+explicit capability profile: enumerate, ISO14443A select, Classic read/write,
+Type 2 read/write, raw bytes, raw bits, ISO-DEP/APDU, recovery-engine support,
+and a validation level.
+
+A compiled driver is not a validated reader. A known driver that lacks an
+operation returns `CodeUnsupported` before a native command, and the GUI/CLI
+surface that boundary instead of reporting a card or hardware failure. Raw
+capability is not sufficient to advertise an external recovery engine; those
+remain PN532 UART-only until validated elsewhere.
+
+Enumeration prefers direct ACR122 USB and suppresses its PC/SC aliases. An
+explicitly passed connstring is still honored.
 
 ## Card-family model
 

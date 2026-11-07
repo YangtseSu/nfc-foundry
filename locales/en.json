@@ -178,6 +178,13 @@
   "capNested": "Nested",
   "capDarkside": "Darkside",
   "capHardnested": "Hardnested",
+  "capClassic": "Classic",
+  "capType2": "Type 2",
+  "capISODEP": "ISO-DEP",
+  "capRawBits": "Raw bits",
+  "capExperimental": "Experimental",
+  "capUnverified": "Unverified profile",
+  "readerUnsupportedType2": "The selected reader cannot perform Type 2 page operations. Use a PN53x reader.",
   "@classicSubtitle": {
     "placeholders": {
       "blocks": {

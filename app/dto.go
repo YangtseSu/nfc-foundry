@@ -11,16 +11,27 @@ type DashboardDTO struct {
 	Actions        []ActionDTO    `json:"actions"`
 }
 
-// DeviceDTO describes a reader without exposing a future Reader implementation.
+// DeviceDTO describes a reader and its explicit capability profile without
+// exposing a future Reader implementation.
 type DeviceDTO struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	ConnString string `json:"connString"`
-	Transport  string `json:"transport"`
-	Available  bool   `json:"available"`
-	Nested     bool   `json:"nested"`
-	Darkside   bool   `json:"darkside"`
-	Hardnested bool   `json:"hardnested"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	ConnString   string `json:"connString"`
+	Driver       string `json:"driver"`
+	Transport    string `json:"transport"`
+	Available    bool   `json:"available"`
+	Known        bool   `json:"known"`
+	ClassicRead  bool   `json:"classicRead"`
+	ClassicWrite bool   `json:"classicWrite"`
+	Type2Read    bool   `json:"type2Read"`
+	Type2Write   bool   `json:"type2Write"`
+	RawBytes     bool   `json:"rawBytes"`
+	RawBits      bool   `json:"rawBits"`
+	APDU         bool   `json:"apdu"`
+	Nested       bool   `json:"nested"`
+	Darkside     bool   `json:"darkside"`
+	Hardnested   bool   `json:"hardnested"`
+	Validation   string `json:"validation"`
 }
 
 // ConnectionDTO contains the reader connection summary shown in the shell.

@@ -666,6 +666,27 @@ func (s *shell) selectedDevice() (app.DeviceDTO, bool) {
 	return app.DeviceDTO{}, false
 }
 
+// readerSupports reports whether the selected or connected reader advertises
+// an operation. Without a reader device the check does not block offline work.
+func (s *shell) readerSupports(allowed func(app.DeviceDTO) bool) bool {
+	device, ok := s.readerDevice()
+	if !ok || !device.Known {
+		return true
+	}
+	return allowed(device)
+}
+
+func (s *shell) readerDevice() (app.DeviceDTO, bool) {
+	if s.connectedConn != "" {
+		for _, device := range s.devices {
+			if device.ConnString == s.connectedConn {
+				return device, true
+			}
+		}
+	}
+	return s.selectedDevice()
+}
+
 func (s *shell) connected() bool {
 	if s.connectedConn == "" {
 		return false

@@ -14,15 +14,36 @@ import (
 	"github.com/YangtseSu/nfc-foundry/internal/nfc/mock"
 )
 
-func TestNestedCapabilityIsExplicitlyLimitedToPN532UART(t *testing.T) {
-	capabilities := device.CapabilitiesFor(nfc.DeviceInfo{ConnString: "pn532_uart:/dev/test"})
-	if !capabilities.Nested || !capabilities.Darkside || !capabilities.Hardnested {
-		t.Fatal("pn532_uart should be enabled for the validated Nested, Darkside, and Hardnested profile")
+func TestCapabilitiesFollowTheReaderProfile(t *testing.T) {
+	for _, conn := range []string{
+		"pn532_uart:/dev/test",
+		"pn53x_usb:001:002",
+		"acr122_usb:001:004",
+		"acr122_pcsc:test",
+	} {
+		capabilities := device.CapabilitiesFor(nfc.DeviceInfo{ConnString: conn})
+		if !capabilities.SupportsClassic() || !capabilities.SupportsType2() || !capabilities.RawBits {
+			t.Fatalf("raw-capable profile %q lost card capabilities", conn)
+		}
 	}
-	for _, conn := range []string{"acr122_pcsc:test", "pn53x_usb:001:002", "unknown:test", ""} {
+	pn532 := device.CapabilitiesFor(nfc.DeviceInfo{ConnString: "pn532_uart:/dev/test"})
+	if !pn532.Nested || !pn532.Darkside || !pn532.Hardnested {
+		t.Fatalf("PN532 UART lost recovery capabilities: %#v", pn532)
+	}
+	for _, conn := range []string{"pn53x_usb:001:002", "acr122_usb:001:004", "acr122_pcsc:test", "unknown:test", ""} {
 		capabilities := device.CapabilitiesFor(nfc.DeviceInfo{ConnString: conn})
 		if capabilities.Nested || capabilities.Darkside || capabilities.Hardnested {
-			t.Fatalf("unexpected attack capability for %q", conn)
+			t.Fatalf("unvalidated recovery profile for %q: %#v", conn, capabilities)
+		}
+	}
+	pcsc := device.CapabilitiesFor(nfc.DeviceInfo{ConnString: "pcsc:ACS ACR122U 00 00"})
+	if pcsc.SupportsClassic() || pcsc.SupportsType2() || pcsc.RawBits || pcsc.APDU {
+		t.Fatalf("generic PC/SC profile overstates support: %#v", pcsc)
+	}
+	for _, conn := range []string{"unknown:test", ""} {
+		capabilities := device.CapabilitiesFor(nfc.DeviceInfo{ConnString: conn})
+		if capabilities.Known {
+			t.Fatalf("unclassified reader %q was reported as a known profile", conn)
 		}
 	}
 }

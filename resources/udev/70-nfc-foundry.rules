@@ -1,0 +1,18 @@
+# Direct USB access for the PN53x and ACR122 drivers.
+#
+# PC/SC readers are normally opened through pcscd, which runs as root. These
+# rules grant the active desktop session access to the same hardware for the
+# acr122_usb and pn53x_usb backends. Do not replace uaccess with world-writable
+# permissions.
+
+ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="072f", ATTR{idProduct}=="2200", TAG+="uaccess"
+ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="072f", ATTR{idProduct}=="90cc", TAG+="uaccess"
+ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="072f", ATTR{idProduct}=="2214", TAG+="uaccess"
+
+ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="04cc", ATTR{idProduct}=="0531", TAG+="uaccess"
+ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="04cc", ATTR{idProduct}=="2533", TAG+="uaccess"
+ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="04e6", ATTR{idProduct}=="5591", TAG+="uaccess"
+ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="04e6", ATTR{idProduct}=="5594", TAG+="uaccess"
+ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="054c", ATTR{idProduct}=="0193", TAG+="uaccess"
+ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="054c", ATTR{idProduct}=="02e1", TAG+="uaccess"
+ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="1fd3", ATTR{idProduct}=="0608", TAG+="uaccess"

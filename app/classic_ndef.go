@@ -92,6 +92,9 @@ type ClassicNDEFFormatPreviewDTO struct {
 
 // ReadClassicNDEF reads and validates the Classic NDEF mapping.
 func (s *Service) ReadClassicNDEF(ctx context.Context) (ClassicNDEFDTO, error) {
+	if err := s.requireClassicRead("read Classic NDEF"); err != nil {
+		return ClassicNDEFDTO{}, err
+	}
 	card, layout, err := s.classicNDEFCard()
 	if err != nil {
 		return ClassicNDEFDTO{}, err
@@ -126,6 +129,9 @@ func (s *Service) StartClassicNDEFRead() (TaskDTO, error) {
 
 // WriteClassicNDEF writes one message to an existing Classic NDEF application.
 func (s *Service) WriteClassicNDEF(ctx context.Context, request ClassicNDEFWriteRequestDTO) (ClassicNDEFWriteResultDTO, error) {
+	if err := s.requireClassicWrite("write Classic NDEF"); err != nil {
+		return ClassicNDEFWriteResultDTO{}, err
+	}
 	card, layout, err := s.classicNDEFCard()
 	if err != nil {
 		return ClassicNDEFWriteResultDTO{}, err
@@ -145,6 +151,9 @@ func (s *Service) WriteClassicNDEF(ctx context.Context, request ClassicNDEFWrite
 
 // PreviewClassicNDEFFormat validates a formatting range without writing.
 func (s *Service) PreviewClassicNDEFFormat(sectors []int) (ClassicNDEFFormatPreviewDTO, error) {
+	if err := s.requireClassicRead("preview Classic NDEF format"); err != nil {
+		return ClassicNDEFFormatPreviewDTO{}, err
+	}
 	card, layout, err := s.classicNDEFCard()
 	if err != nil {
 		return ClassicNDEFFormatPreviewDTO{}, err
@@ -172,6 +181,9 @@ func (s *Service) PreviewClassicNDEFFormat(sectors []int) (ClassicNDEFFormatPrev
 
 // FormatClassicNDEF initializes a Classic NDEF application.
 func (s *Service) FormatClassicNDEF(ctx context.Context, request ClassicNDEFFormatRequestDTO) (ClassicNDEFWriteResultDTO, error) {
+	if err := s.requireClassicWrite("format Classic NDEF"); err != nil {
+		return ClassicNDEFWriteResultDTO{}, err
+	}
 	card, layout, err := s.classicNDEFCard()
 	if err != nil {
 		return ClassicNDEFWriteResultDTO{}, err

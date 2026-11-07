@@ -117,26 +117,26 @@ libnfc-binding-test:
 
 libnfc-binding-hardware-smoke:
 	@test -n "$(LIBNFC_DEVICE)" || (echo "LIBNFC_DEVICE is required, for example pn532_uart:/dev/ttyUSB0" >&2; exit 2)
-	@case "$(LIBNFC_DEVICE)" in pn532_uart:*) ;; *) echo "only a pn532_uart connstring is accepted in this stage" >&2; exit 2 ;; esac
+	@case "$(LIBNFC_DEVICE)" in pn532_uart:*|pn53x_usb:*|acr122_usb:*|acr122_pcsc:*) ;; *) echo "use a raw-capable PN53x connstring: pn532_uart, pn53x_usb, acr122_usb, or acr122_pcsc" >&2; exit 2 ;; esac
 	@test -f "$(LIBNFC_SDK_DIR)/lib/pkgconfig/libnfc-ng.pc" || (echo "libnfc-ng SDK is missing; run make libnfc-ng-build first" >&2; exit 2)
 	env $(NATIVE_ENV) LIBNFC_DEVICE="$(LIBNFC_DEVICE)" LIBNFC_AUTO_SCAN=false LIBNFC_INTRUSIVE_SCAN=false $(GO) test -count=1 -timeout=10m -tags "$(NATIVE_TAGS) libnfc_hardware" ./internal/nfc/libnfc
 
 libnfc-classic-hardware-test:
 	@test -n "$(LIBNFC_DEVICE)" || (echo "LIBNFC_DEVICE is required, for example pn532_uart:/dev/ttyUSB0" >&2; exit 2)
-	@case "$(LIBNFC_DEVICE)" in pn532_uart:*) ;; *) echo "only a pn532_uart connstring is accepted in this stage" >&2; exit 2 ;; esac
+	@case "$(LIBNFC_DEVICE)" in pn532_uart:*|pn53x_usb:*|acr122_usb:*|acr122_pcsc:*) ;; *) echo "use a raw-capable PN53x connstring: pn532_uart, pn53x_usb, acr122_usb, or acr122_pcsc" >&2; exit 2 ;; esac
 	@test -f "$(LIBNFC_SDK_DIR)/lib/pkgconfig/libnfc-ng.pc" || (echo "libnfc-ng SDK is missing; run make libnfc-ng-build first" >&2; exit 2)
 	env $(NATIVE_ENV) LIBNFC_DEVICE="$(LIBNFC_DEVICE)" LIBNFC_AUTO_SCAN=false LIBNFC_INTRUSIVE_SCAN=false $(GO) test -count=1 -timeout=2m -run '^TestHardwareMIFAREClassicKnownKeyIO$$' -tags "$(NATIVE_TAGS) libnfc_hardware" ./internal/nfc/libnfc
 
 libnfc-dump-hardware-test:
 	@test -n "$(LIBNFC_DEVICE)" || (echo "LIBNFC_DEVICE is required, for example pn532_uart:/dev/ttyUSB0" >&2; exit 2)
-	@case "$(LIBNFC_DEVICE)" in pn532_uart:*) ;; *) echo "only a pn532_uart connstring is accepted in this stage" >&2; exit 2 ;; esac
+	@case "$(LIBNFC_DEVICE)" in pn532_uart:*|pn53x_usb:*|acr122_usb:*|acr122_pcsc:*) ;; *) echo "use a raw-capable PN53x connstring: pn532_uart, pn53x_usb, acr122_usb, or acr122_pcsc" >&2; exit 2 ;; esac
 	@test -n "$(NFCX_TEST_DUMP_PATH)" || (echo "NFCX_TEST_DUMP_PATH is required so the dump is preserved" >&2; exit 2)
 	@test -f "$(LIBNFC_SDK_DIR)/lib/pkgconfig/libnfc-ng.pc" || (echo "libnfc-ng SDK is missing; run make libnfc-ng-build first" >&2; exit 2)
 	env $(NATIVE_ENV) LIBNFC_DEVICE="$(LIBNFC_DEVICE)" LIBNFC_AUTO_SCAN=false LIBNFC_INTRUSIVE_SCAN=false NFCX_WORKFLOW_HARDWARE=1 NFCX_TEST_DUMP_PATH="$(NFCX_TEST_DUMP_PATH)" NFCX_TEST_KEY_A="$(NFCX_TEST_KEY_A)" NFCX_TEST_KEY_B="$(NFCX_TEST_KEY_B)" $(GO) test -v -count=1 -timeout=10m -run '^TestHardwareMIFAREClassicDumpRestore$$' -tags "$(NATIVE_TAGS) libnfc_hardware" ./internal/workflow
 
 libnfc-dump-restore-hardware-test:
 	@test -n "$(LIBNFC_DEVICE)" || (echo "LIBNFC_DEVICE is required, for example pn532_uart:/dev/ttyUSB0" >&2; exit 2)
-	@case "$(LIBNFC_DEVICE)" in pn532_uart:*) ;; *) echo "only a pn532_uart connstring is accepted in this stage" >&2; exit 2 ;; esac
+	@case "$(LIBNFC_DEVICE)" in pn532_uart:*|pn53x_usb:*|acr122_usb:*|acr122_pcsc:*) ;; *) echo "use a raw-capable PN53x connstring: pn532_uart, pn53x_usb, acr122_usb, or acr122_pcsc" >&2; exit 2 ;; esac
 	@test "$(NFCX_HARDWARE_RESTORE_CONFIRM)" = "I_OWN_THIS_CARD" || (echo "set NFCX_HARDWARE_RESTORE_CONFIRM=I_OWN_THIS_CARD to authorize the full-card restore test" >&2; exit 2)
 	@test -n "$(NFCX_TEST_DUMP_PATH)" || (echo "NFCX_TEST_DUMP_PATH is required so the recovery dump is preserved" >&2; exit 2)
 	@test -f "$(LIBNFC_SDK_DIR)/lib/pkgconfig/libnfc-ng.pc" || (echo "libnfc-ng SDK is missing; run make libnfc-ng-build first" >&2; exit 2)
@@ -144,7 +144,7 @@ libnfc-dump-restore-hardware-test:
 
 libnfc-gen1a-hardware-test:
 	@test -n "$(LIBNFC_DEVICE)" || (echo "LIBNFC_DEVICE is required, for example acr122_usb:001:005" >&2; exit 2)
-	@case "$(LIBNFC_DEVICE)" in pn532_uart:*|pn53x_usb:*|acr122_usb:*) ;; *) echo "use a raw-capable PN53x connstring: pn532_uart, pn53x_usb, or acr122_usb" >&2; exit 2 ;; esac
+	@case "$(LIBNFC_DEVICE)" in pn532_uart:*|pn53x_usb:*|acr122_usb:*|acr122_pcsc:*) ;; *) echo "use a raw-capable PN53x connstring: pn532_uart, pn53x_usb, acr122_usb, or acr122_pcsc" >&2; exit 2 ;; esac
 	@test "$(NFCX_HARDWARE_GEN1A_CONFIRM)" = "I_OWN_THIS_CARD" || (echo "set NFCX_HARDWARE_GEN1A_CONFIRM=I_OWN_THIS_CARD to authorize the Gen1A UID write test" >&2; exit 2)
 	@test -n "$(NFCX_TEST_UID)" || (echo "NFCX_TEST_UID is required; use 8 hexadecimal digits" >&2; exit 2)
 	@test -n "$(NFCX_TEST_UID_BACKUP_DIR)" || (echo "NFCX_TEST_UID_BACKUP_DIR is required so the block 0 backup survives the test" >&2; exit 2)
@@ -153,19 +153,19 @@ libnfc-gen1a-hardware-test:
 
 libnfc-type2-hardware-test:
 	@test -n "$(LIBNFC_DEVICE)" || (echo "LIBNFC_DEVICE is required, for example acr122_usb:001:005" >&2; exit 2)
-	@case "$(LIBNFC_DEVICE)" in pn532_uart:*|pn53x_usb:*|acr122_usb:*) ;; *) echo "use a raw-capable PN53x connstring: pn532_uart, pn53x_usb, or acr122_usb" >&2; exit 2 ;; esac
+	@case "$(LIBNFC_DEVICE)" in pn532_uart:*|pn53x_usb:*|acr122_usb:*|acr122_pcsc:*) ;; *) echo "use a raw-capable PN53x connstring: pn532_uart, pn53x_usb, acr122_usb, or acr122_pcsc" >&2; exit 2 ;; esac
 	@test -f "$(LIBNFC_SDK_DIR)/lib/pkgconfig/libnfc-ng.pc" || (echo "libnfc-ng SDK is missing; run make libnfc-ng-build first" >&2; exit 2)
 	env $(NATIVE_ENV) LIBNFC_DEVICE="$(LIBNFC_DEVICE)" LIBNFC_AUTO_SCAN=false LIBNFC_INTRUSIVE_SCAN=false NFCX_WORKFLOW_HARDWARE=1 NFCX_HARDWARE_TYPE2_CONFIRM="$(NFCX_HARDWARE_TYPE2_CONFIRM)" NFCX_TEST_TYPE2_BACKUP_DIR="$(NFCX_TEST_TYPE2_BACKUP_DIR)" NFCX_TEST_TYPE2_PWD="$(NFCX_TEST_TYPE2_PWD)" $(GO) test -v -count=1 -timeout=10m -run '^TestHardwareType2ReadWrite$$' -tags "$(NATIVE_TAGS) libnfc_hardware" ./internal/workflow
 
 libnfc-apdu-hardware-test:
 	@test -n "$(LIBNFC_DEVICE)" || (echo "LIBNFC_DEVICE is required, for example acr122_usb:001:004" >&2; exit 2)
-	@case "$(LIBNFC_DEVICE)" in pn532_uart:*|acr122_usb:*) ;; *) echo "use a validated connstring: pn532_uart or acr122_usb" >&2; exit 2 ;; esac
+	@case "$(LIBNFC_DEVICE)" in pn532_uart:*|pn53x_usb:*|acr122_usb:*|acr122_pcsc:*) ;; *) echo "use a raw-capable PN53x connstring: pn532_uart, pn53x_usb, acr122_usb, or acr122_pcsc" >&2; exit 2 ;; esac
 	@test -f "$(LIBNFC_SDK_DIR)/lib/pkgconfig/libnfc-ng.pc" || (echo "libnfc-ng SDK is missing; run make libnfc-ng-build first" >&2; exit 2)
 	env $(NATIVE_ENV) LIBNFC_DEVICE="$(LIBNFC_DEVICE)" LIBNFC_AUTO_SCAN=false LIBNFC_INTRUSIVE_SCAN=false NFCX_WORKFLOW_HARDWARE=1 NFCX_HARDWARE_DESFIRE_CONFIRM="$(NFCX_HARDWARE_DESFIRE_CONFIRM)" NFCX_HARDWARE_TYPE4_CONFIRM="$(NFCX_HARDWARE_TYPE4_CONFIRM)" NFCX_HARDWARE_TYPE4_WRITE="$(NFCX_HARDWARE_TYPE4_WRITE)" NFCX_TEST_TYPE4_BACKUP_DIR="$(NFCX_TEST_TYPE4_BACKUP_DIR)" $(GO) test -v -count=1 -timeout=10m -run '^TestHardware(ISODEP|DESFireRead|Type4NDEF)$$' -tags "$(NATIVE_TAGS) libnfc_hardware" ./internal/workflow
 
 libnfc-classic-ndef-hardware-test:
 	@test -n "$(LIBNFC_DEVICE)" || (echo "LIBNFC_DEVICE is required, for example acr122_usb:001:004" >&2; exit 2)
-	@case "$(LIBNFC_DEVICE)" in pn532_uart:*|acr122_usb:*) ;; *) echo "use a validated Classic connstring: pn532_uart or acr122_usb" >&2; exit 2 ;; esac
+	@case "$(LIBNFC_DEVICE)" in pn532_uart:*|pn53x_usb:*|acr122_usb:*|acr122_pcsc:*) ;; *) echo "use a raw-capable PN53x connstring: pn532_uart, pn53x_usb, acr122_usb, or acr122_pcsc" >&2; exit 2 ;; esac
 	@test "$(NFCX_HARDWARE_CLASSIC_NDEF_CONFIRM)" = "I_OWN_THIS_CARD" || (echo "set NFCX_HARDWARE_CLASSIC_NDEF_CONFIRM=I_OWN_THIS_CARD to write the test card" >&2; exit 2)
 	@test -n "$(NFCX_TEST_CLASSIC_NDEF_BACKUP_DIR)" || (echo "NFCX_TEST_CLASSIC_NDEF_BACKUP_DIR is required so the backup survives the test" >&2; exit 2)
 	@test -f "$(LIBNFC_SDK_DIR)/lib/pkgconfig/libnfc-ng.pc" || (echo "libnfc-ng SDK is missing; run make libnfc-ng-build first" >&2; exit 2)
@@ -173,7 +173,7 @@ libnfc-classic-ndef-hardware-test:
 
 libnfc-type2-protected-hardware-test:
 	@test -n "$(LIBNFC_DEVICE)" || (echo "LIBNFC_DEVICE is required, for example acr122_usb:001:005" >&2; exit 2)
-	@case "$(LIBNFC_DEVICE)" in pn532_uart:*|pn53x_usb:*|acr122_usb:*) ;; *) echo "use a raw-capable PN53x connstring: pn532_uart, pn53x_usb, or acr122_usb" >&2; exit 2 ;; esac
+	@case "$(LIBNFC_DEVICE)" in pn532_uart:*|pn53x_usb:*|acr122_usb:*|acr122_pcsc:*) ;; *) echo "use a raw-capable PN53x connstring: pn532_uart, pn53x_usb, acr122_usb, or acr122_pcsc" >&2; exit 2 ;; esac
 	@test -f "$(LIBNFC_SDK_DIR)/lib/pkgconfig/libnfc-ng.pc" || (echo "libnfc-ng SDK is missing; run make libnfc-ng-build first" >&2; exit 2)
 	@test "$(NFCX_HARDWARE_TYPE2_PROTECTED_CONFIRM)" = "I_OWN_THIS_DISPOSABLE_TAG" || (echo "set NFCX_HARDWARE_TYPE2_PROTECTED_CONFIRM=I_OWN_THIS_DISPOSABLE_TAG for a disposable tag" >&2; exit 2)
 	@test -n "$(NFCX_TEST_TYPE2_BACKUP_DIR)" || (echo "NFCX_TEST_TYPE2_BACKUP_DIR is required so the protected backup survives the test" >&2; exit 2)

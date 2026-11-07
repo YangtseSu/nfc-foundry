@@ -1830,6 +1830,76 @@ func (msgs Messages) CapHardnested() string {
 	return Catalog.Format(msgs.locale, "capHardnested", nil)
 }
 
+// CapClassic says "Classic"
+// in the language the app shows.
+func CapClassic() string { return In(i18n.Locale()).CapClassic() }
+
+// CapClassic says "Classic"
+// in the language of msgs.
+func (msgs Messages) CapClassic() string {
+	return Catalog.Format(msgs.locale, "capClassic", nil)
+}
+
+// CapType2 says "Type 2"
+// in the language the app shows.
+func CapType2() string { return In(i18n.Locale()).CapType2() }
+
+// CapType2 says "Type 2"
+// in the language of msgs.
+func (msgs Messages) CapType2() string {
+	return Catalog.Format(msgs.locale, "capType2", nil)
+}
+
+// CapISODEP says "ISO-DEP"
+// in the language the app shows.
+func CapISODEP() string { return In(i18n.Locale()).CapISODEP() }
+
+// CapISODEP says "ISO-DEP"
+// in the language of msgs.
+func (msgs Messages) CapISODEP() string {
+	return Catalog.Format(msgs.locale, "capISODEP", nil)
+}
+
+// CapRawBits says "Raw bits"
+// in the language the app shows.
+func CapRawBits() string { return In(i18n.Locale()).CapRawBits() }
+
+// CapRawBits says "Raw bits"
+// in the language of msgs.
+func (msgs Messages) CapRawBits() string {
+	return Catalog.Format(msgs.locale, "capRawBits", nil)
+}
+
+// CapExperimental says "Experimental"
+// in the language the app shows.
+func CapExperimental() string { return In(i18n.Locale()).CapExperimental() }
+
+// CapExperimental says "Experimental"
+// in the language of msgs.
+func (msgs Messages) CapExperimental() string {
+	return Catalog.Format(msgs.locale, "capExperimental", nil)
+}
+
+// CapUnverified says "Unverified profile"
+// in the language the app shows.
+func CapUnverified() string { return In(i18n.Locale()).CapUnverified() }
+
+// CapUnverified says "Unverified profile"
+// in the language of msgs.
+func (msgs Messages) CapUnverified() string {
+	return Catalog.Format(msgs.locale, "capUnverified", nil)
+}
+
+// ReaderUnsupportedType2 says "The selected reader cannot perform Type 2 page operations. Use a PN53x reader."
+// in the language the app shows.
+func ReaderUnsupportedType2() string { return In(i18n.Locale()).ReaderUnsupportedType2() }
+
+// ReaderUnsupportedType2 says "The selected reader cannot perform Type 2 page operations. Use a PN53x reader."
+// in the language of msgs.
+func (msgs Messages) ReaderUnsupportedType2() string {
+	return Catalog.Format(msgs.locale, "readerUnsupportedType2", nil)
+}
+
 // TopDump says "Dump"
 // in the language the app shows.
 func TopDump() string { return In(i18n.Locale()).TopDump() }
