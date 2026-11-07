@@ -17,6 +17,7 @@ Status legend: `done`, `in progress`, `pending`, `conditional`.
 | 05f | NDEF UX and format completion | pending |
 | 05g | NDEF on MIFARE Classic | pending |
 | 05h | Magic Type 2 UID/backdoor operations | pending |
+| 05i | NTAG copy and lifecycle operations | pending |
 | 06 | Reader expansion and capability matrix | pending |
 | 07 | ISO14443-4 APDU and DESFire read | pending |
 | 08 | FeliCa / Type 3 NDEF scope | conditional |
