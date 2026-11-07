@@ -9,10 +9,7 @@ import (
 	"testing"
 
 	"github.com/YangtseSu/nfc-foundry/internal/keys"
-	"github.com/YangtseSu/nfc-foundry/internal/mifare"
 	"github.com/YangtseSu/nfc-foundry/internal/nfc"
-	"github.com/YangtseSu/nfc-foundry/internal/workbench"
-	"github.com/YangtseSu/nfc-foundry/internal/workflow"
 )
 
 type fixedDialogs struct {
@@ -114,34 +111,5 @@ func TestImportReportsInvalidAndDuplicateLinesAndExportIsExplicit(t *testing.T) 
 	}
 	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("exported dictionary permissions = %o", info.Mode().Perm())
-	}
-}
-
-func TestLoadDumpRestoresCardScopedVerifiedKeys(t *testing.T) {
-	directory := t.TempDir()
-	path := filepath.Join(directory, "card.nfc-foundry.json")
-	image, err := mifare.NewDump(mifare.Classic1K)
-	if err != nil {
-		t.Fatal(err)
-	}
-	card := nfc.CardInfo{UID: []byte{1, 2, 3, 4}, ATQA: [2]byte{0, 4}, SAK: 8}
-	key := nfc.Key{1, 2, 3, 4, 5, 6}
-	result := workflow.DumpResult{
-		Dump: image, Card: card,
-		Keys: []workflow.VerifiedSectorKeys{{Sector: 0, KeyA: &key}},
-	}
-	if err := workflow.SaveDumpProject(path, result); err != nil {
-		t.Fatal(err)
-	}
-	service := &Service{
-		emitter: noopEmitter{}, keyStore: keys.NewStore(), bench: workbench.New(),
-		dialogs: fixedDialogs{open: path},
-	}
-	if _, err := service.LoadDump(false); err != nil {
-		t.Fatal(err)
-	}
-	matches := service.keyStore.Verified(keys.CardID(card))
-	if len(matches) != 1 || matches[0].Sector != 0 || matches[0].KeyType != nfc.KeyTypeA {
-		t.Fatalf("verified keys after load = %+v", matches)
 	}
 }

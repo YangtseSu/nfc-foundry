@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/YangtseSu/nfc-foundry/internal/device"
+	"github.com/YangtseSu/nfc-foundry/internal/keys"
 	"github.com/YangtseSu/nfc-foundry/internal/mifare"
 	"github.com/YangtseSu/nfc-foundry/internal/nfc"
 	"github.com/YangtseSu/nfc-foundry/internal/nfc/mock"
@@ -167,7 +168,26 @@ func newClassicWriteAppService(t *testing.T, backupRoot string) (*Service, *Bind
 	if _, err := service.LoadDumpFile(path, true); err != nil {
 		t.Fatal(err)
 	}
+	seedVerifiedDumpKeys(t, service, fixture.card, result.Keys)
 	return service, NewBindings(service), fixture, recorder, path
+}
+
+func seedVerifiedDumpKeys(t *testing.T, service *Service, card nfc.CardInfo, entries []workflow.VerifiedSectorKeys) {
+	t.Helper()
+	cardID := keys.CardID(card)
+	for _, sector := range entries {
+		for _, candidate := range []struct {
+			kind nfc.KeyType
+			key  *nfc.Key
+		}{{nfc.KeyTypeA, sector.KeyA}, {nfc.KeyTypeB, sector.KeyB}} {
+			if candidate.key == nil {
+				continue
+			}
+			if _, err := service.keyStore.MergeVerified(cardID, sector.Sector, candidate.kind, *candidate.key, keys.SourceReadContext); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 }
 
 func TestClassicBlockPreflightWritesOnlySelectedBlock(t *testing.T) {

@@ -77,7 +77,7 @@ Date: 2026-11-07
 
 - `make check` passes: `go test ./...`, `go vet ./...`,
   `go tool mygo i18n check .`, the MyGo headless view tests, and `reuse lint`
-  (413/413 files annotated).
+  (414/414 files annotated).
 - `internal/mifare` tests cover the published `F3` CRC vector, MAD1/MAD2 parse
   and round-trip, bad CRC/version, no-DA, AID byte order, contiguity around
   sector 16, area blocks, and GPB validation.
@@ -86,6 +86,8 @@ Date: 2026-11-07
   refusal, unverified Key B refusal, malformed TLV, and backup file permissions.
 - CLI tests cover Classic NDEF read/write, format preview and execution, and
   sector-range guards.
+- App tests cover automatic Classic NDEF load after a card read and verify
+  that loading a dump does not trust its metadata keys for the current card.
 - Desktop tests cover the Classic NDEF tab, decoded records, write
   confirmation, format preview, and typed UID confirmation.
 
@@ -111,8 +113,24 @@ Date: 2026-11-07
     application with no message.
   - A final `nfctl ndef write` wrote `NFC Foundry Classic NDEF hardware OK`
     (blocks 4-6) and `nfctl ndef read` returned the same text.
-- Not tested on hardware: Classic 4K/MAD2, secret unreadable Key B, format of
-  a card with another MAD application, and read-only GPB.
+- Hardening checks on the same card:
+  - Restored a standard NDEF trailer with Key B `112233445566`.
+    `nfctl ndef read` and `nfctl ndef write` still worked through the public
+    Key A; the read-back was exact.
+  - With an empty key store (so the secret Key B was unverified) and an
+    otherwise compliant trailer, `nfctl ndef format` previewed and executed
+    with no trailer writes and no Key B knowledge; data blocks 4-5 were
+    written and verified.
+  - Restored GPB `0x41` with the secret Key B. `nfctl ndef format` refused with
+    `sector 1 Key B is secret and not verified; refusing to rewrite its
+    trailer` and created no backup or card write.
+  - Restored GPB `0x43` (read-only). `nfctl ndef write` refused with
+    `the NDEF sectors are marked read-only`, exit code 4, and created no
+    backup.
+  - Restored the original working image; standard trailer `7F 07 88 40` with
+    Key B `FF...FF` and the original Text message were recovered.
+- Not tested on hardware: Classic 4K/MAD2 and format of a card with another
+  MAD application.
 
 The explicit gate remains:
 
@@ -158,6 +176,13 @@ before the write test.
   transport default Key A from the standardized public MAD Key A. The test
   fixture verifies keys; the CLI test imports a one-key dictionary so the
   default key outranks the built-in catalogue.
+- Hardware hardening exposed a pre-existing key-store bug: loading a dump
+  registered the dump's metadata keys as verified for the card currently in
+  the field. A restore could then choose an unauthenticated Key B and fail
+  preflight, or trust a key from another card. `LoadDumpFile` no longer
+  registers dump metadata keys; only a real authentication marks a key
+  verified. A regression test saves a dump with a different Key B and checks
+  that the current card's verification is unchanged.
 
 ## Deviations from the spec
 

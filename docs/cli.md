@@ -117,6 +117,9 @@ conditions. Before writing, it reads the current card into a complete JSON
 backup under `$XDG_CONFIG_HOME/NFC Foundry/classic-backups/`; a failed backup
 aborts the restore. The preflight output includes the backup path. `--dry-run`
 prints the plan and does not create the backup or require either confirmation.
+Loading a dump does not mark its embedded sector keys as verified for the
+current card; run `classic keyscan` or pass `--keys` when the catalog does not
+already hold a key for the target sector.
 
 `keyscan` authenticates every known candidate for every Key A/Key B slot,
 persists verified matches, and reports missing slots. Values appear only with

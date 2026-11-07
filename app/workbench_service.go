@@ -244,7 +244,9 @@ func (s *Service) LoadDumpFile(path string, discardDirty bool) (WorkbenchDTO, er
 	if err := s.bench.Load(result, path); err != nil {
 		return WorkbenchDTO{}, err
 	}
-	s.registerDumpKeys(result)
+	// Keys stored in a dump are source metadata. They are not proof that the
+	// same key authenticates the card currently in the field, so they must
+	// never be registered as verified target keys.
 	if s.deviceManager != nil {
 		if currentCard := s.deviceManager.Snapshot().Card; currentCard != nil {
 			s.emitter.Emit(KeyEventName, sectorKeyDTOs(s.keyStore, currentCard))
