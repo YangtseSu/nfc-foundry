@@ -4885,3 +4885,295 @@ func ActivityKindUIDWrite() string { return In(i18n.Locale()).ActivityKindUIDWri
 func (msgs Messages) ActivityKindUIDWrite() string {
 	return Catalog.Format(msgs.locale, "activityKindUIDWrite", nil)
 }
+
+// ClassicNDEFPanel says "Classic NDEF"
+// in the language the app shows.
+func ClassicNDEFPanel() string { return In(i18n.Locale()).ClassicNDEFPanel() }
+
+// ClassicNDEFPanel says "Classic NDEF"
+// in the language of msgs.
+func (msgs Messages) ClassicNDEFPanel() string {
+	return Catalog.Format(msgs.locale, "classicNDEFPanel", nil)
+}
+
+// ClassicNDEFNoData says "Read the card to load the Classic NDEF mapping."
+// in the language the app shows.
+func ClassicNDEFNoData() string { return In(i18n.Locale()).ClassicNDEFNoData() }
+
+// ClassicNDEFNoData says "Read the card to load the Classic NDEF mapping."
+// in the language of msgs.
+func (msgs Messages) ClassicNDEFNoData() string {
+	return Catalog.Format(msgs.locale, "classicNDEFNoData", nil)
+}
+
+// ClassicNDEFReadAction says "Read NDEF"
+// in the language the app shows.
+func ClassicNDEFReadAction() string { return In(i18n.Locale()).ClassicNDEFReadAction() }
+
+// ClassicNDEFReadAction says "Read NDEF"
+// in the language of msgs.
+func (msgs Messages) ClassicNDEFReadAction() string {
+	return Catalog.Format(msgs.locale, "classicNDEFReadAction", nil)
+}
+
+// ClassicNDEFNoApplication says "No NDEF application on this card."
+// in the language the app shows.
+func ClassicNDEFNoApplication() string { return In(i18n.Locale()).ClassicNDEFNoApplication() }
+
+// ClassicNDEFNoApplication says "No NDEF application on this card."
+// in the language of msgs.
+func (msgs Messages) ClassicNDEFNoApplication() string {
+	return Catalog.Format(msgs.locale, "classicNDEFNoApplication", nil)
+}
+
+// ClassicNDEFNoMAD says "No MIFARE Application Directory on this card."
+// in the language the app shows.
+func ClassicNDEFNoMAD() string { return In(i18n.Locale()).ClassicNDEFNoMAD() }
+
+// ClassicNDEFNoMAD says "No MIFARE Application Directory on this card."
+// in the language of msgs.
+func (msgs Messages) ClassicNDEFNoMAD() string {
+	return Catalog.Format(msgs.locale, "classicNDEFNoMAD", nil)
+}
+
+// ClassicNDEFFormatPanel says "Format NDEF application"
+// in the language the app shows.
+func ClassicNDEFFormatPanel() string { return In(i18n.Locale()).ClassicNDEFFormatPanel() }
+
+// ClassicNDEFFormatPanel says "Format NDEF application"
+// in the language of msgs.
+func (msgs Messages) ClassicNDEFFormatPanel() string {
+	return Catalog.Format(msgs.locale, "classicNDEFFormatPanel", nil)
+}
+
+// ClassicNDEFFormatHint says "Advanced mode. Choose a contiguous free sector range; a project dump is saved first."
+// in the language the app shows.
+func ClassicNDEFFormatHint() string { return In(i18n.Locale()).ClassicNDEFFormatHint() }
+
+// ClassicNDEFFormatHint says "Advanced mode. Choose a contiguous free sector range; a project dump is saved first."
+// in the language of msgs.
+func (msgs Messages) ClassicNDEFFormatHint() string {
+	return Catalog.Format(msgs.locale, "classicNDEFFormatHint", nil)
+}
+
+// ClassicNDEFFormatStart says "First sector"
+// in the language the app shows.
+func ClassicNDEFFormatStart() string { return In(i18n.Locale()).ClassicNDEFFormatStart() }
+
+// ClassicNDEFFormatStart says "First sector"
+// in the language of msgs.
+func (msgs Messages) ClassicNDEFFormatStart() string {
+	return Catalog.Format(msgs.locale, "classicNDEFFormatStart", nil)
+}
+
+// ClassicNDEFFormatEnd says "Last sector"
+// in the language the app shows.
+func ClassicNDEFFormatEnd() string { return In(i18n.Locale()).ClassicNDEFFormatEnd() }
+
+// ClassicNDEFFormatEnd says "Last sector"
+// in the language of msgs.
+func (msgs Messages) ClassicNDEFFormatEnd() string {
+	return Catalog.Format(msgs.locale, "classicNDEFFormatEnd", nil)
+}
+
+// ClassicNDEFFormatPreview says "Preview format"
+// in the language the app shows.
+func ClassicNDEFFormatPreview() string { return In(i18n.Locale()).ClassicNDEFFormatPreview() }
+
+// ClassicNDEFFormatPreview says "Preview format"
+// in the language of msgs.
+func (msgs Messages) ClassicNDEFFormatPreview() string {
+	return Catalog.Format(msgs.locale, "classicNDEFFormatPreview", nil)
+}
+
+// ClassicNDEFFormatAction says "Format NDEF"
+// in the language the app shows.
+func ClassicNDEFFormatAction() string { return In(i18n.Locale()).ClassicNDEFFormatAction() }
+
+// ClassicNDEFFormatAction says "Format NDEF"
+// in the language of msgs.
+func (msgs Messages) ClassicNDEFFormatAction() string {
+	return Catalog.Format(msgs.locale, "classicNDEFFormatAction", nil)
+}
+
+// ClassicNDEFFormatInvalid says "Format preview failed: {message}"
+// in the language the app shows.
+func ClassicNDEFFormatInvalid(message string) string {
+	return In(i18n.Locale()).ClassicNDEFFormatInvalid(message)
+}
+
+// ClassicNDEFFormatInvalid says "Format preview failed: {message}"
+// in the language of msgs.
+func (msgs Messages) ClassicNDEFFormatInvalid(message string) string {
+	return Catalog.Format(msgs.locale, "classicNDEFFormatInvalid", map[string]any{"message": message})
+}
+
+// ClassicNDEFFormatConfirmTitle says "Format NDEF application?"
+// in the language the app shows.
+func ClassicNDEFFormatConfirmTitle() string { return In(i18n.Locale()).ClassicNDEFFormatConfirmTitle() }
+
+// ClassicNDEFFormatConfirmTitle says "Format NDEF application?"
+// in the language of msgs.
+func (msgs Messages) ClassicNDEFFormatConfirmTitle() string {
+	return Catalog.Format(msgs.locale, "classicNDEFFormatConfirmTitle", nil)
+}
+
+// ClassicNDEFFormatConfirmMessage says "This rewrites the MAD and sector trailers on sectors {sectors}. A project dump is saved first."
+// in the language the app shows.
+func ClassicNDEFFormatConfirmMessage(sectors string) string {
+	return In(i18n.Locale()).ClassicNDEFFormatConfirmMessage(sectors)
+}
+
+// ClassicNDEFFormatConfirmMessage says "This rewrites the MAD and sector trailers on sectors {sectors}. A project dump is saved first."
+// in the language of msgs.
+func (msgs Messages) ClassicNDEFFormatConfirmMessage(sectors string) string {
+	return Catalog.Format(msgs.locale, "classicNDEFFormatConfirmMessage", map[string]any{"sectors": sectors})
+}
+
+// ClassicNDEFFormatBackup says "{blocks} block(s) will change. A project dump is written first."
+// in the language the app shows.
+func ClassicNDEFFormatBackup(blocks string) string {
+	return In(i18n.Locale()).ClassicNDEFFormatBackup(blocks)
+}
+
+// ClassicNDEFFormatBackup says "{blocks} block(s) will change. A project dump is written first."
+// in the language of msgs.
+func (msgs Messages) ClassicNDEFFormatBackup(blocks string) string {
+	return Catalog.Format(msgs.locale, "classicNDEFFormatBackup", map[string]any{"blocks": blocks})
+}
+
+// ClassicNDEFFormatComplete says "Classic NDEF application formatted"
+// in the language the app shows.
+func ClassicNDEFFormatComplete() string { return In(i18n.Locale()).ClassicNDEFFormatComplete() }
+
+// ClassicNDEFFormatComplete says "Classic NDEF application formatted"
+// in the language of msgs.
+func (msgs Messages) ClassicNDEFFormatComplete() string {
+	return Catalog.Format(msgs.locale, "classicNDEFFormatComplete", nil)
+}
+
+// ClassicNDEFFormatFailed says "Classic NDEF format failed: {message}"
+// in the language the app shows.
+func ClassicNDEFFormatFailed(message string) string {
+	return In(i18n.Locale()).ClassicNDEFFormatFailed(message)
+}
+
+// ClassicNDEFFormatFailed says "Classic NDEF format failed: {message}"
+// in the language of msgs.
+func (msgs Messages) ClassicNDEFFormatFailed(message string) string {
+	return Catalog.Format(msgs.locale, "classicNDEFFormatFailed", map[string]any{"message": message})
+}
+
+// ClassicNDEFWriteComplete says "Classic NDEF message written"
+// in the language the app shows.
+func ClassicNDEFWriteComplete() string { return In(i18n.Locale()).ClassicNDEFWriteComplete() }
+
+// ClassicNDEFWriteComplete says "Classic NDEF message written"
+// in the language of msgs.
+func (msgs Messages) ClassicNDEFWriteComplete() string {
+	return Catalog.Format(msgs.locale, "classicNDEFWriteComplete", nil)
+}
+
+// ClassicNDEFWriteFailed says "Classic NDEF write failed: {message}"
+// in the language the app shows.
+func ClassicNDEFWriteFailed(message string) string {
+	return In(i18n.Locale()).ClassicNDEFWriteFailed(message)
+}
+
+// ClassicNDEFWriteFailed says "Classic NDEF write failed: {message}"
+// in the language of msgs.
+func (msgs Messages) ClassicNDEFWriteFailed(message string) string {
+	return Catalog.Format(msgs.locale, "classicNDEFWriteFailed", map[string]any{"message": message})
+}
+
+// ClassicNDEFReadFailed says "Classic NDEF read failed: {message}"
+// in the language the app shows.
+func ClassicNDEFReadFailed(message string) string {
+	return In(i18n.Locale()).ClassicNDEFReadFailed(message)
+}
+
+// ClassicNDEFReadFailed says "Classic NDEF read failed: {message}"
+// in the language of msgs.
+func (msgs Messages) ClassicNDEFReadFailed(message string) string {
+	return Catalog.Format(msgs.locale, "classicNDEFReadFailed", map[string]any{"message": message})
+}
+
+// ClassicNDEFWriteHint says "A project dump is saved before writing."
+// in the language the app shows.
+func ClassicNDEFWriteHint() string { return In(i18n.Locale()).ClassicNDEFWriteHint() }
+
+// ClassicNDEFWriteHint says "A project dump is saved before writing."
+// in the language of msgs.
+func (msgs Messages) ClassicNDEFWriteHint() string {
+	return Catalog.Format(msgs.locale, "classicNDEFWriteHint", nil)
+}
+
+// ClassicNDEFReadOnly says "The NDEF sectors are read-only."
+// in the language the app shows.
+func ClassicNDEFReadOnly() string { return In(i18n.Locale()).ClassicNDEFReadOnly() }
+
+// ClassicNDEFReadOnly says "The NDEF sectors are read-only."
+// in the language of msgs.
+func (msgs Messages) ClassicNDEFReadOnly() string {
+	return Catalog.Format(msgs.locale, "classicNDEFReadOnly", nil)
+}
+
+// ClassicNDEFMADVersion says "MAD version {version}"
+// in the language the app shows.
+func ClassicNDEFMADVersion(version string) string {
+	return In(i18n.Locale()).ClassicNDEFMADVersion(version)
+}
+
+// ClassicNDEFMADVersion says "MAD version {version}"
+// in the language of msgs.
+func (msgs Messages) ClassicNDEFMADVersion(version string) string {
+	return Catalog.Format(msgs.locale, "classicNDEFMADVersion", map[string]any{"version": version})
+}
+
+// ClassicNDEFMADSectors says "NDEF sectors {sectors}"
+// in the language the app shows.
+func ClassicNDEFMADSectors(sectors string) string {
+	return In(i18n.Locale()).ClassicNDEFMADSectors(sectors)
+}
+
+// ClassicNDEFMADSectors says "NDEF sectors {sectors}"
+// in the language of msgs.
+func (msgs Messages) ClassicNDEFMADSectors(sectors string) string {
+	return Catalog.Format(msgs.locale, "classicNDEFMADSectors", map[string]any{"sectors": sectors})
+}
+
+// ClassicNDEFFreeSectors says "Free sectors {sectors}"
+// in the language the app shows.
+func ClassicNDEFFreeSectors(sectors string) string {
+	return In(i18n.Locale()).ClassicNDEFFreeSectors(sectors)
+}
+
+// ClassicNDEFFreeSectors says "Free sectors {sectors}"
+// in the language of msgs.
+func (msgs Messages) ClassicNDEFFreeSectors(sectors string) string {
+	return Catalog.Format(msgs.locale, "classicNDEFFreeSectors", map[string]any{"sectors": sectors})
+}
+
+// ClassicNDEFFormatEnableAdvanced says "Enable Advanced mode to format this card."
+// in the language the app shows.
+func ClassicNDEFFormatEnableAdvanced() string {
+	return In(i18n.Locale()).ClassicNDEFFormatEnableAdvanced()
+}
+
+// ClassicNDEFFormatEnableAdvanced says "Enable Advanced mode to format this card."
+// in the language of msgs.
+func (msgs Messages) ClassicNDEFFormatEnableAdvanced() string {
+	return Catalog.Format(msgs.locale, "classicNDEFFormatEnableAdvanced", nil)
+}
+
+// ClassicNDEFBlocks says "{data} data block(s) · {trailers} trailer(s) · {mad} MAD block(s)"
+// in the language the app shows.
+func ClassicNDEFBlocks(data string, trailers string, mad string) string {
+	return In(i18n.Locale()).ClassicNDEFBlocks(data, trailers, mad)
+}
+
+// ClassicNDEFBlocks says "{data} data block(s) · {trailers} trailer(s) · {mad} MAD block(s)"
+// in the language of msgs.
+func (msgs Messages) ClassicNDEFBlocks(data string, trailers string, mad string) string {
+	return Catalog.Format(msgs.locale, "classicNDEFBlocks", map[string]any{"data": data, "trailers": trailers, "mad": mad})
+}

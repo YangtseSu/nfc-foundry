@@ -16,7 +16,8 @@ the current architecture and migration steps live in [`docs/`](docs/).
 The native MyGo shell and the `nfctl` CLI are in place: reader discovery, card
 facts, Classic block read/write, dump/restore, key scanning, key recovery, UID
 writes with an in-process Gen1A path, Type 2 page access, NDEF read/write
-from the CLI and GUI, diagnostics, and the key catalog. Classic GUI writes
+from the CLI and GUI, Classic NDEF read/write/format through the MIFARE
+Application Directory, diagnostics, and the key catalog. Classic GUI writes
 cover ordinary data blocks, changed-block writes, full restore with a mandatory
 pre-write backup, and advanced UID writes. The remaining migration is tracked in
 [`docs/plan/`](docs/plan/):
@@ -28,8 +29,9 @@ MIFARE Classic 1K/4K is hardware-tested on a PN532 UART reader and on the
 ACR122U through `acr122_usb`. Gen1A block 0 writes run natively in Go and are
 hardware-tested on the ACR122U; no `nfc-mfsetuid` executable is shipped or
 required. Type 2 page access and NDEF read/write are hardware-tested on an
-NTAG215 with the ACR122U. Do not assume the planned features below are already
-available.
+NTAG215 with the ACR122U. Classic NDEF read/write/format is hardware-tested on
+a blank MIFARE Classic 1K with the ACR122U. Do not assume the planned features
+below are already available.
 
 ## Supported hardware
 
@@ -38,7 +40,7 @@ available.
 | PN532 + FT232RL | `pn532_uart` via `libnfc-ng` | Tested baseline |
 | Other PN532 UART adapters | `pn532_uart` | Expected compatible; not tested |
 | PN53x USB | `pn53x_usb` | Planned; not validated |
-| ACR122U | `acr122_usb` | Tested: Classic 1K keyscan, complete dump/restore, Gen1A UID write, and NTAG215 page/NDEF I/O |
+| ACR122U | `acr122_usb` | Tested: Classic 1K keyscan, dump/restore, Gen1A UID write, Classic 1K MAD1 NDEF read/write/format, and NTAG215 page/NDEF I/O |
 | ACR122U | `acr122_pcsc`, `pcsc` | Not usable for Classic on firmware 2.14; use `acr122_usb` |
 | Other PC/SC readers | `pcsc` | Planned; APDU-oriented |
 
@@ -46,7 +48,7 @@ available.
 
 | Card family | Status |
 |---|---|
-| MIFARE Classic 1K/4K | Read, write, dump, restore, keyscan, recovery; block and restore writes are available from the CLI and GUI |
+| MIFARE Classic 1K/4K | Read, write, dump, restore, keyscan, recovery, and MAD-based NDEF read/write/format from the CLI and GUI; Classic 1K NDEF hardware-tested on ACR122U, 4K/MAD2 pending |
 | NTAG213/215/216 | Page and NDEF read/write from CLI and GUI; Text language, provider presets, Smart Poster metadata, Bluetooth LE, raw/multi-record editors, file import/export, copy/erase/lock/password lifecycle; decoded Text, URI, Smart Poster, vCard, Wi-Fi (including DPP bootstrapping), Bluetooth, and app records; NTAG215 hardware-tested |
 | MIFARE Ultralight | Page read/write and dump; original-Ultralight fallback not hardware-tested |
 | ISO/IEC 14443-4 / DESFire | Later; APDU foundation first |

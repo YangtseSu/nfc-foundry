@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -50,7 +51,7 @@ func (r *Runner) cmdType2(ctx context.Context, args []string) error {
 
 func (r *Runner) cmdNDEF(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return usagef("usage: nfctl ndef read|write")
+		return usagef("usage: nfctl ndef read|write|format")
 	}
 	switch args[0] {
 	case "read":
@@ -59,6 +60,9 @@ func (r *Runner) cmdNDEF(ctx context.Context, args []string) error {
 	case "write":
 		r.command = "ndef.write"
 		return r.ndefWrite(ctx, args[1:])
+	case "format":
+		r.command = "ndef.format"
+		return r.ndefFormat(ctx, args[1:])
 	default:
 		return usagef("unknown ndef command %q", args[0])
 	}
@@ -263,6 +267,7 @@ func (r *Runner) type2Restore(ctx context.Context, args []string) error {
 
 var ndefReadSpecs = map[string]flagSpec{
 	"pwd":    {takesValue: true},
+	"keys":   {takesValue: true},
 	"raw":    {},
 	"reveal": {},
 }
@@ -284,6 +289,33 @@ func (r *Runner) ndefRead(ctx context.Context, args []string) error {
 	if _, err := r.waitForCard(ctx); err != nil {
 		return err
 	}
+	if r.classicCardSelected() {
+		keyScan, err := r.importKeysAndScan(ctx, parsed.value("keys"))
+		if err != nil {
+			return err
+		}
+		dto, err := r.service.ReadClassicNDEF(ctx)
+		if err != nil {
+			return err
+		}
+		if parsed.bool("raw") {
+			if dto.NDEF != nil && dto.NDEF.Present {
+				r.out.humanf("%s\n", dto.NDEF.Raw)
+			}
+		} else {
+			r.printClassicNDEF(dto, parsed.bool("reveal"))
+		}
+		result := ndefReadResult{
+			Family: "classic", Layout: dto.Layout, Application: dto.Application,
+			NDEF: dto.NDEF, MAD: &dto.MAD, Sectors: dto.Sectors,
+			Capacity: dto.Capacity, ReadOnly: dto.ReadOnly, Raw: parsed.bool("raw"), KeyScan: keyScan,
+		}
+		r.out.emit("ndef.read", r.device, r.card, nil, result)
+		return nil
+	}
+	if parsed.value("keys") != "" {
+		return usagef("--keys is only available for MIFARE Classic NDEF")
+	}
 	dump, err := r.service.ReadType2Card(ctx, parsed.value("pwd"))
 	if err != nil {
 		return err
@@ -302,7 +334,7 @@ func (r *Runner) ndefRead(ctx context.Context, args []string) error {
 	} else {
 		r.printNDEF(*dump.NDEF, parsed.bool("reveal"))
 	}
-	result := ndefReadResult{CC: dump.CC, NDEF: dump.NDEF, Raw: parsed.bool("raw")}
+	result := ndefReadResult{Family: "type2", CC: &dump.CC, NDEF: dump.NDEF, Raw: parsed.bool("raw")}
 	r.out.emit("ndef.read", r.device, r.card, nil, result)
 	return nil
 }
@@ -313,6 +345,7 @@ var ndefWriteSpecs = map[string]flagSpec{
 	"template": {takesValue: true},
 	"field":    {takesValue: true},
 	"pwd":      {takesValue: true},
+	"keys":     {takesValue: true},
 }
 
 func (r *Runner) ndefWrite(ctx context.Context, args []string) error {
@@ -358,6 +391,25 @@ func (r *Runner) ndefWrite(ctx context.Context, args []string) error {
 	if _, err := r.waitForCard(ctx); err != nil {
 		return err
 	}
+	if r.classicCardSelected() {
+		keyScan, err := r.importKeysAndScan(ctx, parsed.value("keys"))
+		if err != nil {
+			return err
+		}
+		result, err := r.service.WriteClassicNDEF(ctx, app.ClassicNDEFWriteRequestDTO{Message: message, DryRun: r.global.dryRun})
+		if err != nil {
+			return err
+		}
+		r.printClassicNDEFWrite(result)
+		r.out.emit("ndef.write", r.device, r.card, nil, struct {
+			app.ClassicNDEFWriteResultDTO
+			KeyScan *keyscanResult `json:"keyScan,omitempty"`
+		}{ClassicNDEFWriteResultDTO: result, KeyScan: keyScan})
+		return nil
+	}
+	if parsed.value("keys") != "" {
+		return usagef("--keys is only available for MIFARE Classic NDEF")
+	}
 	result, err := r.service.WriteType2NDEF(ctx, app.Type2NDEFWriteRequestDTO{
 		Message: message, Password: parsed.value("pwd"), DryRun: r.global.dryRun,
 	})
@@ -367,6 +419,196 @@ func (r *Runner) ndefWrite(ctx context.Context, args []string) error {
 	r.printType2Write(result, r.global.dryRun)
 	r.out.emit("ndef.write", r.device, r.card, nil, result)
 	return nil
+}
+
+var ndefFormatSpecs = map[string]flagSpec{
+	"sectors":        {takesValue: true},
+	"keys":           {takesValue: true},
+	"confirm-format": {},
+}
+
+func (r *Runner) ndefFormat(ctx context.Context, args []string) error {
+	parsed, err := parseCommandArgs(args, ndefFormatSpecs)
+	if err != nil {
+		return err
+	}
+	if len(parsed.positionals) != 0 {
+		return usagef("ndef format takes no positional arguments")
+	}
+	sectors, err := parseSectorRange(parsed.value("sectors"))
+	if err != nil {
+		return err
+	}
+	if !r.global.dryRun {
+		if !r.global.yes {
+			return usagef("ndef format is destructive; pass --yes")
+		}
+		if !parsed.bool("confirm-format") {
+			return usagef("ndef format rewrites MAD and sector trailers; pass --confirm-format as well")
+		}
+	}
+	if _, err := r.connect(ctx); err != nil {
+		return err
+	}
+	if _, err := r.waitForCard(ctx); err != nil {
+		return err
+	}
+	if !r.classicCardSelected() {
+		return usagef("ndef format is only available for MIFARE Classic cards")
+	}
+	if _, err := r.importKeysAndScan(ctx, parsed.value("keys")); err != nil {
+		return err
+	}
+	preview, err := r.service.PreviewClassicNDEFFormat(sectors)
+	if err != nil {
+		return err
+	}
+	if !preview.Valid {
+		return nfc.NewError("format NDEF", nfc.CodeInvalidArgument, preview.Error, nil)
+	}
+	r.printClassicNDEFFormatPlan(preview)
+	if r.global.dryRun {
+		r.out.emit("ndef.format", r.device, r.card, preview.Warnings, preview)
+		return nil
+	}
+	task, err := r.service.StartClassicNDEFFormat(app.ClassicNDEFFormatRequestDTO{Sectors: sectors, Confirmation: preview.Card.UID})
+	if err != nil {
+		return err
+	}
+	if _, err := r.waitTask(ctx, task); err != nil {
+		return err
+	}
+	if r.lastProgress.ClassicNDEFWrite == nil {
+		return nfc.NewError("format NDEF", nfc.CodeInternal, "format result is missing", nil)
+	}
+	result := *r.lastProgress.ClassicNDEFWrite
+	r.printClassicNDEFWrite(result)
+	r.out.emit("ndef.format", r.device, r.card, preview.Warnings, result)
+	return nil
+}
+
+func (r *Runner) classicCardSelected() bool {
+	if r.card == nil {
+		return false
+	}
+	switch nfc.CardType(r.card.TypeCode) {
+	case nfc.CardTypeMIFAREClassic1K, nfc.CardTypeMIFAREClassic4K, nfc.CardTypeMIFAREMini:
+		return true
+	default:
+		return false
+	}
+}
+
+func parseSectorRange(value string) ([]int, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, usagef("--sectors is required, for example 1-3")
+	}
+	start, end := 0, 0
+	if left, right, ok := strings.Cut(value, "-"); ok {
+		var err error
+		start, err = strconv.Atoi(strings.TrimSpace(left))
+		if err != nil {
+			return nil, usagef("invalid sector range %q", value)
+		}
+		end, err = strconv.Atoi(strings.TrimSpace(right))
+		if err != nil {
+			return nil, usagef("invalid sector range %q", value)
+		}
+	} else {
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return nil, usagef("invalid sector %q", value)
+		}
+		start, end = parsed, parsed
+	}
+	if start < 1 || end < start || end > 39 {
+		return nil, usagef("sector range must be ascending and between 1 and 39")
+	}
+	if start <= 16 && end >= 16 {
+		return nil, usagef("sector 16 is the MAD2 sector and cannot store NDEF")
+	}
+	sectors := make([]int, 0, end-start+1)
+	for sector := start; sector <= end; sector++ {
+		sectors = append(sectors, sector)
+	}
+	return sectors, nil
+}
+
+func (r *Runner) printClassicNDEF(dto app.ClassicNDEFDTO, reveal bool) {
+	r.out.humanf("layout:  %s\n", dto.Layout)
+	if !dto.MAD.Present {
+		r.out.humanf("mad:     none\n")
+		r.out.humanf("ndef:    no NDEF application; run `nfctl ndef format --sectors N-M`\n")
+		return
+	}
+	r.out.humanf("mad:     MAD%d, NDEF sectors %s, capacity %d bytes\n", dto.MAD.Version, formatSectorList(dto.MAD.NDEFSectors), dto.Capacity)
+	if !dto.Application {
+		r.out.humanf("ndef:    no NDEF application; free sectors %s\n", formatSectorList(dto.MAD.FreeSectors))
+		return
+	}
+	if dto.ReadOnly {
+		r.out.humanf("state:   read-only\n")
+	}
+	if dto.NDEF == nil || !dto.NDEF.Present {
+		r.out.humanf("ndef:    no NDEF message\n")
+		return
+	}
+	r.out.humanf("ndef:    %d bytes, %d record(s)\n", dto.NDEF.Length, len(dto.NDEF.Records))
+	r.printNDEF(*dto.NDEF, reveal)
+}
+
+func (r *Runner) printClassicNDEFWrite(result app.ClassicNDEFWriteResultDTO) {
+	if result.DryRun {
+		r.out.humanf("dry run: blocks %s planned\n", formatBlockList(result.Planned))
+		return
+	}
+	if result.Formatted {
+		r.out.humanf("formatted: %s\n", formatBlockList(result.Planned))
+	}
+	if result.Backup != "" {
+		r.out.humanf("backup:  %s\n", result.Backup)
+	}
+	r.out.humanf("blocks:  planned %s; written %s; verified %s\n",
+		formatBlockList(result.Planned), formatBlockList(result.Written), formatBlockList(result.Verified))
+}
+
+func (r *Runner) printClassicNDEFFormatPlan(plan app.ClassicNDEFFormatPreviewDTO) {
+	r.out.humanf("layout:  %s\n", plan.Layout)
+	if plan.CreateMAD {
+		r.out.humanf("mad:     none; a MAD%d will be created\n", plan.Version)
+	}
+	r.out.humanf("sectors: %s (%d bytes)\n", formatSectorList(plan.Sectors), plan.Capacity)
+	r.out.humanf("data:    %s\n", formatBlockList(plan.DataBlocks))
+	r.out.humanf("trailer: %s\n", formatBlockList(plan.Trailer))
+	r.out.humanf("mad:     %s\n", formatBlockList(plan.MADBlocks))
+	if plan.BackupRoot != "" {
+		r.out.humanf("backup:  a project dump will be saved under %s\n", plan.BackupRoot)
+	}
+	for _, warning := range plan.Warnings {
+		r.out.humanf("warning: %s\n", warning)
+	}
+}
+
+func formatSectorList(sectors []int) string {
+	if len(sectors) == 0 {
+		return "none"
+	}
+	if len(sectors) == 1 {
+		return strconv.Itoa(sectors[0])
+	}
+	return fmt.Sprintf("%d-%d", sectors[0], sectors[len(sectors)-1])
+}
+
+func formatBlockList(blocks []int) string {
+	if len(blocks) == 0 {
+		return "none"
+	}
+	parts := make([]string, len(blocks))
+	for index, block := range blocks {
+		parts[index] = strconv.Itoa(block)
+	}
+	return strings.Join(parts, ",")
 }
 
 func parseNDEFTemplateFields(values []string) (map[string]string, error) {

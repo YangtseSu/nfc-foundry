@@ -32,6 +32,10 @@ func (s *shell) applyEvent(name string, payload any) {
 			s.type2 = event
 			s.syncType2PageSelection(event.Loaded)
 		}
+	case app.ClassicNDEFEventName:
+		if event, ok := payload.(app.ClassicNDEFDTO); ok {
+			s.classicNDEF = event
+		}
 	case app.KeyCatalogEventName:
 		if event, ok := payload.([]app.KeyDTO); ok {
 			s.keys = append([]app.KeyDTO(nil), event...)
@@ -42,6 +46,9 @@ func (s *shell) applyEvent(name string, payload any) {
 			if event.Type2 != nil {
 				s.type2 = *event.Type2
 				s.syncType2PageSelection(true)
+			}
+			if event.ClassicNDEF != nil {
+				s.classicNDEF = *event.ClassicNDEF
 			}
 			s.applyTaskEvent(event)
 		}
@@ -75,6 +82,7 @@ func (s *shell) applyDeviceState(event app.DeviceStateEventDTO) {
 	case "disconnected", "error":
 		s.connectedConn = ""
 		s.selectedID = ""
+		s.classicNDEF = app.ClassicNDEFDTO{}
 	case "connecting", "ready", "polling", "busy", "recovering":
 		if event.Device.ConnString != "" {
 			s.connectedConn = event.Device.ConnString
@@ -82,6 +90,9 @@ func (s *shell) applyDeviceState(event app.DeviceStateEventDTO) {
 		}
 	}
 	if previousCard != cardIdentity(s.card) || previousConn != s.connectedConn {
+		if previousCard != cardIdentity(s.card) {
+			s.classicNDEF = app.ClassicNDEFDTO{}
+		}
 		s.resetAdvanced()
 	}
 	s.clampSelections()
@@ -91,6 +102,7 @@ func (s *shell) applyCardEvent(event app.CardEventDTO) {
 	previous := cardIdentity(s.card)
 	if event.Type == "removed" {
 		s.card = nil
+		s.classicNDEF = app.ClassicNDEFDTO{}
 		s.resetAdvanced()
 		s.clampSelections()
 		return
@@ -98,6 +110,7 @@ func (s *shell) applyCardEvent(event app.CardEventDTO) {
 	card := event.Card
 	s.card = &card
 	if previous != cardIdentity(s.card) {
+		s.classicNDEF = app.ClassicNDEFDTO{}
 		s.resetAdvanced()
 	}
 	s.clampSelections()
@@ -137,6 +150,12 @@ func (s *shell) applyTaskEvent(event app.TaskEventDetailDTO) {
 	switch {
 	case event.Type == "failed" && (event.Kind == "type2_write" || event.Kind == "type2_ndef" || event.Kind == "type2_lifecycle"):
 		s.errorText = s.locales().Type2WriteFailed(event.Message)
+	case event.Type == "failed" && event.Kind == "classic_ndef":
+		s.errorText = s.locales().ClassicNDEFWriteFailed(event.Message)
+	case event.Type == "failed" && event.Kind == "classic_ndef_format":
+		s.errorText = s.locales().ClassicNDEFFormatFailed(event.Message)
+	case event.Type == "failed" && event.Kind == "classic_ndef_read":
+		s.errorText = s.locales().ClassicNDEFReadFailed(event.Message)
 	case event.Type == "failed" && (event.Kind == "write" || event.Kind == "uid_write"):
 		s.errorText = s.locales().ClassicWriteFailed(event.Message)
 	case event.Type == app.TaskEventCompleted && (event.Kind == "type2_write" || event.Kind == "type2_ndef" || event.Kind == "type2_lifecycle"):
@@ -145,6 +164,12 @@ func (s *shell) applyTaskEvent(event app.TaskEventDetailDTO) {
 	case event.Type == app.TaskEventCompleted && event.Kind == "write":
 		s.errorText = ""
 		s.toastText = s.locales().ClassicWriteComplete()
+	case event.Type == app.TaskEventCompleted && event.Kind == "classic_ndef":
+		s.errorText = ""
+		s.toastText = s.locales().ClassicNDEFWriteComplete()
+	case event.Type == app.TaskEventCompleted && event.Kind == "classic_ndef_format":
+		s.errorText = ""
+		s.toastText = s.locales().ClassicNDEFFormatComplete()
 	case event.Type == app.TaskEventCompleted && event.Kind == "uid_write":
 		s.errorText = ""
 		s.toastText = s.locales().ClassicUIDComplete()

@@ -738,5 +738,32 @@
         "type": "int"
       }
     }
-  }
+  },
+  "classicNDEFPanel": "Classic NDEF",
+  "classicNDEFNoData": "读取卡片以加载 Classic NDEF 映射。",
+  "classicNDEFReadAction": "读取 NDEF",
+  "classicNDEFNoApplication": "此卡没有 NDEF 应用。",
+  "classicNDEFNoMAD": "此卡没有 MIFARE 应用目录。",
+  "classicNDEFFormatPanel": "格式化 NDEF 应用",
+  "classicNDEFFormatHint": "高级模式。选择连续的空白扇区范围；操作前会保存项目镜像。",
+  "classicNDEFFormatStart": "起始扇区",
+  "classicNDEFFormatEnd": "结束扇区",
+  "classicNDEFFormatPreview": "预览格式化",
+  "classicNDEFFormatAction": "格式化 NDEF",
+  "classicNDEFFormatInvalid": "格式化预览失败：{message}",
+  "classicNDEFFormatConfirmTitle": "格式化 NDEF 应用？",
+  "classicNDEFFormatConfirmMessage": "这会重写扇区 {sectors} 的 MAD 和扇区尾块。操作前会保存项目镜像。",
+  "classicNDEFFormatBackup": "将更改 {blocks} 个块。操作前会写入项目镜像。",
+  "classicNDEFFormatComplete": "Classic NDEF 应用已格式化",
+  "classicNDEFFormatFailed": "Classic NDEF 格式化失败：{message}",
+  "classicNDEFWriteComplete": "Classic NDEF 消息已写入",
+  "classicNDEFWriteFailed": "Classic NDEF 写入失败：{message}",
+  "classicNDEFReadFailed": "Classic NDEF 读取失败：{message}",
+  "classicNDEFWriteHint": "写入前会保存项目镜像。",
+  "classicNDEFReadOnly": "NDEF 扇区为只读。",
+  "classicNDEFMADVersion": "MAD 版本 {version}",
+  "classicNDEFMADSectors": "NDEF 扇区 {sectors}",
+  "classicNDEFFreeSectors": "空白扇区 {sectors}",
+  "classicNDEFFormatEnableAdvanced": "启用高级模式以格式化此卡。",
+  "classicNDEFBlocks": "{data} 个数据块 · {trailers} 个尾块 · {mad} 个 MAD 块"
 }

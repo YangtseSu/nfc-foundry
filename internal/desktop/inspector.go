@@ -49,6 +49,18 @@ func (s *shell) inspectorSub() string {
 		}
 		return l.Type2NoData()
 	case tabNDEF:
+		if s.cardFamily() == familyClassic {
+			if !s.classicNDEF.Loaded {
+				return l.ClassicNDEFNoData()
+			}
+			if s.classicNDEF.NDEF != nil && s.classicNDEF.NDEF.Present {
+				if s.classicNDEF.NDEF.Summary != "" {
+					return s.classicNDEF.NDEF.Summary
+				}
+				return l.Type2Records(len(s.classicNDEF.NDEF.Records))
+			}
+			return l.Type2NoNDEF()
+		}
 		if s.type2.Loaded && s.type2.NDEF != nil && s.type2.NDEF.Present {
 			if s.type2.NDEF.Summary != "" {
 				return s.type2.NDEF.Summary
@@ -87,7 +99,13 @@ func (s *shell) inspector(c *ui.Context, p palette) {
 			return
 		}
 		s.inspectorEmpty(c, p, s.locales().CardEmpty())
-	case tabMemory, tabNDEF, tabProtection:
+	case tabNDEF:
+		if s.cardFamily() == familyClassic {
+			s.classicNDEFInspector(c, p)
+			return
+		}
+		s.type2Inspector(c, p)
+	case tabMemory, tabProtection:
 		s.type2Inspector(c, p)
 	default:
 		s.inspectorEmpty(c, p, s.locales().CardEmpty())

@@ -53,22 +53,35 @@ func NewDumpService(devices ReaderExecutor) *DumpService {
 // ReadCard produces a partial result even when a card/device failure stops the
 // operation. Unvisited blocks remain unread and are never silently zero-filled.
 func (s *DumpService) ReadCard(ctx context.Context, request DumpRequest) (DumpResult, error) {
+	if s == nil || s.devices == nil {
+		return DumpResult{}, nfc.NewError("read card dump", nfc.CodeNotOpen, "device manager is unavailable", nil)
+	}
+	var result DumpResult
+	err := s.devices.WithReader(ctx, func(operationCtx context.Context, reader nfc.Reader) error {
+		var readErr error
+		result, readErr = s.ReadCardWithReader(operationCtx, reader, request)
+		return readErr
+	})
+	return result, err
+}
+
+// ReadCardWithReader reads a card while the caller already owns the reader.
+// It shares validation and block semantics with ReadCard so a compound
+// operation can take a backup without reacquiring the device lock.
+func (s *DumpService) ReadCardWithReader(ctx context.Context, reader nfc.Reader, request DumpRequest) (DumpResult, error) {
 	request.Card = request.Card.Clone()
 	layout, err := layoutForCard(request.Card)
 	if err != nil {
 		return DumpResult{}, nfc.NewError("read card dump", nfc.CodeUnsupported, "card is not MIFARE Classic 1K/4K", err)
-	}
-	if s == nil || s.devices == nil {
-		return DumpResult{}, nfc.NewError("read card dump", nfc.CodeNotOpen, "device manager is unavailable", nil)
 	}
 	keyMap, err := validateSectorKeys(layout, request.Keys)
 	if err != nil {
 		return DumpResult{}, err
 	}
 	image, _ := mifare.NewDump(layout)
-	now := s.now
-	if now == nil {
-		now = func() time.Time { return time.Now().UTC() }
+	now := time.Now().UTC
+	if s != nil && s.now != nil {
+		now = s.now
 	}
 	result := DumpResult{
 		Dump:      image,
@@ -82,10 +95,10 @@ func (s *DumpService) ReadCard(ctx context.Context, request DumpRequest) (DumpRe
 		result.Keys[sector].Sector = sector
 	}
 
-	err = s.devices.WithReader(ctx, func(operationCtx context.Context, reader nfc.Reader) error {
+	err = func() error {
 		for sector := 0; sector < sectors; sector++ {
 			provided := keyMap[sector]
-			verified, verifyErr := verifyProvidedKeys(operationCtx, reader, request.Card, sector, layout, provided)
+			verified, verifyErr := verifyProvidedKeys(ctx, reader, request.Card, sector, layout, provided)
 			if verifyErr != nil {
 				return verifyErr
 			}
@@ -103,17 +116,17 @@ func (s *DumpService) ReadCard(ctx context.Context, request DumpRequest) (DumpRe
 			}
 
 			for block := first; block < first+count; block++ {
-				if err := selectExpectedCard(operationCtx, reader, request.Card); err != nil {
+				if err := selectExpectedCard(ctx, reader, request.Card); err != nil {
 					return err
 				}
-				if err := reader.Authenticate(operationCtx, byte(block), keyType, key); err != nil {
+				if err := reader.Authenticate(ctx, byte(block), keyType, key); err != nil {
 					setBlockError(&result.Dump.Blocks[block], mifare.BlockAuthFailed, err)
 					if fatalCardOperation(err) {
 						return err
 					}
 					continue
 				}
-				data, err := reader.ReadBlock(operationCtx, byte(block))
+				data, err := reader.ReadBlock(ctx, byte(block))
 				if err != nil {
 					setBlockError(&result.Dump.Blocks[block], mifare.BlockReadFailed, err)
 					if fatalCardOperation(err) {
@@ -132,7 +145,7 @@ func (s *DumpService) ReadCard(ctx context.Context, request DumpRequest) (DumpRe
 			}
 		}
 		return nil
-	})
+	}()
 	result.FinishedAt = now()
 	return result, err
 }

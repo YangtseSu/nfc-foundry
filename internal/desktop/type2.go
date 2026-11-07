@@ -865,13 +865,24 @@ func (s *shell) ndefRecordsEditor(c *ui.Context, p palette) {
 
 func (s *shell) ndefWriteRow(c *ui.Context, p palette) {
 	l := s.locales()
+	hint := l.Type2WriteBackupHint()
+	if s.cardFamily() == familyClassic {
+		hint = l.ClassicNDEFWriteHint()
+	}
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-		ui.Text(c, l.Type2WriteBackupHint()).FontSize(9).TextColor(p.faint).Grow(1).Wrap()
+		ui.Text(c, hint).FontSize(9).TextColor(p.faint).Grow(1).Wrap()
 		if ui.Button(c, l.NdefWriteTemplate()).Height(28).FontSize(10).
-			Disabled(s.type2WriteBusy() || !s.ndefReady() || !s.type2.CC.Valid).Clicked() {
+			Disabled(s.type2WriteBusy() || !s.ndefReady() || !s.ndefTargetWritable()).Clicked() {
 			s.requestType2NDEFWrite()
 		}
 	})
+}
+
+func (s *shell) ndefTargetWritable() bool {
+	if s.cardFamily() == familyClassic {
+		return s.classicNDEF.Loaded && s.classicNDEF.Application && !s.classicNDEF.ReadOnly
+	}
+	return s.type2.CC.Valid
 }
 
 func (s *shell) ndefReady() bool {
@@ -1077,6 +1088,10 @@ func (s *shell) requestType2PageWrite() {
 }
 
 func (s *shell) requestType2NDEFWrite() {
+	if s.cardFamily() == familyClassic {
+		s.requestClassicNDEFWrite()
+		return
+	}
 	switch s.ndefMode {
 	case "raw":
 		preview, err := s.api.PreviewType2NDEFRaw(app.Type2NDEFRawRequestDTO{Raw: s.ndefRaw})

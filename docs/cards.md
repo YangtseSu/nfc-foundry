@@ -8,8 +8,8 @@ real-hardware validation.
 
 | Family | Identify | Read | Write | Status |
 |---|---|---|---|---|
-| MIFARE Classic 1K | Yes | Blocks, dump | User blocks; trailers/block 0 guarded | Current baseline |
-| MIFARE Classic 4K | Yes | Blocks, dump | User blocks; trailers/block 0 guarded | Current baseline |
+| MIFARE Classic 1K | Yes | Blocks, dump, MAD NDEF | User blocks, NDEF data; trailers/block 0 guarded | Current baseline; MAD1 NDEF hardware-tested on ACR122U |
+| MIFARE Classic 4K | Yes | Blocks, dump, MAD NDEF | User blocks, NDEF data; trailers/block 0 guarded | Current baseline; 4K/MAD2 NDEF pending hardware validation |
 | MIFARE Ultralight | Yes | Pages, dump | User pages | Current; original-Ultralight fallback not hardware-tested |
 | NTAG213/215/216 | Yes | Pages, dump, NDEF | User pages, NDEF | Current; NTAG215 hardware-tested on ACR122U |
 | ISO/IEC 14443-4 | ATS/APDU | APDU | Application-specific | Later |
@@ -44,6 +44,33 @@ either attempt, keeps the reader open, and requires the new UID and complete
 block 0 readback after reselection. This path is hardware-validated on an
 ACR122U (`acr122_usb`) with a Gen1A test card. FUID/UFUID cards and non-4-byte
 UIDs are not supported.
+
+### Classic NDEF
+
+Classic NDEF uses the MIFARE Application Directory (MAD) rather than a
+capability container:
+
+- MAD1 lives in sector 0 blocks 1-2; MAD2 adds sector 16. The directory CRC is
+  CRC-8 with polynomial `0x1D` and preset `0xC7`.
+- AID `03 E1` marks NDEF sectors. They must be contiguous; a MAD2 run may skip
+  sector 16. The NDEF TLV area is the concatenation of the NDEF sectors' data
+  blocks, excluding every trailer.
+- The standard public keys are `A0A1A2A3A4A5` for MAD sectors and
+  `D3F7D3F7D3F7` for NDEF sectors. Reads also accept the transport default
+  keys when the card still uses them.
+- A message write changes only NDEF data blocks and verifies each by read-back.
+  It never changes a trailer.
+- Formatting is Advanced/confirmed. It accepts an existing MAD with free or
+  NDEF sectors, or a blank transport-state card with zero data. It writes data
+  blocks, then NDEF trailers, then MAD blocks, and the MAD sector trailer last;
+  Key B is preserved and must be readable or verified when a trailer changes.
+- MAD3, DESFire directories, Type 4 NDEF, and FeliCa NDEF are separate
+  card-family work.
+
+Classic NDEF read, write, and format are covered by hardware-free tests and an
+explicit hardware test. MAD1 on a blank Classic 1K was validated on an ACR122U
+(`acr122_usb`) on 2026-11-07: format sectors 1-2, write a Text record, read it
+back, and reformat. Classic 4K/MAD2 and secret-Key-B paths remain pending.
 
 ## Type 2: Ultralight and NTAG21x
 

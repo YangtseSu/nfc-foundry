@@ -110,7 +110,9 @@ func ParseNDEF(area []byte) (*NDEF, error) {
 		return &NDEF{Present: false}, nil
 	}
 	if len(message) == 0 {
-		return nil, fmt.Errorf("%w: zero-length NDEF TLV", ErrMalformedNDEF)
+		// A zero-length NDEF TLV is the initialized-but-empty state used by
+		// the MIFARE Classic mapping. It contains no message to decode.
+		return &NDEF{Present: false, Length: 0}, nil
 	}
 	records, err := ParseMessage(message)
 	if err != nil {

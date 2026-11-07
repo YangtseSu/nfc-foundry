@@ -1,4 +1,4 @@
-.PHONY: fmt test vet i18n-check ui-test reuse check dev gui-build cli-build build package release-manifest external-engine-fixture toolchain-check libnfc-ng-check libnfc-ng-build libnfc-ng-verify libnfc-ng-smoke libnfc-ng-repeatability-check libnfc-ng-hardware-smoke libnfc-binding-test libnfc-binding-hardware-smoke libnfc-classic-hardware-test libnfc-dump-hardware-test libnfc-dump-restore-hardware-test libnfc-gen1a-hardware-test libnfc-type2-hardware-test libnfc-type2-protected-hardware-test mfoc-check mfoc-build mfoc-verify mfcuk-check mfcuk-build mfcuk-verify hardnested-check hardnested-build hardnested-verify
+.PHONY: fmt test vet i18n-check ui-test reuse check dev gui-build cli-build build package release-manifest external-engine-fixture toolchain-check libnfc-ng-check libnfc-ng-build libnfc-ng-verify libnfc-ng-smoke libnfc-ng-repeatability-check libnfc-ng-hardware-smoke libnfc-binding-test libnfc-binding-hardware-smoke libnfc-classic-hardware-test libnfc-dump-hardware-test libnfc-dump-restore-hardware-test libnfc-gen1a-hardware-test libnfc-type2-hardware-test libnfc-type2-protected-hardware-test libnfc-classic-ndef-hardware-test mfoc-check mfoc-build mfoc-verify mfcuk-check mfcuk-build mfcuk-verify hardnested-check hardnested-build hardnested-verify
 
 GO ?= go
 LIBNFC_PLATFORM ?= linux-amd64
@@ -156,6 +156,14 @@ libnfc-type2-hardware-test:
 	@case "$(LIBNFC_DEVICE)" in pn532_uart:*|pn53x_usb:*|acr122_usb:*) ;; *) echo "use a raw-capable PN53x connstring: pn532_uart, pn53x_usb, or acr122_usb" >&2; exit 2 ;; esac
 	@test -f "$(LIBNFC_SDK_DIR)/lib/pkgconfig/libnfc-ng.pc" || (echo "libnfc-ng SDK is missing; run make libnfc-ng-build first" >&2; exit 2)
 	env $(NATIVE_ENV) LIBNFC_DEVICE="$(LIBNFC_DEVICE)" LIBNFC_AUTO_SCAN=false LIBNFC_INTRUSIVE_SCAN=false NFCX_WORKFLOW_HARDWARE=1 NFCX_HARDWARE_TYPE2_CONFIRM="$(NFCX_HARDWARE_TYPE2_CONFIRM)" NFCX_TEST_TYPE2_BACKUP_DIR="$(NFCX_TEST_TYPE2_BACKUP_DIR)" NFCX_TEST_TYPE2_PWD="$(NFCX_TEST_TYPE2_PWD)" $(GO) test -v -count=1 -timeout=10m -run '^TestHardwareType2ReadWrite$$' -tags "$(NATIVE_TAGS) libnfc_hardware" ./internal/workflow
+
+libnfc-classic-ndef-hardware-test:
+	@test -n "$(LIBNFC_DEVICE)" || (echo "LIBNFC_DEVICE is required, for example acr122_usb:001:004" >&2; exit 2)
+	@case "$(LIBNFC_DEVICE)" in pn532_uart:*|acr122_usb:*) ;; *) echo "use a validated Classic connstring: pn532_uart or acr122_usb" >&2; exit 2 ;; esac
+	@test "$(NFCX_HARDWARE_CLASSIC_NDEF_CONFIRM)" = "I_OWN_THIS_CARD" || (echo "set NFCX_HARDWARE_CLASSIC_NDEF_CONFIRM=I_OWN_THIS_CARD to write the test card" >&2; exit 2)
+	@test -n "$(NFCX_TEST_CLASSIC_NDEF_BACKUP_DIR)" || (echo "NFCX_TEST_CLASSIC_NDEF_BACKUP_DIR is required so the backup survives the test" >&2; exit 2)
+	@test -f "$(LIBNFC_SDK_DIR)/lib/pkgconfig/libnfc-ng.pc" || (echo "libnfc-ng SDK is missing; run make libnfc-ng-build first" >&2; exit 2)
+	env $(NATIVE_ENV) LIBNFC_DEVICE="$(LIBNFC_DEVICE)" LIBNFC_AUTO_SCAN=false LIBNFC_INTRUSIVE_SCAN=false NFCX_WORKFLOW_HARDWARE=1 NFCX_HARDWARE_CLASSIC_NDEF_CONFIRM="$(NFCX_HARDWARE_CLASSIC_NDEF_CONFIRM)" NFCX_HARDWARE_CLASSIC_NDEF_FORMAT="$(NFCX_HARDWARE_CLASSIC_NDEF_FORMAT)" NFCX_HARDWARE_CLASSIC_NDEF_SECTORS="$(NFCX_HARDWARE_CLASSIC_NDEF_SECTORS)" NFCX_TEST_CLASSIC_NDEF_BACKUP_DIR="$(NFCX_TEST_CLASSIC_NDEF_BACKUP_DIR)" NFCX_TEST_KEY_A="$(NFCX_TEST_KEY_A)" NFCX_TEST_KEY_B="$(NFCX_TEST_KEY_B)" $(GO) test -v -count=1 -timeout=10m -run '^TestHardwareClassicNDEF$$' -tags "$(NATIVE_TAGS) libnfc_hardware" ./internal/workflow
 
 libnfc-type2-protected-hardware-test:
 	@test -n "$(LIBNFC_DEVICE)" || (echo "LIBNFC_DEVICE is required, for example acr122_usb:001:005" >&2; exit 2)

@@ -885,5 +885,108 @@
         "type": "int"
       }
     }
+  },
+  "classicNDEFPanel": "Classic NDEF",
+  "classicNDEFNoData": "Read the card to load the Classic NDEF mapping.",
+  "classicNDEFReadAction": "Read NDEF",
+  "classicNDEFNoApplication": "No NDEF application on this card.",
+  "classicNDEFNoMAD": "No MIFARE Application Directory on this card.",
+  "classicNDEFFormatPanel": "Format NDEF application",
+  "classicNDEFFormatHint": "Advanced mode. Choose a contiguous free sector range; a project dump is saved first.",
+  "classicNDEFFormatStart": "First sector",
+  "classicNDEFFormatEnd": "Last sector",
+  "classicNDEFFormatPreview": "Preview format",
+  "classicNDEFFormatAction": "Format NDEF",
+  "classicNDEFFormatInvalid": "Format preview failed: {message}",
+  "classicNDEFFormatConfirmTitle": "Format NDEF application?",
+  "classicNDEFFormatConfirmMessage": "This rewrites the MAD and sector trailers on sectors {sectors}. A project dump is saved first.",
+  "classicNDEFFormatBackup": "{blocks} block(s) will change. A project dump is written first.",
+  "classicNDEFFormatComplete": "Classic NDEF application formatted",
+  "classicNDEFFormatFailed": "Classic NDEF format failed: {message}",
+  "classicNDEFWriteComplete": "Classic NDEF message written",
+  "classicNDEFWriteFailed": "Classic NDEF write failed: {message}",
+  "classicNDEFReadFailed": "Classic NDEF read failed: {message}",
+  "classicNDEFWriteHint": "A project dump is saved before writing.",
+  "classicNDEFReadOnly": "The NDEF sectors are read-only.",
+  "classicNDEFMADVersion": "MAD version {version}",
+  "classicNDEFMADSectors": "NDEF sectors {sectors}",
+  "classicNDEFFreeSectors": "Free sectors {sectors}",
+  "classicNDEFFormatEnableAdvanced": "Enable Advanced mode to format this card.",
+  "classicNDEFBlocks": "{data} data block(s) · {trailers} trailer(s) · {mad} MAD block(s)",
+  "@classicNDEFFormatInvalid": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicNDEFFormatConfirmMessage": {
+    "placeholders": {
+      "sectors": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicNDEFFormatBackup": {
+    "placeholders": {
+      "blocks": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicNDEFFormatFailed": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicNDEFWriteFailed": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicNDEFReadFailed": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicNDEFMADVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicNDEFMADSectors": {
+    "placeholders": {
+      "sectors": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicNDEFFreeSectors": {
+    "placeholders": {
+      "sectors": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicNDEFBlocks": {
+    "placeholders": {
+      "data": {
+        "type": "String"
+      },
+      "trailers": {
+        "type": "String"
+      },
+      "mad": {
+        "type": "String"
+      }
+    }
   }
 }

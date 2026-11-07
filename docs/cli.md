@@ -177,9 +177,11 @@ nfctl type2 write --page N --data HEX [--pwd HEX] [--yes] [--dry-run]
 nfctl type2 dump <file.json> [--pwd HEX]
 nfctl type2 restore <file.json> [--pwd HEX] [--protected] [--yes] \
     [--confirm-protected] [--dry-run]
-nfctl ndef read [--raw] [--reveal] [--pwd HEX]
+nfctl ndef read [--keys FILE] [--raw] [--reveal] [--pwd HEX]
 nfctl ndef write (--file <path>|--hex <hex>|--template ID [--field K=V]...) \
-    [--pwd HEX] [--yes] [--dry-run]
+    [--keys FILE] [--pwd HEX] [--yes] [--dry-run]
+nfctl ndef format --sectors N-M [--keys FILE] [--yes] [--confirm-format] \
+    [--dry-run]
 nfctl type2 copy SOURCE [--include-protected] [--same-uid-only] [--repeat N] \
     [--continue-on-error] [--pwd HEX] [--yes] [--confirm-copy] \
     [--confirm-protected] [--dry-run]
@@ -258,6 +260,31 @@ shared with the GUI. It validates the record layout and TLV capacity, refuses
 to overwrite a preceding lock/memory-control TLV, and verifies the complete
 NDEF area by read-back.
 
+`nfctl ndef` selects the implementation from the selected card. Type 2 tags use
+the capability container and user-memory TLV area. MIFARE Classic 1K/4K cards
+use the MIFARE Application Directory: `03 E1` marks NDEF sectors, the TLV area
+is the concatenation of their data blocks without trailers, and MAD2 may skip
+sector 16. `--keys` imports a dictionary and runs the Classic key scan before
+the operation; it is rejected for Type 2. Classic reads try verified catalog
+keys first, then the standardized public MAD/NDEF Key A and the transport
+default keys.
+
+Classic `ndef write` changes only the NDEF data blocks, never sector trailers,
+and saves a project dump under `$XDG_CONFIG_HOME/NFC Foundry/classic-backups/`
+before the first write. Every block is verified by read-back. A read-only GPB
+or absent NDEF application is refused without modifying the card.
+
+Classic `ndef format` is the Advanced/confirmed path that creates or extends an
+NDEF application. `--sectors` is one contiguous range on one side of sector 16,
+for example `1-3` or `17-19`. A blank transport-state card receives a MAD1;
+an existing MAD may only select free (`0000`) or already-NDEF sectors. The
+formatter writes data blocks, then NDEF sector trailers, then MAD blocks, and
+the MAD sector trailer last. It preserves the current Key B and refuses when a
+trailer must change but Key B is secret and not verified. A project dump of
+the whole card is read and saved before the first write, and the final MAD/TLV
+area is re-read and compared. The GUI requires the card UID to be typed; the CLI requires both
+`--yes` and `--confirm-format`.
+
 ### Diagnostics and keys
 
 ```text
@@ -302,15 +329,16 @@ Every `--json` run writes exactly one JSON document to stdout:
   `block`, `sector`, `kind`, `hex`, `ascii`, `path`, `sidecar`, `complete`,
   `verified`, `total`, `sectors`, `preflight`, `restore`, `mfoc`, `mfcuk`,
   `keyScan`, `keys`, `product`, `productName`, `pages`, `page`, `pageCount`,
-  `userPages`, `cc`, `ndef`, `protection`, `backup`, `planned`, `written`, and
-  `skipped`. `product`, `productName`, and `userPages` are top-level for
-  `type2 info` and nested under `info` in a full dump.
+  `userPages`, `cc`, `mad`, `application`, `family`, `ndef`, `protection`,
+  `backup`, `planned`, `written`, and `skipped`. `product`, `productName`, and
+  `userPages` are top-level for `type2 info` and nested under `info` in a full
+  dump.
 - `command` is one of `list`, `scan`, `scan.watch`, `card.info`,
   `classic.read`, `classic.write`, `classic.dump`, `classic.restore`,
   `classic.keyscan`, `recover.nested`, `recover.darkside`, `recover.hardnested`,
   `type2.info`, `type2.read`, `type2.write`, `type2.dump`, `type2.restore`,
-  `ndef.read`, `ndef.write`, `uid.set`, `diag`, `keys.list`, `keys.add`,
-  `keys.import`, `keys.export`.
+  `ndef.read`, `ndef.write`, `ndef.format`, `uid.set`, `diag`, `keys.list`,
+  `keys.add`, `keys.import`, `keys.export`.
 
 `--jsonl` emits one compact object per line:
 

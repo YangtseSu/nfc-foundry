@@ -102,6 +102,7 @@ type shell struct {
 	card          *app.CardDTO
 	workbench     app.WorkbenchDTO
 	type2         app.Type2DumpDTO
+	classicNDEF   app.ClassicNDEFDTO
 	sectorKeys    []app.SectorKeyDTO
 	keys          []app.KeyDTO
 
@@ -118,33 +119,40 @@ type shell struct {
 	selectedTab tabID
 	tabIndex    int
 
-	advanced           bool
-	classicDialog      string
-	classicDialogOpen  bool
-	classicIntent      *classicWriteIntent
-	blockChosen        int
-	blockInput         string
-	blockInputBlock    int
-	blockRows          []blockRow
-	blockRowChosen     int
-	uidInput           string
-	sectorChosen       int
-	type2PageChosen    int
-	type2PageInput     string
-	type2PageInputPage int
-	type2Password      string
-	ndefTemplate       string
-	ndefFields         map[string]*string
-	ndefTemplates      []app.Type2NDEFTemplateDTO
-	ndefProviders      map[string][]app.Type2ProviderDTO
-	ndefShowRaw        bool
-	ndefReveal         bool
-	ndefMode           string
-	ndefRaw            string
-	ndefDrafts         []ndefRecordDraft
-	ndefRecordRaw      map[int]bool
-	type2WriteOpen     bool
-	type2WriteIntent   *type2WriteIntent
+	advanced             bool
+	classicDialog        string
+	classicDialogOpen    bool
+	classicIntent        *classicWriteIntent
+	blockChosen          int
+	blockInput           string
+	blockInputBlock      int
+	blockRows            []blockRow
+	blockRowChosen       int
+	uidInput             string
+	sectorChosen         int
+	type2PageChosen      int
+	type2PageInput       string
+	type2PageInputPage   int
+	type2Password        string
+	ndefTemplate         string
+	ndefFields           map[string]*string
+	ndefTemplates        []app.Type2NDEFTemplateDTO
+	ndefProviders        map[string][]app.Type2ProviderDTO
+	ndefShowRaw          bool
+	ndefReveal           bool
+	ndefMode             string
+	ndefRaw              string
+	ndefDrafts           []ndefRecordDraft
+	ndefRecordRaw        map[int]bool
+	type2WriteOpen       bool
+	type2WriteIntent     *type2WriteIntent
+	classicWriteOpen     bool
+	classicWriteIntent   *type2WriteIntent
+	classicFormatOpen    bool
+	classicFormatPlan    *app.ClassicNDEFFormatPreviewDTO
+	classicFormatStart   string
+	classicFormatEnd     string
+	classicFormatConfirm string
 
 	type2Source        app.Type2SourceDTO
 	type2CopyProtected bool
@@ -186,6 +194,8 @@ func newShell(api Backend) *shell {
 		ndefFields:         make(map[string]*string),
 		ndefMode:           "template",
 		ndefRecordRaw:      make(map[int]bool),
+		classicFormatStart: "1",
+		classicFormatEnd:   "3",
 	}
 	s.reloadSnapshot()
 	return s
@@ -302,6 +312,8 @@ func (s *shell) view(c *ui.Context) {
 	})
 	s.type2WriteDialog(c)
 	s.type2PlanDialog(c)
+	s.classicNDEFWriteDialog(c)
+	s.classicNDEFFormatDialog(c)
 	s.type2ProtectionDialog(c)
 	s.classicDialogView(c)
 }
@@ -600,6 +612,11 @@ func (s *shell) resetAdvanced() {
 	s.type2Plan = nil
 	s.type2PlanOpen = false
 	s.type2PlanConfirm = ""
+	s.classicWriteOpen = false
+	s.classicWriteIntent = nil
+	s.classicFormatOpen = false
+	s.classicFormatPlan = nil
+	s.classicFormatConfirm = ""
 	s.type2ProtPlan = nil
 	s.type2ProtOpen = false
 	s.type2ProtConfirm = ""
@@ -692,6 +709,7 @@ func (s *shell) tabSpecs() []tabSpec {
 				}
 				return ""
 			}},
+			{id: tabNDEF, label: locales.Messages.TabNDEF, enabled: true},
 			{id: tabDetails, label: locales.Messages.TabDetails, enabled: true},
 		}
 	case familyType2:

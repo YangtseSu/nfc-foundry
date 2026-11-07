@@ -625,26 +625,30 @@ func type2DumpDTO(document type2.Document, includeSecrets bool) Type2DumpDTO {
 			Editable: geometry.InUserMemory(index),
 		})
 	}
-	if document.NDEF != nil {
-		ndef := &Type2NDEFDTO{
-			Present: document.NDEF.Present, Length: document.NDEF.Length, Raw: document.NDEF.Raw,
-			Text: document.NDEF.Text, URI: document.NDEF.URI,
-		}
-		for _, record := range document.NDEF.Records {
-			fields := make([]Type2NDEFRecordFieldDTO, len(record.Fields))
-			for index, field := range record.Fields {
-				fields[index] = Type2NDEFRecordFieldDTO{Key: field.Key, Value: field.Value, Sensitive: field.Sensitive}
-			}
-			ndef.Records = append(ndef.Records, Type2NDEFRecordDTO{
-				TNF: record.TNF, Type: record.Type, ID: record.ID, Payload: record.Payload,
-				Text: record.Text, URI: record.URI, Kind: record.Kind, Summary: record.Summary,
-				Fields: fields,
-			})
-		}
-		ndef.Summary = document.NDEF.Summary
-		dto.NDEF = ndef
-	}
+	dto.NDEF = ndefDTO(document.NDEF)
 	return dto
+}
+
+func ndefDTO(ndef *type2.NDEF) *Type2NDEFDTO {
+	if ndef == nil {
+		return nil
+	}
+	result := &Type2NDEFDTO{
+		Present: ndef.Present, Length: ndef.Length, Raw: ndef.Raw,
+		Text: ndef.Text, URI: ndef.URI, Summary: ndef.Summary,
+	}
+	for _, record := range ndef.Records {
+		fields := make([]Type2NDEFRecordFieldDTO, len(record.Fields))
+		for index, field := range record.Fields {
+			fields[index] = Type2NDEFRecordFieldDTO{Key: field.Key, Value: field.Value, Sensitive: field.Sensitive}
+		}
+		result.Records = append(result.Records, Type2NDEFRecordDTO{
+			TNF: record.TNF, Type: record.Type, ID: record.ID, Payload: record.Payload,
+			Text: record.Text, URI: record.URI, Kind: record.Kind, Summary: record.Summary,
+			Fields: fields,
+		})
+	}
+	return result
 }
 
 func nonNilInts(values []int) []int {

@@ -201,3 +201,49 @@ func (b *Bindings) StartType2ProtectionWrite(request Type2ProtectionWriteRequest
 }
 
 func (b *Bindings) CancelTask(taskID string) error { return b.service.CancelTask(taskID) }
+
+// StartClassicNDEFRead loads the Classic NDEF mapping into the GUI.
+func (b *Bindings) StartClassicNDEFRead() (TaskDTO, error) {
+	return b.service.StartClassicNDEFRead()
+}
+
+// PreviewNDEFTemplate validates a template for the selected card family.
+func (b *Bindings) PreviewNDEFTemplate(request Type2NDEFWriteStartRequestDTO) (Type2NDEFPreviewDTO, error) {
+	return b.service.PreviewNDEFTemplate(request)
+}
+
+// StartNDEFTemplateWrite writes a template through the selected family.
+func (b *Bindings) StartNDEFTemplateWrite(request Type2NDEFWriteStartRequestDTO) (TaskDTO, error) {
+	return b.service.StartNDEFTemplateWrite(request)
+}
+
+// PreviewNDEFRaw validates a raw message for the selected card family.
+func (b *Bindings) PreviewNDEFRaw(request Type2NDEFRawRequestDTO) (Type2NDEFPreviewDTO, error) {
+	return b.service.PreviewNDEFRaw(request)
+}
+
+// StartNDEFRawWrite writes a raw message through the selected family.
+func (b *Bindings) StartNDEFRawWrite(request Type2NDEFRawRequestDTO) (TaskDTO, error) {
+	return b.service.StartNDEFRawWrite(request)
+}
+
+// PreviewNDEFRecords validates a multi-record message for the selected family.
+func (b *Bindings) PreviewNDEFRecords(request Type2NDEFRecordsRequestDTO) (Type2NDEFPreviewDTO, error) {
+	return b.service.PreviewNDEFRecords(request)
+}
+
+// StartNDEFRecordsWrite writes a multi-record message through the selected
+// family.
+func (b *Bindings) StartNDEFRecordsWrite(request Type2NDEFRecordsRequestDTO) (TaskDTO, error) {
+	return b.service.StartNDEFRecordsWrite(request)
+}
+
+// PreviewClassicNDEFFormat returns the formatting plan for review.
+func (b *Bindings) PreviewClassicNDEFFormat(sectors []int) (ClassicNDEFFormatPreviewDTO, error) {
+	return b.service.PreviewClassicNDEFFormat(sectors)
+}
+
+// StartClassicNDEFFormat runs a confirmed Classic NDEF format.
+func (b *Bindings) StartClassicNDEFFormat(request ClassicNDEFFormatRequestDTO) (TaskDTO, error) {
+	return b.service.StartClassicNDEFFormat(request)
+}

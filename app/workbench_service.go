@@ -380,8 +380,13 @@ func (s *Service) StartReadCard(discardDirty bool) (TaskDTO, error) {
 			if loadErr := s.bench.Load(result, ""); loadErr != nil && readErr == nil {
 				readErr = loadErr
 			}
+			var classicNDEF *ClassicNDEFDTO
+			if nfc.InferCardType(card) == nfc.CardTypeMIFAREClassic1K || nfc.InferCardType(card) == nfc.CardTypeMIFAREClassic4K {
+				ndefDTO, _ := s.ReadClassicNDEF(ctx)
+				classicNDEF = &ndefDTO
+			}
 			dto := s.emitWorkbench()
-			s.emitOperation(TaskEventDetailDTO{TaskID: taskID, Kind: "read", Type: TaskEventProgress, Progress: 100, Message: "read result loaded into the workbench", Workbench: &dto})
+			s.emitOperation(TaskEventDetailDTO{TaskID: taskID, Kind: "read", Type: TaskEventProgress, Progress: 100, Message: "read result loaded into the workbench", Workbench: &dto, ClassicNDEF: classicNDEF})
 		}
 		return readErr
 	})

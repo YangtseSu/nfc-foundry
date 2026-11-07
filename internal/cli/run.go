@@ -143,9 +143,12 @@ Commands:
   type2 erase                       Erase user memory (requires --yes)
   type2 lock                        Apply lock bits (requires --yes)
   type2 password set|remove         Set or remove password protection
-  ndef read [--raw] [--reveal]      Read the NDEF message
-  ndef write --file F|--hex H|--template ID --field K=V
+  ndef read [--keys F] [--raw] [--reveal]
+                                     Read Type 2 or Classic NDEF
+  ndef write --file F|--hex H|--template ID --field K=V [--keys F]
                                      Write an NDEF message (requires --yes)
+  ndef format --sectors N-M         Format a Classic NDEF application
+                                     (requires --yes --confirm-format)
   recover nested|darkside|hardnested  Run an external key-recovery engine
   uid set UID                       Write a 4-byte UID on a supported card
   diag                              Run the release self-check

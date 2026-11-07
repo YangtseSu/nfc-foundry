@@ -13,34 +13,41 @@ import (
 )
 
 type fakeBackend struct {
-	mu                sync.Mutex
-	dashboard         app.DashboardDTO
-	workbench         app.WorkbenchDTO
-	keys              []app.KeyDTO
-	connects          []string
-	readStarts        int
-	scanStarts        int
-	type2Starts       int
-	type2ReadPassword string
-	type2Writes       []app.Type2WriteStartRequestDTO
-	type2NDEFWrites   []app.Type2NDEFWriteStartRequestDTO
-	type2RawWrites    []app.Type2NDEFRawRequestDTO
-	type2Records      []app.Type2NDEFRecordsRequestDTO
-	type2Plans        []app.Type2LifecycleRequestDTO
-	type2Lifecycles   []app.Type2LifecycleRequestDTO
-	type2ProtPlans    []app.Type2ProtectionWriteRequestDTO
-	type2ProtWrites   []app.Type2ProtectionWriteRequestDTO
-	type2Source       app.Type2SourceDTO
-	importedNDEF      *app.Type2NDEFImportDTO
-	exportedNDEF      string
-	type2             app.Type2DumpDTO
-	classicEdits      []classicEditCall
-	classicPreflights []app.WritePreflightRequestDTO
-	classicWrites     []app.WriteStartRequestDTO
-	uidPreflights     []string
-	uidWrites         []app.UIDWriteStartRequestDTO
-	dumpLoads         int
-	dumpSaves         int
+	mu                  sync.Mutex
+	dashboard           app.DashboardDTO
+	workbench           app.WorkbenchDTO
+	keys                []app.KeyDTO
+	connects            []string
+	readStarts          int
+	scanStarts          int
+	type2Starts         int
+	type2ReadPassword   string
+	type2Writes         []app.Type2WriteStartRequestDTO
+	type2NDEFWrites     []app.Type2NDEFWriteStartRequestDTO
+	classicNDEF         app.ClassicNDEFDTO
+	classicNDEFReads    int
+	ndefTemplates       []app.Type2NDEFWriteStartRequestDTO
+	ndefRawWrites       []app.Type2NDEFRawRequestDTO
+	ndefRecordWrites    []app.Type2NDEFRecordsRequestDTO
+	classicFormatPlans  [][]int
+	classicFormatWrites []app.ClassicNDEFFormatRequestDTO
+	type2RawWrites      []app.Type2NDEFRawRequestDTO
+	type2Records        []app.Type2NDEFRecordsRequestDTO
+	type2Plans          []app.Type2LifecycleRequestDTO
+	type2Lifecycles     []app.Type2LifecycleRequestDTO
+	type2ProtPlans      []app.Type2ProtectionWriteRequestDTO
+	type2ProtWrites     []app.Type2ProtectionWriteRequestDTO
+	type2Source         app.Type2SourceDTO
+	importedNDEF        *app.Type2NDEFImportDTO
+	exportedNDEF        string
+	type2               app.Type2DumpDTO
+	classicEdits        []classicEditCall
+	classicPreflights   []app.WritePreflightRequestDTO
+	classicWrites       []app.WriteStartRequestDTO
+	uidPreflights       []string
+	uidWrites           []app.UIDWriteStartRequestDTO
+	dumpLoads           int
+	dumpSaves           int
 }
 
 type classicEditCall struct {
@@ -172,6 +179,65 @@ func (f *fakeBackend) StartType2Read(password string) (app.TaskDTO, error) {
 	f.mu.Unlock()
 	return app.TaskDTO{ID: "type2-1", Name: "type2", Status: "running"}, nil
 }
+func (f *fakeBackend) StartClassicNDEFRead() (app.TaskDTO, error) {
+	f.mu.Lock()
+	f.classicNDEFReads++
+	f.mu.Unlock()
+	return app.TaskDTO{ID: "classic-ndef-read-1", Name: "read", Status: "running"}, nil
+}
+
+func (f *fakeBackend) PreviewNDEFTemplate(request app.Type2NDEFWriteStartRequestDTO) (app.Type2NDEFPreviewDTO, error) {
+	return f.PreviewType2NDEF(request)
+}
+
+func (f *fakeBackend) StartNDEFTemplateWrite(request app.Type2NDEFWriteStartRequestDTO) (app.TaskDTO, error) {
+	f.mu.Lock()
+	f.ndefTemplates = append(f.ndefTemplates, request)
+	f.mu.Unlock()
+	return app.TaskDTO{ID: "ndef-template-1", Name: "ndef", Status: "running"}, nil
+}
+
+func (f *fakeBackend) PreviewNDEFRaw(request app.Type2NDEFRawRequestDTO) (app.Type2NDEFPreviewDTO, error) {
+	return f.PreviewType2NDEFRaw(request)
+}
+
+func (f *fakeBackend) StartNDEFRawWrite(request app.Type2NDEFRawRequestDTO) (app.TaskDTO, error) {
+	f.mu.Lock()
+	f.ndefRawWrites = append(f.ndefRawWrites, request)
+	f.mu.Unlock()
+	return app.TaskDTO{ID: "ndef-raw-1", Name: "ndef", Status: "running"}, nil
+}
+
+func (f *fakeBackend) PreviewNDEFRecords(request app.Type2NDEFRecordsRequestDTO) (app.Type2NDEFPreviewDTO, error) {
+	return f.PreviewType2NDEFRecords(request)
+}
+
+func (f *fakeBackend) StartNDEFRecordsWrite(request app.Type2NDEFRecordsRequestDTO) (app.TaskDTO, error) {
+	f.mu.Lock()
+	f.ndefRecordWrites = append(f.ndefRecordWrites, request)
+	f.mu.Unlock()
+	return app.TaskDTO{ID: "ndef-records-1", Name: "ndef", Status: "running"}, nil
+}
+
+func (f *fakeBackend) PreviewClassicNDEFFormat(sectors []int) (app.ClassicNDEFFormatPreviewDTO, error) {
+	f.mu.Lock()
+	f.classicFormatPlans = append(f.classicFormatPlans, sectors)
+	f.mu.Unlock()
+	return app.ClassicNDEFFormatPreviewDTO{
+		Valid: true, Card: f.dashboard.Card, Layout: "MIFARE Classic 1K",
+		Version: 1, Sectors: sectors, Capacity: len(sectors) * 48,
+		DataBlocks: []int{4, 5, 6}, Trailer: []int{7},
+		MADBlocks: []int{1, 2}, Warnings: []string{}, BackupRoot: "classic-backups",
+	}, nil
+}
+
+func (f *fakeBackend) StartClassicNDEFFormat(request app.ClassicNDEFFormatRequestDTO) (app.TaskDTO, error) {
+	f.mu.Lock()
+	f.classicFormatWrites = append(f.classicFormatWrites, request)
+	f.mu.Unlock()
+	return app.TaskDTO{ID: "classic-format-1", Name: "format", Status: "running"}, nil
+}
+
 func (f *fakeBackend) StartType2Write(request app.Type2WriteStartRequestDTO) (app.TaskDTO, error) {
 	f.mu.Lock()
 	f.type2Writes = append(f.type2Writes, request)
@@ -1518,5 +1584,134 @@ func TestType2AdvancedLifecycleRequiresTypedUID(t *testing.T) {
 	backend.mu.Unlock()
 	if len(lifecycles) != 1 || lifecycles[0].Token != "type2-plan-token" || lifecycles[0].Operation != "erase" {
 		t.Fatalf("lifecycle request = %+v", lifecycles)
+	}
+}
+
+func classicNDEFLoadedFixture() (*fakeBackend, *shell) {
+	backend := classicFixture()
+	model := newShell(backend)
+	model.classicNDEF = app.ClassicNDEFDTO{
+		Loaded: true, Card: backend.dashboard.Card, Layout: "MIFARE Classic 1K",
+		Application: true, Sectors: []int{1}, Capacity: 48,
+		MAD: app.ClassicMADDTO{
+			Present: true, Version: 1, MultiApplication: true, GPB: 0xC1,
+			NDEFSectors: []int{1}, FreeSectors: []int{2, 3},
+			Entries: []app.ClassicMADEntryDTO{{Sector: 1, AID: "03E1"}, {Sector: 2, AID: "0000"}},
+		},
+		NDEF: &app.Type2NDEFDTO{
+			Present: true, Length: 12, Raw: "D101085402656E68656C6C6F", Text: "hello", Summary: "hello",
+			Records: []app.Type2NDEFRecordDTO{{TNF: 1, Type: "T", Kind: "text", Summary: "hello", Text: "hello"}},
+		},
+	}
+	return backend, model
+}
+
+func TestClassicNDEFViewRendersMappingAndRecords(t *testing.T) {
+	_, model := classicNDEFLoadedFixture()
+	tester := ui.NewTester(model.view, 1360, 860)
+	model.selectedTab = tabNDEF
+	tester.Frame()
+	for _, text := range []string{"Classic NDEF", "MAD1", "NDEF sectors 1", "48 bytes", "hello"} {
+		if !tester.HasText(text) {
+			t.Fatalf("missing %q in %q", text, tester.Texts())
+		}
+	}
+}
+
+func TestClassicNDEFWriteConfirmationSubmitsRequest(t *testing.T) {
+	backend, model := classicNDEFLoadedFixture()
+	tester := ui.NewTester(model.view, 1360, 860)
+	model.selectedTab = tabNDEF
+	model.selectNdefTemplate("text")
+	model.setNdefField("text", "hello")
+	tester.Frame()
+	if err := tester.Click("Write NDEF"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if !tester.HasText("Write Text?") {
+		t.Fatalf("confirmation texts: %q", tester.Texts())
+	}
+	if err := tester.Click("Confirm write"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		backend.mu.Lock()
+		count := len(backend.ndefTemplates)
+		backend.mu.Unlock()
+		if count == 1 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	backend.mu.Lock()
+	writes := append([]app.Type2NDEFWriteStartRequestDTO(nil), backend.ndefTemplates...)
+	backend.mu.Unlock()
+	if len(writes) != 1 || writes[0].Template != "text" || writes[0].Fields["text"] != "hello" {
+		t.Fatalf("Classic NDEF write request = %+v", writes)
+	}
+}
+
+func TestClassicNDEFFormatPreviewAndConfirm(t *testing.T) {
+	backend := classicFixture()
+	model := newShell(backend)
+	model.classicNDEF = app.ClassicNDEFDTO{
+		Loaded: true, Card: backend.dashboard.Card, Layout: "MIFARE Classic 1K",
+		MAD: app.ClassicMADDTO{Present: true, Version: 1, FreeSectors: []int{1, 2, 3}},
+	}
+	model.advanced = true
+	model.selectedTab = tabNDEF
+	model.classicFormatStart = "1"
+	model.classicFormatEnd = "2"
+	tester := ui.NewTester(model.view, 1360, 860)
+	tester.Frame()
+	if !tester.HasText("Format NDEF application") {
+		t.Fatalf("format panel texts: %q", tester.Texts())
+	}
+	if err := tester.Click("Preview format"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		backend.mu.Lock()
+		count := len(backend.classicFormatPlans)
+		backend.mu.Unlock()
+		if count == 1 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	tester.Frame()
+	if !tester.HasText("Format NDEF") {
+		t.Fatalf("format action missing: %q", tester.Texts())
+	}
+	if err := tester.Click("Format NDEF"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if !tester.HasText("Format NDEF application?") {
+		t.Fatalf("format dialog texts: %q", tester.Texts())
+	}
+	model.classicFormatConfirm = backend.dashboard.Card.UID
+	tester.Frame()
+	if err := tester.Click("Apply"); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		backend.mu.Lock()
+		count := len(backend.classicFormatWrites)
+		backend.mu.Unlock()
+		if count == 1 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	backend.mu.Lock()
+	writes := append([]app.ClassicNDEFFormatRequestDTO(nil), backend.classicFormatWrites...)
+	backend.mu.Unlock()
+	if len(writes) != 1 || len(writes[0].Sectors) != 2 || writes[0].Confirmation != backend.dashboard.Card.UID {
+		t.Fatalf("format request = %+v", writes)
 	}
 }

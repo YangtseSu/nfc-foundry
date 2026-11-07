@@ -23,13 +23,14 @@ import (
 )
 
 const (
-	DeviceEventName     = "nfc-foundry:device-state"
-	CardEventName       = "nfc-foundry:card-state"
-	TaskEventName       = "nfc-foundry:task"
-	WorkbenchEventName  = "nfc-foundry:workbench"
-	KeyEventName        = "nfc-foundry:sector-keys"
-	KeyCatalogEventName = "nfc-foundry:key-catalog"
-	Type2EventName      = "nfc-foundry:type2"
+	DeviceEventName      = "nfc-foundry:device-state"
+	CardEventName        = "nfc-foundry:card-state"
+	TaskEventName        = "nfc-foundry:task"
+	WorkbenchEventName   = "nfc-foundry:workbench"
+	KeyEventName         = "nfc-foundry:sector-keys"
+	KeyCatalogEventName  = "nfc-foundry:key-catalog"
+	Type2EventName       = "nfc-foundry:type2"
+	ClassicNDEFEventName = "nfc-foundry:classic-ndef"
 
 	TaskEventStarted   = "started"
 	TaskEventProgress  = "progress"
@@ -121,6 +122,7 @@ type Service struct {
 	classicIO         *workflow.ClassicIO
 	uidService        *workflow.UIDService
 	type2Service      *workflow.Type2Service
+	classicNDEF       *workflow.ClassicNDEFService
 	type2BackupRoot   string
 	classicBackupRoot string
 	type2Mu           sync.Mutex

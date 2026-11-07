@@ -85,7 +85,11 @@ func (s *shell) workspace(c *ui.Context, p palette) {
 			case tabMemory:
 				s.type2MemoryView(c, p)
 			case tabNDEF:
-				s.type2NDEFView(c, p)
+				if s.cardFamily() == familyClassic {
+					s.classicNDEFView(c, p)
+				} else {
+					s.type2NDEFView(c, p)
+				}
 			case tabProtection:
 				s.type2ProtectionView(c, p)
 			default:
