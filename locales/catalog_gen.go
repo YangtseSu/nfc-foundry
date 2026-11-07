@@ -4110,84 +4110,126 @@ func (msgs Messages) Type2Erase() string {
 	return Catalog.Format(msgs.locale, "type2Erase", nil)
 }
 
-// Type2LockPanel says "Lock bits"
+// Type2ProtectionEditor says "Protection editor"
 // in the language the app shows.
-func Type2LockPanel() string { return In(i18n.Locale()).Type2LockPanel() }
+func Type2ProtectionEditor() string { return In(i18n.Locale()).Type2ProtectionEditor() }
 
-// Type2LockPanel says "Lock bits"
+// Type2ProtectionEditor says "Protection editor"
 // in the language of msgs.
-func (msgs Messages) Type2LockPanel() string {
-	return Catalog.Format(msgs.locale, "type2LockPanel", nil)
+func (msgs Messages) Type2ProtectionEditor() string {
+	return Catalog.Format(msgs.locale, "type2ProtectionEditor", nil)
 }
 
-// Type2CCReadOnly says "CC read-only"
+// Type2ProtectionEditorHint says "Leave a field blank to keep its current value. Lock bits can only be set, and configuration changes can permanently l…"
 // in the language the app shows.
-func Type2CCReadOnly() string { return In(i18n.Locale()).Type2CCReadOnly() }
+func Type2ProtectionEditorHint() string { return In(i18n.Locale()).Type2ProtectionEditorHint() }
 
-// Type2CCReadOnly says "CC read-only"
+// Type2ProtectionEditorHint says "Leave a field blank to keep its current value. Lock bits can only be set, and configuration changes can permanently l…"
 // in the language of msgs.
-func (msgs Messages) Type2CCReadOnly() string {
-	return Catalog.Format(msgs.locale, "type2CCReadOnly", nil)
+func (msgs Messages) Type2ProtectionEditorHint() string {
+	return Catalog.Format(msgs.locale, "type2ProtectionEditorHint", nil)
 }
 
-// Type2ConfigLock says "Lock configuration"
+// Type2ProtectionAccessHint says "ACCESS bits: 0x80 PROT, 0x40 CFGLCK, 0x30 NFC counter, 0x07 AUTHLIM; other bits are preserved."
 // in the language the app shows.
-func Type2ConfigLock() string { return In(i18n.Locale()).Type2ConfigLock() }
+func Type2ProtectionAccessHint() string { return In(i18n.Locale()).Type2ProtectionAccessHint() }
 
-// Type2ConfigLock says "Lock configuration"
+// Type2ProtectionAccessHint says "ACCESS bits: 0x80 PROT, 0x40 CFGLCK, 0x30 NFC counter, 0x07 AUTHLIM; other bits are preserved."
 // in the language of msgs.
-func (msgs Messages) Type2ConfigLock() string {
-	return Catalog.Format(msgs.locale, "type2ConfigLock", nil)
+func (msgs Messages) Type2ProtectionAccessHint() string {
+	return Catalog.Format(msgs.locale, "type2ProtectionAccessHint", nil)
 }
 
-// Type2ApplyLocks says "Apply locks"
+// Type2ProtectionReview says "Review protected write"
 // in the language the app shows.
-func Type2ApplyLocks() string { return In(i18n.Locale()).Type2ApplyLocks() }
+func Type2ProtectionReview() string { return In(i18n.Locale()).Type2ProtectionReview() }
 
-// Type2ApplyLocks says "Apply locks"
+// Type2ProtectionReview says "Review protected write"
 // in the language of msgs.
-func (msgs Messages) Type2ApplyLocks() string {
-	return Catalog.Format(msgs.locale, "type2ApplyLocks", nil)
+func (msgs Messages) Type2ProtectionReview() string {
+	return Catalog.Format(msgs.locale, "type2ProtectionReview", nil)
 }
 
-// Type2PasswordPanel says "Password protection"
+// Type2CurrentPassword says "Current password"
 // in the language the app shows.
-func Type2PasswordPanel() string { return In(i18n.Locale()).Type2PasswordPanel() }
+func Type2CurrentPassword() string { return In(i18n.Locale()).Type2CurrentPassword() }
 
-// Type2PasswordPanel says "Password protection"
+// Type2CurrentPassword says "Current password"
 // in the language of msgs.
-func (msgs Messages) Type2PasswordPanel() string {
-	return Catalog.Format(msgs.locale, "type2PasswordPanel", nil)
+func (msgs Messages) Type2CurrentPassword() string {
+	return Catalog.Format(msgs.locale, "type2CurrentPassword", nil)
 }
 
-// Type2NewPassword says "New password"
+// Type2ProtectionNoFields says "Enter at least one protection field to change."
 // in the language the app shows.
-func Type2NewPassword() string { return In(i18n.Locale()).Type2NewPassword() }
+func Type2ProtectionNoFields() string { return In(i18n.Locale()).Type2ProtectionNoFields() }
 
-// Type2NewPassword says "New password"
+// Type2ProtectionNoFields says "Enter at least one protection field to change."
 // in the language of msgs.
-func (msgs Messages) Type2NewPassword() string {
-	return Catalog.Format(msgs.locale, "type2NewPassword", nil)
+func (msgs Messages) Type2ProtectionNoFields() string {
+	return Catalog.Format(msgs.locale, "type2ProtectionNoFields", nil)
 }
 
-// Type2SetPassword says "Set password"
+// Type2InvalidAccess says "ACCESS must contain exactly 2 hexadecimal digits."
 // in the language the app shows.
-func Type2SetPassword() string { return In(i18n.Locale()).Type2SetPassword() }
+func Type2InvalidAccess() string { return In(i18n.Locale()).Type2InvalidAccess() }
 
-// Type2SetPassword says "Set password"
+// Type2InvalidAccess says "ACCESS must contain exactly 2 hexadecimal digits."
 // in the language of msgs.
-func (msgs Messages) Type2SetPassword() string {
-	return Catalog.Format(msgs.locale, "type2SetPassword", nil)
+func (msgs Messages) Type2InvalidAccess() string {
+	return Catalog.Format(msgs.locale, "type2InvalidAccess", nil)
 }
 
-// Type2RemovePassword says "Remove password"
+// Type2ProtectionFailed says "Protection write failed: {message}"
 // in the language the app shows.
-func Type2RemovePassword() string { return In(i18n.Locale()).Type2RemovePassword() }
+func Type2ProtectionFailed(message string) string {
+	return In(i18n.Locale()).Type2ProtectionFailed(message)
+}
 
-// Type2RemovePassword says "Remove password"
+// Type2ProtectionFailed says "Protection write failed: {message}"
 // in the language of msgs.
-func (msgs Messages) Type2RemovePassword() string {
-	return Catalog.Format(msgs.locale, "type2RemovePassword", nil)
+func (msgs Messages) Type2ProtectionFailed(message string) string {
+	return Catalog.Format(msgs.locale, "type2ProtectionFailed", map[string]any{"message": message})
+}
+
+// Type2ProtectionStarted says "Protection write started."
+// in the language the app shows.
+func Type2ProtectionStarted() string { return In(i18n.Locale()).Type2ProtectionStarted() }
+
+// Type2ProtectionStarted says "Protection write started."
+// in the language of msgs.
+func (msgs Messages) Type2ProtectionStarted() string {
+	return Catalog.Format(msgs.locale, "type2ProtectionStarted", nil)
+}
+
+// Type2ProtectionConfirmTitle says "Confirm protected write"
+// in the language the app shows.
+func Type2ProtectionConfirmTitle() string { return In(i18n.Locale()).Type2ProtectionConfirmTitle() }
+
+// Type2ProtectionConfirmTitle says "Confirm protected write"
+// in the language of msgs.
+func (msgs Messages) Type2ProtectionConfirmTitle() string {
+	return Catalog.Format(msgs.locale, "type2ProtectionConfirmTitle", nil)
+}
+
+// Type2ProtectionDialogWarning says "Lock writes are one-way. A configuration change can brick the tag or make it unreadable. This operation cannot be und…"
+// in the language the app shows.
+func Type2ProtectionDialogWarning() string { return In(i18n.Locale()).Type2ProtectionDialogWarning() }
+
+// Type2ProtectionDialogWarning says "Lock writes are one-way. A configuration change can brick the tag or make it unreadable. This operation cannot be und…"
+// in the language of msgs.
+func (msgs Messages) Type2ProtectionDialogWarning() string {
+	return Catalog.Format(msgs.locale, "type2ProtectionDialogWarning", nil)
+}
+
+// Type2ProtectionTyped says "Type PROTECTED to confirm."
+// in the language the app shows.
+func Type2ProtectionTyped() string { return In(i18n.Locale()).Type2ProtectionTyped() }
+
+// Type2ProtectionTyped says "Type PROTECTED to confirm."
+// in the language of msgs.
+func (msgs Messages) Type2ProtectionTyped() string {
+	return Catalog.Format(msgs.locale, "type2ProtectionTyped", nil)
 }
 
 // Type2LifecycleFailed says "Type 2 operation failed: {message}"

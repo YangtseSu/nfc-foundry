@@ -185,6 +185,36 @@ func TestType2PasswordSetAndRemove(t *testing.T) {
 	}
 }
 
+func TestType2ProtectionImageChangeInvalidatesPreview(t *testing.T) {
+	tag := mock.NewType2Tag(type2.ProductNTAG213, nil)
+	reader := mock.NewType2Reader(tag)
+	if err := reader.Open(context.Background(), "mock:protect"); err != nil {
+		t.Fatal(err)
+	}
+	service := lifecycleService(t, reader)
+	auth0 := 4
+	request := Type2LifecycleRequest{
+		Card: tag.CardInfo(), Operation: Type2OperationProtection,
+		Protection: type2.ProtectionWriteOptions{Auth0: &auth0},
+	}
+	plan, err := service.PreviewType2Lifecycle(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Writes) == 0 {
+		t.Fatal("AUTH0 change produced no writes")
+	}
+	tag.SetPage(4, [4]byte{9, 9, 9, 9})
+	request.ExpectedToken = plan.Token
+	if _, err := service.ExecuteType2Lifecycle(context.Background(), request); !errors.Is(err, nfc.ErrCardChanged) {
+		t.Fatalf("image change error = %v", err)
+	}
+	page, _ := tag.Page(41)
+	if page[3] != 0xFF {
+		t.Fatalf("AUTH0 changed despite a stale preview: % X", page)
+	}
+}
+
 func TestType2LifecycleRejectsStaleToken(t *testing.T) {
 	tag := mock.NewType2Tag(type2.ProductNTAG213, nil)
 	tag.SetPage(4, [4]byte{1, 2, 3, 4})

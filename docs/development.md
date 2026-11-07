@@ -20,6 +20,10 @@ make build
 make check
 make libnfc-ng-hardware-smoke LIBNFC_DEVICE=pn532_uart:/dev/ttyUSB0
 make libnfc-type2-hardware-test LIBNFC_DEVICE=acr122_usb:001:005
+make libnfc-type2-protected-hardware-test LIBNFC_DEVICE=acr122_usb:001:005 \
+  NFCX_HARDWARE_TYPE2_PROTECTED_CONFIRM=I_OWN_THIS_DISPOSABLE_TAG \
+  NFCX_TEST_TYPE2_BACKUP_DIR=<directory> \
+  NFCX_HARDWARE_TYPE2_PROTECT_AUTH0=4
 ```
 
 - `libnfc-ng-build`: build/install the fork into the development prefix.
@@ -35,6 +39,12 @@ make libnfc-type2-hardware-test LIBNFC_DEVICE=acr122_usb:001:005
   `NFCX_HARDWARE_TYPE2_CONFIRM=I_OWN_THIS_TAG` and
   `NFCX_TEST_TYPE2_BACKUP_DIR=<directory>` to exercise NDEF write, restore,
   and read-back. `NFCX_TEST_TYPE2_PWD` provides an optional four-byte password.
+- `libnfc-type2-protected-hardware-test`: destructive, one-way protection
+  validation on a disposable tag. It requires
+  `NFCX_HARDWARE_TYPE2_PROTECTED_CONFIRM=I_OWN_THIS_DISPOSABLE_TAG`,
+  `NFCX_TEST_TYPE2_BACKUP_DIR=<directory>`, and at least one of
+  `NFCX_HARDWARE_TYPE2_PROTECT_AUTH0`, `..._ACCESS`, `..._STATIC_LOCK`, or
+  `..._DYNAMIC_LOCK`. It leaves the tag in the tested state.
 
 ## Current baseline and migration
 

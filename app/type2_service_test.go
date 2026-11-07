@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -211,6 +212,81 @@ func TestServiceType2LifecyclePreviewAndStart(t *testing.T) {
 	}
 	if page, _ := tag.Page(4); page != [4]byte{} {
 		t.Fatalf("page 4 = % X", page)
+	}
+}
+
+func TestServiceType2ProtectionPreflightAndStart(t *testing.T) {
+	service, tag, recorder := newType2AppService(t)
+	auth0 := 4
+	access := byte(0x8F)
+	staticLock := "0002"
+	pack := "AABB"
+	request := Type2ProtectionWriteRequestDTO{
+		Auth0: &auth0, Access: &access, StaticLock: &staticLock, Pack: &pack,
+	}
+	unchanged := 255
+	if _, err := service.PreflightType2Protection(Type2ProtectionWriteRequestDTO{Auth0: &unchanged}); err == nil {
+		t.Fatal("preflight accepted a field with no effective change")
+	}
+	tooShort := "AA"
+	if _, err := service.PreflightType2Protection(Type2ProtectionWriteRequestDTO{Pack: &tooShort}); err == nil {
+		t.Fatal("preflight accepted a malformed PACK")
+	}
+	plan, err := service.PreflightType2Protection(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Changes) == 0 || len(plan.Writes) == 0 || plan.Token == "" {
+		t.Fatalf("plan = %+v", plan)
+	}
+	if len(plan.Token) < 66 {
+		t.Fatalf("token %q does not carry an expiry", plan.Token)
+	}
+
+	request.Token = plan.Token
+	request.Confirmation = "protected"
+	if _, err := service.StartType2ProtectionWrite(request); err == nil {
+		t.Fatal("lowercase confirmation was accepted")
+	}
+	request.Confirmation = "PROTECTED"
+	if _, err := service.StartType2ProtectionWrite(request); err != nil {
+		t.Fatal(err)
+	}
+	event := recorder.waitTask(t)
+	if event.Type != TaskEventCompleted {
+		t.Fatalf("protection event = %+v", event)
+	}
+	config, _ := tag.Page(41)
+	if config[3] != 4 {
+		t.Fatalf("AUTH0 page = % X", config)
+	}
+	accessPage, _ := tag.Page(42)
+	if accessPage[0] != 0x87 {
+		t.Fatalf("ACCESS = 0x%02X; want 0x87 with bit 3 preserved", accessPage[0])
+	}
+	staticPage, _ := tag.Page(2)
+	if staticPage[2] != 0x02 {
+		t.Fatalf("static lock = % X", staticPage)
+	}
+	packPage, _ := tag.Page(44)
+	if packPage[0] != 0xAA || packPage[1] != 0xBB {
+		t.Fatalf("PACK = % X", packPage)
+	}
+}
+
+func TestType2ProtectionTokenExpiry(t *testing.T) {
+	hash := strings.Repeat("a", 64)
+	now := time.Now()
+	valid := hash + "." + strconv.FormatInt(now.Add(time.Minute).Unix(), 10)
+	if got, err := parseType2ProtectionToken(valid, now); err != nil || got != hash {
+		t.Fatalf("valid token = %q, %v", got, err)
+	}
+	expired := hash + "." + strconv.FormatInt(now.Add(-time.Second).Unix(), 10)
+	if _, err := parseType2ProtectionToken(expired, now); err == nil {
+		t.Fatal("expired token was accepted")
+	}
+	if _, err := parseType2ProtectionToken("stale", now); err == nil {
+		t.Fatal("malformed token was accepted")
 	}
 }
 

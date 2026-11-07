@@ -105,14 +105,18 @@ URI, because the WSC 2.0 credential format has no WPA3/SAE authentication type.
 NFC Foundry writes and reads the URI only; full DPP authentication and
 provisioning are out of scope.
 
-Advanced mode exposes Type 2 copy, repeated copy, erase, lock, and password
-set/remove. Copy defaults to user memory; the protected path adds PWD/PACK,
-configuration, and writable capability-container bits. Static lock, dynamic
-lock, CC read-only, and CFGLCK are one-way. Password set writes PWD, PACK,
-AUTH0, and PROT; password removal requires the current password and refuses a
-CFGLCK-locked configuration. Every lifecycle action shows old/new values,
-writes a full-image backup, verifies each page, and requires a typed card-UID
-confirmation in the GUI.
+Advanced mode exposes Type 2 copy, repeated copy, erase, and a per-field
+protection editor for AUTH0, ACCESS, PWD/PACK, dynamic lock, and static lock.
+Copy defaults to user memory; the protected path adds PWD/PACK, configuration,
+and writable capability-container bits. Static lock, dynamic lock, CC
+read-only, and CFGLCK are one-way. The protection editor writes ordinary user
+pages and PWD/PACK first, then configuration, dynamic lock, and static lock
+last; CFGLCK cannot be cleared and PWD/PACK/configuration writes are refused
+once it is set. Every action writes a full-image backup and verifies each page.
+Copy and erase require a typed card-UID confirmation. Protection writes require
+the exact word `PROTECTED` and a preview token that expires after five minutes.
+The CLI additionally exposes explicit `type2 lock` and `type2 password`
+commands.
 
 Type 2 dumps include PWD and PACK pages so a full restore is possible; write
 them with mode 0600 and treat them as sensitive. The CLI masks those pages unless

@@ -91,8 +91,7 @@ func (s *shell) toggleAdvanced() {
 		return
 	}
 	if s.advanced {
-		s.advanced = false
-		s.uidInput = ""
+		s.resetAdvanced()
 		return
 	}
 	s.openClassicDialog("advanced", nil)

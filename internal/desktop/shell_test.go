@@ -28,6 +28,8 @@ type fakeBackend struct {
 	type2Records      []app.Type2NDEFRecordsRequestDTO
 	type2Plans        []app.Type2LifecycleRequestDTO
 	type2Lifecycles   []app.Type2LifecycleRequestDTO
+	type2ProtPlans    []app.Type2ProtectionWriteRequestDTO
+	type2ProtWrites   []app.Type2ProtectionWriteRequestDTO
 	type2Source       app.Type2SourceDTO
 	importedNDEF      *app.Type2NDEFImportDTO
 	exportedNDEF      string
@@ -244,6 +246,22 @@ func (f *fakeBackend) StartType2Lifecycle(request app.Type2LifecycleRequestDTO) 
 	f.type2Lifecycles = append(f.type2Lifecycles, request)
 	f.mu.Unlock()
 	return app.TaskDTO{ID: "type2-lifecycle-1", Name: "lifecycle", Status: "running"}, nil
+}
+func (f *fakeBackend) PreflightType2Protection(request app.Type2ProtectionWriteRequestDTO) (app.Type2ProtectionPreflightDTO, error) {
+	f.mu.Lock()
+	f.type2ProtPlans = append(f.type2ProtPlans, request)
+	f.mu.Unlock()
+	return app.Type2ProtectionPreflightDTO{
+		CardUID: "04 A1 B2 C3 D4 E5 F6", Product: "ntag215", ProductName: "NTAG215",
+		Changes: []app.Type2ChangeDTO{{Target: "AUTH0", Old: "disabled (FF)", New: "4"}},
+		Writes:  []app.Type2PageWriteDTO{{Page: 131, Hex: "00000004"}}, Token: "protect-token",
+	}, nil
+}
+func (f *fakeBackend) StartType2ProtectionWrite(request app.Type2ProtectionWriteRequestDTO) (app.TaskDTO, error) {
+	f.mu.Lock()
+	f.type2ProtWrites = append(f.type2ProtWrites, request)
+	f.mu.Unlock()
+	return app.TaskDTO{ID: "type2-protection-1", Name: "protection", Status: "running"}, nil
 }
 func (f *fakeBackend) StartReadCard(bool) (app.TaskDTO, error) {
 	f.mu.Lock()
@@ -1343,6 +1361,101 @@ func TestType2NDEFRevealAndImportExport(t *testing.T) {
 	backend.mu.Unlock()
 	if exported != model.ndefRaw {
 		t.Fatalf("exported = %q; want %q", exported, model.ndefRaw)
+	}
+}
+
+func TestType2ProtectionEditorRequiresAdvancedAndPhrase(t *testing.T) {
+	backend := loadedType2Fixture()
+	model := newShell(backend)
+	tester := ui.NewTester(model.view, 1360, 1400)
+	model.selectedTab = tabProtection
+	tester.Frame()
+	if tester.HasText("Protection editor") {
+		t.Fatal("protection editor was visible before Advanced mode")
+	}
+	model.advanced = true
+	model.type2ProtAuth0 = "4"
+	tester.Frame()
+	if !tester.HasText("Protection editor") {
+		t.Fatalf("protection editor missing: %q", tester.Texts())
+	}
+	if err := tester.Click("Review protected write"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		backend.mu.Lock()
+		count := len(backend.type2ProtPlans)
+		backend.mu.Unlock()
+		if count == 1 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	tester.Frame()
+	if !tester.HasText("Type PROTECTED to confirm.") || !tester.HasText("AUTH0: disabled (FF) → 4") {
+		t.Fatalf("protection confirmation missing: %q", tester.Texts())
+	}
+	_ = tester.Click("Apply")
+	tester.Frame()
+	backend.mu.Lock()
+	starts := len(backend.type2ProtWrites)
+	backend.mu.Unlock()
+	if starts != 0 {
+		t.Fatalf("protection write started without PROTECTED: %d", starts)
+	}
+	model.type2ProtConfirm = "PROTECTED"
+	tester.Frame()
+	if err := tester.Click("Apply"); err != nil {
+		t.Fatal(err)
+	}
+	for time.Now().Before(deadline) {
+		backend.mu.Lock()
+		starts = len(backend.type2ProtWrites)
+		backend.mu.Unlock()
+		if starts == 1 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	backend.mu.Lock()
+	writes := append([]app.Type2ProtectionWriteRequestDTO(nil), backend.type2ProtWrites...)
+	backend.mu.Unlock()
+	if len(writes) != 1 || writes[0].Confirmation != "PROTECTED" ||
+		writes[0].Token != "protect-token" || writes[0].Auth0 == nil || *writes[0].Auth0 != 4 {
+		t.Fatalf("protection request = %+v", writes)
+	}
+}
+
+func TestType2ProtectionDialogClosesWhenAdvancedIsDisabled(t *testing.T) {
+	backend := loadedType2Fixture()
+	model := newShell(backend)
+	tester := ui.NewTester(model.view, 1360, 1400)
+	model.selectedTab = tabProtection
+	model.advanced = true
+	model.type2ProtAuth0 = "4"
+	tester.Frame()
+	if err := tester.Click("Review protected write"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		backend.mu.Lock()
+		count := len(backend.type2ProtPlans)
+		backend.mu.Unlock()
+		if count == 1 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	tester.Frame()
+	if !tester.HasText("Type PROTECTED to confirm.") {
+		t.Fatalf("protection dialog missing: %q", tester.Texts())
+	}
+	model.toggleAdvanced()
+	tester.Frame()
+	if model.advanced || model.type2ProtOpen || tester.HasText("Type PROTECTED to confirm.") {
+		t.Fatalf("protection dialog survived disabling advanced mode: %q", tester.Texts())
 	}
 }
 

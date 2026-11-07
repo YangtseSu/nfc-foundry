@@ -52,6 +52,8 @@ type Backend interface {
 	ImportType2Dump() (app.Type2DumpDTO, error)
 	PreviewType2Lifecycle(app.Type2LifecycleRequestDTO) (app.Type2LifecyclePlanDTO, error)
 	StartType2Lifecycle(app.Type2LifecycleRequestDTO) (app.TaskDTO, error)
+	PreflightType2Protection(app.Type2ProtectionWriteRequestDTO) (app.Type2ProtectionPreflightDTO, error)
+	StartType2ProtectionWrite(app.Type2ProtectionWriteRequestDTO) (app.TaskDTO, error)
 	StartKeyScan(discardDirty bool) (app.TaskDTO, error)
 	CancelTask(taskID string) error
 }

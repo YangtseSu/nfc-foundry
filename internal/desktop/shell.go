@@ -150,18 +150,20 @@ type shell struct {
 	type2CopyProtected bool
 	type2CopySameUID   bool
 	type2CopyRepeat    string
-	type2LockStatic    string
-	type2LockDynamic   string
-	type2LockCC        bool
-	type2LockConfig    bool
-	type2PwdNew        string
-	type2PwdPack       string
-	type2PwdAuth0      string
-	type2PwdProtect    bool
+	type2ProtAuth0     string
+	type2ProtAccess    string
+	type2ProtPassword  string
+	type2ProtPack      string
+	type2ProtStatic    string
+	type2ProtDynamic   string
 	type2Plan          *app.Type2LifecyclePlanDTO
 	type2PlanRequest   app.Type2LifecycleRequestDTO
 	type2PlanOpen      bool
 	type2PlanConfirm   string
+	type2ProtPlan      *app.Type2ProtectionPreflightDTO
+	type2ProtRequest   app.Type2ProtectionWriteRequestDTO
+	type2ProtOpen      bool
+	type2ProtConfirm   string
 	keyChosen          string
 	keyChosenRow       int
 
@@ -184,7 +186,6 @@ func newShell(api Backend) *shell {
 		ndefFields:         make(map[string]*string),
 		ndefMode:           "template",
 		ndefRecordRaw:      make(map[int]bool),
-		type2PwdProtect:    true,
 	}
 	s.reloadSnapshot()
 	return s
@@ -301,6 +302,7 @@ func (s *shell) view(c *ui.Context) {
 	})
 	s.type2WriteDialog(c)
 	s.type2PlanDialog(c)
+	s.type2ProtectionDialog(c)
 	s.classicDialogView(c)
 }
 
@@ -598,17 +600,18 @@ func (s *shell) resetAdvanced() {
 	s.type2Plan = nil
 	s.type2PlanOpen = false
 	s.type2PlanConfirm = ""
-	s.type2PwdNew = ""
-	s.type2PwdPack = ""
-	s.type2PwdAuth0 = ""
-	s.type2PwdProtect = true
+	s.type2ProtPlan = nil
+	s.type2ProtOpen = false
+	s.type2ProtConfirm = ""
+	s.type2ProtAuth0 = ""
+	s.type2ProtAccess = ""
+	s.type2ProtPassword = ""
+	s.type2ProtPack = ""
+	s.type2ProtStatic = ""
+	s.type2ProtDynamic = ""
 	s.type2CopyProtected = false
 	s.type2CopySameUID = false
 	s.type2CopyRepeat = ""
-	s.type2LockStatic = ""
-	s.type2LockDynamic = ""
-	s.type2LockCC = false
-	s.type2LockConfig = false
 	s.ndefReveal = false
 }
 

@@ -17,6 +17,7 @@ const (
 	Type2OperationLock           = "lock"
 	Type2OperationPasswordSet    = "password-set"
 	Type2OperationPasswordRemove = "password-remove"
+	Type2OperationProtection     = "protect"
 )
 
 // Type2LifecycleRequest describes one copy, erase, lock, or password change.
@@ -30,6 +31,7 @@ type Type2LifecycleRequest struct {
 	SameUIDOnly      bool
 	Lock             type2.LockOptions
 	PasswordOptions  type2.PasswordOptions
+	Protection       type2.ProtectionWriteOptions
 	Password         []byte
 	Pack             []byte
 	DryRun           bool
@@ -47,10 +49,14 @@ type Type2LifecyclePlan struct {
 	Token     string
 }
 
-// Type2PlanToken binds a confirmation to the selected card and exact writes.
-func Type2PlanToken(operation string, card nfc.CardInfo, writes []type2.PageWrite) string {
+// Type2PlanToken binds a confirmation to the selected card, current image,
+// and exact writes. Any image change invalidates the preview.
+func Type2PlanToken(operation string, card nfc.CardInfo, document type2.Document, writes []type2.PageWrite) string {
 	hash := sha256.New()
-	fmt.Fprintf(hash, "%s\n%s\n% X\n%02X\n", operation, strings.ToUpper(hex.EncodeToString(card.UID)), card.ATQA, card.SAK)
+	fmt.Fprintf(hash, "%s\n%s\n% X\n%02X\n%s\n", operation, strings.ToUpper(hex.EncodeToString(card.UID)), card.ATQA, card.SAK, document.Product)
+	for _, page := range document.Pages {
+		fmt.Fprintf(hash, "%s\n", strings.ToUpper(page))
+	}
 	for _, write := range writes {
 		fmt.Fprintf(hash, "%d:%s\n", write.Page, strings.ToUpper(write.Hex))
 	}
@@ -139,6 +145,8 @@ func buildType2LifecyclePlan(request Type2LifecycleRequest, current type2.Docume
 		plan.Writes, plan.Changes, err = type2.PlanPasswordSet(current, request.PasswordOptions)
 	case Type2OperationPasswordRemove:
 		plan.Writes, plan.Changes, err = type2.PlanPasswordRemove(current)
+	case Type2OperationProtection:
+		plan.Writes, plan.Changes, err = type2.PlanProtectionWrites(current, request.Protection)
 	default:
 		return Type2LifecyclePlan{}, nfc.NewError("Type 2 lifecycle", nfc.CodeInvalidArgument,
 			fmt.Sprintf("unknown lifecycle operation %q", request.Operation), nil)
@@ -146,7 +154,7 @@ func buildType2LifecyclePlan(request Type2LifecycleRequest, current type2.Docume
 	if err != nil {
 		return Type2LifecyclePlan{}, nfc.NewError("plan Type 2 "+request.Operation, nfc.CodeInvalidArgument, err.Error(), err)
 	}
-	plan.Token = Type2PlanToken(request.Operation, request.Card, plan.Writes)
+	plan.Token = Type2PlanToken(request.Operation, request.Card, current, plan.Writes)
 	return plan, nil
 }
 

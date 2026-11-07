@@ -346,72 +346,193 @@ func (s *shell) type2AdvancedPanel(c *ui.Context, p palette) {
 	})
 	ui.Column(c).Padding(14).Gap(8).Background(p.surface).Radius(10).
 		Border(1, p.border).Children(func() {
-		ui.Text(c, l.Type2LockPanel()).FontSize(12.5).Bold().TextColor(p.text)
-		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, l.Type2StaticLock()).FontSize(9.5).TextColor(p.muted).Shrink(0)
-			ui.TextInput(c, &s.type2LockStatic).Placeholder("0000").Font("monospace").Width(100)
-			ui.Text(c, l.Type2DynamicLock()).FontSize(9.5).TextColor(p.muted).Shrink(0)
-			ui.TextInput(c, &s.type2LockDynamic).Placeholder("000000").Font("monospace").Width(120)
-		})
-		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
-			ui.Checkbox(c, &s.type2LockCC, l.Type2CCReadOnly())
-			ui.Checkbox(c, &s.type2LockConfig, l.Type2ConfigLock())
-			ui.Spacer(c)
-			if ui.Button(c, l.Type2ApplyLocks()).Height(28).FontSize(10).
-				Disabled(s.writeBusy() || strings.TrimSpace(s.type2LockStatic) == "" &&
-					strings.TrimSpace(s.type2LockDynamic) == "" && !s.type2LockCC && !s.type2LockConfig).Clicked() {
-				s.requestType2Lifecycle(app.Type2LifecycleRequestDTO{
-					Operation: "lock", StaticLock: s.type2LockStatic, DynamicLock: s.type2LockDynamic,
-					CCReadOnly: s.type2LockCC, ConfigLock: s.type2LockConfig, CurrentPassword: s.type2Password,
-				})
-			}
-		})
-	})
-	ui.Column(c).Padding(14).Gap(8).Background(p.surface).Radius(10).
-		Border(1, p.border).Children(func() {
-		ui.Text(c, l.Type2PasswordPanel()).FontSize(12.5).Bold().TextColor(p.text)
-		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, l.Type2NewPassword()).FontSize(9.5).TextColor(p.muted).Shrink(0)
-			ui.TextInput(c, &s.type2PwdNew).Password().Placeholder("01020304").Width(130)
-			ui.Text(c, l.Type2Pack()).FontSize(9.5).TextColor(p.muted).Shrink(0)
-			ui.TextInput(c, &s.type2PwdPack).Placeholder("AABB").Width(90)
-			ui.Text(c, l.Type2Auth0()).FontSize(9.5).TextColor(p.muted).Shrink(0)
-			ui.TextInput(c, &s.type2PwdAuth0).Placeholder("4").Width(70)
-			ui.Checkbox(c, &s.type2PwdProtect, l.Type2Protect())
-		})
-		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-			ui.Spacer(c)
-			if ui.Button(c, l.Type2SetPassword()).Height(28).FontSize(10).
-				Disabled(s.writeBusy() || strings.TrimSpace(s.type2PwdNew) == "" || strings.TrimSpace(s.type2PwdPack) == "").Clicked() {
-				auth0, ok := parseAuth0Input(s.type2PwdAuth0)
-				if !ok {
-					s.errorText = l.Type2InvalidAuth0()
-					return
-				}
-				s.requestType2Lifecycle(app.Type2LifecycleRequestDTO{
-					Operation: "password-set", NewPassword: s.type2PwdNew, NewPack: s.type2PwdPack,
-					Auth0: auth0, Protect: s.type2PwdProtect, CurrentPassword: s.type2Password,
-				})
-			}
-			if ui.Button(c, l.Type2RemovePassword()).Height(28).FontSize(10).Disabled(s.writeBusy()).Clicked() {
-				s.requestType2Lifecycle(app.Type2LifecycleRequestDTO{
-					Operation: "password-remove", CurrentPassword: s.type2Password,
-				})
-			}
-		})
+		s.type2ProtectionEditor(c, p)
 	})
 }
 
-func parseAuth0Input(value string) (*int, bool) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return nil, true
+func (s *shell) type2ProtectionEditor(c *ui.Context, p palette) {
+	l := s.locales()
+	protection := s.type2.Protection
+	auth0Placeholder := l.Type2NotSet()
+	if protection.Auth0 >= 0 && protection.Auth0 != 0xFF {
+		auth0Placeholder = strconv.Itoa(protection.Auth0)
 	}
-	page, err := strconv.Atoi(value)
-	if err != nil || page < 0 || page > 255 {
-		return nil, false
+	dynamicPlaceholder := "000000"
+	if protection.DynamicLock != "" {
+		dynamicPlaceholder = protection.DynamicLock
 	}
-	return &page, true
+	ui.Text(c, l.Type2ProtectionEditor()).FontSize(12.5).Bold().TextColor(p.text)
+	ui.Text(c, l.Type2ProtectionEditorHint()).FontSize(9.5).TextColor(p.warning).Wrap()
+	ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
+		ui.Text(c, l.Type2Auth0()).FontSize(9.5).TextColor(p.muted).Shrink(0)
+		ui.TextInput(c, &s.type2ProtAuth0).Placeholder(auth0Placeholder).Width(80)
+		ui.Text(c, l.Type2Access()).FontSize(9.5).TextColor(p.muted).Shrink(0)
+		ui.TextInput(c, &s.type2ProtAccess).Placeholder(fmt.Sprintf("0x%02X", protection.Access)).
+			Font("monospace").Width(90)
+		ui.Text(c, l.Type2StaticLock()).FontSize(9.5).TextColor(p.muted).Shrink(0)
+		ui.TextInput(c, &s.type2ProtStatic).Placeholder(protection.StaticLock).Font("monospace").Width(90)
+	})
+	ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
+		ui.Text(c, l.Type2CurrentPassword()).FontSize(9.5).TextColor(p.muted).Shrink(0)
+		ui.TextInput(c, &s.type2Password).Password().Placeholder(l.Type2PasswordPlaceholder()).Width(140)
+		ui.Text(c, l.Type2Password()).FontSize(9.5).TextColor(p.muted).Shrink(0)
+		ui.TextInput(c, &s.type2ProtPassword).Password().Placeholder("01020304").Width(120)
+		ui.Text(c, l.Type2Pack()).FontSize(9.5).TextColor(p.muted).Shrink(0)
+		ui.TextInput(c, &s.type2ProtPack).Placeholder("AABB").Width(90)
+		ui.Text(c, l.Type2DynamicLock()).FontSize(9.5).TextColor(p.muted).Shrink(0)
+		ui.TextInput(c, &s.type2ProtDynamic).Placeholder(dynamicPlaceholder).Font("monospace").Width(110)
+	})
+	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+		ui.Text(c, l.Type2ProtectionAccessHint()).FontSize(9).TextColor(p.faint).Grow(1).Wrap()
+		if ui.Button(c, l.Type2ProtectionReview()).Height(28).FontSize(10).
+			Disabled(s.writeBusy() || !s.type2ProtectionDraftSelected()).Clicked() {
+			s.requestType2ProtectionEditor()
+		}
+	})
+}
+
+func (s *shell) type2ProtectionDraftSelected() bool {
+	return strings.TrimSpace(s.type2ProtAuth0) != "" ||
+		strings.TrimSpace(s.type2ProtAccess) != "" ||
+		strings.TrimSpace(s.type2ProtPassword) != "" ||
+		strings.TrimSpace(s.type2ProtPack) != "" ||
+		strings.TrimSpace(s.type2ProtStatic) != "" ||
+		strings.TrimSpace(s.type2ProtDynamic) != ""
+}
+
+func (s *shell) requestType2ProtectionEditor() {
+	l := s.locales()
+	request := app.Type2ProtectionWriteRequestDTO{CurrentPassword: s.type2Password}
+	selected := false
+	if value := strings.TrimSpace(s.type2ProtAuth0); value != "" {
+		auth0, err := strconv.Atoi(value)
+		if err != nil || auth0 < 0 || auth0 > 255 {
+			s.errorText = l.Type2InvalidAuth0()
+			return
+		}
+		request.Auth0 = &auth0
+		selected = true
+	}
+	if value := strings.TrimSpace(s.type2ProtAccess); value != "" {
+		normalized := strings.TrimPrefix(normalizeType2Hex(value), "0X")
+		decoded, err := hex.DecodeString(normalized)
+		if err != nil || len(decoded) != 1 {
+			s.errorText = l.Type2InvalidAccess()
+			return
+		}
+		access := decoded[0]
+		request.Access = &access
+		selected = true
+	}
+	if value := strings.TrimSpace(s.type2ProtPassword); value != "" {
+		request.Password = &value
+		selected = true
+	}
+	if value := strings.TrimSpace(s.type2ProtPack); value != "" {
+		request.Pack = &value
+		selected = true
+	}
+	if value := strings.TrimSpace(s.type2ProtStatic); value != "" {
+		request.StaticLock = &value
+		selected = true
+	}
+	if value := strings.TrimSpace(s.type2ProtDynamic); value != "" {
+		request.DynamicLock = &value
+		selected = true
+	}
+	if !selected {
+		s.errorText = l.Type2ProtectionNoFields()
+		return
+	}
+	s.requestType2Protection(request)
+}
+
+func (s *shell) requestType2Protection(request app.Type2ProtectionWriteRequestDTO) {
+	if s.writeBusy() {
+		return
+	}
+	s.pendingOps++
+	go func() {
+		plan, err := s.api.PreflightType2Protection(request)
+		s.update(func() {
+			s.pendingOps--
+			if err != nil {
+				s.errorText = s.locales().Type2ProtectionFailed(err.Error())
+				return
+			}
+			if !s.advanced {
+				return
+			}
+			request.Token = plan.Token
+			s.type2ProtPlan = &plan
+			s.type2ProtRequest = request
+			s.type2ProtConfirm = ""
+			s.type2ProtOpen = true
+			s.errorText = ""
+		})
+	}()
+}
+
+func (s *shell) startType2Protection(request app.Type2ProtectionWriteRequestDTO) {
+	s.pendingOps++
+	go func() {
+		_, err := s.api.StartType2ProtectionWrite(request)
+		s.update(func() {
+			s.pendingOps--
+			if err != nil {
+				s.errorText = s.locales().Type2ProtectionFailed(err.Error())
+				return
+			}
+			s.errorText = ""
+			s.toastText = s.locales().Type2ProtectionStarted()
+		})
+	}()
+}
+
+func (s *shell) type2ProtectionDialog(c *ui.Context) {
+	if !s.type2ProtOpen || s.type2ProtPlan == nil {
+		return
+	}
+	l := s.locales()
+	plan := *s.type2ProtPlan
+	p := paletteFor(c.Theme())
+	ui.Modal(c, &s.type2ProtOpen, func() {
+		ui.Text(c, l.Type2ProtectionConfirmTitle()).FontSize(15).Bold().TextColor(p.danger)
+		ui.Text(c, l.Type2PlanCard(plan.CardUID, plan.ProductName)).FontSize(10.5).TextColor(p.muted).Wrap()
+		for _, change := range plan.Changes {
+			oneWay := ""
+			if change.OneWay {
+				oneWay = l.Type2OneWay()
+			}
+			ui.Text(c, fmt.Sprintf("%s: %s → %s%s", change.Target, change.Old, change.New, oneWay)).
+				FontSize(9.5).Wrap()
+		}
+		ui.Text(c, l.Type2ProtectionDialogWarning()).FontSize(9.5).TextColor(p.warning).Wrap()
+		ui.Text(c, l.Type2PlanBackup(len(plan.Writes))).FontSize(9.5).Wrap()
+		if plan.BackupRoot != "" {
+			ui.Text(c, l.Type2PlanBackupRoot(plan.BackupRoot)).FontSize(9.5).Wrap()
+		}
+		ui.Text(c, l.Type2ProtectionTyped()).FontSize(10).Bold()
+		ui.TextInput(c, &s.type2ProtConfirm).Placeholder("PROTECTED").AutoFocus()
+		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
+			if ui.Button(c, l.CommonCancel()).Clicked() {
+				s.type2ProtOpen = false
+			}
+			if ui.Button(c, l.Type2PlanConfirm()).Disabled(s.type2ProtConfirm != "PROTECTED").Clicked() {
+				request := s.type2ProtRequest
+				request.Confirmation = s.type2ProtConfirm
+				s.type2ProtOpen = false
+				s.type2ProtPlan = nil
+				s.type2ProtAuth0 = ""
+				s.type2ProtAccess = ""
+				s.type2ProtPassword = ""
+				s.type2ProtPack = ""
+				s.type2ProtStatic = ""
+				s.type2ProtDynamic = ""
+				s.startType2Protection(request)
+			}
+		})
+	})
 }
 
 func parseRepeatInput(value string) int {

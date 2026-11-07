@@ -190,4 +190,14 @@ func (b *Bindings) StartType2Lifecycle(request Type2LifecycleRequestDTO) (TaskDT
 	return b.service.StartType2Lifecycle(request)
 }
 
+// PreflightType2Protection validates a per-field protection write.
+func (b *Bindings) PreflightType2Protection(request Type2ProtectionWriteRequestDTO) (Type2ProtectionPreflightDTO, error) {
+	return b.service.PreflightType2Protection(request)
+}
+
+// StartType2ProtectionWrite applies a reviewed protection plan.
+func (b *Bindings) StartType2ProtectionWrite(request Type2ProtectionWriteRequestDTO) (TaskDTO, error) {
+	return b.service.StartType2ProtectionWrite(request)
+}
+
 func (b *Bindings) CancelTask(taskID string) error { return b.service.CancelTask(taskID) }

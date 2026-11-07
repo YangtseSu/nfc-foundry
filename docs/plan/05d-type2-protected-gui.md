@@ -1,5 +1,7 @@
 # Phase 05d: Advanced Type 2 protected writes
 
+Status: done (2026-11-07). See `docs/notes/05d-type2-protected-gui.md`.
+
 ## Goal
 
 Add GUI writes for Type 2 configuration, dynamic lock, PWD/PACK, static lock,
@@ -42,19 +44,16 @@ Phase 05c introduces the session-scoped toggle. Phase 05d reuses it:
   - AUTH0 page and ACCESS flags (PROT, CFGLCK, AUTHLIM);
   - PWD and PACK values;
   - dynamic lock bits;
-  - static lock bits;
-  - capability-container bits with an OR-only preview.
+  - static lock bits.
 - Show page 0-1 as read-only UID pages on genuine NTAG.
-- Page 3 writes use OR semantics: show current, mask, and resulting bytes;
-  reject attempts to clear bits.
 - Validate one-way lock bits: pending bits may only be set, never cleared.
 - Perform static-lock writes as a partial page update: read page 2, replace
   bytes 2-3, preserve BCC1 and the internal byte, write, and verify.
 - Perform dynamic-lock writes as a partial update of lock bytes while preserving
   RFUI bytes.
 - Perform PWD/PACK writes as byte-level updates that preserve RFUI bytes.
-- Write configuration pages after ordinary user pages and PWD/PACK, and dynamic
-  lock last, following the existing protected restore order.
+- Write ordinary user pages first, then PWD/PACK, configuration, dynamic lock,
+  and static lock last.
 - Save a full-image backup before the first protected write and abort if the
   backup fails.
 - Verify every changed page immediately and verify the final image after
@@ -74,7 +73,7 @@ Phase 05c introduces the session-scoped toggle. Phase 05d reuses it:
 - Lock writes refuse to clear one-way bits.
 - Static lock writes preserve BCC1 and the internal byte.
 - Pages 0-1 are shown read-only on genuine NTAG.
-- Page 3 writes are OR-only and show the resulting bytes before confirmation.
+- Page 3 is not writable in this phase; its access-byte lock belongs to 05i.
 - Every changed page is read back; the final image is verified.
 - Tests cover confirmation refusal, lock-bit validation, static-lock partial
   write, backup failure, read-back mismatch, and card change.
@@ -84,4 +83,6 @@ Phase 05c introduces the session-scoped toggle. Phase 05d reuses it:
 
 - No genuine-NTAG UID/page 0-1 write; magic-clone UID is Phase 05h.
 - No arbitrary page 0-1 editor.
+- No capability-container or OTP writes; the 05i access-byte lock is the only
+  page-3 mutation path.
 - No unprotected write path that skips backup or confirmation.
