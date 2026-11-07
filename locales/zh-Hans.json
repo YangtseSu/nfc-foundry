@@ -397,5 +397,179 @@
   "ndefFieldDPPKey": "DPP 公钥",
   "ndefFieldDPPInfo": "DPP 信息",
   "ndefSecurityWPA3Transition": "WPA2/WPA3 过渡（WPA2 凭据）",
-  "ndefFieldDPPURI": "DPP 引导 URI"
+  "ndefFieldDPPURI": "DPP 引导 URI",
+  "commonNone": "无",
+  "classicAdvanced": "高级操作",
+  "classicAdvancedTitle": "启用高级操作？",
+  "classicAdvancedMessage": "高级操作会显示 UID 写入、完整恢复和批量写入。UID、扇区尾块、密钥和访问条件的更改可能永久损坏或锁死卡片。每项操作仍需单独确认。",
+  "classicAdvancedEnable": "启用高级操作",
+  "classicLoadDump": "载入转储",
+  "classicSaveDump": "保存转储",
+  "classicLoadFailed": "无法载入转储：{message}",
+  "classicSaveFailed": "无法保存转储：{message}",
+  "classicDumpSaved": "转储已保存到 {path}。",
+  "classicBlockEditor": "区块编辑器",
+  "classicSelectDataBlock": "选择普通数据区块进行编辑。",
+  "classicBlockHexPlaceholder": "32 个十六进制数字",
+  "classicInvalidBlockHex": "区块必须正好包含 32 个十六进制数字（16 字节）。",
+  "classicWriteBlock": "写入区块",
+  "classicNewValue": "新值：{hex}",
+  "classicBlockWriteNote": "区块写入后会立即回读验证。",
+  "classicConfirmBlockTitle": "写入区块 {block}？",
+  "classicConfirmBlock": "确认写入区块",
+  "classicWriteChanged": "写入已更改区块",
+  "classicConfirmChangedTitle": "写入 {count} 个已更改区块？",
+  "classicConfirmChanged": "确认写入已更改区块",
+  "classicConfirmTrailers": "写入区块和扇区尾块",
+  "classicFullRestore": "完整恢复",
+  "classicConfirmFullTitle": "恢复整张卡片？",
+  "classicConfirmRestore": "恢复卡片",
+  "classicPlannedBlocks": "计划区块：{blocks}",
+  "classicTrailers": "扇区尾块：{trailers}",
+  "classicSkippedBlock0": "跳过：区块 0",
+  "classicAccessChanges": "访问条件变更：{blocks}",
+  "classicBackupPath": "备份：{path}",
+  "classicTrailerWarning": "扇区尾块最后写入，并会替换密钥和访问条件。",
+  "classicFullRestoreWarning": "完整恢复会替换所有可写区块，包括扇区尾块和密钥。",
+  "classicDiscardTitle": "放弃未保存的更改？",
+  "classicDiscardMessage": "载入转储会替换当前工作区并放弃未保存的编辑。",
+  "classicDiscardConfirm": "放弃更改",
+  "classicUIDInput": "新 UID",
+  "classicUIDPlaceholder": "04 A1 B2 C3",
+  "classicInvalidUID": "UID 必须是 8 个十六进制数字（4 字节）。",
+  "classicUIDSet": "设置 UID",
+  "classicConfirmUIDTitle": "将 UID 设置为 {uid}？",
+  "classicConfirmUID": "确认 UID",
+  "classicUIDCurrent": "当前 UID：{uid}",
+  "classicUIDBCC": "BCC：{bcc}",
+  "classicUIDOldBlock0": "原区块 0：{block0}",
+  "classicUIDNewBlock0": "新区块 0：{block0}",
+  "classicUIDWarning": "仅支持兼容的 4 字节 UID 特殊卡片。写入前会备份原区块 0，并重新选卡验证。",
+  "classicWriteStarted": "Classic 写入任务已启动。",
+  "classicUIDStarted": "UID 写入任务已启动。",
+  "classicWriteComplete": "Classic 写入完成。",
+  "classicUIDComplete": "UID 写入完成。",
+  "classicWriteFailed": "Classic 写入失败：{message}",
+  "classicPreflightFailed": "Classic 写入预检失败：{message}",
+  "activityKindClassicWrite": "Classic 写入",
+  "activityKindUIDWrite": "UID 写入",
+  "@classicLoadFailed": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicSaveFailed": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicDumpSaved": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicNewValue": {
+    "placeholders": {
+      "hex": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicConfirmBlockTitle": {
+    "placeholders": {
+      "block": {
+        "type": "int"
+      }
+    }
+  },
+  "@classicConfirmChangedTitle": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@classicPlannedBlocks": {
+    "placeholders": {
+      "blocks": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicTrailers": {
+    "placeholders": {
+      "trailers": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicAccessChanges": {
+    "placeholders": {
+      "blocks": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicBackupPath": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicConfirmUIDTitle": {
+    "placeholders": {
+      "uid": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicUIDCurrent": {
+    "placeholders": {
+      "uid": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicUIDBCC": {
+    "placeholders": {
+      "bcc": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicUIDOldBlock0": {
+    "placeholders": {
+      "block0": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicUIDNewBlock0": {
+    "placeholders": {
+      "block0": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicWriteFailed": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicPreflightFailed": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  }
 }

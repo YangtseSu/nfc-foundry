@@ -19,14 +19,15 @@ import (
 // backend and the standard per-user configuration paths, so NewService and
 // NewServiceWithOptions share one construction path.
 type Options struct {
-	Emitter         EventEmitter
-	Enumerator      nfc.DeviceEnumerator
-	NewReader       device.ReaderFactory
-	DeviceConfig    device.Config
-	Locator         *runtimebundle.Locator
-	KeyStorePath    string
-	UIDBackupRoot   string
-	Type2BackupRoot string
+	Emitter           EventEmitter
+	Enumerator        nfc.DeviceEnumerator
+	NewReader         device.ReaderFactory
+	DeviceConfig      device.Config
+	Locator           *runtimebundle.Locator
+	KeyStorePath      string
+	UIDBackupRoot     string
+	Type2BackupRoot   string
+	ClassicBackupRoot string
 }
 
 // NewService wires the application service to the current libnfc backend.
@@ -60,6 +61,7 @@ func NewServiceWithOptions(options Options) *Service {
 	keyStorePath := options.KeyStorePath
 	uidBackupRoot := options.UIDBackupRoot
 	type2BackupRoot := options.Type2BackupRoot
+	classicBackupRoot := options.ClassicBackupRoot
 	if keyStorePath == "" && configRoot != "" {
 		keyStorePath = filepath.Join(configRoot, "NFC Foundry", "keys.json")
 	}
@@ -68,6 +70,9 @@ func NewServiceWithOptions(options Options) *Service {
 	}
 	if type2BackupRoot == "" && configRoot != "" {
 		type2BackupRoot = filepath.Join(configRoot, "NFC Foundry", "type2-backups")
+	}
+	if classicBackupRoot == "" && configRoot != "" {
+		classicBackupRoot = filepath.Join(configRoot, "NFC Foundry", "classic-backups")
 	}
 
 	manager := device.NewManager(enumerator, newReader, deviceEventSink{emitter: emitter}, options.DeviceConfig)
@@ -89,27 +94,28 @@ func NewServiceWithOptions(options Options) *Service {
 	keyRecovery := workflow.NewKeyRecoveryService(keyScanner, keyStore, mfcukPipeline, mfocAttack, hardnestedAttack, dumpService)
 
 	return &Service{
-		emitter:          emitter,
-		deviceManager:    manager,
-		deviceTimeout:    5 * time.Second,
-		keyStore:         keyStore,
-		keyStorePath:     keyStorePath,
-		bench:            workbench.New(),
-		keyScanner:       keyScanner,
-		keyRecovery:      keyRecovery,
-		dumpService:      dumpService,
-		restoreService:   workflow.NewRestoreService(manager),
-		classicIO:        workflow.NewClassicIO(manager),
-		uidService:       workflow.NewUIDService(manager, workflow.FileUIDBackupStore{Root: uidBackupRoot}),
-		type2Service:     workflow.NewType2Service(manager, workflow.FileType2BackupStore{Root: type2BackupRoot}),
-		fixtureAttack:    attack.NewCoordinator(manager, attack.NewFixtureEngine(locator)),
-		mfocAttack:       mfocAttack,
-		mfcukPipeline:    mfcukPipeline,
-		hardnestedAttack: hardnestedAttack,
-		mfocLocator:      locator,
-		operations:       make(map[string]*operationTask),
-		preflights:       make(map[string]writePreflightRecord),
-		uidPreflights:    make(map[string]uidPreflightRecord),
-		dialogs:          noFileDialogs{},
+		emitter:           emitter,
+		deviceManager:     manager,
+		deviceTimeout:     5 * time.Second,
+		keyStore:          keyStore,
+		keyStorePath:      keyStorePath,
+		bench:             workbench.New(),
+		keyScanner:        keyScanner,
+		keyRecovery:       keyRecovery,
+		dumpService:       dumpService,
+		restoreService:    workflow.NewRestoreService(manager),
+		classicIO:         workflow.NewClassicIO(manager),
+		uidService:        workflow.NewUIDService(manager, workflow.FileUIDBackupStore{Root: uidBackupRoot}),
+		type2Service:      workflow.NewType2Service(manager, workflow.FileType2BackupStore{Root: type2BackupRoot}),
+		classicBackupRoot: classicBackupRoot,
+		fixtureAttack:     attack.NewCoordinator(manager, attack.NewFixtureEngine(locator)),
+		mfocAttack:        mfocAttack,
+		mfcukPipeline:     mfcukPipeline,
+		hardnestedAttack:  hardnestedAttack,
+		mfocLocator:       locator,
+		operations:        make(map[string]*operationTask),
+		preflights:        make(map[string]writePreflightRecord),
+		uidPreflights:     make(map[string]uidPreflightRecord),
+		dialogs:           noFileDialogs{},
 	}
 }

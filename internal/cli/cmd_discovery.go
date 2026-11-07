@@ -173,6 +173,9 @@ func (r *Runner) printRestore(result restoreResult) {
 	}
 	r.out.humanf("restore plan: %d blocks, %d trailers, block 0 %s\n",
 		len(preflight.Blocks), len(preflight.TrailerBlocks), skippedLabel(preflight.SkippedBlock0))
+	if preflight.BackupPath != "" {
+		r.out.humanf("pre-write backup: %s\n", preflight.BackupPath)
+	}
 	if result.Restore != nil {
 		r.out.humanf("restore result: %d written, %d verified, %d unwritten\n",
 			len(result.Restore.WrittenBlocks), len(result.Restore.VerifiedBlocks), len(result.Restore.UnwrittenBlocks))
@@ -213,6 +216,9 @@ func (r *Runner) printUID(result uidResult) {
 	if result.Preview != nil {
 		r.out.humanf("UID %s -> %s\n", result.Preview.CurrentUID, result.Preview.NewUID)
 		r.out.humanf("BCC %s, block 0 %s -> %s\n", result.Preview.BCC, result.Preview.OldBlock0, result.Preview.NewBlock0)
+	}
+	if result.BackupPath != "" {
+		r.out.humanf("pre-write backup: %s\n", result.BackupPath)
 	}
 	if result.DryRun {
 		r.out.humanf("dry run: the card was not modified\n")

@@ -14,9 +14,11 @@ the current architecture and migration steps live in [`docs/`](docs/).
 ## Status
 
 The native MyGo shell and the `nfctl` CLI are in place: reader discovery, card
-facts, Classic block operations, dump/restore, key scanning, key recovery, UID
+facts, Classic block read/write, dump/restore, key scanning, key recovery, UID
 writes with an in-process Gen1A path, Type 2 page access, NDEF read/write
-from the CLI and GUI, diagnostics, and the key catalog. The remaining migration is tracked in
+from the CLI and GUI, diagnostics, and the key catalog. Classic GUI writes
+cover ordinary data blocks, changed-block writes, full restore with a mandatory
+pre-write backup, and advanced UID writes. The remaining migration is tracked in
 [`docs/plan/`](docs/plan/):
 
 - validate additional readers and the APDU foundation;
@@ -44,7 +46,7 @@ available.
 
 | Card family | Status |
 |---|---|
-| MIFARE Classic 1K/4K | Read, write, dump, restore, keyscan, recovery |
+| MIFARE Classic 1K/4K | Read, write, dump, restore, keyscan, recovery; block and restore writes are available from the CLI and GUI |
 | NTAG213/215/216 | Page and NDEF read/write from CLI and GUI; decoded Text, URI, Smart Poster, vCard, Wi-Fi (including DPP bootstrapping), Bluetooth, and app records; NTAG215 hardware-tested |
 | MIFARE Ultralight | Page read/write and dump; original-Ultralight fallback not hardware-tested |
 | ISO/IEC 14443-4 / DESFire | Later; APDU foundation first |

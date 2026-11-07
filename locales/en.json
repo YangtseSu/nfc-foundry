@@ -544,5 +544,179 @@
   "ndefFieldDPPKey": "DPP public key",
   "ndefFieldDPPInfo": "DPP information",
   "ndefSecurityWPA3Transition": "WPA2/WPA3 transition (WPA2 credential)",
-  "ndefFieldDPPURI": "DPP bootstrapping URI"
+  "ndefFieldDPPURI": "DPP bootstrapping URI",
+  "commonNone": "None",
+  "classicAdvanced": "Advanced operations",
+  "classicAdvancedTitle": "Enable advanced operations?",
+  "classicAdvancedMessage": "Advanced operations reveal UID writes, full restores, and bulk writes. UID, trailer, key, and access-condition changes can permanently damage or lock a card. Every action still requires its own confirmation.",
+  "classicAdvancedEnable": "Enable advanced",
+  "classicLoadDump": "Load dump",
+  "classicSaveDump": "Save dump",
+  "classicLoadFailed": "Could not load the dump: {message}",
+  "classicSaveFailed": "Could not save the dump: {message}",
+  "classicDumpSaved": "Dump saved to {path}.",
+  "classicBlockEditor": "Block editor",
+  "classicSelectDataBlock": "Select an ordinary data block to edit.",
+  "classicBlockHexPlaceholder": "32 hexadecimal digits",
+  "classicInvalidBlockHex": "A block must contain exactly 32 hexadecimal digits (16 bytes).",
+  "classicWriteBlock": "Write block",
+  "classicNewValue": "New value: {hex}",
+  "classicBlockWriteNote": "The block is written and verified by immediate read-back.",
+  "classicConfirmBlockTitle": "Write block {block}?",
+  "classicConfirmBlock": "Confirm block write",
+  "classicWriteChanged": "Write changed blocks",
+  "classicConfirmChangedTitle": "Write {count} changed blocks?",
+  "classicConfirmChanged": "Confirm changed-block write",
+  "classicConfirmTrailers": "Write blocks and trailers",
+  "classicFullRestore": "Full restore",
+  "classicConfirmFullTitle": "Restore the full card?",
+  "classicConfirmRestore": "Restore card",
+  "classicPlannedBlocks": "Planned blocks: {blocks}",
+  "classicTrailers": "Trailers: {trailers}",
+  "classicSkippedBlock0": "Skipped: block 0",
+  "classicAccessChanges": "Access changes: {blocks}",
+  "classicBackupPath": "Backup: {path}",
+  "classicTrailerWarning": "Sector trailers are written last and replace keys and access conditions.",
+  "classicFullRestoreWarning": "A full restore replaces every writable block, including sector trailers and keys.",
+  "classicDiscardTitle": "Discard unsaved changes?",
+  "classicDiscardMessage": "Loading a dump replaces the current workbench and discards its unsaved edits.",
+  "classicDiscardConfirm": "Discard changes",
+  "classicUIDInput": "New UID",
+  "classicUIDPlaceholder": "04 A1 B2 C3",
+  "classicInvalidUID": "UID must be 8 hexadecimal digits (4 bytes).",
+  "classicUIDSet": "Set UID",
+  "classicConfirmUIDTitle": "Set UID to {uid}?",
+  "classicConfirmUID": "Confirm UID",
+  "classicUIDCurrent": "Current UID: {uid}",
+  "classicUIDBCC": "BCC: {bcc}",
+  "classicUIDOldBlock0": "Old block 0: {block0}",
+  "classicUIDNewBlock0": "New block 0: {block0}",
+  "classicUIDWarning": "Only compatible 4-byte UID special cards are supported. The original block 0 is backed up, and the card is reselected and verified.",
+  "classicWriteStarted": "Classic write task started.",
+  "classicUIDStarted": "UID write task started.",
+  "classicWriteComplete": "Classic write completed.",
+  "classicUIDComplete": "UID write completed.",
+  "classicWriteFailed": "Classic write failed: {message}",
+  "classicPreflightFailed": "Classic write preflight failed: {message}",
+  "activityKindClassicWrite": "Classic write",
+  "activityKindUIDWrite": "UID write",
+  "@classicLoadFailed": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicSaveFailed": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicDumpSaved": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicNewValue": {
+    "placeholders": {
+      "hex": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicConfirmBlockTitle": {
+    "placeholders": {
+      "block": {
+        "type": "int"
+      }
+    }
+  },
+  "@classicConfirmChangedTitle": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@classicPlannedBlocks": {
+    "placeholders": {
+      "blocks": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicTrailers": {
+    "placeholders": {
+      "trailers": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicAccessChanges": {
+    "placeholders": {
+      "blocks": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicBackupPath": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicConfirmUIDTitle": {
+    "placeholders": {
+      "uid": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicUIDCurrent": {
+    "placeholders": {
+      "uid": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicUIDBCC": {
+    "placeholders": {
+      "bcc": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicUIDOldBlock0": {
+    "placeholders": {
+      "block0": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicUIDNewBlock0": {
+    "placeholders": {
+      "block0": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicWriteFailed": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  },
+  "@classicPreflightFailed": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  }
 }

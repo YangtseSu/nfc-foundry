@@ -34,6 +34,9 @@ func (s *shell) topbar(c *ui.Context, p palette) {
 
 		ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
 			s.topbarTaskPill(c, p)
+			if s.cardPresent() && s.cardFamily() == familyClassic {
+				s.topbarAdvancedToggle(c, p)
+			}
 			ui.PopoverMenuButton(c, s.languageShort(), func(m *ui.Menu) {
 				for _, tag := range languageTags {
 					if m.Item(i18n.Autonym(tag)).Radio(tag == s.locale).Chosen() {
@@ -45,6 +48,20 @@ func (s *shell) topbar(c *ui.Context, p palette) {
 			iconButton(c, p, refreshIcon, l.CommonRefresh(), p.topbarMuted)
 		})
 	})
+}
+
+func (s *shell) topbarAdvancedToggle(c *ui.Context, p palette) {
+	l := s.locales()
+	background, border, text := ui.Transparent, p.topbarLine, p.topbarMuted
+	if s.advanced {
+		background, border, text = p.accentSoft, p.accentBorder, p.accent
+	}
+	button := ui.Button(c, l.ClassicAdvanced()).Height(28).Padding(0, 9).FontSize(10.5).
+		Radius(7).Background(background).Border(1, border).TextColor(text).
+		Label(l.ClassicAdvanced()).Disabled(s.writeBusy())
+	if button.Clicked() {
+		s.toggleAdvanced()
+	}
 }
 
 func (s *shell) topbarReaderChip(c *ui.Context, p palette) {

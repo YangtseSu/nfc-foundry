@@ -3187,3 +3187,563 @@ func NdefFieldDPPURI() string { return In(i18n.Locale()).NdefFieldDPPURI() }
 func (msgs Messages) NdefFieldDPPURI() string {
 	return Catalog.Format(msgs.locale, "ndefFieldDPPURI", nil)
 }
+
+// CommonNone says "None"
+// in the language the app shows.
+func CommonNone() string { return In(i18n.Locale()).CommonNone() }
+
+// CommonNone says "None"
+// in the language of msgs.
+func (msgs Messages) CommonNone() string {
+	return Catalog.Format(msgs.locale, "commonNone", nil)
+}
+
+// ClassicAdvanced says "Advanced operations"
+// in the language the app shows.
+func ClassicAdvanced() string { return In(i18n.Locale()).ClassicAdvanced() }
+
+// ClassicAdvanced says "Advanced operations"
+// in the language of msgs.
+func (msgs Messages) ClassicAdvanced() string {
+	return Catalog.Format(msgs.locale, "classicAdvanced", nil)
+}
+
+// ClassicAdvancedTitle says "Enable advanced operations?"
+// in the language the app shows.
+func ClassicAdvancedTitle() string { return In(i18n.Locale()).ClassicAdvancedTitle() }
+
+// ClassicAdvancedTitle says "Enable advanced operations?"
+// in the language of msgs.
+func (msgs Messages) ClassicAdvancedTitle() string {
+	return Catalog.Format(msgs.locale, "classicAdvancedTitle", nil)
+}
+
+// ClassicAdvancedMessage says "Advanced operations reveal UID writes, full restores, and bulk writes. UID, trailer, key, and access-condition change…"
+// in the language the app shows.
+func ClassicAdvancedMessage() string { return In(i18n.Locale()).ClassicAdvancedMessage() }
+
+// ClassicAdvancedMessage says "Advanced operations reveal UID writes, full restores, and bulk writes. UID, trailer, key, and access-condition change…"
+// in the language of msgs.
+func (msgs Messages) ClassicAdvancedMessage() string {
+	return Catalog.Format(msgs.locale, "classicAdvancedMessage", nil)
+}
+
+// ClassicAdvancedEnable says "Enable advanced"
+// in the language the app shows.
+func ClassicAdvancedEnable() string { return In(i18n.Locale()).ClassicAdvancedEnable() }
+
+// ClassicAdvancedEnable says "Enable advanced"
+// in the language of msgs.
+func (msgs Messages) ClassicAdvancedEnable() string {
+	return Catalog.Format(msgs.locale, "classicAdvancedEnable", nil)
+}
+
+// ClassicLoadDump says "Load dump"
+// in the language the app shows.
+func ClassicLoadDump() string { return In(i18n.Locale()).ClassicLoadDump() }
+
+// ClassicLoadDump says "Load dump"
+// in the language of msgs.
+func (msgs Messages) ClassicLoadDump() string {
+	return Catalog.Format(msgs.locale, "classicLoadDump", nil)
+}
+
+// ClassicSaveDump says "Save dump"
+// in the language the app shows.
+func ClassicSaveDump() string { return In(i18n.Locale()).ClassicSaveDump() }
+
+// ClassicSaveDump says "Save dump"
+// in the language of msgs.
+func (msgs Messages) ClassicSaveDump() string {
+	return Catalog.Format(msgs.locale, "classicSaveDump", nil)
+}
+
+// ClassicLoadFailed says "Could not load the dump: {message}"
+// in the language the app shows.
+func ClassicLoadFailed(message string) string { return In(i18n.Locale()).ClassicLoadFailed(message) }
+
+// ClassicLoadFailed says "Could not load the dump: {message}"
+// in the language of msgs.
+func (msgs Messages) ClassicLoadFailed(message string) string {
+	return Catalog.Format(msgs.locale, "classicLoadFailed", map[string]any{"message": message})
+}
+
+// ClassicSaveFailed says "Could not save the dump: {message}"
+// in the language the app shows.
+func ClassicSaveFailed(message string) string { return In(i18n.Locale()).ClassicSaveFailed(message) }
+
+// ClassicSaveFailed says "Could not save the dump: {message}"
+// in the language of msgs.
+func (msgs Messages) ClassicSaveFailed(message string) string {
+	return Catalog.Format(msgs.locale, "classicSaveFailed", map[string]any{"message": message})
+}
+
+// ClassicDumpSaved says "Dump saved to {path}."
+// in the language the app shows.
+func ClassicDumpSaved(path string) string { return In(i18n.Locale()).ClassicDumpSaved(path) }
+
+// ClassicDumpSaved says "Dump saved to {path}."
+// in the language of msgs.
+func (msgs Messages) ClassicDumpSaved(path string) string {
+	return Catalog.Format(msgs.locale, "classicDumpSaved", map[string]any{"path": path})
+}
+
+// ClassicBlockEditor says "Block editor"
+// in the language the app shows.
+func ClassicBlockEditor() string { return In(i18n.Locale()).ClassicBlockEditor() }
+
+// ClassicBlockEditor says "Block editor"
+// in the language of msgs.
+func (msgs Messages) ClassicBlockEditor() string {
+	return Catalog.Format(msgs.locale, "classicBlockEditor", nil)
+}
+
+// ClassicSelectDataBlock says "Select an ordinary data block to edit."
+// in the language the app shows.
+func ClassicSelectDataBlock() string { return In(i18n.Locale()).ClassicSelectDataBlock() }
+
+// ClassicSelectDataBlock says "Select an ordinary data block to edit."
+// in the language of msgs.
+func (msgs Messages) ClassicSelectDataBlock() string {
+	return Catalog.Format(msgs.locale, "classicSelectDataBlock", nil)
+}
+
+// ClassicBlockHexPlaceholder says "32 hexadecimal digits"
+// in the language the app shows.
+func ClassicBlockHexPlaceholder() string { return In(i18n.Locale()).ClassicBlockHexPlaceholder() }
+
+// ClassicBlockHexPlaceholder says "32 hexadecimal digits"
+// in the language of msgs.
+func (msgs Messages) ClassicBlockHexPlaceholder() string {
+	return Catalog.Format(msgs.locale, "classicBlockHexPlaceholder", nil)
+}
+
+// ClassicInvalidBlockHex says "A block must contain exactly 32 hexadecimal digits (16 bytes)."
+// in the language the app shows.
+func ClassicInvalidBlockHex() string { return In(i18n.Locale()).ClassicInvalidBlockHex() }
+
+// ClassicInvalidBlockHex says "A block must contain exactly 32 hexadecimal digits (16 bytes)."
+// in the language of msgs.
+func (msgs Messages) ClassicInvalidBlockHex() string {
+	return Catalog.Format(msgs.locale, "classicInvalidBlockHex", nil)
+}
+
+// ClassicWriteBlock says "Write block"
+// in the language the app shows.
+func ClassicWriteBlock() string { return In(i18n.Locale()).ClassicWriteBlock() }
+
+// ClassicWriteBlock says "Write block"
+// in the language of msgs.
+func (msgs Messages) ClassicWriteBlock() string {
+	return Catalog.Format(msgs.locale, "classicWriteBlock", nil)
+}
+
+// ClassicNewValue says "New value: {hex}"
+// in the language the app shows.
+func ClassicNewValue(hex string) string { return In(i18n.Locale()).ClassicNewValue(hex) }
+
+// ClassicNewValue says "New value: {hex}"
+// in the language of msgs.
+func (msgs Messages) ClassicNewValue(hex string) string {
+	return Catalog.Format(msgs.locale, "classicNewValue", map[string]any{"hex": hex})
+}
+
+// ClassicBlockWriteNote says "The block is written and verified by immediate read-back."
+// in the language the app shows.
+func ClassicBlockWriteNote() string { return In(i18n.Locale()).ClassicBlockWriteNote() }
+
+// ClassicBlockWriteNote says "The block is written and verified by immediate read-back."
+// in the language of msgs.
+func (msgs Messages) ClassicBlockWriteNote() string {
+	return Catalog.Format(msgs.locale, "classicBlockWriteNote", nil)
+}
+
+// ClassicConfirmBlockTitle says "Write block {block}?"
+// in the language the app shows.
+func ClassicConfirmBlockTitle(block int) string {
+	return In(i18n.Locale()).ClassicConfirmBlockTitle(block)
+}
+
+// ClassicConfirmBlockTitle says "Write block {block}?"
+// in the language of msgs.
+func (msgs Messages) ClassicConfirmBlockTitle(block int) string {
+	return Catalog.Format(msgs.locale, "classicConfirmBlockTitle", map[string]any{"block": block})
+}
+
+// ClassicConfirmBlock says "Confirm block write"
+// in the language the app shows.
+func ClassicConfirmBlock() string { return In(i18n.Locale()).ClassicConfirmBlock() }
+
+// ClassicConfirmBlock says "Confirm block write"
+// in the language of msgs.
+func (msgs Messages) ClassicConfirmBlock() string {
+	return Catalog.Format(msgs.locale, "classicConfirmBlock", nil)
+}
+
+// ClassicWriteChanged says "Write changed blocks"
+// in the language the app shows.
+func ClassicWriteChanged() string { return In(i18n.Locale()).ClassicWriteChanged() }
+
+// ClassicWriteChanged says "Write changed blocks"
+// in the language of msgs.
+func (msgs Messages) ClassicWriteChanged() string {
+	return Catalog.Format(msgs.locale, "classicWriteChanged", nil)
+}
+
+// ClassicConfirmChangedTitle says "Write {count} changed blocks?"
+// in the language the app shows.
+func ClassicConfirmChangedTitle(count int) string {
+	return In(i18n.Locale()).ClassicConfirmChangedTitle(count)
+}
+
+// ClassicConfirmChangedTitle says "Write {count} changed blocks?"
+// in the language of msgs.
+func (msgs Messages) ClassicConfirmChangedTitle(count int) string {
+	return Catalog.Format(msgs.locale, "classicConfirmChangedTitle", map[string]any{"count": count})
+}
+
+// ClassicConfirmChanged says "Confirm changed-block write"
+// in the language the app shows.
+func ClassicConfirmChanged() string { return In(i18n.Locale()).ClassicConfirmChanged() }
+
+// ClassicConfirmChanged says "Confirm changed-block write"
+// in the language of msgs.
+func (msgs Messages) ClassicConfirmChanged() string {
+	return Catalog.Format(msgs.locale, "classicConfirmChanged", nil)
+}
+
+// ClassicConfirmTrailers says "Write blocks and trailers"
+// in the language the app shows.
+func ClassicConfirmTrailers() string { return In(i18n.Locale()).ClassicConfirmTrailers() }
+
+// ClassicConfirmTrailers says "Write blocks and trailers"
+// in the language of msgs.
+func (msgs Messages) ClassicConfirmTrailers() string {
+	return Catalog.Format(msgs.locale, "classicConfirmTrailers", nil)
+}
+
+// ClassicFullRestore says "Full restore"
+// in the language the app shows.
+func ClassicFullRestore() string { return In(i18n.Locale()).ClassicFullRestore() }
+
+// ClassicFullRestore says "Full restore"
+// in the language of msgs.
+func (msgs Messages) ClassicFullRestore() string {
+	return Catalog.Format(msgs.locale, "classicFullRestore", nil)
+}
+
+// ClassicConfirmFullTitle says "Restore the full card?"
+// in the language the app shows.
+func ClassicConfirmFullTitle() string { return In(i18n.Locale()).ClassicConfirmFullTitle() }
+
+// ClassicConfirmFullTitle says "Restore the full card?"
+// in the language of msgs.
+func (msgs Messages) ClassicConfirmFullTitle() string {
+	return Catalog.Format(msgs.locale, "classicConfirmFullTitle", nil)
+}
+
+// ClassicConfirmRestore says "Restore card"
+// in the language the app shows.
+func ClassicConfirmRestore() string { return In(i18n.Locale()).ClassicConfirmRestore() }
+
+// ClassicConfirmRestore says "Restore card"
+// in the language of msgs.
+func (msgs Messages) ClassicConfirmRestore() string {
+	return Catalog.Format(msgs.locale, "classicConfirmRestore", nil)
+}
+
+// ClassicPlannedBlocks says "Planned blocks: {blocks}"
+// in the language the app shows.
+func ClassicPlannedBlocks(blocks string) string {
+	return In(i18n.Locale()).ClassicPlannedBlocks(blocks)
+}
+
+// ClassicPlannedBlocks says "Planned blocks: {blocks}"
+// in the language of msgs.
+func (msgs Messages) ClassicPlannedBlocks(blocks string) string {
+	return Catalog.Format(msgs.locale, "classicPlannedBlocks", map[string]any{"blocks": blocks})
+}
+
+// ClassicTrailers says "Trailers: {trailers}"
+// in the language the app shows.
+func ClassicTrailers(trailers string) string { return In(i18n.Locale()).ClassicTrailers(trailers) }
+
+// ClassicTrailers says "Trailers: {trailers}"
+// in the language of msgs.
+func (msgs Messages) ClassicTrailers(trailers string) string {
+	return Catalog.Format(msgs.locale, "classicTrailers", map[string]any{"trailers": trailers})
+}
+
+// ClassicSkippedBlock0 says "Skipped: block 0"
+// in the language the app shows.
+func ClassicSkippedBlock0() string { return In(i18n.Locale()).ClassicSkippedBlock0() }
+
+// ClassicSkippedBlock0 says "Skipped: block 0"
+// in the language of msgs.
+func (msgs Messages) ClassicSkippedBlock0() string {
+	return Catalog.Format(msgs.locale, "classicSkippedBlock0", nil)
+}
+
+// ClassicAccessChanges says "Access changes: {blocks}"
+// in the language the app shows.
+func ClassicAccessChanges(blocks string) string {
+	return In(i18n.Locale()).ClassicAccessChanges(blocks)
+}
+
+// ClassicAccessChanges says "Access changes: {blocks}"
+// in the language of msgs.
+func (msgs Messages) ClassicAccessChanges(blocks string) string {
+	return Catalog.Format(msgs.locale, "classicAccessChanges", map[string]any{"blocks": blocks})
+}
+
+// ClassicBackupPath says "Backup: {path}"
+// in the language the app shows.
+func ClassicBackupPath(path string) string { return In(i18n.Locale()).ClassicBackupPath(path) }
+
+// ClassicBackupPath says "Backup: {path}"
+// in the language of msgs.
+func (msgs Messages) ClassicBackupPath(path string) string {
+	return Catalog.Format(msgs.locale, "classicBackupPath", map[string]any{"path": path})
+}
+
+// ClassicTrailerWarning says "Sector trailers are written last and replace keys and access conditions."
+// in the language the app shows.
+func ClassicTrailerWarning() string { return In(i18n.Locale()).ClassicTrailerWarning() }
+
+// ClassicTrailerWarning says "Sector trailers are written last and replace keys and access conditions."
+// in the language of msgs.
+func (msgs Messages) ClassicTrailerWarning() string {
+	return Catalog.Format(msgs.locale, "classicTrailerWarning", nil)
+}
+
+// ClassicFullRestoreWarning says "A full restore replaces every writable block, including sector trailers and keys."
+// in the language the app shows.
+func ClassicFullRestoreWarning() string { return In(i18n.Locale()).ClassicFullRestoreWarning() }
+
+// ClassicFullRestoreWarning says "A full restore replaces every writable block, including sector trailers and keys."
+// in the language of msgs.
+func (msgs Messages) ClassicFullRestoreWarning() string {
+	return Catalog.Format(msgs.locale, "classicFullRestoreWarning", nil)
+}
+
+// ClassicDiscardTitle says "Discard unsaved changes?"
+// in the language the app shows.
+func ClassicDiscardTitle() string { return In(i18n.Locale()).ClassicDiscardTitle() }
+
+// ClassicDiscardTitle says "Discard unsaved changes?"
+// in the language of msgs.
+func (msgs Messages) ClassicDiscardTitle() string {
+	return Catalog.Format(msgs.locale, "classicDiscardTitle", nil)
+}
+
+// ClassicDiscardMessage says "Loading a dump replaces the current workbench and discards its unsaved edits."
+// in the language the app shows.
+func ClassicDiscardMessage() string { return In(i18n.Locale()).ClassicDiscardMessage() }
+
+// ClassicDiscardMessage says "Loading a dump replaces the current workbench and discards its unsaved edits."
+// in the language of msgs.
+func (msgs Messages) ClassicDiscardMessage() string {
+	return Catalog.Format(msgs.locale, "classicDiscardMessage", nil)
+}
+
+// ClassicDiscardConfirm says "Discard changes"
+// in the language the app shows.
+func ClassicDiscardConfirm() string { return In(i18n.Locale()).ClassicDiscardConfirm() }
+
+// ClassicDiscardConfirm says "Discard changes"
+// in the language of msgs.
+func (msgs Messages) ClassicDiscardConfirm() string {
+	return Catalog.Format(msgs.locale, "classicDiscardConfirm", nil)
+}
+
+// ClassicUIDInput says "New UID"
+// in the language the app shows.
+func ClassicUIDInput() string { return In(i18n.Locale()).ClassicUIDInput() }
+
+// ClassicUIDInput says "New UID"
+// in the language of msgs.
+func (msgs Messages) ClassicUIDInput() string {
+	return Catalog.Format(msgs.locale, "classicUIDInput", nil)
+}
+
+// ClassicUIDPlaceholder says "04 A1 B2 C3"
+// in the language the app shows.
+func ClassicUIDPlaceholder() string { return In(i18n.Locale()).ClassicUIDPlaceholder() }
+
+// ClassicUIDPlaceholder says "04 A1 B2 C3"
+// in the language of msgs.
+func (msgs Messages) ClassicUIDPlaceholder() string {
+	return Catalog.Format(msgs.locale, "classicUIDPlaceholder", nil)
+}
+
+// ClassicInvalidUID says "UID must be 8 hexadecimal digits (4 bytes)."
+// in the language the app shows.
+func ClassicInvalidUID() string { return In(i18n.Locale()).ClassicInvalidUID() }
+
+// ClassicInvalidUID says "UID must be 8 hexadecimal digits (4 bytes)."
+// in the language of msgs.
+func (msgs Messages) ClassicInvalidUID() string {
+	return Catalog.Format(msgs.locale, "classicInvalidUID", nil)
+}
+
+// ClassicUIDSet says "Set UID"
+// in the language the app shows.
+func ClassicUIDSet() string { return In(i18n.Locale()).ClassicUIDSet() }
+
+// ClassicUIDSet says "Set UID"
+// in the language of msgs.
+func (msgs Messages) ClassicUIDSet() string {
+	return Catalog.Format(msgs.locale, "classicUIDSet", nil)
+}
+
+// ClassicConfirmUIDTitle says "Set UID to {uid}?"
+// in the language the app shows.
+func ClassicConfirmUIDTitle(uid string) string { return In(i18n.Locale()).ClassicConfirmUIDTitle(uid) }
+
+// ClassicConfirmUIDTitle says "Set UID to {uid}?"
+// in the language of msgs.
+func (msgs Messages) ClassicConfirmUIDTitle(uid string) string {
+	return Catalog.Format(msgs.locale, "classicConfirmUIDTitle", map[string]any{"uid": uid})
+}
+
+// ClassicConfirmUID says "Confirm UID"
+// in the language the app shows.
+func ClassicConfirmUID() string { return In(i18n.Locale()).ClassicConfirmUID() }
+
+// ClassicConfirmUID says "Confirm UID"
+// in the language of msgs.
+func (msgs Messages) ClassicConfirmUID() string {
+	return Catalog.Format(msgs.locale, "classicConfirmUID", nil)
+}
+
+// ClassicUIDCurrent says "Current UID: {uid}"
+// in the language the app shows.
+func ClassicUIDCurrent(uid string) string { return In(i18n.Locale()).ClassicUIDCurrent(uid) }
+
+// ClassicUIDCurrent says "Current UID: {uid}"
+// in the language of msgs.
+func (msgs Messages) ClassicUIDCurrent(uid string) string {
+	return Catalog.Format(msgs.locale, "classicUIDCurrent", map[string]any{"uid": uid})
+}
+
+// ClassicUIDBCC says "BCC: {bcc}"
+// in the language the app shows.
+func ClassicUIDBCC(bcc string) string { return In(i18n.Locale()).ClassicUIDBCC(bcc) }
+
+// ClassicUIDBCC says "BCC: {bcc}"
+// in the language of msgs.
+func (msgs Messages) ClassicUIDBCC(bcc string) string {
+	return Catalog.Format(msgs.locale, "classicUIDBCC", map[string]any{"bcc": bcc})
+}
+
+// ClassicUIDOldBlock0 says "Old block 0: {block0}"
+// in the language the app shows.
+func ClassicUIDOldBlock0(block0 string) string { return In(i18n.Locale()).ClassicUIDOldBlock0(block0) }
+
+// ClassicUIDOldBlock0 says "Old block 0: {block0}"
+// in the language of msgs.
+func (msgs Messages) ClassicUIDOldBlock0(block0 string) string {
+	return Catalog.Format(msgs.locale, "classicUIDOldBlock0", map[string]any{"block0": block0})
+}
+
+// ClassicUIDNewBlock0 says "New block 0: {block0}"
+// in the language the app shows.
+func ClassicUIDNewBlock0(block0 string) string { return In(i18n.Locale()).ClassicUIDNewBlock0(block0) }
+
+// ClassicUIDNewBlock0 says "New block 0: {block0}"
+// in the language of msgs.
+func (msgs Messages) ClassicUIDNewBlock0(block0 string) string {
+	return Catalog.Format(msgs.locale, "classicUIDNewBlock0", map[string]any{"block0": block0})
+}
+
+// ClassicUIDWarning says "Only compatible 4-byte UID special cards are supported. The original block 0 is backed up, and the card is reselected…"
+// in the language the app shows.
+func ClassicUIDWarning() string { return In(i18n.Locale()).ClassicUIDWarning() }
+
+// ClassicUIDWarning says "Only compatible 4-byte UID special cards are supported. The original block 0 is backed up, and the card is reselected…"
+// in the language of msgs.
+func (msgs Messages) ClassicUIDWarning() string {
+	return Catalog.Format(msgs.locale, "classicUIDWarning", nil)
+}
+
+// ClassicWriteStarted says "Classic write task started."
+// in the language the app shows.
+func ClassicWriteStarted() string { return In(i18n.Locale()).ClassicWriteStarted() }
+
+// ClassicWriteStarted says "Classic write task started."
+// in the language of msgs.
+func (msgs Messages) ClassicWriteStarted() string {
+	return Catalog.Format(msgs.locale, "classicWriteStarted", nil)
+}
+
+// ClassicUIDStarted says "UID write task started."
+// in the language the app shows.
+func ClassicUIDStarted() string { return In(i18n.Locale()).ClassicUIDStarted() }
+
+// ClassicUIDStarted says "UID write task started."
+// in the language of msgs.
+func (msgs Messages) ClassicUIDStarted() string {
+	return Catalog.Format(msgs.locale, "classicUIDStarted", nil)
+}
+
+// ClassicWriteComplete says "Classic write completed."
+// in the language the app shows.
+func ClassicWriteComplete() string { return In(i18n.Locale()).ClassicWriteComplete() }
+
+// ClassicWriteComplete says "Classic write completed."
+// in the language of msgs.
+func (msgs Messages) ClassicWriteComplete() string {
+	return Catalog.Format(msgs.locale, "classicWriteComplete", nil)
+}
+
+// ClassicUIDComplete says "UID write completed."
+// in the language the app shows.
+func ClassicUIDComplete() string { return In(i18n.Locale()).ClassicUIDComplete() }
+
+// ClassicUIDComplete says "UID write completed."
+// in the language of msgs.
+func (msgs Messages) ClassicUIDComplete() string {
+	return Catalog.Format(msgs.locale, "classicUIDComplete", nil)
+}
+
+// ClassicWriteFailed says "Classic write failed: {message}"
+// in the language the app shows.
+func ClassicWriteFailed(message string) string { return In(i18n.Locale()).ClassicWriteFailed(message) }
+
+// ClassicWriteFailed says "Classic write failed: {message}"
+// in the language of msgs.
+func (msgs Messages) ClassicWriteFailed(message string) string {
+	return Catalog.Format(msgs.locale, "classicWriteFailed", map[string]any{"message": message})
+}
+
+// ClassicPreflightFailed says "Classic write preflight failed: {message}"
+// in the language the app shows.
+func ClassicPreflightFailed(message string) string {
+	return In(i18n.Locale()).ClassicPreflightFailed(message)
+}
+
+// ClassicPreflightFailed says "Classic write preflight failed: {message}"
+// in the language of msgs.
+func (msgs Messages) ClassicPreflightFailed(message string) string {
+	return Catalog.Format(msgs.locale, "classicPreflightFailed", map[string]any{"message": message})
+}
+
+// ActivityKindClassicWrite says "Classic write"
+// in the language the app shows.
+func ActivityKindClassicWrite() string { return In(i18n.Locale()).ActivityKindClassicWrite() }
+
+// ActivityKindClassicWrite says "Classic write"
+// in the language of msgs.
+func (msgs Messages) ActivityKindClassicWrite() string {
+	return Catalog.Format(msgs.locale, "activityKindClassicWrite", nil)
+}
+
+// ActivityKindUIDWrite says "UID write"
+// in the language the app shows.
+func ActivityKindUIDWrite() string { return In(i18n.Locale()).ActivityKindUIDWrite() }
+
+// ActivityKindUIDWrite says "UID write"
+// in the language of msgs.
+func (msgs Messages) ActivityKindUIDWrite() string {
+	return Catalog.Format(msgs.locale, "activityKindUIDWrite", nil)
+}

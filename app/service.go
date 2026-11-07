@@ -105,34 +105,35 @@ type operationTask struct {
 
 // Service provides the UI-facing application behaviour.
 type Service struct {
-	mu               sync.Mutex
-	emitter          EventEmitter
-	nextID           atomic.Uint64
-	deviceManager    *device.Manager
-	devices          []nfc.DeviceInfo
-	deviceTimeout    time.Duration
-	keyStore         *keys.Store
-	keyStorePath     string
-	bench            *workbench.Model
-	keyScanner       *workflow.KeyScanService
-	keyRecovery      *workflow.KeyRecoveryService
-	dumpService      *workflow.DumpService
-	restoreService   *workflow.RestoreService
-	classicIO        *workflow.ClassicIO
-	uidService       *workflow.UIDService
-	type2Service     *workflow.Type2Service
-	type2Mu          sync.Mutex
-	type2Dump        type2.Document
-	type2Loaded      bool
-	fixtureAttack    *attack.Coordinator
-	mfocAttack       *workflow.MFoCService
-	mfcukPipeline    *workflow.MFCUKPipelineService
-	hardnestedAttack *workflow.HardnestedService
-	mfocLocator      *runtimebundle.Locator
-	operations       map[string]*operationTask
-	preflights       map[string]writePreflightRecord
-	uidPreflights    map[string]uidPreflightRecord
-	dialogs          FileDialogs
+	mu                sync.Mutex
+	emitter           EventEmitter
+	nextID            atomic.Uint64
+	deviceManager     *device.Manager
+	devices           []nfc.DeviceInfo
+	deviceTimeout     time.Duration
+	keyStore          *keys.Store
+	keyStorePath      string
+	bench             *workbench.Model
+	keyScanner        *workflow.KeyScanService
+	keyRecovery       *workflow.KeyRecoveryService
+	dumpService       *workflow.DumpService
+	restoreService    *workflow.RestoreService
+	classicIO         *workflow.ClassicIO
+	uidService        *workflow.UIDService
+	type2Service      *workflow.Type2Service
+	classicBackupRoot string
+	type2Mu           sync.Mutex
+	type2Dump         type2.Document
+	type2Loaded       bool
+	fixtureAttack     *attack.Coordinator
+	mfocAttack        *workflow.MFoCService
+	mfcukPipeline     *workflow.MFCUKPipelineService
+	hardnestedAttack  *workflow.HardnestedService
+	mfocLocator       *runtimebundle.Locator
+	operations        map[string]*operationTask
+	preflights        map[string]writePreflightRecord
+	uidPreflights     map[string]uidPreflightRecord
+	dialogs           FileDialogs
 }
 
 // Dashboard returns the latest real device/card snapshot. Memory and key data

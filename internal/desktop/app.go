@@ -23,6 +23,15 @@ type Backend interface {
 	ImportKeyDictionary() (app.ImportReportDTO, error)
 	ExportKeyDictionary() (app.ExportResultDTO, error)
 	GetWorkbench() app.WorkbenchDTO
+	EditBlockHex(block int, hex string) (app.WorkbenchDTO, error)
+	LoadDump(discardDirty bool) (app.WorkbenchDTO, error)
+	LoadDumpFile(path string, discardDirty bool) (app.WorkbenchDTO, error)
+	SaveDump() (app.SaveResultDTO, error)
+	SaveDumpFile(path string) (app.SaveResultDTO, error)
+	PreflightWrite(app.WritePreflightRequestDTO) (app.WritePreflightDTO, error)
+	StartWrite(app.WriteStartRequestDTO) (app.TaskDTO, error)
+	PreflightUIDWrite(uid string) (app.UIDWritePreflightDTO, error)
+	StartUIDWrite(app.UIDWriteStartRequestDTO) (app.TaskDTO, error)
 	GetType2Dump() app.Type2DumpDTO
 	StartReadCard(discardDirty bool) (app.TaskDTO, error)
 	StartType2Read(password string) (app.TaskDTO, error)

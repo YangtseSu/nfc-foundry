@@ -13,17 +13,29 @@ import (
 )
 
 type fakeBackend struct {
-	mu              sync.Mutex
-	dashboard       app.DashboardDTO
-	workbench       app.WorkbenchDTO
-	keys            []app.KeyDTO
-	connects        []string
-	readStarts      int
-	scanStarts      int
-	type2Starts     int
-	type2Writes     []app.Type2WriteStartRequestDTO
-	type2NDEFWrites []app.Type2NDEFWriteStartRequestDTO
-	type2           app.Type2DumpDTO
+	mu                sync.Mutex
+	dashboard         app.DashboardDTO
+	workbench         app.WorkbenchDTO
+	keys              []app.KeyDTO
+	connects          []string
+	readStarts        int
+	scanStarts        int
+	type2Starts       int
+	type2Writes       []app.Type2WriteStartRequestDTO
+	type2NDEFWrites   []app.Type2NDEFWriteStartRequestDTO
+	type2             app.Type2DumpDTO
+	classicEdits      []classicEditCall
+	classicPreflights []app.WritePreflightRequestDTO
+	classicWrites     []app.WriteStartRequestDTO
+	uidPreflights     []string
+	uidWrites         []app.UIDWriteStartRequestDTO
+	dumpLoads         int
+	dumpSaves         int
+}
+
+type classicEditCall struct {
+	Block int
+	Hex   string
 }
 
 func (f *fakeBackend) GetDashboard() app.DashboardDTO { return f.dashboard }
@@ -50,7 +62,98 @@ func (f *fakeBackend) ImportKeyDictionary() (app.ImportReportDTO, error) {
 func (f *fakeBackend) ExportKeyDictionary() (app.ExportResultDTO, error) {
 	return app.ExportResultDTO{Count: len(f.keys)}, nil
 }
-func (f *fakeBackend) GetWorkbench() app.WorkbenchDTO { return f.workbench }
+func (f *fakeBackend) GetWorkbench() app.WorkbenchDTO {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return cloneWorkbenchDTO(f.workbench)
+}
+func (f *fakeBackend) EditBlockHex(block int, hex string) (app.WorkbenchDTO, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.classicEdits = append(f.classicEdits, classicEditCall{Block: block, Hex: hex})
+	workbench := cloneWorkbenchDTO(f.workbench)
+	if block >= 0 && block < len(workbench.Blocks) {
+		workbench.Blocks[block].Hex = testSpacedHex(hex)
+		workbench.Blocks[block].Dirty = true
+		workbench.Dirty = true
+		workbench.DirtyBlocks = append(workbench.DirtyBlocks, block)
+	}
+	f.workbench = workbench
+	return cloneWorkbenchDTO(workbench), nil
+}
+func (f *fakeBackend) LoadDump(bool) (app.WorkbenchDTO, error) {
+	f.mu.Lock()
+	f.dumpLoads++
+	f.mu.Unlock()
+	return f.workbench, nil
+}
+func (f *fakeBackend) LoadDumpFile(string, bool) (app.WorkbenchDTO, error) {
+	f.mu.Lock()
+	f.dumpLoads++
+	f.mu.Unlock()
+	return f.workbench, nil
+}
+func (f *fakeBackend) SaveDump() (app.SaveResultDTO, error) {
+	f.mu.Lock()
+	f.dumpSaves++
+	f.mu.Unlock()
+	return app.SaveResultDTO{Path: "card.nfcx.json"}, nil
+}
+func (f *fakeBackend) SaveDumpFile(path string) (app.SaveResultDTO, error) {
+	f.mu.Lock()
+	f.dumpSaves++
+	f.mu.Unlock()
+	return app.SaveResultDTO{Path: path}, nil
+}
+func (f *fakeBackend) PreflightWrite(request app.WritePreflightRequestDTO) (app.WritePreflightDTO, error) {
+	f.mu.Lock()
+	f.classicPreflights = append(f.classicPreflights, request)
+	f.mu.Unlock()
+	result := app.WritePreflightDTO{Mode: request.Mode, Valid: true, SkippedBlock0: true}
+	switch request.Mode {
+	case "block":
+		result.Token = "write-block"
+		result.Blocks = append([]int(nil), request.Blocks...)
+	case "changes":
+		result.Token = "write-changes"
+		result.Blocks = []int{1, 2}
+		result.TrailerBlocks = []int{3}
+		result.BackupPath = "/tmp/classic-backup.json"
+		result.Access = []app.TrailerAccessDTO{{Block: 3, Sector: 0}}
+	case "full":
+		result.Token = "write-full"
+		result.Blocks = []int{1, 2, 3, 4, 5, 6, 7}
+		result.TrailerBlocks = []int{3, 7}
+		result.BackupPath = "/tmp/classic-backup.json"
+		result.Access = []app.TrailerAccessDTO{{Block: 3, Sector: 0}, {Block: 7, Sector: 1}}
+	}
+	return result, nil
+}
+func (f *fakeBackend) StartWrite(request app.WriteStartRequestDTO) (app.TaskDTO, error) {
+	f.mu.Lock()
+	f.classicWrites = append(f.classicWrites, request)
+	f.mu.Unlock()
+	return app.TaskDTO{ID: "write-1", Name: "write", Status: "running"}, nil
+}
+func (f *fakeBackend) PreflightUIDWrite(uid string) (app.UIDWritePreflightDTO, error) {
+	f.mu.Lock()
+	f.uidPreflights = append(f.uidPreflights, uid)
+	f.mu.Unlock()
+	return app.UIDWritePreflightDTO{
+		Token: "uid-token", Valid: true, BackupPath: "/tmp/uid-backup.json",
+		Preview: &app.UIDWritePreviewDTO{
+			CurrentUID: "04 A1 B2 C3", NewUID: "04 AA BB CC", BCC: "00",
+			OldBlock0: "04 A1 B2 C3 00 00 00 00 00 00 00 00 00 00 00 00",
+			NewBlock0: "04 AA BB CC 00 00 00 00 00 00 00 00 00 00 00 00",
+		},
+	}, nil
+}
+func (f *fakeBackend) StartUIDWrite(request app.UIDWriteStartRequestDTO) (app.TaskDTO, error) {
+	f.mu.Lock()
+	f.uidWrites = append(f.uidWrites, request)
+	f.mu.Unlock()
+	return app.TaskDTO{ID: "uid-1", Name: "uid", Status: "running"}, nil
+}
 func (f *fakeBackend) GetType2Dump() app.Type2DumpDTO { return f.type2 }
 func (f *fakeBackend) StartType2Read(string) (app.TaskDTO, error) {
 	f.mu.Lock()
@@ -89,6 +192,25 @@ func (f *fakeBackend) StartKeyScan(bool) (app.TaskDTO, error) {
 	return app.TaskDTO{ID: "keyscan-1", Name: "keyscan", Status: "running"}, nil
 }
 func (f *fakeBackend) CancelTask(string) error { return nil }
+
+func cloneWorkbenchDTO(value app.WorkbenchDTO) app.WorkbenchDTO {
+	clone := value
+	clone.DirtyBlocks = append([]int(nil), value.DirtyBlocks...)
+	clone.Blocks = append([]app.WorkbenchBlockDTO(nil), value.Blocks...)
+	clone.Diffs = append([]app.WorkbenchDiffDTO(nil), value.Diffs...)
+	clone.Validation.Errors = append([]string(nil), value.Validation.Errors...)
+	clone.Validation.Warnings = append([]string(nil), value.Validation.Warnings...)
+	return clone
+}
+
+func testSpacedHex(value string) string {
+	compact := normalizeClassicHex(value)
+	parts := make([]string, 0, len(compact)/2)
+	for index := 0; index+1 < len(compact); index += 2 {
+		parts = append(parts, compact[index:index+2])
+	}
+	return strings.Join(parts, " ")
+}
 
 func (f *fakeBackend) connectCalls() []string {
 	f.mu.Lock()
@@ -751,4 +873,239 @@ func TestType2NDEFWiFiTemplateSubmitsFields(t *testing.T) {
 		writes[0].Fields["security"] != "wpa2" {
 		t.Fatalf("Wi-Fi request = %+v", writes)
 	}
+}
+
+func TestClassicAdvancedToggleRequiresConfirmationAndResets(t *testing.T) {
+	backend := classicFixture()
+	model := newShell(backend)
+	tester := ui.NewTester(model.view, 1360, 860)
+	if tester.HasText("Write changed blocks") {
+		t.Fatal("advanced actions were visible before enabling advanced mode")
+	}
+	if err := tester.Click("Advanced operations"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if !tester.HasText("Enable advanced operations?") {
+		t.Fatalf("advanced warning missing: %q", tester.Texts())
+	}
+	if err := tester.Click("Enable advanced"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if !model.advanced || !tester.HasText("Write changed blocks") {
+		t.Fatalf("advanced mode not enabled: %q", tester.Texts())
+	}
+	model.applyCardEvent(app.CardEventDTO{Type: "removed"})
+	if model.advanced {
+		t.Fatal("advanced mode survived card removal")
+	}
+	tester.Frame()
+	if tester.HasText("Write changed blocks") {
+		t.Fatal("advanced actions remained visible after card removal")
+	}
+}
+
+func TestClassicBlockEditorWritesSelectedBlock(t *testing.T) {
+	backend := classicFixture()
+	model := newShell(backend)
+	tester := ui.NewTester(model.view, 1360, 860)
+	if !tester.HasText("Select an ordinary data block to edit.") {
+		t.Fatalf("protected block hint missing: %q", tester.Texts())
+	}
+	model.blockChosen = 1
+	model.syncBlockEditor(true)
+	tester.Frame()
+	if model.blockInput != "000102030405060708090A0B0C0D0E0F" {
+		t.Fatalf("block input = %q", model.blockInput)
+	}
+	model.blockInput = "DEADBEEF00112233445566778899AABB"
+	tester.Frame()
+	if err := tester.Click("Write block"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if !tester.HasText("Write block 1?") {
+		t.Fatalf("confirmation missing: %q", tester.Texts())
+	}
+	if err := tester.Click("Confirm block write"); err != nil {
+		t.Fatal(err)
+	}
+	writes := waitForClassicWrites(t, backend, 1)
+	if len(writes) != 1 || writes[0].Token != "write-block" || writes[0].ConfirmTrailers {
+		t.Fatalf("write request = %+v", writes)
+	}
+	backend.mu.Lock()
+	edits := append([]classicEditCall(nil), backend.classicEdits...)
+	preflights := append([]app.WritePreflightRequestDTO(nil), backend.classicPreflights...)
+	backend.mu.Unlock()
+	if len(edits) != 1 || edits[0].Block != 1 || edits[0].Hex != "DEADBEEF00112233445566778899AABB" {
+		t.Fatalf("edits = %+v", edits)
+	}
+	if len(preflights) != 1 || preflights[0].Mode != "block" || len(preflights[0].Blocks) != 1 || preflights[0].Blocks[0] != 1 {
+		t.Fatalf("preflights = %+v", preflights)
+	}
+}
+
+func TestClassicChangedBlocksConfirmationIncludesBackupAndTrailers(t *testing.T) {
+	backend := classicFixture()
+	model := newShell(backend)
+	model.advanced = true
+	model.workbench.Dirty = true
+	model.workbench.DirtyBlocks = []int{1}
+	tester := ui.NewTester(model.view, 1360, 860)
+	if err := tester.Click("Write changed blocks"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if !tester.HasText("Write 2 changed blocks?") || !tester.HasText("Backup: /tmp/classic-backup.json") ||
+		!tester.HasText("Trailers: 3") {
+		t.Fatalf("preflight dialog texts: %q", tester.Texts())
+	}
+	if err := tester.Click("Write blocks and trailers"); err != nil {
+		t.Fatal(err)
+	}
+	writes := waitForClassicWrites(t, backend, 1)
+	if len(writes) != 1 || writes[0].Token != "write-changes" || !writes[0].ConfirmTrailers {
+		t.Fatalf("write request = %+v", writes)
+	}
+}
+
+func TestClassicFullRestoreRequiresTrailerConfirmation(t *testing.T) {
+	backend := classicFixture()
+	model := newShell(backend)
+	model.advanced = true
+	tester := ui.NewTester(model.view, 1360, 860)
+	if err := tester.Click("Full restore"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if !tester.HasText("Restore the full card?") || !tester.HasText("A full restore replaces every writable block") {
+		t.Fatalf("full restore dialog texts: %q", tester.Texts())
+	}
+	if err := tester.Click("Restore card"); err != nil {
+		t.Fatal(err)
+	}
+	writes := waitForClassicWrites(t, backend, 1)
+	if len(writes) != 1 || writes[0].Token != "write-full" || !writes[0].ConfirmTrailers {
+		t.Fatalf("write request = %+v", writes)
+	}
+}
+
+func TestClassicUIDWriteRequiresExactConfirmation(t *testing.T) {
+	backend := classicFixture()
+	model := newShell(backend)
+	model.advanced = true
+	model.uidInput = "04AABBCC"
+	tester := ui.NewTester(model.view, 1360, 860)
+	if err := tester.Click("Set UID"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if !tester.HasText("Set UID to 04 AA BB CC?") || !tester.HasText("Confirm UID") ||
+		!tester.HasText("Backup: /tmp/uid-backup.json") {
+		t.Fatalf("UID confirmation texts: %q", tester.Texts())
+	}
+	if err := tester.Click("Confirm UID"); err != nil {
+		t.Fatal(err)
+	}
+	writes := waitForUIDWrites(t, backend, 1)
+	if len(writes) != 1 || writes[0].Token != "uid-token" || writes[0].Confirmation != "04AABBCC" {
+		t.Fatalf("UID write request = %+v", writes)
+	}
+}
+
+func TestClassicUIDWriteRejectsInvalidUIDBeforePreflight(t *testing.T) {
+	backend := classicFixture()
+	model := newShell(backend)
+	model.advanced = true
+	model.uidInput = "XYZ"
+	tester := ui.NewTester(model.view, 1360, 860)
+	if err := tester.Click("Set UID"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(model.errorText, "8 hexadecimal") {
+		t.Fatalf("error = %q", model.errorText)
+	}
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	if len(backend.uidPreflights) != 0 || len(backend.uidWrites) != 0 {
+		t.Fatal("invalid UID reached the backend")
+	}
+}
+
+func TestClassicWriteFailureShowsBackupPath(t *testing.T) {
+	backend := classicFixture()
+	model := newShell(backend)
+	model.applyEvent(app.TaskEventName, app.TaskEventDetailDTO{
+		TaskID: "write-1", Kind: "write", Type: "failed",
+		Message: "pre-write backup: /tmp/classic-backup.json",
+	})
+	if !strings.Contains(model.errorText, "/tmp/classic-backup.json") {
+		t.Fatalf("error text = %q", model.errorText)
+	}
+}
+
+func TestClassicDumpActionsCallBackend(t *testing.T) {
+	backend := classicFixture()
+	model := newShell(backend)
+	tester := ui.NewTester(model.view, 1360, 860)
+	if err := tester.Click("Save dump"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		backend.mu.Lock()
+		saves := backend.dumpSaves
+		backend.mu.Unlock()
+		if saves == 1 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if err := tester.Click("Load dump"); err != nil {
+		t.Fatal(err)
+	}
+	for time.Now().Before(deadline) {
+		backend.mu.Lock()
+		loads := backend.dumpLoads
+		backend.mu.Unlock()
+		if loads == 1 {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("Load dump did not call the backend")
+}
+
+func waitForClassicWrites(t *testing.T, backend *fakeBackend, count int) []app.WriteStartRequestDTO {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		backend.mu.Lock()
+		writes := append([]app.WriteStartRequestDTO(nil), backend.classicWrites...)
+		backend.mu.Unlock()
+		if len(writes) >= count {
+			return writes
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("Classic write did not start")
+	return nil
+}
+
+func waitForUIDWrites(t *testing.T, backend *fakeBackend, count int) []app.UIDWriteStartRequestDTO {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		backend.mu.Lock()
+		writes := append([]app.UIDWriteStartRequestDTO(nil), backend.uidWrites...)
+		backend.mu.Unlock()
+		if len(writes) >= count {
+			return writes
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("UID write did not start")
+	return nil
 }

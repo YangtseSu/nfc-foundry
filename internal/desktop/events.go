@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"strings"
 	"time"
 
 	"github.com/YangtseSu/nfc-foundry/app"
@@ -48,6 +49,8 @@ func (s *shell) applyEvent(name string, payload any) {
 }
 
 func (s *shell) applyDeviceState(event app.DeviceStateEventDTO) {
+	previousCard := cardIdentity(s.card)
+	previousConn := s.connectedConn
 	s.connection = event.Connection
 	if event.Card.Present {
 		card := event.Card
@@ -78,17 +81,25 @@ func (s *shell) applyDeviceState(event app.DeviceStateEventDTO) {
 			s.selectedID = event.Device.ID
 		}
 	}
+	if previousCard != cardIdentity(s.card) || previousConn != s.connectedConn {
+		s.resetAdvanced()
+	}
 	s.clampSelections()
 }
 
 func (s *shell) applyCardEvent(event app.CardEventDTO) {
+	previous := cardIdentity(s.card)
 	if event.Type == "removed" {
 		s.card = nil
+		s.resetAdvanced()
 		s.clampSelections()
 		return
 	}
 	card := event.Card
 	s.card = &card
+	if previous != cardIdentity(s.card) {
+		s.resetAdvanced()
+	}
 	s.clampSelections()
 }
 
@@ -126,9 +137,21 @@ func (s *shell) applyTaskEvent(event app.TaskEventDetailDTO) {
 	switch {
 	case event.Type == "failed" && (event.Kind == "type2_write" || event.Kind == "type2_ndef"):
 		s.errorText = s.locales().Type2WriteFailed(event.Message)
+	case event.Type == "failed" && (event.Kind == "write" || event.Kind == "uid_write"):
+		s.errorText = s.locales().ClassicWriteFailed(event.Message)
 	case event.Type == app.TaskEventCompleted && (event.Kind == "type2_write" || event.Kind == "type2_ndef"):
 		s.errorText = ""
 		s.toastText = s.locales().Type2WriteComplete()
+	case event.Type == app.TaskEventCompleted && event.Kind == "write":
+		s.errorText = ""
+		s.toastText = s.locales().ClassicWriteComplete()
+	case event.Type == app.TaskEventCompleted && event.Kind == "uid_write":
+		s.errorText = ""
+		s.toastText = s.locales().ClassicUIDComplete()
+	}
+	if event.UID != nil && event.UID.Verified && event.UID.NewUID != "" && s.card != nil {
+		s.card.UID = event.UID.NewUID
+		s.card.UIDLength = len(strings.Fields(event.UID.NewUID))
 	}
 	entry := logEntry{
 		time:      when,

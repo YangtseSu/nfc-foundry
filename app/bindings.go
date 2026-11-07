@@ -49,6 +49,49 @@ func (b *Bindings) ExportKeyDictionary() (ExportResultDTO, error) {
 
 func (b *Bindings) GetWorkbench() WorkbenchDTO { return b.service.Workbench() }
 
+// EditBlockHex edits one block in the loaded dump.
+func (b *Bindings) EditBlockHex(block int, hex string) (WorkbenchDTO, error) {
+	return b.service.EditBlockHex(block, hex)
+}
+
+// LoadDump opens the native dump picker.
+func (b *Bindings) LoadDump(discardDirty bool) (WorkbenchDTO, error) {
+	return b.service.LoadDump(discardDirty)
+}
+
+// LoadDumpFile loads a dump from an explicit path.
+func (b *Bindings) LoadDumpFile(path string, discardDirty bool) (WorkbenchDTO, error) {
+	return b.service.LoadDumpFile(path, discardDirty)
+}
+
+// SaveDump opens the native dump save dialog.
+func (b *Bindings) SaveDump() (SaveResultDTO, error) { return b.service.SaveDump() }
+
+// SaveDumpFile writes the current dump to an explicit path.
+func (b *Bindings) SaveDumpFile(path string) (SaveResultDTO, error) {
+	return b.service.SaveDumpFile(path)
+}
+
+// PreflightWrite validates a planned Classic write.
+func (b *Bindings) PreflightWrite(request WritePreflightRequestDTO) (WritePreflightDTO, error) {
+	return b.service.PreflightWrite(request)
+}
+
+// StartWrite starts a Classic write task for a successful preflight token.
+func (b *Bindings) StartWrite(request WriteStartRequestDTO) (TaskDTO, error) {
+	return b.service.StartWrite(request)
+}
+
+// PreflightUIDWrite validates a standalone UID write.
+func (b *Bindings) PreflightUIDWrite(uid string) (UIDWritePreflightDTO, error) {
+	return b.service.PreflightUIDWrite(uid)
+}
+
+// StartUIDWrite starts a standalone UID write task.
+func (b *Bindings) StartUIDWrite(request UIDWriteStartRequestDTO) (TaskDTO, error) {
+	return b.service.StartUIDWrite(request)
+}
+
 func (b *Bindings) StartKeyScan(discardDirty bool) (TaskDTO, error) {
 	return b.service.StartKeyScan(discardDirty)
 }

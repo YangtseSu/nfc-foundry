@@ -214,10 +214,13 @@ func (s *shell) blocksView(c *ui.Context, p palette) {
 						TextColor(p.faint)
 				}
 			})
+			s.classicActions(c, p)
+			s.classicUIDPanel(c, p)
 			if len(s.workbench.Blocks) == 0 {
 				s.emptyPanelBody(c, p, l.BlocksEmpty())
 				return
 			}
+			s.classicBlockEditor(c, p)
 			s.blockTable(c, p)
 		})
 	})
@@ -290,6 +293,7 @@ func (s *shell) blockTable(c *ui.Context, p palette) {
 		if s.blockRowChosen >= 0 && s.blockRowChosen < len(s.blockRows) {
 			if row := s.blockRows[s.blockRowChosen]; !row.header {
 				s.blockChosen = row.block
+				s.syncBlockEditor(true)
 			}
 		}
 	}

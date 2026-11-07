@@ -67,6 +67,15 @@ type blockRowKey struct {
 	block  int
 }
 
+type classicWriteIntent struct {
+	Kind      string
+	Block     int
+	Hex       string
+	Preflight app.WritePreflightDTO
+	UID       string
+	UIDPlan   app.UIDWritePreflightDTO
+}
+
 // shell is the native UI view-model. It is only mutated on the UI thread;
 // background work posts updates through Window.Update.
 type shell struct {
@@ -102,10 +111,17 @@ type shell struct {
 	selectedTab tabID
 	tabIndex    int
 
-	blockChosen        int
-	blockRows          []blockRow
-	blockRowChosen     int
-	sectorChosen       int
+	advanced          bool
+	classicDialog     string
+	classicDialogOpen bool
+	classicIntent     *classicWriteIntent
+	blockChosen       int
+	blockInput        string
+	blockInputBlock   int
+	blockRows         []blockRow
+	blockRowChosen    int
+	uidInput          string
+	sectorChosen      int
 	type2PageChosen    int
 	type2PageInput     string
 	type2PageInputPage int
@@ -132,6 +148,7 @@ func newShell(api Backend) *shell {
 		selectedTab:        tabBlocks,
 		type2PageChosen:    -1,
 		type2PageInputPage: -1,
+		blockInputBlock:    -1,
 		ndefTemplate:       "text",
 		ndefFields:         make(map[string]*string),
 	}
@@ -247,6 +264,7 @@ func (s *shell) view(c *ui.Context) {
 		s.actionBar(c, p)
 	})
 	s.type2WriteDialog(c)
+	s.classicDialogView(c)
 }
 
 func languages() []string {
@@ -510,6 +528,7 @@ func (s *shell) clampSelections() {
 	}
 	s.rebuildBlockRows()
 	s.syncBlockRowChoice()
+	s.syncBlockEditor(false)
 	if len(s.sectorKeys) == 0 {
 		s.sectorChosen = 0
 	} else {
@@ -520,6 +539,23 @@ func (s *shell) clampSelections() {
 
 func (s *shell) cardPresent() bool {
 	return s.card != nil && s.card.Present
+}
+
+func cardIdentity(card *app.CardDTO) string {
+	if card == nil || !card.Present {
+		return ""
+	}
+	return card.UID + "|" + card.ATQA + "|" + card.SAK
+}
+
+func (s *shell) resetAdvanced() {
+	s.advanced = false
+	s.classicDialog = ""
+	s.classicDialogOpen = false
+	s.classicIntent = nil
+	s.uidInput = ""
+	s.blockInput = ""
+	s.blockInputBlock = -1
 }
 
 func (s *shell) cardFamily() cardFamily {
@@ -677,6 +713,33 @@ func (s *shell) syncBlockRowChoice() {
 	}
 }
 
+func normalizeClassicHex(value string) string {
+	replacer := strings.NewReplacer(" ", "", ":", "", "-", "")
+	return strings.ToUpper(replacer.Replace(strings.TrimSpace(value)))
+}
+
+func (s *shell) syncBlockEditor(reset bool) {
+	block, ok := s.selectedBlock()
+	if !ok || block.Kind != "data" {
+		s.blockInput = ""
+		s.blockInputBlock = -1
+		return
+	}
+	if reset || s.blockInputBlock != block.Block {
+		s.blockInput = normalizeClassicHex(block.Hex)
+	}
+	s.blockInputBlock = block.Block
+}
+
+func (s *shell) hasWritableChanges() bool {
+	for _, block := range s.workbench.DirtyBlocks {
+		if block != 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *shell) syncKeyChoice() {
 	s.keyChosenRow = -1
 	if s.keyChosen != "" {
@@ -763,6 +826,10 @@ func (s *shell) activityKindLabel(l locales.Messages, kind string) string {
 		return l.ActivityKindKeys()
 	case "key_recovery":
 		return l.ActivityKindKeyRecovery()
+	case "write":
+		return l.ActivityKindClassicWrite()
+	case "uid_write":
+		return l.ActivityKindUIDWrite()
 	default:
 		return kind
 	}

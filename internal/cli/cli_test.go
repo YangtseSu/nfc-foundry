@@ -154,9 +154,10 @@ func newHarness(t *testing.T, fake *fakeClassic) *testHarness {
 				OpenTimeout: time.Second, RemovalMisses: 2,
 				ReconnectBackoffs: []time.Duration{time.Millisecond}, LockDir: lockDir,
 			},
-			Locator:       locator,
-			KeyStorePath:  keyPath,
-			UIDBackupRoot: backupDir,
+			Locator:           locator,
+			KeyStorePath:      keyPath,
+			UIDBackupRoot:     backupDir,
+			ClassicBackupRoot: filepath.Join(dir, "classic-backups"),
 		})
 	}}
 	return harness
@@ -332,6 +333,18 @@ func TestClassicRestoreDryRunThenVerifiedRestore(t *testing.T) {
 	if code != 0 || !envelope.OK {
 		t.Fatalf("restore dry run: code=%d envelope=%+v stderr=%s", code, envelope, harness.stderr.String())
 	}
+	var dryRun struct {
+		Preflight *app.WritePreflightDTO `json:"preflight"`
+	}
+	if err := json.Unmarshal(envelope.Result, &dryRun); err != nil {
+		t.Fatal(err)
+	}
+	if dryRun.Preflight == nil || dryRun.Preflight.BackupPath == "" {
+		t.Fatalf("dry-run preflight has no backup path: %+v", dryRun.Preflight)
+	}
+	if _, err := os.Stat(dryRun.Preflight.BackupPath); !os.IsNotExist(err) {
+		t.Fatal("dry run created a pre-write backup")
+	}
 	if fake.block(8) != [16]byte{} {
 		t.Fatal("dry run modified the card")
 	}
@@ -348,13 +361,24 @@ func TestClassicRestoreDryRunThenVerifiedRestore(t *testing.T) {
 		t.Fatalf("restore: code=%d envelope=%+v stderr=%s", code, envelope, harness.stderr.String())
 	}
 	var restore struct {
-		Restore *app.RestoreResultDTO `json:"restore"`
+		Preflight *app.WritePreflightDTO `json:"preflight"`
+		Restore   *app.RestoreResultDTO  `json:"restore"`
 	}
 	if err := json.Unmarshal(envelope.Result, &restore); err != nil {
 		t.Fatal(err)
 	}
 	if restore.Restore == nil || len(restore.Restore.VerifiedBlocks) == 0 {
 		t.Fatalf("restore result = %+v", restore)
+	}
+	if restore.Preflight == nil || restore.Preflight.BackupPath == "" {
+		t.Fatalf("restore preflight has no backup path: %+v", restore.Preflight)
+	}
+	backup, err := os.Stat(restore.Preflight.BackupPath)
+	if err != nil {
+		t.Fatalf("pre-write backup is missing: %v", err)
+	}
+	if backup.Mode().Perm()&0o077 != 0 {
+		t.Fatalf("pre-write backup permissions = %v", backup.Mode().Perm())
 	}
 }
 
@@ -386,6 +410,18 @@ func TestUIDSetDryRunThenVerifiedWrite(t *testing.T) {
 	if code != 0 || !envelope.OK {
 		t.Fatalf("uid dry run: code=%d envelope=%+v stderr=%s", code, envelope, harness.stderr.String())
 	}
+	var uidDryRun struct {
+		BackupPath string `json:"backupPath"`
+	}
+	if err := json.Unmarshal(envelope.Result, &uidDryRun); err != nil {
+		t.Fatal(err)
+	}
+	if uidDryRun.BackupPath == "" {
+		t.Fatal("UID dry run has no pre-write backup path")
+	}
+	if _, err := os.Stat(uidDryRun.BackupPath); !os.IsNotExist(err) {
+		t.Fatal("UID dry run created a pre-write backup")
+	}
 	if fake.uid() != "04112233" {
 		t.Fatal("dry run changed the UID")
 	}
@@ -401,13 +437,20 @@ func TestUIDSetDryRunThenVerifiedWrite(t *testing.T) {
 		t.Fatalf("UID = %s, want 04AABBCC", fake.uid())
 	}
 	var result struct {
-		Result *app.UIDWriteResultDTO `json:"result"`
+		BackupPath string                 `json:"backupPath"`
+		Result     *app.UIDWriteResultDTO `json:"result"`
 	}
 	if err := json.Unmarshal(envelope.Result, &result); err != nil {
 		t.Fatal(err)
 	}
 	if result.Result == nil || !result.Result.Verified {
 		t.Fatalf("UID result = %+v", result)
+	}
+	if result.BackupPath == "" {
+		t.Fatal("UID write has no pre-write backup path")
+	}
+	if _, err := os.Stat(result.BackupPath); err != nil {
+		t.Fatalf("UID pre-write backup is missing: %v", err)
 	}
 }
 

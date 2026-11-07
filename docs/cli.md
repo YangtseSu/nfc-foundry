@@ -109,10 +109,14 @@ for raw paths because unknown bytes are never zero-filled. If the read task
 fails, no dump is written.
 
 `restore` loads a complete dump, runs the restore preflight, and writes ordinary
-blocks before trailers, verifying every block. Manufacturer block 0 is always
-skipped. An actual restore requires `--yes` **and** `--confirm-trailers`,
-because a full restore replaces keys and access conditions. `--dry-run` prints
-the preflight plan and does not require either confirmation.
+blocks before trailers, verifying every block. The dump must carry metadata
+whose card UID/ATQA/SAK matches the current card. Manufacturer block 0 is
+always skipped. An actual restore requires `--yes` **and**
+`--confirm-trailers`, because a full restore replaces keys and access
+conditions. Before writing, it reads the current card into a complete JSON
+backup under `$XDG_CONFIG_HOME/NFC Foundry/classic-backups/`; a failed backup
+aborts the restore. The preflight output includes the backup path. `--dry-run`
+prints the plan and does not create the backup or require either confirmation.
 
 `keyscan` authenticates every known candidate for every Key A/Key B slot,
 persists verified matches, and reports missing slots. Values appear only with
@@ -155,7 +159,10 @@ the current/new UID, BCC, and old/new block 0. `--dry-run` stops after
 preflight and does not require `--yes`.
 
 An actual write requires `--yes` and an exact `--confirm-uid` value equal to
-the target UID. The service backs up block 0, tries the ordinary CUID/Gen2
+the target UID. Before writing, the service reads the current card into a
+complete backup under `$XDG_CONFIG_HOME/NFC Foundry/classic-backups/`; a failed
+backup aborts the write. It also backs up block 0 under
+`$XDG_CONFIG_HOME/NFC Foundry/uid-backups/`, tries the ordinary CUID/Gen2
 manufacturer write, then falls back to the in-process Gen1A unlock on the same
 open reader. It reselects and verifies the complete block 0 before reporting
 success. The reader is not released to an external process; `nfc-mfsetuid` is

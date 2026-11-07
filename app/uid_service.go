@@ -18,7 +18,9 @@ import (
 type uidPreflightRecord struct {
 	request     workflow.UIDWriteRequest
 	plan        workflow.UIDWritePlan
+	keys        []workflow.SectorKeys
 	fingerprint string
+	backupPath  string
 	expires     time.Time
 }
 
@@ -53,7 +55,14 @@ func (s *Service) PreflightUIDWrite(value string) (UIDWritePreflightDTO, error) 
 	request.ExpectedBlock0 = &expected
 	fingerprint := uidWriteFingerprint(request, plan)
 	token := fmt.Sprintf("uid-%d-%x", s.nextID.Add(1), fingerprint[:8])
-	record := uidPreflightRecord{request: request, plan: plan, fingerprint: fingerprint, expires: time.Now().Add(5 * time.Minute)}
+	if strings.TrimSpace(s.classicBackupRoot) == "" {
+		return UIDWritePreflightDTO{Error: "a pre-write backup directory is unavailable; no write is allowed"}, nil
+	}
+	backupPath := classicBackupPathForCard(s.classicBackupRoot, card, token)
+	record := uidPreflightRecord{
+		request: request, plan: plan, keys: sectorKeys, fingerprint: fingerprint,
+		backupPath: backupPath, expires: time.Now().Add(5 * time.Minute),
+	}
 	s.mu.Lock()
 	if s.uidPreflights == nil {
 		s.uidPreflights = make(map[string]uidPreflightRecord)
@@ -62,7 +71,7 @@ func (s *Service) PreflightUIDWrite(value string) (UIDWritePreflightDTO, error) 
 	s.mu.Unlock()
 	preview := uidWritePreviewDTO(plan)
 	return UIDWritePreflightDTO{
-		Token: token, Valid: true, Preview: &preview,
+		Token: token, Valid: true, Preview: &preview, BackupPath: backupPath,
 		Warning: "supports CUID/Gen2 normal writes and Gen1A special cards on readers with raw-frame support; ordinary cards with immutable UIDs fail safely.",
 	}, nil
 }
@@ -89,6 +98,11 @@ func (s *Service) StartUIDWrite(input UIDWriteStartRequestDTO) (TaskDTO, error) 
 		return TaskDTO{}, ErrPreflightRequired
 	}
 	return s.startOperation("uid_write", "Write UID", func(ctx context.Context, taskID string) error {
+		if record.backupPath != "" {
+			if err := s.savePreWriteBackup(ctx, record.request.Card, record.keys, record.backupPath, taskID, "uid_write"); err != nil {
+				return err
+			}
+		}
 		request := record.request
 		request.TaskID = taskID
 		result, writeErr := s.uidService.Write(ctx, request, func(event workflow.UIDWriteEvent) {
@@ -97,12 +111,12 @@ func (s *Service) StartUIDWrite(input UIDWriteStartRequestDTO) (TaskDTO, error) 
 		dto := uidWriteResultDTO(result)
 		s.emitOperation(TaskEventDetailDTO{
 			TaskID: taskID, Kind: "uid_write", Type: TaskEventProgress, Phase: string(workflow.UIDWriteVerify),
-			Message: uidWriteResultMessage(result, writeErr), UID: &dto,
+			Message: uidWriteResultMessage(result, writeErr), UID: &dto, BackupPath: record.backupPath,
 		})
 		if writeErr == nil {
 			s.registerUIDKey(result)
 		}
-		return writeErr
+		return annotateBackup(writeErr, record.backupPath)
 	})
 }
 

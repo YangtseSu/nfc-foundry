@@ -68,9 +68,10 @@ type recoverResult struct {
 }
 
 type uidResult struct {
-	DryRun  bool                    `json:"dryRun"`
-	Preview *app.UIDWritePreviewDTO `json:"preview"`
-	Result  *app.UIDWriteResultDTO  `json:"result,omitempty"`
+	DryRun     bool                    `json:"dryRun"`
+	Preview    *app.UIDWritePreviewDTO `json:"preview"`
+	BackupPath string                  `json:"backupPath,omitempty"`
+	Result     *app.UIDWriteResultDTO  `json:"result,omitempty"`
 }
 
 type keySummary struct {

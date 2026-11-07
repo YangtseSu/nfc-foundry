@@ -50,7 +50,7 @@ func (r *Runner) cmdUID(ctx context.Context, args []string) error {
 	if !preflight.Valid {
 		return nfc.NewError("uid preflight", nfc.CodeInvalidArgument, preflight.Error, nil)
 	}
-	result := uidResult{DryRun: r.global.dryRun, Preview: preflight.Preview}
+	result := uidResult{DryRun: r.global.dryRun, Preview: preflight.Preview, BackupPath: preflight.BackupPath}
 	if r.global.dryRun {
 		r.printUID(result)
 		r.out.emit("uid.set", r.device, r.card, nil, result)

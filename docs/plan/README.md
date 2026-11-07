@@ -11,7 +11,7 @@ Status legend: `done`, `in progress`, `pending`, `conditional`.
 | 04 | Native Go Gen1A; remove `nfc-mfsetuid` | done |
 | 05 | Type 2 / NTAG21x and NDEF | done |
 | 05b | GUI Type 2 page and NDEF writes | done |
-| 05c | Classic GUI writes and advanced bulk write | pending |
+| 05c | Classic GUI writes and advanced bulk write | done |
 | 05d | Advanced Type 2 protected GUI writes | pending |
 | 05e | NDEF record catalogue and decoded views | done |
 | 05f | NDEF UX and format completion | pending |

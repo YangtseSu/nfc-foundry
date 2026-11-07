@@ -129,12 +129,14 @@ type WritePreflightDTO struct {
 	Error         string              `json:"error,omitempty"`
 	Access        []TrailerAccessDTO  `json:"access"`
 	UID           *UIDWritePreviewDTO `json:"uid,omitempty"`
+	BackupPath    string              `json:"backupPath,omitempty"`
 }
 
 type WritePreflightRequestDTO struct {
 	Mode     string `json:"mode"`
 	WriteUID bool   `json:"writeUid"`
 	UID      string `json:"uid,omitempty"`
+	Blocks   []int  `json:"blocks,omitempty"`
 }
 
 type TrailerAccessDTO struct {
@@ -158,11 +160,12 @@ type UIDWritePreviewDTO struct {
 }
 
 type UIDWritePreflightDTO struct {
-	Token   string              `json:"token,omitempty"`
-	Valid   bool                `json:"valid"`
-	Preview *UIDWritePreviewDTO `json:"preview,omitempty"`
-	Warning string              `json:"warning,omitempty"`
-	Error   string              `json:"error,omitempty"`
+	Token      string              `json:"token,omitempty"`
+	Valid      bool                `json:"valid"`
+	Preview    *UIDWritePreviewDTO `json:"preview,omitempty"`
+	Warning    string              `json:"warning,omitempty"`
+	Error      string              `json:"error,omitempty"`
+	BackupPath string              `json:"backupPath,omitempty"`
 }
 
 type UIDWriteStartRequestDTO struct {
@@ -217,6 +220,7 @@ type TaskEventDetailDTO struct {
 	Recovery      *KeyRecoveryResultDTO `json:"recovery,omitempty"`
 	UID           *UIDWriteResultDTO    `json:"uid,omitempty"`
 	Type2         *Type2DumpDTO         `json:"type2,omitempty"`
+	BackupPath    string                `json:"backupPath,omitempty"`
 }
 
 type KeyRecoveryStartRequestDTO struct {
