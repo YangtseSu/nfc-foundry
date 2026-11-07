@@ -19,7 +19,7 @@ Status legend: `done`, `in progress`, `pending`, `conditional`.
 | 05g | NDEF on MIFARE Classic | done |
 | 05h | Magic Type 2 UID/backdoor operations | pending |
 | 05i | NTAG copy and lifecycle operations | done |
-| 06 | Reader expansion and capability matrix | in progress (PN53x USB hardware pending) |
+| 06 | Reader expansion and capability matrix | done |
 | 07 | ISO14443-4 APDU and DESFire read | in progress |
 | 08 | FeliCa / Type 3 NDEF scope | conditional |
 | 09 | Card emulation for mobile Linux (scope to be defined) | conditional |

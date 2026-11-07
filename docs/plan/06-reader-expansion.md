@@ -44,3 +44,14 @@ Therefore:
 
 - No SPI/I2C or legacy serial drivers on desktop by default.
 - No claim that "libnfc listed it" means full support.
+
+## Completion
+
+Closed on 2026-11-08 for the advertised reader profiles: `pn532_uart` and
+`acr122_usb`. `pn53x_usb` remains compiled in the application profile but is not
+advertised because no hardware validation was possible. `acr122_pcsc` remains
+unvalidated, and generic `pcsc` remains selection-only by scope.
+
+PN532 UART revalidation and read-only Type 2/NDEF validation are recorded in
+`docs/notes/06-reader-expansion.md`. NDEF write validation on that reader still
+requires a disposable tag and the explicit confirmation gate.

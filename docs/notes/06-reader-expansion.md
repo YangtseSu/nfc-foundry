@@ -75,7 +75,9 @@ contained all five `DRIVER_*_ENABLED` flags.
 
 Reader: ACS ACR122U (USB `001:004`) and a PN532 UART adapter
 (`/dev/ttyUSB0`). Cards present during the run: MIFARE Classic 1K
-`FA B9 CF F4` and NTAG215 `04 34 4C C2 83 5C 80`.
+`FA B9 CF F4` and NTAG215 `04 34 4C C2 83 5C 80`. The Classic UID was tested
+on two different physical cards cloned with the same ID; the PN532 UART and
+ACR122U results do not imply that one card was moved between readers.
 
 `nfctl list` enumerated the ACR122U once:
 
@@ -155,6 +157,39 @@ known ACR122U USB ownership/init instability recorded in Phases 02, 03, 04, and
 05f, not a new failure mode.
 
 `pn53x_usb` had no attached device, so it remains unvalidated.
+
+## P0 closeout (2026-11-08)
+
+PN532 UART revalidation with the Classic 1K test card (`FA B9 CF F4`):
+
+- `make libnfc-binding-hardware-smoke LIBNFC_DEVICE=pn532_uart:/dev/ttyUSB0`
+  passed: 100 open/close cycles, one selection, and 20 repeated `CardInfo`
+  calls.
+- `make libnfc-classic-hardware-test LIBNFC_DEVICE=pn532_uart:/dev/ttyUSB0`
+  passed with the default Key A.
+- `nfctl classic read --block 1 --device pn532_uart:/dev/ttyUSB0
+  --key A:FFFFFFFFFFFF` returned the expected 16 zero bytes.
+- `nfctl classic keyscan --device pn532_uart:/dev/ttyUSB0` verified 32 of 32
+  Key A/Key B slots.
+- `nfctl scan --device pn532_uart:/dev/ttyUSB0` reported the same Classic 1K
+  card and capability profile.
+
+Type 2/NDEF on PN532 UART was then validated read-only with the NTAG215
+(`04 34 4C C2 83 5C 80`, product `NTAG215`, 135 pages, 504 bytes user memory,
+CC `E1103E00`, NDEF present):
+
+- `make libnfc-type2-hardware-test LIBNFC_DEVICE=pn532_uart:/dev/ttyUSB0`
+  passed the read-only branch.
+- `nfctl ndef read --device pn532_uart:/dev/ttyUSB0` decoded the existing
+  vCard record.
+
+No write test was run: the tag contains user data and is not a disposable
+target. NDEF write and restore remain gated by
+`NFCX_HARDWARE_TYPE2_CONFIRM=I_OWN_THIS_TAG` and a backup directory.
+
+Phase 06 is closed for the advertised readers: `pn532_uart` and `acr122_usb`.
+`pn53x_usb` remains compiled but unadvertised; `acr122_pcsc` remains
+unvalidated; generic `pcsc` remains selection-only.
 
 ## Problems and resolutions
 
