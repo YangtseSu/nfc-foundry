@@ -404,6 +404,8 @@ the plan, spec, notes, and README in the same change.
 - No shell command construction from user input.
 - No unrestricted bulk write outside Advanced mode; Advanced bulk operations
   still use family-specific preflight, backup, and read-back checks.
+- No full DPP/Easy Connect protocol stack. Write and read DPP URIs as NDEF data;
+  do not implement DPP authentication or provisioning.
 - No claims of unvalidated card or reader support; implementation and tests may
   exist behind explicit Advanced/hardware gates.
 - No unlicensed copying of upstream code or binaries.

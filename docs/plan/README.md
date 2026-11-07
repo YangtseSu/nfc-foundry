@@ -21,7 +21,6 @@ Status legend: `done`, `in progress`, `pending`, `conditional`.
 | 07 | ISO14443-4 APDU and DESFire read | pending |
 | 08 | FeliCa / Type 3 NDEF scope | conditional |
 | 09 | Card emulation for mobile Linux (scope to be defined) | conditional |
-| 10 | Full Wi-Fi Easy Connect / DPP | pending |
 
 ## Feature policy
 
@@ -38,9 +37,9 @@ Status legend: `done`, `in progress`, `pending`, `conditional`.
   a separate validated phase.
 - Non-Linux targets, telemetry, and static linking of libnfc-ng or GPL engines
   remain out of scope.
-- Features that need a protocol or hardware that does not exist in this
-  architecture (for example full DPP provisioning) are planned separately and
-  marked with their prerequisite.
+- Full DPP/Easy Connect protocol integration is out of scope for this product.
+  NFC Foundry may write and read DPP URIs as NDEF data, but it does not run DPP
+  authentication or provisioning.
 
 ## Rules
 

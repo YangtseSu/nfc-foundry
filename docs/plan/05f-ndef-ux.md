@@ -36,4 +36,4 @@ current UI".
 - No chunked-record writer or NDEF signature generation.
 - No WSC Password Token, because it requires an enrollee key that a static tag
   cannot provide.
-- No full DPP protocol; DPP URI writing remains the Phase 05e behavior.
+- No full DPP protocol; DPP URI writing/reading remains the Phase 05e behavior.

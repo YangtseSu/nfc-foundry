@@ -94,7 +94,8 @@ NDEF read/write is implemented:
 The GUI writes one user page at a time and template-based NDEF messages after
 an explicit confirmation. WPA3-only onboarding is represented by a DPP
 bootstrapping URI, because the WSC 2.0 credential format has no WPA3/SAE
-authentication type. Configuration, dynamic lock, PWD/PACK, static lock, and
+authentication type. NFC Foundry writes and reads the URI only; full DPP
+authentication and provisioning are out of scope. Configuration, dynamic lock, PWD/PACK, static lock, and
 pages 0-3 remain CLI-only behind the protected-restore confirmations.
 
 Type 2 dumps include PWD and PACK pages so a full restore is possible; write
