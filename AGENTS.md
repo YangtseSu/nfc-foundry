@@ -54,8 +54,8 @@ validated workflows come before catalogue breadth.
 
 ## Fixed technical stack
 
-- Go **1.27.3 or newer**; track the latest stable toolchain. MyGo is the
-  desktop UI dependency and sets the minimum.
+- Go **latest stable**, never older than the version MyGo requires (currently
+  1.27.3). MyGo is the desktop UI dependency and sets the minimum.
 - Desktop UI: **MyGo native UI**. Do not reintroduce Wails, Electron, Tauri,
   WebView2, or a browser frontend as the primary GUI.
 - Frontend logic lives in Go. The GUI is presentation only; it calls ordinary
@@ -70,6 +70,11 @@ validated workflows come before catalogue breadth.
 - Tests: Go's standard `testing` package, mock readers, replay/fixture dumps,
   and explicit hardware tests. `go test ./...` must never touch real hardware
   or write a card.
+
+All software uses the latest stable release: the Go toolchain, Go modules,
+GitHub Actions, CI packages, and the external engines. Do not pin older
+versions and do not adopt pre-releases. Dependabot checks Go modules and
+GitHub Actions daily; review and apply upgrades when they are found outdated.
 
 ## Repository and package boundaries
 

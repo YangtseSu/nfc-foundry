@@ -105,7 +105,7 @@ verifies recovered keys itself.
 
 Requirements on Arch Linux:
 
-- Go 1.27.3 or newer;
+- the latest stable Go release (MyGo requires 1.27.3 or newer);
 - MyGo's native UI dependencies (install what `mygo doctor` reports);
 - a C compiler, `pkgconf`, `make`, `autoconf`, `automake`, and `libtool`;
 - `libusb-compat` and `pcsclite` development files if those transports are enabled.
