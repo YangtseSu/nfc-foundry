@@ -24,6 +24,15 @@ Status legend: `done`, `in progress`, `pending`, `conditional`.
 | 07b | GUI parity with the full CLI command surface | done |
 | 08 | FeliCa / Type 3 NDEF scope | conditional |
 | 09 | Card emulation for mobile Linux (scope to be defined) | conditional |
+| 10 | Key lifecycle, recovery save, and optional verification | pending |
+| 11 | Key and dump interchange formats | pending |
+| 12 | MCT-inspired diff, editors, clone, and factory format | pending |
+
+## Implementation order
+
+Phase 10 comes next, followed by 11 and 12. Phase 07 hardware validation and
+Phase 04b UFUID/FUID validation remain open in parallel; they do not block the
+key-lifecycle and interchange work.
 
 ## Feature policy
 
@@ -37,6 +46,12 @@ Status legend: `done`, `in progress`, `pending`, `conditional`.
 - The GUI must cover every user-facing CLI capability with the same safety
   rules. Machine-readable output, exit codes, and shell automation remain
   CLI-only and are not GUI features.
+- Internal key state stays authoritative. Dump/key interchange uses raw
+  Classic images, Proxmark3 `mfc v2` JSON, and MCT/Proxmark3 text key files;
+  external formats never replace the internal partial-dump metadata.
+- Recovery results are reviewed and named before the GUI saves them. A save
+  is complete only after the key store is reloaded and the keys are verified
+  against the current card.
 - Advanced mode may expose generic bulk writes and otherwise hidden destructive
   operations. It is a user-authorized UI layer, not a protocol bypass.
 - Genuine Type 2 UID pages remain physically read-only; magic-clone UID work is
