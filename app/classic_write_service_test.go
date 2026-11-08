@@ -19,11 +19,13 @@ import (
 )
 
 type classicWriteFixture struct {
-	mu       sync.Mutex
-	card     nfc.CardInfo
-	blocks   [64][nfc.BlockSize]byte
-	writes   []int
-	trailers []int
+	mu          sync.Mutex
+	card        nfc.CardInfo
+	blocks      [64][nfc.BlockSize]byte
+	writes      []int
+	trailers    []int
+	authError   error
+	rejectedKey *nfc.Key
 }
 
 func newClassicWriteFixture() *classicWriteFixture {
@@ -47,7 +49,17 @@ func (f *classicWriteFixture) reader() *mock.Reader {
 			defer f.mu.Unlock()
 			return f.card.Clone(), nil
 		},
-		Authenticate: func(context.Context, byte, nfc.KeyType, nfc.Key) error { return nil },
+		Authenticate: func(_ context.Context, _ byte, _ nfc.KeyType, key nfc.Key) error {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if f.authError != nil {
+				return f.authError
+			}
+			if f.rejectedKey != nil && key == *f.rejectedKey {
+				return nfc.ErrAuthenticationFailed
+			}
+			return nil
+		},
 		ReadBlock: func(_ context.Context, block byte) ([nfc.BlockSize]byte, error) {
 			f.mu.Lock()
 			defer f.mu.Unlock()
@@ -95,6 +107,18 @@ func (f *classicWriteFixture) writeCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.writes) + len(f.trailers)
+}
+
+func (f *classicWriteFixture) setAuthError(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.authError = err
+}
+
+func (f *classicWriteFixture) rejectKey(key nfc.Key) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rejectedKey = &key
 }
 
 func (f *classicWriteFixture) dumpResult(t *testing.T, service *Service) workflow.DumpResult {

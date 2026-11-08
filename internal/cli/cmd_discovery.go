@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/YangtseSu/nfc-foundry/app"
@@ -271,6 +272,36 @@ func (r *Runner) printRecover(result recoverResult) {
 	if result.KeyScan != nil {
 		r.printKeyscan(*result.KeyScan)
 	}
+	if result.Warning != "" {
+		r.out.humanf("warning: %s\n", result.Warning)
+	}
+	if !result.Persisted {
+		r.out.humanf("nothing was persisted; the recovered keys exist only in this process\n")
+	} else if result.KeySetName != "" && len(result.Recovered) != 0 {
+		r.out.humanf("recovered keys were saved to key set %q\n", result.KeySetName)
+	}
+	if len(result.Recovered) != 0 {
+		r.out.humanf("recovered %d key slots\n", len(result.Recovered))
+		if r.global.showKeys {
+			catalog := r.service.KeyCatalog()
+			for _, ref := range result.Recovered {
+				value := ""
+				name := ""
+				for _, key := range catalog {
+					if key.ID == ref.KeyID {
+						value = key.Value
+						name = key.Name
+						break
+					}
+				}
+				label := fmt.Sprintf("sector %d Key %s", ref.Sector, ref.KeyType)
+				if name != "" {
+					label += " " + name
+				}
+				r.out.humanf("%s: %s (%s)\n", label, value, ref.Status)
+			}
+		}
+	}
 }
 
 func (r *Runner) printUID(result uidResult) {
@@ -303,6 +334,10 @@ func (r *Runner) printKeys(result keysResult) {
 		if key.Builtin {
 			builtin = "  builtin"
 		}
-		r.out.humanf("%s%s  %v%s\n", key.ID, value, key.Sources, builtin)
+		name := ""
+		if key.Name != "" {
+			name = "  " + key.Name
+		}
+		r.out.humanf("%s%s%s  %v%s\n", key.ID, value, name, key.Sources, builtin)
 	}
 }

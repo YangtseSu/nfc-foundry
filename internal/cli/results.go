@@ -59,12 +59,17 @@ type restoreResult struct {
 }
 
 type recoverResult struct {
-	Mode    string              `json:"mode"`
-	Engine  string              `json:"engine,omitempty"`
-	Version string              `json:"version,omitempty"`
-	MFoC    *app.MFoCResultDTO  `json:"mfoc,omitempty"`
-	MFCUK   *app.MFCUKResultDTO `json:"mfcuk,omitempty"`
-	KeyScan *keyscanResult      `json:"keyScan,omitempty"`
+	Mode       string                   `json:"mode"`
+	Engine     string                   `json:"engine,omitempty"`
+	Version    string                   `json:"version,omitempty"`
+	MFoC       *app.MFoCResultDTO       `json:"mfoc,omitempty"`
+	MFCUK      *app.MFCUKResultDTO      `json:"mfcuk,omitempty"`
+	KeyScan    *keyscanResult           `json:"keyScan,omitempty"`
+	Recovered  []app.RecoveredKeyRefDTO `json:"recovered,omitempty"`
+	Persisted  bool                     `json:"persisted"`
+	KeyName    string                   `json:"keyName,omitempty"`
+	KeySetName string                   `json:"keySetName,omitempty"`
+	Warning    string                   `json:"warning,omitempty"`
 }
 
 type uidResult struct {
@@ -77,9 +82,26 @@ type uidResult struct {
 type keySummary struct {
 	ID        string   `json:"id"`
 	Value     string   `json:"value,omitempty"`
+	Name      string   `json:"name,omitempty"`
 	Sources   []string `json:"sources"`
 	Builtin   bool     `json:"builtin"`
 	Removable bool     `json:"removable"`
+}
+
+type keyRenamedResult struct {
+	Key keySummary `json:"key"`
+}
+
+type keySetsResult struct {
+	Sets []app.KeySetDTO `json:"sets"`
+}
+
+type keySetExportResult struct {
+	Name    string `json:"name"`
+	Format  string `json:"format"`
+	Path    string `json:"path,omitempty"`
+	Count   int    `json:"count"`
+	Content string `json:"content,omitempty"`
 }
 
 type keysResult struct {
@@ -158,7 +180,7 @@ func buildKeyscanResult(dashboard app.DashboardDTO, showKeys bool) keyscanResult
 func keySummaries(catalog []app.KeyDTO, showValues bool) []keySummary {
 	result := make([]keySummary, 0, len(catalog))
 	for _, key := range catalog {
-		summary := keySummary{ID: key.ID, Sources: append([]string(nil), key.Sources...), Builtin: key.Builtin, Removable: key.Removable}
+		summary := keySummary{ID: key.ID, Name: key.Name, Sources: append([]string(nil), key.Sources...), Builtin: key.Builtin, Removable: key.Removable}
 		if showValues {
 			summary.Value = key.Value
 		}

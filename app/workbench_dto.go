@@ -16,9 +16,29 @@ import (
 type KeyDTO struct {
 	ID        string   `json:"id"`
 	Value     string   `json:"value"`
+	Name      string   `json:"name,omitempty"`
 	Sources   []string `json:"sources"`
 	Builtin   bool     `json:"builtin"`
 	Removable bool     `json:"removable"`
+}
+
+type KeySetDTO struct {
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	CardID    string   `json:"cardId,omitempty"`
+	KeyIDs    []string `json:"keyIds"`
+	KeyCount  int      `json:"keyCount"`
+	CreatedAt string   `json:"createdAt"`
+	Source    string   `json:"source"`
+}
+
+type KeyStoreReloadDTO struct {
+	Path           string   `json:"path"`
+	Keys           int      `json:"keys"`
+	Verifications  int      `json:"verifications"`
+	KeySets        int      `json:"keySets"`
+	PrunedKeyIDs   []string `json:"prunedKeyIds,omitempty"`
+	DroppedKeySets []string `json:"droppedKeySets,omitempty"`
 }
 
 type ImportIssueDTO struct {
@@ -218,6 +238,8 @@ type TaskEventDetailDTO struct {
 	StepStatus       string                     `json:"stepStatus,omitempty"`
 	Indeterminate    bool                       `json:"indeterminate,omitempty"`
 	Recovery         *KeyRecoveryResultDTO      `json:"recovery,omitempty"`
+	Recovered        []RecoveredKeyRefDTO       `json:"recovered,omitempty"`
+	RecoverySave     *RecoverySaveResultDTO     `json:"recoverySave,omitempty"`
 	UID              *UIDWriteResultDTO         `json:"uid,omitempty"`
 	Type2            *Type2DumpDTO              `json:"type2,omitempty"`
 	Type4            *Type4NDEFDTO              `json:"type4,omitempty"`
@@ -226,9 +248,57 @@ type TaskEventDetailDTO struct {
 	BackupPath       string                     `json:"backupPath,omitempty"`
 }
 
+// Recovery save policies separate merging into memory from writing the store.
+const (
+	RecoverySavePersist = "persist"
+	RecoverySaveReview  = "review"
+	RecoverySaveNone    = "none"
+)
+
 type KeyRecoveryStartRequestDTO struct {
-	Authorized   bool `json:"authorized"`
-	DiscardDirty bool `json:"discardDirty"`
+	Authorized   bool   `json:"authorized"`
+	DiscardDirty bool   `json:"discardDirty"`
+	SavePolicy   string `json:"savePolicy,omitempty"`
+	KeyName      string `json:"keyName,omitempty"`
+	KeySetName   string `json:"keySetName,omitempty"`
+}
+
+type RecoveredKeyRefDTO struct {
+	KeyID   string `json:"keyId"`
+	Sector  int    `json:"sector"`
+	KeyType string `json:"keyType"`
+	Status  string `json:"status"`
+}
+
+type RecoveryReviewDTO struct {
+	Card              CardDTO              `json:"card"`
+	CardID            string               `json:"cardId"`
+	Recovered         []RecoveredKeyRefDTO `json:"recovered"`
+	DefaultKeySetName string               `json:"defaultKeySetName"`
+}
+
+type RecoverySaveRequestDTO struct {
+	KeySetName     string            `json:"keySetName"`
+	KeyNames       map[string]string `json:"keyNames,omitempty"`
+	SelectedKeyIDs []string          `json:"selectedKeyIds"`
+}
+
+type RecoveryRejectedKeyDTO struct {
+	KeyID   string `json:"keyId"`
+	Sector  int    `json:"sector"`
+	KeyType string `json:"keyType"`
+	Error   string `json:"error,omitempty"`
+}
+
+type RecoverySaveResultDTO struct {
+	KeySetID      string                   `json:"keySetId"`
+	KeySetName    string                   `json:"keySetName"`
+	SavedKeys     int                      `json:"savedKeys"`
+	VerifiedSlots int                      `json:"verifiedSlots"`
+	TotalSlots    int                      `json:"totalSlots"`
+	Rejected      []RecoveryRejectedKeyDTO `json:"rejected,omitempty"`
+	Reloaded      bool                     `json:"reloaded"`
+	StorePath     string                   `json:"storePath,omitempty"`
 }
 
 type KeyRecoveryStepDTO struct {
@@ -252,14 +322,21 @@ type KeyRecoveryResultDTO struct {
 	Reason              string               `json:"reason,omitempty"`
 	HardnestedAvailable bool                 `json:"hardnestedAvailable"`
 	ReaderRecovered     bool                 `json:"readerRecovered"`
+	Recovered           []RecoveredKeyRefDTO `json:"recovered,omitempty"`
 }
 
 type MFoCStartRequestDTO struct {
-	Authorized bool `json:"authorized"`
+	Authorized bool   `json:"authorized"`
+	SavePolicy string `json:"savePolicy,omitempty"`
+	KeyName    string `json:"keyName,omitempty"`
+	KeySetName string `json:"keySetName,omitempty"`
 }
 
 type HardnestedStartRequestDTO struct {
-	Authorized bool `json:"authorized"`
+	Authorized bool   `json:"authorized"`
+	SavePolicy string `json:"savePolicy,omitempty"`
+	KeyName    string `json:"keyName,omitempty"`
+	KeySetName string `json:"keySetName,omitempty"`
 }
 
 type MFoCResultDTO struct {
@@ -275,7 +352,15 @@ type MFoCResultDTO struct {
 }
 
 type MFCUKStartRequestDTO struct {
-	Authorized bool `json:"authorized"`
+	Authorized bool   `json:"authorized"`
+	SavePolicy string `json:"savePolicy,omitempty"`
+	KeyName    string `json:"keyName,omitempty"`
+	KeySetName string `json:"keySetName,omitempty"`
+}
+
+type ReadCardStartRequestDTO struct {
+	DiscardDirty bool `json:"discardDirty"`
+	ScanKeys     bool `json:"scanKeys"`
 }
 
 type MFCUKResultDTO struct {
@@ -310,7 +395,7 @@ func keyDTOs(store *keys.Store) []KeyDTO {
 			sources[index] = string(source)
 			builtin = builtin || source == keys.SourceBuiltin
 		}
-		result = append(result, KeyDTO{ID: entry.ID, Value: entry.Hex(), Sources: sources, Builtin: builtin, Removable: !builtin || len(sources) > 1})
+		result = append(result, KeyDTO{ID: entry.ID, Value: entry.Hex(), Name: entry.Name, Sources: sources, Builtin: builtin, Removable: !builtin || len(sources) > 1})
 	}
 	return result
 }

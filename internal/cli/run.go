@@ -136,8 +136,8 @@ Commands:
   card info                         Print the current card facts
   classic read --block N            Read one Classic block
   classic write --block N --data H  Write one data block (requires --yes)
-  classic dump FILE                 Read the card into a dump file
-  classic restore FILE              Restore a complete dump (requires --yes)
+  classic dump FILE [--scan]        Read the card into a dump file
+  classic restore FILE [--scan]     Restore a complete dump (requires --yes)
   classic keyscan                   Verify known keys on the card
   type2 info                        Detect the Type 2 product
   type2 read [--page N] [--all]     Read Type 2 pages
@@ -158,9 +158,11 @@ Commands:
   desfire info|apps|files AID       Read-only DESFire information
   desfire read AID FILE             Read one standard DESFire file
   recover nested|darkside|hardnested  Run an external key-recovery engine
+                                     [--name NAME] [--key-set NAME] [--no-save]
   uid set UID                       Write a 4-byte UID on a supported card
   diag                              Run the release self-check
-  keys list|add|import|export       Manage the MIFARE Classic key catalog
+  keys list|add|import|export|rename|sets|set|reload
+                                     Manage keys, names, and named key sets
 
 Global options:
   --device <connstring>   Exact reader selection

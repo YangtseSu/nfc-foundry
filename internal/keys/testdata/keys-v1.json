@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "keys": [
+    {
+      "value": "010203040506",
+      "sources": ["user_input"]
+    }
+  ],
+  "verifications": [
+    {
+      "cardId": "01020304/0400/08",
+      "sector": 1,
+      "keyType": "A",
+      "keyId": "key-7192385c3c0605de",
+      "verifiedAt": "2026-01-02T03:04:05Z"
+    }
+  ]
+}

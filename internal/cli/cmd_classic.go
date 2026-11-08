@@ -145,7 +145,10 @@ func (r *Runner) classicWrite(ctx context.Context, args []string) error {
 	return nil
 }
 
-var classicDumpSpecs = map[string]flagSpec{"keys": {takesValue: true}}
+var classicDumpSpecs = map[string]flagSpec{
+	"keys": {takesValue: true},
+	"scan": {},
+}
 
 func (r *Runner) classicDump(ctx context.Context, args []string) error {
 	parsed, err := parseCommandArgs(args, classicDumpSpecs)
@@ -153,11 +156,15 @@ func (r *Runner) classicDump(ctx context.Context, args []string) error {
 		return err
 	}
 	if len(parsed.positionals) != 1 {
-		return usagef("usage: nfctl classic dump <file.bin|file.mfd|file.json> [--keys <file>]")
+		return usagef("usage: nfctl classic dump <file.bin|file.mfd|file.json> [--keys <file>] [--scan]")
 	}
 	if r.global.dryRun {
 		return usagef("classic dump does not support --dry-run")
 	}
+	if parsed.bool("scan") && parsed.value("keys") != "" {
+		return usagef("--scan is already implied by --keys; pass one of them")
+	}
+	scanBeforeRead := parsed.bool("scan")
 	path := parsed.positionals[0]
 	if _, err := r.connect(ctx); err != nil {
 		return err
@@ -169,7 +176,7 @@ func (r *Runner) classicDump(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	task, err := r.service.StartReadCard(true)
+	task, err := r.service.StartReadCard(app.ReadCardStartRequestDTO{DiscardDirty: true, ScanKeys: scanBeforeRead})
 	if err != nil {
 		return err
 	}
@@ -197,6 +204,7 @@ func (r *Runner) classicDump(ctx context.Context, args []string) error {
 
 var classicRestoreSpecs = map[string]flagSpec{
 	"keys":             {takesValue: true},
+	"scan":             {},
 	"confirm-trailers": {},
 }
 
@@ -206,7 +214,10 @@ func (r *Runner) classicRestore(ctx context.Context, args []string) error {
 		return err
 	}
 	if len(parsed.positionals) != 1 {
-		return usagef("usage: nfctl classic restore <file.bin|file.mfd|file.json> [--keys <file>] [--yes] [--confirm-trailers] [--dry-run]")
+		return usagef("usage: nfctl classic restore <file.bin|file.mfd|file.json> [--keys <file>] [--scan] [--yes] [--confirm-trailers] [--dry-run]")
+	}
+	if parsed.bool("scan") && parsed.value("keys") != "" {
+		return usagef("--scan is already implied by --keys; pass one of them")
 	}
 	if !r.global.dryRun {
 		if !r.global.yes {
@@ -226,6 +237,17 @@ func (r *Runner) classicRestore(ctx context.Context, args []string) error {
 	keyScan, err := r.importKeysAndScan(ctx, parsed.value("keys"))
 	if err != nil {
 		return err
+	}
+	if parsed.bool("scan") {
+		task, scanErr := r.service.StartKeyScan(true)
+		if scanErr != nil {
+			return scanErr
+		}
+		if _, scanErr := r.waitTask(ctx, task); scanErr != nil {
+			return scanErr
+		}
+		summary := buildKeyscanResult(r.service.Dashboard(), r.global.showKeys)
+		keyScan = &summary
 	}
 	if _, err := r.service.LoadDumpFile(path, true); err != nil {
 		return err

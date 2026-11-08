@@ -194,3 +194,10 @@ subcommands rather than overloading ambiguous flags.
 - No automatic destructive re-keying or factory reset in this phase.
 - No new encryption or secret storage for `keys.json`; it remains a
   user-owned, file-permission-protected local file.
+
+## Completion
+
+Implemented on 2026-11-09. See `docs/notes/10-key-lifecycle.md`. Store
+migration, recovery review, save/reload verification, scan-before-read, and
+the key-set CLI/GUI surfaces are covered by hardware-free tests. The
+review-save flow has not yet been exercised on a physical card.

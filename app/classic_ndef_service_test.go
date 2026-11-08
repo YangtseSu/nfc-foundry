@@ -4,7 +4,7 @@ import "testing"
 
 func TestClassicCardReadLoadsNDEFState(t *testing.T) {
 	_, bindings, _, recorder, _ := newClassicWriteAppService(t, "")
-	if _, err := bindings.StartReadCard(false); err != nil {
+	if _, err := bindings.StartReadCard(ReadCardStartRequestDTO{}); err != nil {
 		t.Fatal(err)
 	}
 	if event := recorder.waitTask(t); event.Type != TaskEventCompleted {

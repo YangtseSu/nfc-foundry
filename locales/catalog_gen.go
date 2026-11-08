@@ -6291,3 +6291,483 @@ func ClassicNDEFBlocks(data string, trailers string, mad string) string {
 func (msgs Messages) ClassicNDEFBlocks(data string, trailers string, mad string) string {
 	return Catalog.Format(msgs.locale, "classicNDEFBlocks", map[string]any{"data": data, "trailers": trailers, "mad": mad})
 }
+
+// KeysScanBeforeRead says "Scan keys before reading"
+// in the language the app shows.
+func KeysScanBeforeRead() string { return In(i18n.Locale()).KeysScanBeforeRead() }
+
+// KeysScanBeforeRead says "Scan keys before reading"
+// in the language of msgs.
+func (msgs Messages) KeysScanBeforeRead() string {
+	return Catalog.Format(msgs.locale, "keysScanBeforeRead", nil)
+}
+
+// KeysReload says "Reload key store"
+// in the language the app shows.
+func KeysReload() string { return In(i18n.Locale()).KeysReload() }
+
+// KeysReload says "Reload key store"
+// in the language of msgs.
+func (msgs Messages) KeysReload() string {
+	return Catalog.Format(msgs.locale, "keysReload", nil)
+}
+
+// KeysReloaded says "Reloaded {keys} keys, {verifications} verifications, and {sets} key sets."
+// in the language the app shows.
+func KeysReloaded(keys int, verifications int, sets int) string {
+	return In(i18n.Locale()).KeysReloaded(keys, verifications, sets)
+}
+
+// KeysReloaded says "Reloaded {keys} keys, {verifications} verifications, and {sets} key sets."
+// in the language of msgs.
+func (msgs Messages) KeysReloaded(keys int, verifications int, sets int) string {
+	return Catalog.Format(msgs.locale, "keysReloaded", map[string]any{"keys": keys, "verifications": verifications, "sets": sets})
+}
+
+// KeysReloadFailed says "Key store reload failed: {message}"
+// in the language the app shows.
+func KeysReloadFailed(message string) string { return In(i18n.Locale()).KeysReloadFailed(message) }
+
+// KeysReloadFailed says "Key store reload failed: {message}"
+// in the language of msgs.
+func (msgs Messages) KeysReloadFailed(message string) string {
+	return Catalog.Format(msgs.locale, "keysReloadFailed", map[string]any{"message": message})
+}
+
+// KeysName says "Name"
+// in the language the app shows.
+func KeysName() string { return In(i18n.Locale()).KeysName() }
+
+// KeysName says "Name"
+// in the language of msgs.
+func (msgs Messages) KeysName() string {
+	return Catalog.Format(msgs.locale, "keysName", nil)
+}
+
+// KeysRename says "Rename"
+// in the language the app shows.
+func KeysRename() string { return In(i18n.Locale()).KeysRename() }
+
+// KeysRename says "Rename"
+// in the language of msgs.
+func (msgs Messages) KeysRename() string {
+	return Catalog.Format(msgs.locale, "keysRename", nil)
+}
+
+// KeysRenameTitle says "Rename key"
+// in the language the app shows.
+func KeysRenameTitle() string { return In(i18n.Locale()).KeysRenameTitle() }
+
+// KeysRenameTitle says "Rename key"
+// in the language of msgs.
+func (msgs Messages) KeysRenameTitle() string {
+	return Catalog.Format(msgs.locale, "keysRenameTitle", nil)
+}
+
+// KeysRenamePlaceholder says "Optional name, e.g. Sector 5 Key A"
+// in the language the app shows.
+func KeysRenamePlaceholder() string { return In(i18n.Locale()).KeysRenamePlaceholder() }
+
+// KeysRenamePlaceholder says "Optional name, e.g. Sector 5 Key A"
+// in the language of msgs.
+func (msgs Messages) KeysRenamePlaceholder() string {
+	return Catalog.Format(msgs.locale, "keysRenamePlaceholder", nil)
+}
+
+// KeySetsTitle says "Key sets"
+// in the language the app shows.
+func KeySetsTitle() string { return In(i18n.Locale()).KeySetsTitle() }
+
+// KeySetsTitle says "Key sets"
+// in the language of msgs.
+func (msgs Messages) KeySetsTitle() string {
+	return Catalog.Format(msgs.locale, "keySetsTitle", nil)
+}
+
+// KeySetsEmpty says "No saved key sets."
+// in the language the app shows.
+func KeySetsEmpty() string { return In(i18n.Locale()).KeySetsEmpty() }
+
+// KeySetsEmpty says "No saved key sets."
+// in the language of msgs.
+func (msgs Messages) KeySetsEmpty() string {
+	return Catalog.Format(msgs.locale, "keySetsEmpty", nil)
+}
+
+// KeySetCount says "{count, plural, =0 {No keys} one {# key} other {# keys}}"
+// in the language the app shows.
+func KeySetCount(count int) string { return In(i18n.Locale()).KeySetCount(count) }
+
+// KeySetCount says "{count, plural, =0 {No keys} one {# key} other {# keys}}"
+// in the language of msgs.
+func (msgs Messages) KeySetCount(count int) string {
+	return Catalog.Format(msgs.locale, "keySetCount", map[string]any{"count": count})
+}
+
+// KeySetAllCards says "All cards"
+// in the language the app shows.
+func KeySetAllCards() string { return In(i18n.Locale()).KeySetAllCards() }
+
+// KeySetAllCards says "All cards"
+// in the language of msgs.
+func (msgs Messages) KeySetAllCards() string {
+	return Catalog.Format(msgs.locale, "keySetAllCards", nil)
+}
+
+// KeySetSaveVerified says "Save verified keys"
+// in the language the app shows.
+func KeySetSaveVerified() string { return In(i18n.Locale()).KeySetSaveVerified() }
+
+// KeySetSaveVerified says "Save verified keys"
+// in the language of msgs.
+func (msgs Messages) KeySetSaveVerified() string {
+	return Catalog.Format(msgs.locale, "keySetSaveVerified", nil)
+}
+
+// KeySetCreateTitle says "Save verified keys as a key set"
+// in the language the app shows.
+func KeySetCreateTitle() string { return In(i18n.Locale()).KeySetCreateTitle() }
+
+// KeySetCreateTitle says "Save verified keys as a key set"
+// in the language of msgs.
+func (msgs Messages) KeySetCreateTitle() string {
+	return Catalog.Format(msgs.locale, "keySetCreateTitle", nil)
+}
+
+// KeySetCreateHint says "Every verified key for this card is added to the set. The card is not modified."
+// in the language the app shows.
+func KeySetCreateHint() string { return In(i18n.Locale()).KeySetCreateHint() }
+
+// KeySetCreateHint says "Every verified key for this card is added to the set. The card is not modified."
+// in the language of msgs.
+func (msgs Messages) KeySetCreateHint() string {
+	return Catalog.Format(msgs.locale, "keySetCreateHint", nil)
+}
+
+// KeySetNamePlaceholder says "Set name, e.g. Cloned access card"
+// in the language the app shows.
+func KeySetNamePlaceholder() string { return In(i18n.Locale()).KeySetNamePlaceholder() }
+
+// KeySetNamePlaceholder says "Set name, e.g. Cloned access card"
+// in the language of msgs.
+func (msgs Messages) KeySetNamePlaceholder() string {
+	return Catalog.Format(msgs.locale, "keySetNamePlaceholder", nil)
+}
+
+// KeySetRenameTitle says "Rename key set"
+// in the language the app shows.
+func KeySetRenameTitle() string { return In(i18n.Locale()).KeySetRenameTitle() }
+
+// KeySetRenameTitle says "Rename key set"
+// in the language of msgs.
+func (msgs Messages) KeySetRenameTitle() string {
+	return Catalog.Format(msgs.locale, "keySetRenameTitle", nil)
+}
+
+// KeySetDeleteTitle says "Delete key set?"
+// in the language the app shows.
+func KeySetDeleteTitle() string { return In(i18n.Locale()).KeySetDeleteTitle() }
+
+// KeySetDeleteTitle says "Delete key set?"
+// in the language of msgs.
+func (msgs Messages) KeySetDeleteTitle() string {
+	return Catalog.Format(msgs.locale, "keySetDeleteTitle", nil)
+}
+
+// KeySetDeleteMessage says "Delete {name}? The key records stay in the catalog."
+// in the language the app shows.
+func KeySetDeleteMessage(name string) string { return In(i18n.Locale()).KeySetDeleteMessage(name) }
+
+// KeySetDeleteMessage says "Delete {name}? The key records stay in the catalog."
+// in the language of msgs.
+func (msgs Messages) KeySetDeleteMessage(name string) string {
+	return Catalog.Format(msgs.locale, "keySetDeleteMessage", map[string]any{"name": name})
+}
+
+// KeySetDelete says "Delete key set"
+// in the language the app shows.
+func KeySetDelete() string { return In(i18n.Locale()).KeySetDelete() }
+
+// KeySetDelete says "Delete key set"
+// in the language of msgs.
+func (msgs Messages) KeySetDelete() string {
+	return Catalog.Format(msgs.locale, "keySetDelete", nil)
+}
+
+// KeySetExport says "Export"
+// in the language the app shows.
+func KeySetExport() string { return In(i18n.Locale()).KeySetExport() }
+
+// KeySetExport says "Export"
+// in the language of msgs.
+func (msgs Messages) KeySetExport() string {
+	return Catalog.Format(msgs.locale, "keySetExport", nil)
+}
+
+// KeySetExportTitle says "Export {name}"
+// in the language the app shows.
+func KeySetExportTitle(name string) string { return In(i18n.Locale()).KeySetExportTitle(name) }
+
+// KeySetExportTitle says "Export {name}"
+// in the language of msgs.
+func (msgs Messages) KeySetExportTitle(name string) string {
+	return Catalog.Format(msgs.locale, "keySetExportTitle", map[string]any{"name": name})
+}
+
+// KeySetExportFormat says "Format"
+// in the language the app shows.
+func KeySetExportFormat() string { return In(i18n.Locale()).KeySetExportFormat() }
+
+// KeySetExportFormat says "Format"
+// in the language of msgs.
+func (msgs Messages) KeySetExportFormat() string {
+	return Catalog.Format(msgs.locale, "keySetExportFormat", nil)
+}
+
+// KeySetFormatDIC says "Dictionary (.dic)"
+// in the language the app shows.
+func KeySetFormatDIC() string { return In(i18n.Locale()).KeySetFormatDIC() }
+
+// KeySetFormatDIC says "Dictionary (.dic)"
+// in the language of msgs.
+func (msgs Messages) KeySetFormatDIC() string {
+	return Catalog.Format(msgs.locale, "keySetFormatDIC", nil)
+}
+
+// KeySetFormatJSON says "JSON key set (.json)"
+// in the language the app shows.
+func KeySetFormatJSON() string { return In(i18n.Locale()).KeySetFormatJSON() }
+
+// KeySetFormatJSON says "JSON key set (.json)"
+// in the language of msgs.
+func (msgs Messages) KeySetFormatJSON() string {
+	return Catalog.Format(msgs.locale, "keySetFormatJSON", nil)
+}
+
+// KeySetExported says "Exported {count} keys to {path}."
+// in the language the app shows.
+func KeySetExported(count int, path string) string {
+	return In(i18n.Locale()).KeySetExported(count, path)
+}
+
+// KeySetExported says "Exported {count} keys to {path}."
+// in the language of msgs.
+func (msgs Messages) KeySetExported(count int, path string) string {
+	return Catalog.Format(msgs.locale, "keySetExported", map[string]any{"count": count, "path": path})
+}
+
+// KeySetExportFailed says "Key set export failed: {message}"
+// in the language the app shows.
+func KeySetExportFailed(message string) string { return In(i18n.Locale()).KeySetExportFailed(message) }
+
+// KeySetExportFailed says "Key set export failed: {message}"
+// in the language of msgs.
+func (msgs Messages) KeySetExportFailed(message string) string {
+	return Catalog.Format(msgs.locale, "keySetExportFailed", map[string]any{"message": message})
+}
+
+// KeySetActionFailed says "Key set action failed: {message}"
+// in the language the app shows.
+func KeySetActionFailed(message string) string { return In(i18n.Locale()).KeySetActionFailed(message) }
+
+// KeySetActionFailed says "Key set action failed: {message}"
+// in the language of msgs.
+func (msgs Messages) KeySetActionFailed(message string) string {
+	return Catalog.Format(msgs.locale, "keySetActionFailed", map[string]any{"message": message})
+}
+
+// RecoveryReviewTitle says "Review recovered keys"
+// in the language the app shows.
+func RecoveryReviewTitle() string { return In(i18n.Locale()).RecoveryReviewTitle() }
+
+// RecoveryReviewTitle says "Review recovered keys"
+// in the language of msgs.
+func (msgs Messages) RecoveryReviewTitle() string {
+	return Catalog.Format(msgs.locale, "recoveryReviewTitle", nil)
+}
+
+// RecoveryReviewIntro says "These keys are only in memory. Saving writes names, a key set, and verifications, then reloads the store and authenti…"
+// in the language the app shows.
+func RecoveryReviewIntro() string { return In(i18n.Locale()).RecoveryReviewIntro() }
+
+// RecoveryReviewIntro says "These keys are only in memory. Saving writes names, a key set, and verifications, then reloads the store and authenti…"
+// in the language of msgs.
+func (msgs Messages) RecoveryReviewIntro() string {
+	return Catalog.Format(msgs.locale, "recoveryReviewIntro", nil)
+}
+
+// RecoveryReviewStatusNew says "New"
+// in the language the app shows.
+func RecoveryReviewStatusNew() string { return In(i18n.Locale()).RecoveryReviewStatusNew() }
+
+// RecoveryReviewStatusNew says "New"
+// in the language of msgs.
+func (msgs Messages) RecoveryReviewStatusNew() string {
+	return Catalog.Format(msgs.locale, "recoveryReviewStatusNew", nil)
+}
+
+// RecoveryReviewStatusReplaced says "Replaced"
+// in the language the app shows.
+func RecoveryReviewStatusReplaced() string { return In(i18n.Locale()).RecoveryReviewStatusReplaced() }
+
+// RecoveryReviewStatusReplaced says "Replaced"
+// in the language of msgs.
+func (msgs Messages) RecoveryReviewStatusReplaced() string {
+	return Catalog.Format(msgs.locale, "recoveryReviewStatusReplaced", nil)
+}
+
+// RecoveryReviewStatusExisting says "Existing"
+// in the language the app shows.
+func RecoveryReviewStatusExisting() string { return In(i18n.Locale()).RecoveryReviewStatusExisting() }
+
+// RecoveryReviewStatusExisting says "Existing"
+// in the language of msgs.
+func (msgs Messages) RecoveryReviewStatusExisting() string {
+	return Catalog.Format(msgs.locale, "recoveryReviewStatusExisting", nil)
+}
+
+// RecoveryReviewKeySetName says "Key set name"
+// in the language the app shows.
+func RecoveryReviewKeySetName() string { return In(i18n.Locale()).RecoveryReviewKeySetName() }
+
+// RecoveryReviewKeySetName says "Key set name"
+// in the language of msgs.
+func (msgs Messages) RecoveryReviewKeySetName() string {
+	return Catalog.Format(msgs.locale, "recoveryReviewKeySetName", nil)
+}
+
+// RecoveryReviewKeyName says "Key name"
+// in the language the app shows.
+func RecoveryReviewKeyName() string { return In(i18n.Locale()).RecoveryReviewKeyName() }
+
+// RecoveryReviewKeyName says "Key name"
+// in the language of msgs.
+func (msgs Messages) RecoveryReviewKeyName() string {
+	return Catalog.Format(msgs.locale, "recoveryReviewKeyName", nil)
+}
+
+// RecoveryReviewKeyNamePlaceholder says "Optional"
+// in the language the app shows.
+func RecoveryReviewKeyNamePlaceholder() string {
+	return In(i18n.Locale()).RecoveryReviewKeyNamePlaceholder()
+}
+
+// RecoveryReviewKeyNamePlaceholder says "Optional"
+// in the language of msgs.
+func (msgs Messages) RecoveryReviewKeyNamePlaceholder() string {
+	return Catalog.Format(msgs.locale, "recoveryReviewKeyNamePlaceholder", nil)
+}
+
+// RecoveryReviewSave says "Save and verify"
+// in the language the app shows.
+func RecoveryReviewSave() string { return In(i18n.Locale()).RecoveryReviewSave() }
+
+// RecoveryReviewSave says "Save and verify"
+// in the language of msgs.
+func (msgs Messages) RecoveryReviewSave() string {
+	return Catalog.Format(msgs.locale, "recoveryReviewSave", nil)
+}
+
+// RecoveryReviewDiscard says "Discard"
+// in the language the app shows.
+func RecoveryReviewDiscard() string { return In(i18n.Locale()).RecoveryReviewDiscard() }
+
+// RecoveryReviewDiscard says "Discard"
+// in the language of msgs.
+func (msgs Messages) RecoveryReviewDiscard() string {
+	return Catalog.Format(msgs.locale, "recoveryReviewDiscard", nil)
+}
+
+// RecoveryReviewDiscarded says "Recovered keys were discarded; nothing was saved."
+// in the language the app shows.
+func RecoveryReviewDiscarded() string { return In(i18n.Locale()).RecoveryReviewDiscarded() }
+
+// RecoveryReviewDiscarded says "Recovered keys were discarded; nothing was saved."
+// in the language of msgs.
+func (msgs Messages) RecoveryReviewDiscarded() string {
+	return Catalog.Format(msgs.locale, "recoveryReviewDiscarded", nil)
+}
+
+// RecoveryReviewSaveStarted says "Saving, reloading, and verifying recovered keys."
+// in the language the app shows.
+func RecoveryReviewSaveStarted() string { return In(i18n.Locale()).RecoveryReviewSaveStarted() }
+
+// RecoveryReviewSaveStarted says "Saving, reloading, and verifying recovered keys."
+// in the language of msgs.
+func (msgs Messages) RecoveryReviewSaveStarted() string {
+	return Catalog.Format(msgs.locale, "recoveryReviewSaveStarted", nil)
+}
+
+// RecoverySavedVerified says "Saved and verified: {verified}/{total} key slots."
+// in the language the app shows.
+func RecoverySavedVerified(verified int, total int) string {
+	return In(i18n.Locale()).RecoverySavedVerified(verified, total)
+}
+
+// RecoverySavedVerified says "Saved and verified: {verified}/{total} key slots."
+// in the language of msgs.
+func (msgs Messages) RecoverySavedVerified(verified int, total int) string {
+	return Catalog.Format(msgs.locale, "recoverySavedVerified", map[string]any{"verified": verified, "total": total})
+}
+
+// RecoverySavedVerifyFailed says "Saved, but verification failed: {failed}/{total} key slots rejected (sector {sector} Key {keyType})."
+// in the language the app shows.
+func RecoverySavedVerifyFailed(failed int, total int, sector int, keyType string) string {
+	return In(i18n.Locale()).RecoverySavedVerifyFailed(failed, total, sector, keyType)
+}
+
+// RecoverySavedVerifyFailed says "Saved, but verification failed: {failed}/{total} key slots rejected (sector {sector} Key {keyType})."
+// in the language of msgs.
+func (msgs Messages) RecoverySavedVerifyFailed(failed int, total int, sector int, keyType string) string {
+	return Catalog.Format(msgs.locale, "recoverySavedVerifyFailed", map[string]any{"failed": failed, "total": total, "sector": sector, "keyType": keyType})
+}
+
+// RecoverySaveFailed says "Recovered-key save failed: {message}"
+// in the language the app shows.
+func RecoverySaveFailed(message string) string { return In(i18n.Locale()).RecoverySaveFailed(message) }
+
+// RecoverySaveFailed says "Recovered-key save failed: {message}"
+// in the language of msgs.
+func (msgs Messages) RecoverySaveFailed(message string) string {
+	return Catalog.Format(msgs.locale, "recoverySaveFailed", map[string]any{"message": message})
+}
+
+// RecoveryReviewPending says "A recovered-key review is pending; save or discard it first."
+// in the language the app shows.
+func RecoveryReviewPending() string { return In(i18n.Locale()).RecoveryReviewPending() }
+
+// RecoveryReviewPending says "A recovered-key review is pending; save or discard it first."
+// in the language of msgs.
+func (msgs Messages) RecoveryReviewPending() string {
+	return Catalog.Format(msgs.locale, "recoveryReviewPending", nil)
+}
+
+// KeysRenameFailed says "Could not rename the key: {message}"
+// in the language the app shows.
+func KeysRenameFailed(message string) string { return In(i18n.Locale()).KeysRenameFailed(message) }
+
+// KeysRenameFailed says "Could not rename the key: {message}"
+// in the language of msgs.
+func (msgs Messages) KeysRenameFailed(message string) string {
+	return Catalog.Format(msgs.locale, "keysRenameFailed", map[string]any{"message": message})
+}
+
+// CommonSave says "Save"
+// in the language the app shows.
+func CommonSave() string { return In(i18n.Locale()).CommonSave() }
+
+// CommonSave says "Save"
+// in the language of msgs.
+func (msgs Messages) CommonSave() string {
+	return Catalog.Format(msgs.locale, "commonSave", nil)
+}
+
+// KeySetListCount says "{count, plural, =0 {No sets} one {# set} other {# sets}}"
+// in the language the app shows.
+func KeySetListCount(count int) string { return In(i18n.Locale()).KeySetListCount(count) }
+
+// KeySetListCount says "{count, plural, =0 {No sets} one {# set} other {# sets}}"
+// in the language of msgs.
+func (msgs Messages) KeySetListCount(count int) string {
+	return Catalog.Format(msgs.locale, "keySetListCount", map[string]any{"count": count})
+}

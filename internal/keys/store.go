@@ -45,6 +45,7 @@ type Record struct {
 	ID       string
 	Value    nfc.Key
 	Sources  []Source
+	Name     string
 	AddedAt  time.Time
 	LastUsed time.Time
 }
@@ -82,6 +83,40 @@ type VerificationMerge struct {
 	Status        VerificationMergeStatus
 	Record        Record
 	ExistingKeyID string
+}
+
+// KeySetSource describes where a named key set came from.
+type KeySetSource string
+
+const (
+	KeySetSourceManual   KeySetSource = "manual"
+	KeySetSourceRecovery KeySetSource = "recovery"
+)
+
+func (s KeySetSource) Valid() bool {
+	return s == KeySetSourceManual || s == KeySetSourceRecovery
+}
+
+// KeySet is a named, card-scoped group of key references.
+type KeySet struct {
+	ID        string
+	Name      string
+	CardID    string
+	KeyIDs    []string
+	CreatedAt time.Time
+	Source    KeySetSource
+}
+
+// LoadReport describes state that LoadWithReport had to change to keep the
+// store consistent.
+type LoadReport struct {
+	Version        int
+	PrunedKeyIDs   []string
+	DroppedKeySets []string
+}
+
+func (r LoadReport) Changed() bool {
+	return len(r.PrunedKeyIDs) != 0 || len(r.DroppedKeySets) != 0
 }
 
 type ImportIssue struct {
@@ -170,13 +205,15 @@ type Store struct {
 	records       map[string]*Record
 	byValue       map[nfc.Key]string
 	verifications map[string]Verification
+	keySets       map[string]KeySet
 	now           func() time.Time
 }
 
 func NewStore() *Store {
 	store := &Store{
 		records: make(map[string]*Record), byValue: make(map[nfc.Key]string),
-		verifications: make(map[string]Verification), now: func() time.Time { return time.Now().UTC() },
+		verifications: make(map[string]Verification), keySets: make(map[string]KeySet),
+		now: func() time.Time { return time.Now().UTC() },
 	}
 	for _, key := range Builtin() {
 		store.addLocked(key, SourceBuiltin)
@@ -187,6 +224,57 @@ func NewStore() *Store {
 func keyID(value nfc.Key) string {
 	digest := sha256.Sum256(value[:])
 	return "key-" + hex.EncodeToString(digest[:8])
+}
+
+func keySetID(name, cardID string, createdAt time.Time) string {
+	digest := sha256.Sum256([]byte(name + "\x00" + cardID + "\x00" + createdAt.UTC().Format(time.RFC3339Nano)))
+	return "set-" + hex.EncodeToString(digest[:8])
+}
+
+// ValidateKeyName checks a display name without changing the store.
+func ValidateKeyName(name string) error {
+	_, err := validateKeyName(name)
+	return err
+}
+
+// ValidateKeySetName checks a key-set name without changing the store.
+func ValidateKeySetName(name string) error {
+	_, err := validateKeySetName(name)
+	return err
+}
+
+func validateKeyName(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if len([]rune(name)) > 64 {
+		return "", errors.New("key name must be at most 64 characters")
+	}
+	for _, value := range name {
+		if unicode.IsControl(value) {
+			return "", errors.New("key name must not contain control characters")
+		}
+	}
+	return name, nil
+}
+
+func validateKeySetName(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", errors.New("key set name is required")
+	}
+	if len([]rune(name)) > 80 {
+		return "", errors.New("key set name must be at most 80 characters")
+	}
+	for _, value := range name {
+		if unicode.IsControl(value) {
+			return "", errors.New("key set name must not contain control characters")
+		}
+	}
+	return name, nil
+}
+
+func cloneKeySet(value KeySet) KeySet {
+	value.KeyIDs = append([]string(nil), value.KeyIDs...)
+	return value
 }
 
 func verificationID(cardID string, sector int, keyType nfc.KeyType) string {
@@ -236,6 +324,188 @@ func (s *Store) AddHex(value string, source Source) (Record, bool, error) {
 	return s.Add(key, source)
 }
 
+// RenameKey sets or clears the display name of an existing key record.
+func (s *Store) RenameKey(id, name string) (Record, error) {
+	validated, err := validateKeyName(name)
+	if err != nil {
+		return Record{}, err
+	}
+	if id == "" {
+		return Record{}, errors.New("key ID is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record, exists := s.records[id]
+	if !exists {
+		return Record{}, fmt.Errorf("key %q was not found", id)
+	}
+	record.Name = validated
+	return cloneRecord(*record), nil
+}
+
+// KeySets returns every named key set in creation order.
+func (s *Store) KeySets() []KeySet {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]KeySet, 0, len(s.keySets))
+	for _, set := range s.keySets {
+		result = append(result, cloneKeySet(set))
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if !result[i].CreatedAt.Equal(result[j].CreatedAt) {
+			return result[i].CreatedAt.Before(result[j].CreatedAt)
+		}
+		return result[i].ID < result[j].ID
+	})
+	return result
+}
+
+func (s *Store) KeySet(id string) (KeySet, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	set, exists := s.keySets[id]
+	if !exists {
+		return KeySet{}, false
+	}
+	return cloneKeySet(set), true
+}
+
+// KeySetByName finds a set by trimmed name and exact card scope.
+func (s *Store) KeySetByName(name, cardID string) (KeySet, bool) {
+	validated, err := validateKeySetName(name)
+	if err != nil {
+		return KeySet{}, false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, set := range s.keySets {
+		if set.Name == validated && set.CardID == cardID {
+			return cloneKeySet(set), true
+		}
+	}
+	return KeySet{}, false
+}
+
+// SetsContaining reports every set that references keyID.
+func (s *Store) SetsContaining(keyID string) []KeySet {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]KeySet, 0)
+	for _, set := range s.keySets {
+		for _, member := range set.KeyIDs {
+			if member == keyID {
+				result = append(result, cloneKeySet(set))
+				break
+			}
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	return result
+}
+
+// CreateKeySet creates an empty named set, or returns the existing set with the
+// same name and card scope. Membership changes use SetKeySetKeys or
+// AddKeySetKeys.
+func (s *Store) CreateKeySet(name, cardID string, source KeySetSource) (KeySet, error) {
+	validated, err := validateKeySetName(name)
+	if err != nil {
+		return KeySet{}, err
+	}
+	if !source.Valid() {
+		return KeySet{}, errors.New("valid key set source is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, set := range s.keySets {
+		if set.Name == validated && set.CardID == cardID {
+			return cloneKeySet(set), nil
+		}
+	}
+	now := time.Now().UTC()
+	if s.now != nil {
+		now = s.now()
+	}
+	set := KeySet{ID: keySetID(validated, cardID, now), Name: validated, CardID: cardID, CreatedAt: now, Source: source}
+	if _, exists := s.keySets[set.ID]; exists {
+		return KeySet{}, errors.New("key set already exists")
+	}
+	s.keySets[set.ID] = set
+	return cloneKeySet(set), nil
+}
+
+func (s *Store) SetKeySetKeys(id string, keyIDs []string) (KeySet, error) {
+	return s.updateKeySetKeys(id, keyIDs, false)
+}
+
+func (s *Store) AddKeySetKeys(id string, keyIDs []string) (KeySet, error) {
+	return s.updateKeySetKeys(id, keyIDs, true)
+}
+
+func (s *Store) updateKeySetKeys(id string, keyIDs []string, union bool) (KeySet, error) {
+	if id == "" {
+		return KeySet{}, errors.New("key set ID is required")
+	}
+	if len(keyIDs) == 0 {
+		return KeySet{}, errors.New("at least one key is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	set, exists := s.keySets[id]
+	if !exists {
+		return KeySet{}, fmt.Errorf("key set %q was not found", id)
+	}
+	members := make(map[string]struct{}, len(set.KeyIDs)+len(keyIDs))
+	if union {
+		for _, member := range set.KeyIDs {
+			members[member] = struct{}{}
+		}
+	}
+	for _, member := range keyIDs {
+		if _, ok := s.records[member]; !ok {
+			return KeySet{}, fmt.Errorf("key %q was not found", member)
+		}
+		members[member] = struct{}{}
+	}
+	set.KeyIDs = set.KeyIDs[:0]
+	for member := range members {
+		set.KeyIDs = append(set.KeyIDs, member)
+	}
+	sort.Strings(set.KeyIDs)
+	s.keySets[id] = set
+	return cloneKeySet(set), nil
+}
+
+func (s *Store) RenameKeySet(id, name string) (KeySet, error) {
+	validated, err := validateKeySetName(name)
+	if err != nil {
+		return KeySet{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	set, exists := s.keySets[id]
+	if !exists {
+		return KeySet{}, fmt.Errorf("key set %q was not found", id)
+	}
+	for otherID, other := range s.keySets {
+		if otherID != id && other.Name == validated && other.CardID == set.CardID {
+			return KeySet{}, fmt.Errorf("a key set named %q already exists for this card", validated)
+		}
+	}
+	set.Name = validated
+	s.keySets[id] = set
+	return cloneKeySet(set), nil
+}
+
+func (s *Store) DeleteKeySet(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.keySets[id]; !exists {
+		return fmt.Errorf("key set %q was not found", id)
+	}
+	delete(s.keySets, id)
+	return nil
+}
+
 func (s *Store) Import(reader io.Reader, source Source) (ParseReport, int, error) {
 	report, err := ParseDictionary(reader)
 	if err != nil {
@@ -271,6 +541,7 @@ func (s *Store) Delete(id string) error {
 	}
 	if len(kept) != 0 {
 		record.Sources = append([]Source(nil), kept...)
+		record.Name = ""
 		return nil
 	}
 	delete(s.records, id)
@@ -279,6 +550,20 @@ func (s *Store) Delete(id string) error {
 		if match.KeyID == id {
 			delete(s.verifications, matchID)
 		}
+	}
+	for setID, set := range s.keySets {
+		kept := set.KeyIDs[:0]
+		for _, member := range set.KeyIDs {
+			if member != id {
+				kept = append(kept, member)
+			}
+		}
+		if len(kept) == 0 {
+			delete(s.keySets, setID)
+			continue
+		}
+		set.KeyIDs = kept
+		s.keySets[setID] = set
 	}
 	return nil
 }
@@ -515,11 +800,14 @@ type persistedStore struct {
 	Version       int                     `json:"version"`
 	Keys          []persistedKey          `json:"keys"`
 	Verifications []persistedVerification `json:"verifications,omitempty"`
+	KeySets       []persistedKeySet       `json:"keySets,omitempty"`
 }
 
 type persistedKey struct {
-	Value   string   `json:"value"`
-	Sources []Source `json:"sources"`
+	Value   string    `json:"value"`
+	Sources []Source  `json:"sources"`
+	Name    string    `json:"name,omitempty"`
+	AddedAt time.Time `json:"addedAt,omitempty"`
 }
 
 type persistedVerification struct {
@@ -530,39 +818,88 @@ type persistedVerification struct {
 	VerifiedAt time.Time `json:"verifiedAt"`
 }
 
+type persistedKeySet struct {
+	ID        string       `json:"id"`
+	Name      string       `json:"name"`
+	CardID    string       `json:"cardId,omitempty"`
+	KeyIDs    []string     `json:"keyIds"`
+	CreatedAt time.Time    `json:"createdAt"`
+	Source    KeySetSource `json:"source"`
+}
+
+// Load keeps the historical signature and discards the migration report.
 func (s *Store) Load(path string) error {
+	_, err := s.LoadWithReport(path)
+	return err
+}
+
+// LoadWithReport loads version 1 or 2 and reports pruned key-set members.
+func (s *Store) LoadWithReport(path string) (LoadReport, error) {
+	var report LoadReport
 	encoded, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return nil
+		return report, nil
 	}
 	if err != nil {
-		return err
+		return report, err
 	}
 	var stored persistedStore
 	if err := json.Unmarshal(encoded, &stored); err != nil {
-		return err
+		return report, err
 	}
-	if stored.Version != 1 {
-		return fmt.Errorf("unsupported key store version %d", stored.Version)
+	if stored.Version != 1 && stored.Version != 2 {
+		return report, fmt.Errorf("unsupported key store version %d", stored.Version)
+	}
+	report.Version = stored.Version
+	now := time.Now().UTC()
+	if s.now != nil {
+		now = s.now()
 	}
 	for _, item := range stored.Keys {
 		key, err := ParseKey(item.Value)
 		if err != nil {
-			return err
+			return report, err
 		}
+		name, err := validateKeyName(item.Name)
+		if err != nil {
+			return report, err
+		}
+		loaded := false
 		for _, source := range item.Sources {
 			if source == SourceBuiltin || !source.Valid() {
 				continue
 			}
-			if _, _, err := s.Add(key, source); err != nil {
-				return err
+			record, _, addErr := s.Add(key, source)
+			if addErr != nil {
+				return report, addErr
+			}
+			loaded = true
+			if name != "" {
+				if renameErr := s.renameLoadedKey(record.ID, name); renameErr != nil {
+					return report, renameErr
+				}
+			}
+			if !item.AddedAt.IsZero() {
+				s.setAddedAt(record.ID, item.AddedAt)
+			}
+		}
+		if !loaded {
+			if name == "" {
+				continue
+			}
+			record, exists := s.records[keyID(key)]
+			if !exists || !record.HasSource(SourceBuiltin) {
+				continue
+			}
+			if renameErr := s.renameLoadedKey(record.ID, name); renameErr != nil {
+				return report, renameErr
 			}
 		}
 	}
 	for _, item := range stored.Verifications {
 		keyType, err := parsePersistedKeyType(item.KeyType)
 		if err != nil {
-			return err
+			return report, err
 		}
 		record, exists := s.records[item.KeyID]
 		if !exists || item.CardID == "" || item.Sector < 0 {
@@ -570,13 +907,110 @@ func (s *Store) Load(path string) error {
 		}
 		verifiedAt := item.VerifiedAt
 		if verifiedAt.IsZero() {
-			verifiedAt = time.Now().UTC()
+			verifiedAt = now
 		}
 		s.verifications[verificationID(item.CardID, item.Sector, keyType)] = Verification{
 			CardID: item.CardID, Sector: item.Sector, KeyType: keyType, KeyID: record.ID, VerifiedAt: verifiedAt,
 		}
 	}
+	seenIDs := make(map[string]struct{}, len(stored.KeySets))
+	seenNames := make(map[string]struct{}, len(stored.KeySets))
+	pruned := make(map[string]struct{})
+	for _, item := range stored.KeySets {
+		if item.ID == "" {
+			return report, errors.New("key set ID is required")
+		}
+		if _, duplicate := seenIDs[item.ID]; duplicate {
+			return report, fmt.Errorf("duplicate key set ID %q", item.ID)
+		}
+		seenIDs[item.ID] = struct{}{}
+		name, err := validateKeySetName(item.Name)
+		if err != nil {
+			return report, err
+		}
+		nameKey := name + "\x00" + item.CardID
+		if _, duplicate := seenNames[nameKey]; duplicate {
+			return report, fmt.Errorf("duplicate key set name %q for card %q", name, item.CardID)
+		}
+		seenNames[nameKey] = struct{}{}
+		source := item.Source
+		if source == "" {
+			source = KeySetSourceManual
+		}
+		if !source.Valid() {
+			return report, fmt.Errorf("unsupported key set source %q", source)
+		}
+		members := make([]string, 0, len(item.KeyIDs))
+		seenMembers := make(map[string]struct{}, len(item.KeyIDs))
+		for _, member := range item.KeyIDs {
+			if _, duplicate := seenMembers[member]; duplicate {
+				continue
+			}
+			seenMembers[member] = struct{}{}
+			if _, exists := s.records[member]; !exists {
+				pruned[member] = struct{}{}
+				continue
+			}
+			members = append(members, member)
+		}
+		if len(members) == 0 {
+			report.DroppedKeySets = append(report.DroppedKeySets, item.ID)
+			continue
+		}
+		createdAt := item.CreatedAt
+		if createdAt.IsZero() {
+			createdAt = now
+		}
+		s.keySets[item.ID] = KeySet{
+			ID: item.ID, Name: name, CardID: item.CardID, KeyIDs: members, CreatedAt: createdAt, Source: source,
+		}
+	}
+	for member := range pruned {
+		report.PrunedKeyIDs = append(report.PrunedKeyIDs, member)
+	}
+	sort.Strings(report.PrunedKeyIDs)
+	sort.Strings(report.DroppedKeySets)
+	return report, nil
+}
+
+func (s *Store) renameLoadedKey(id, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record, exists := s.records[id]
+	if !exists {
+		return fmt.Errorf("key %q was not found", id)
+	}
+	record.Name = name
 	return nil
+}
+
+func (s *Store) setAddedAt(id string, addedAt time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if record, exists := s.records[id]; exists {
+		record.AddedAt = addedAt
+	}
+}
+
+// Reload atomically replaces the in-memory state from path. Services that
+// already hold the store pointer observe the reloaded data.
+func (s *Store) Reload(path string) (LoadReport, error) {
+	if strings.TrimSpace(path) == "" {
+		return LoadReport{}, errors.New("key store path is required")
+	}
+	fresh := NewStore()
+	report, err := fresh.LoadWithReport(path)
+	if err != nil {
+		return report, err
+	}
+	fresh.mu.Lock()
+	records, byValue := fresh.records, fresh.byValue
+	verifications, keySets := fresh.verifications, fresh.keySets
+	fresh.mu.Unlock()
+	s.mu.Lock()
+	s.records, s.byValue, s.verifications, s.keySets = records, byValue, verifications, keySets
+	s.mu.Unlock()
+	return report, nil
 }
 
 func parsePersistedKeyType(value string) (nfc.KeyType, error) {
@@ -591,15 +1025,17 @@ func parsePersistedKeyType(value string) (nfc.KeyType, error) {
 }
 
 func (s *Store) Save(path string) error {
-	stored := persistedStore{Version: 1}
+	stored := persistedStore{Version: 2}
 	for _, record := range s.Entries() {
-		item := persistedKey{Value: strings.ToUpper(hex.EncodeToString(record.Value[:]))}
+		item := persistedKey{
+			Value: strings.ToUpper(hex.EncodeToString(record.Value[:])), Name: record.Name, AddedAt: record.AddedAt,
+		}
 		for _, source := range record.Sources {
 			if source != SourceBuiltin {
 				item.Sources = append(item.Sources, source)
 			}
 		}
-		if len(item.Sources) != 0 {
+		if len(item.Sources) != 0 || (item.Name != "" && record.HasSource(SourceBuiltin)) {
 			stored.Keys = append(stored.Keys, item)
 		}
 	}
@@ -607,6 +1043,15 @@ func (s *Store) Save(path string) error {
 		stored.Verifications = append(stored.Verifications, persistedVerification{
 			CardID: verification.CardID, Sector: verification.Sector,
 			KeyType: keyTypeName(verification.KeyType), KeyID: verification.KeyID, VerifiedAt: verification.VerifiedAt,
+		})
+	}
+	for _, set := range s.KeySets() {
+		if len(set.KeyIDs) == 0 {
+			continue
+		}
+		stored.KeySets = append(stored.KeySets, persistedKeySet{
+			ID: set.ID, Name: set.Name, CardID: set.CardID, KeyIDs: set.KeyIDs,
+			CreatedAt: set.CreatedAt, Source: set.Source,
 		})
 	}
 	encoded, err := json.MarshalIndent(stored, "", "  ")

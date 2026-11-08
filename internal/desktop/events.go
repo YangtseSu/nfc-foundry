@@ -41,6 +41,14 @@ func (s *shell) applyEvent(name string, payload any) {
 			s.keys = append([]app.KeyDTO(nil), event...)
 			s.syncKeyChoice()
 		}
+	case app.KeySetEventName:
+		if event, ok := payload.([]app.KeySetDTO); ok {
+			s.keySets = append([]app.KeySetDTO(nil), event...)
+		}
+	case app.RecoveryReviewEventName:
+		if review, ok := payload.(*app.RecoveryReviewDTO); ok {
+			s.openRecoveryReview(review)
+		}
 	case app.TaskEventName:
 		if event, ok := payload.(app.TaskEventDetailDTO); ok {
 			if event.Type2 != nil {
@@ -63,6 +71,10 @@ func (s *shell) resetCardDialogs() {
 	s.recoveryIntent = ""
 	s.type4WriteOpen = false
 	s.type4WriteIntent = nil
+	s.recoveryReview = nil
+	s.recoveryReviewOpen = false
+	s.recoverySelected = make(map[string]bool)
+	s.recoveryKeyNames = make(map[string]*string)
 }
 
 func (s *shell) applyDeviceState(event app.DeviceStateEventDTO) {
@@ -160,6 +172,19 @@ func (s *shell) applyTaskEvent(event app.TaskEventDetailDTO) {
 			when = parsed
 		}
 	}
+	if event.RecoverySave != nil {
+		result := *event.RecoverySave
+		s.recoveryReview = nil
+		s.recoveryReviewOpen = false
+		s.reloadKeySnapshot()
+		if len(result.Rejected) != 0 {
+			first := result.Rejected[0]
+			s.errorText = s.locales().RecoverySavedVerifyFailed(len(result.Rejected), result.TotalSlots, first.Sector, first.KeyType)
+		} else {
+			s.errorText = ""
+			s.toastText = s.locales().RecoverySavedVerified(result.VerifiedSlots, result.TotalSlots)
+		}
+	}
 	switch {
 	case event.Type == "failed" && (event.Kind == "type2_write" || event.Kind == "type2_ndef" || event.Kind == "type2_lifecycle"):
 		s.errorText = s.locales().Type2WriteFailed(event.Message)
@@ -175,6 +200,9 @@ func (s *shell) applyTaskEvent(event app.TaskEventDetailDTO) {
 		s.errorText = s.locales().ClassicWriteFailed(event.Message)
 	case event.Type == "failed" && (event.Kind == "key_recovery" || event.Kind == "mfoc" || event.Kind == "hardnested" || event.Kind == "mfcuk_pipeline"):
 		s.errorText = s.locales().RecoveryFailed(event.Message)
+	case event.Type == "failed" && event.Kind == "recovery_save":
+		s.errorText = s.locales().RecoverySaveFailed(event.Message)
+		s.openRecoveryReview(s.api.PendingRecoveryReview())
 	case event.Type == app.TaskEventCompleted && (event.Kind == "type2_write" || event.Kind == "type2_ndef" || event.Kind == "type2_lifecycle"):
 		s.errorText = ""
 		s.toastText = s.locales().Type2WriteComplete()

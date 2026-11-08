@@ -22,6 +22,16 @@ type Backend interface {
 	GetKeyCatalog() []app.KeyDTO
 	AddKey(value string) ([]app.KeyDTO, error)
 	DeleteKey(id string) ([]app.KeyDTO, error)
+	RenameKey(id, name string) ([]app.KeyDTO, error)
+	GetKeySets() []app.KeySetDTO
+	CreateVerifiedKeySet(name string) ([]app.KeySetDTO, error)
+	RenameKeySet(id, name string) ([]app.KeySetDTO, error)
+	DeleteKeySet(id string) ([]app.KeySetDTO, error)
+	ReloadKeyStore() (app.KeyStoreReloadDTO, error)
+	ExportKeySet(name, format string) (app.ExportResultDTO, error)
+	PendingRecoveryReview() *app.RecoveryReviewDTO
+	SaveRecoveryReview(app.RecoverySaveRequestDTO) (app.TaskDTO, error)
+	DiscardRecoveryReview() error
 	ImportKeyDictionary() (app.ImportReportDTO, error)
 	ExportKeyDictionary() (app.ExportResultDTO, error)
 	GetWorkbench() app.WorkbenchDTO
@@ -35,7 +45,7 @@ type Backend interface {
 	PreflightUIDWrite(uid string) (app.UIDWritePreflightDTO, error)
 	StartUIDWrite(app.UIDWriteStartRequestDTO) (app.TaskDTO, error)
 	GetType2Dump() app.Type2DumpDTO
-	StartReadCard(discardDirty bool) (app.TaskDTO, error)
+	StartReadCard(app.ReadCardStartRequestDTO) (app.TaskDTO, error)
 	StartType2Read(password string) (app.TaskDTO, error)
 	StartClassicNDEFRead() (app.TaskDTO, error)
 	StartType2Write(app.Type2WriteStartRequestDTO) (app.TaskDTO, error)

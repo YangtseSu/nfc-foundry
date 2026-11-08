@@ -22,6 +22,18 @@ restore/keyscan, Type 2 read/write/dump/restore/copy/erase/lock/password, NDEF
 on Type 2 and Classic, `uid set`, key catalog add/delete/import/export, and
 task cancellation. Destructive Classic operations remain behind Advanced mode.
 
+Phase 10 key lifecycle surfaces:
+
+| CLI surface | GUI today |
+| --- | --- |
+| `classic dump --scan`, `classic restore --scan` | **Scan keys before reading** checkbox and the Keys tab **Scan keys** action |
+| `recover --name`, `--key-set` | Recovery review modal with a key-set name and per-key names |
+| `recover --no-save` | GUI always defers persistence to the review modal; **Discard** is the equivalent |
+| `keys rename` | **Rename** action on the selected key |
+| `keys sets` and `keys set create`, `rename`, `delete`, `export` | **Key sets** panel with save-verified, rename, delete, and export actions |
+| `keys reload` | **Reload key store** button |
+| `keys set export --format dic` or `keys` | Export format selector and native save dialog |
+
 CLI-only by design: `--json`, `--jsonl`, `--show-keys`, `--timeout`, exit
 codes, and shell pipelines. The GUI needs equivalent user actions, not those
 flags: preflight dialogs for dry runs, reveal controls for keys, a visible

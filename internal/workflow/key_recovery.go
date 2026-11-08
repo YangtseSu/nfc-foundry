@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/YangtseSu/nfc-foundry/internal/attack"
@@ -84,6 +85,76 @@ type KeyRecoveryRequest struct {
 	TemporaryPolicy   attack.TemporaryPolicy
 }
 
+type RecoveredKeyStatus string
+
+const (
+	RecoveredKeyNew      RecoveredKeyStatus = "new"
+	RecoveredKeyReplaced RecoveredKeyStatus = "replaced"
+	RecoveredKeyExisting RecoveredKeyStatus = "existing"
+)
+
+// RecoveredKeyRef identifies a recovered key without exposing its value.
+type RecoveredKeyRef struct {
+	KeyID   string
+	Sector  int
+	KeyType nfc.KeyType
+	Status  RecoveredKeyStatus
+}
+
+// RecoveryBaseline records catalog and verification state before a recovery
+// task so its result can distinguish new, replaced, and existing keys.
+type RecoveryBaseline struct {
+	catalog       map[string]struct{}
+	verifications map[string]string
+}
+
+func CaptureRecoveryBaseline(store *keys.Store, card nfc.CardInfo) RecoveryBaseline {
+	baseline := RecoveryBaseline{
+		catalog:       make(map[string]struct{}),
+		verifications: make(map[string]string),
+	}
+	if store == nil {
+		return baseline
+	}
+	for _, record := range store.Entries() {
+		baseline.catalog[record.ID] = struct{}{}
+	}
+	for _, match := range store.Verified(keys.CardID(card)) {
+		baseline.verifications[recoverySlotKey(match.Sector, match.KeyType)] = match.KeyID
+	}
+	return baseline
+}
+
+func (b RecoveryBaseline) Recovered(store *keys.Store, card nfc.CardInfo) []RecoveredKeyRef {
+	if store == nil {
+		return nil
+	}
+	matches := store.Verified(keys.CardID(card))
+	result := make([]RecoveredKeyRef, 0, len(matches))
+	for _, match := range matches {
+		status := RecoveredKeyExisting
+		if previous, ok := b.verifications[recoverySlotKey(match.Sector, match.KeyType)]; ok && previous != match.KeyID {
+			status = RecoveredKeyReplaced
+		} else if _, known := b.catalog[match.KeyID]; !known {
+			status = RecoveredKeyNew
+		}
+		result = append(result, RecoveredKeyRef{
+			KeyID: match.KeyID, Sector: match.Sector, KeyType: match.KeyType, Status: status,
+		})
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Sector != result[j].Sector {
+			return result[i].Sector < result[j].Sector
+		}
+		return result[i].KeyType < result[j].KeyType
+	})
+	return result
+}
+
+func recoverySlotKey(sector int, keyType nfc.KeyType) string {
+	return fmt.Sprintf("%d/%d", sector, keyType)
+}
+
 type KeyRecoveryResult struct {
 	Card                nfc.CardInfo
 	Steps               []KeyRecoveryStep
@@ -93,6 +164,7 @@ type KeyRecoveryResult struct {
 	MFoC                MFoCResult
 	Hardnested          HardnestedResult
 	Read                DumpResult
+	Recovered           []RecoveredKeyRef
 	VerifiedKeySlots    int
 	CoveredSectors      int
 	ReadableSectors     int
@@ -153,12 +225,16 @@ func NewKeyRecoveryService(scanner *KeyScanService, store *keys.Store, mfcuk *MF
 	return &KeyRecoveryService{scanner: scanner, keys: store, mfcuk: mfcuk, mfoc: mfoc, hardnested: hardnested, reader: reader}
 }
 
-func (s *KeyRecoveryService) Run(ctx context.Context, request KeyRecoveryRequest, emit func(KeyRecoveryEvent)) (KeyRecoveryResult, error) {
+func (s *KeyRecoveryService) Run(ctx context.Context, request KeyRecoveryRequest, emit func(KeyRecoveryEvent)) (result KeyRecoveryResult, err error) {
 	request.Card = request.Card.Clone()
-	result := KeyRecoveryResult{Card: request.Card.Clone(), Steps: newKeyRecoverySteps()}
+	result = KeyRecoveryResult{Card: request.Card.Clone(), Steps: newKeyRecoverySteps()}
 	if ctx == nil || s == nil || s.scanner == nil || s.keys == nil || s.reader == nil {
 		return failKeyRecovery(result, 1, KeyRecoveryCommonKeys, errors.New("key recovery service is not configured"))
 	}
+	baseline := CaptureRecoveryBaseline(s.keys, request.Card)
+	defer func() {
+		result.Recovered = baseline.Recovered(s.keys, request.Card)
+	}()
 	if !request.Authorized {
 		return failKeyRecovery(result, 1, KeyRecoveryCommonKeys, errors.New("the card must be confirmed as authorized"))
 	}

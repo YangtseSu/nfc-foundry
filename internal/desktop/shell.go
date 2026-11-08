@@ -100,16 +100,18 @@ type shell struct {
 
 	locale string
 
-	devices       []app.DeviceDTO
-	selectedID    string
-	connectedConn string
-	connection    app.ConnectionDTO
-	card          *app.CardDTO
-	workbench     app.WorkbenchDTO
-	type2         app.Type2DumpDTO
-	classicNDEF   app.ClassicNDEFDTO
-	sectorKeys    []app.SectorKeyDTO
-	keys          []app.KeyDTO
+	devices        []app.DeviceDTO
+	selectedID     string
+	connectedConn  string
+	connection     app.ConnectionDTO
+	card           *app.CardDTO
+	workbench      app.WorkbenchDTO
+	type2          app.Type2DumpDTO
+	classicNDEF    app.ClassicNDEFDTO
+	sectorKeys     []app.SectorKeyDTO
+	keys           []app.KeyDTO
+	keySets        []app.KeySetDTO
+	scanBeforeRead bool
 
 	logs           []logEntry
 	keyInput       string
@@ -179,6 +181,26 @@ type shell struct {
 	type2ProtConfirm   string
 	keyChosen          string
 	keyChosenRow       int
+	keyRenameOpen      bool
+	keyRenameID        string
+	keyRenameInput     string
+	keySetCreateOpen   bool
+	keySetNameInput    string
+	keySetRenameOpen   bool
+	keySetRenameID     string
+	keySetRenameInput  string
+	keySetDeleteOpen   bool
+	keySetDeleteID     string
+	keySetExportOpen   bool
+	keySetExportID     string
+	keySetExportFormat string
+	keySetError        string
+
+	recoveryReview     *app.RecoveryReviewDTO
+	recoveryReviewOpen bool
+	recoverySetName    string
+	recoveryKeyNames   map[string]*string
+	recoverySelected   map[string]bool
 
 	recoveryStatuses map[string]app.ExternalEngineStatusDTO
 	recoveryLoaded   bool
@@ -230,6 +252,9 @@ func newShell(api Backend) *shell {
 		ndefRecordRaw:      make(map[int]bool),
 		classicFormatStart: "1",
 		classicFormatEnd:   "3",
+		recoveryKeyNames:   make(map[string]*string),
+		recoverySelected:   make(map[string]bool),
+		keySetExportFormat: "dic",
 	}
 	s.reloadSnapshot()
 	return s
@@ -261,6 +286,12 @@ func (s *shell) reloadSnapshot() {
 	s.ndefProviders = s.api.GetType2NDEFProviders()
 	s.syncType2PageSelection(true)
 	s.keys = append([]app.KeyDTO(nil), s.api.GetKeyCatalog()...)
+	s.keySets = append([]app.KeySetDTO(nil), s.api.GetKeySets()...)
+	if s.recoveryReview == nil {
+		if review := s.api.PendingRecoveryReview(); review != nil {
+			s.openRecoveryReview(review)
+		}
+	}
 	s.clampSelections()
 }
 
@@ -352,6 +383,7 @@ func (s *shell) view(c *ui.Context) {
 	s.type4WriteDialog(c)
 	s.diagnosticsModal(c, p)
 	s.recoveryDialog(c)
+	s.keyLifecycleDialogs(c)
 	s.classicDialogView(c)
 }
 
@@ -455,7 +487,7 @@ func (s *shell) readCard() {
 		if family == familyType2 {
 			_, err = s.api.StartType2Read(password)
 		} else {
-			_, err = s.api.StartReadCard(false)
+			_, err = s.api.StartReadCard(app.ReadCardStartRequestDTO{ScanKeys: s.scanBeforeRead})
 		}
 		s.update(func() {
 			s.pendingOps--

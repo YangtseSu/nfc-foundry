@@ -42,6 +42,9 @@ type writePreflightRecord struct {
 func (s *Service) KeyCatalog() []KeyDTO { return keyDTOs(s.keyStore) }
 
 func (s *Service) AddKey(value string) ([]KeyDTO, error) {
+	if err := s.requireKeyMutationAllowed(); err != nil {
+		return nil, err
+	}
 	if _, _, err := s.keyStore.AddHex(value, keys.SourceUserInput); err != nil {
 		return nil, err
 	}
@@ -54,6 +57,9 @@ func (s *Service) AddKey(value string) ([]KeyDTO, error) {
 }
 
 func (s *Service) DeleteKey(id string) ([]KeyDTO, error) {
+	if err := s.requireKeyMutationAllowed(); err != nil {
+		return nil, err
+	}
 	if err := s.keyStore.Delete(id); err != nil {
 		return nil, err
 	}
@@ -61,7 +67,7 @@ func (s *Service) DeleteKey(id string) ([]KeyDTO, error) {
 		return nil, err
 	}
 	result := keyDTOs(s.keyStore)
-	s.emitter.Emit(KeyCatalogEventName, result)
+	s.emitKeyState(s.currentCardPtr())
 	return result, nil
 }
 
@@ -79,6 +85,9 @@ func (s *Service) ImportKeyDictionary() (ImportReportDTO, error) {
 // ImportKeyDictionaryFile imports a key dictionary without a native file
 // dialog. The CLI uses it for --keys and `nfctl keys import`.
 func (s *Service) ImportKeyDictionaryFile(path string) (ImportReportDTO, error) {
+	if err := s.requireKeyMutationAllowed(); err != nil {
+		return ImportReportDTO{}, err
+	}
 	file, err := os.Open(path)
 	if err != nil {
 		return ImportReportDTO{}, err
@@ -141,6 +150,12 @@ func (s *Service) ExportKeyDictionaryFile(path string) (ExportResultDTO, error) 
 func (s *Service) persistKeys() error {
 	if s.keyStorePath == "" {
 		return nil
+	}
+	s.mu.Lock()
+	loadErr := s.keyStoreLoadErr
+	s.mu.Unlock()
+	if loadErr != nil {
+		return fmt.Errorf("the key store could not be loaded; refusing to overwrite %s: %w", s.keyStorePath, loadErr)
 	}
 	return s.keyStore.Save(s.keyStorePath)
 }
@@ -338,7 +353,7 @@ func (s *Service) StartKeyScan(discardDirty bool) (TaskDTO, error) {
 				Progress: scanProgress(card, progress.Sector, progress.KeyType), Message: message,
 			})
 		})
-		s.emitter.Emit(KeyEventName, sectorKeyDTOs(s.keyStore, &card))
+		s.emitKeyState(&card)
 		if persistErr := s.persistKeys(); persistErr != nil && err == nil {
 			err = persistErr
 		}
@@ -361,11 +376,11 @@ func scanProgress(card nfc.CardInfo, sector int, keyType nfc.KeyType) int {
 	return slot * 100 / (sectors * 2)
 }
 
-func (s *Service) StartReadCard(discardDirty bool) (TaskDTO, error) {
+func (s *Service) StartReadCard(input ReadCardStartRequestDTO) (TaskDTO, error) {
 	if err := s.requireClassicRead("read card"); err != nil {
 		return TaskDTO{}, err
 	}
-	if s.bench.Snapshot().Dirty && !discardDirty {
+	if s.bench.Snapshot().Dirty && !input.DiscardDirty {
 		return TaskDTO{}, ErrDirtyWorkbench
 	}
 	snapshot := s.deviceManager.Snapshot()
@@ -377,11 +392,37 @@ func (s *Service) StartReadCard(discardDirty bool) (TaskDTO, error) {
 	if err != nil {
 		return TaskDTO{}, err
 	}
-	request := workflow.DumpRequest{Card: card, Device: deviceInfo, Keys: verifiedSectorKeys(s.keyStore, card, layout)}
 	return s.startPreparedOperation("read", "Read card", s.clearWorkbench, func(ctx context.Context, taskID string) error {
-		s.emitOperation(TaskEventDetailDTO{TaskID: taskID, Kind: "read", Type: TaskEventProgress, Message: "reading the current card"})
+		if input.ScanKeys {
+			if s.keyScanner == nil {
+				return errors.New("key scanning is not configured")
+			}
+			s.emitOperation(TaskEventDetailDTO{TaskID: taskID, Kind: "read", Type: TaskEventProgress, Message: "scanning known keys before reading"})
+			_, scanErr := s.keyScanner.Scan(ctx, workflow.KeyScanRequest{Card: card}, func(progress workflow.KeyScanProgress) {
+				message := fmt.Sprintf("scan before read: sector %d Key %s, tried %d, found %d", progress.Sector, keyTypeName(progress.KeyType), progress.Attempted, progress.Found)
+				if progress.Matched {
+					message = fmt.Sprintf("scan before read: sector %d Key %s verified", progress.Sector, keyTypeName(progress.KeyType))
+				}
+				s.emitOperation(TaskEventDetailDTO{
+					TaskID: taskID, Kind: "read", Type: TaskEventProgress, Sector: progress.Sector,
+					KeyType: keyTypeName(progress.KeyType), Attempted: progress.Attempted, Found: progress.Found,
+					Progress: scanProgress(card, progress.Sector, progress.KeyType) / 2, Message: message,
+				})
+			})
+			s.emitter.Emit(KeyEventName, sectorKeyDTOs(s.keyStore, &card))
+			s.emitter.Emit(KeyCatalogEventName, keyDTOs(s.keyStore))
+			if scanErr != nil {
+				return scanErr
+			}
+		}
+		before := s.keyStore.Verified(keys.CardID(card))
+		request := workflow.DumpRequest{Card: card, Device: deviceInfo, Keys: verifiedSectorKeys(s.keyStore, card, layout)}
+		s.emitOperation(TaskEventDetailDTO{TaskID: taskID, Kind: "read", Type: TaskEventProgress, Progress: 55, Message: "reading the current card"})
 		result, readErr := s.dumpService.ReadCard(ctx, request)
 		if len(result.Dump.Blocks) != 0 {
+			if s.dropStaleReadKeys(card, before, result) {
+				_ = s.persistKeys()
+			}
 			s.registerDumpKeys(result)
 			_ = s.persistKeys()
 			s.emitter.Emit(KeyEventName, sectorKeyDTOs(s.keyStore, &card))
@@ -403,6 +444,54 @@ func (s *Service) StartReadCard(discardDirty bool) (TaskDTO, error) {
 func (s *Service) clearWorkbench() {
 	s.bench.Clear()
 	s.emitWorkbench()
+}
+
+// dropStaleReadKeys removes card-scoped verifications that the read proved
+// wrong. It only touches sectors that the read actually attempted, so an
+// interrupted operation never clears keys it never tested.
+func (s *Service) dropStaleReadKeys(card nfc.CardInfo, before []keys.Verification, result workflow.DumpResult) bool {
+	if !result.Dump.Layout.Valid() {
+		return false
+	}
+	changed := false
+	for _, match := range before {
+		record, exists := s.keyStore.Record(match.KeyID)
+		if !exists || match.Sector < 0 || match.Sector >= len(result.Keys) {
+			continue
+		}
+		if !readAttemptedSector(result.Dump, match.Sector) {
+			continue
+		}
+		verified := result.Keys[match.Sector]
+		actual := verified.KeyA
+		if match.KeyType == nfc.KeyTypeB {
+			actual = verified.KeyB
+		}
+		if actual != nil && *actual == record.Value {
+			continue
+		}
+		s.keyStore.Unverify(keys.CardID(card), match.Sector, match.KeyType)
+		changed = true
+	}
+	return changed
+}
+
+func readAttemptedSector(image mifare.Dump, sector int) bool {
+	layout := image.Layout
+	first, err := layout.FirstBlock(sector)
+	if err != nil {
+		return false
+	}
+	count, err := layout.BlocksInSector(sector)
+	if err != nil {
+		return false
+	}
+	for block := first; block < first+count && block < len(image.Blocks); block++ {
+		if image.Blocks[block].Status != mifare.BlockUnread {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) registerDumpKeys(result workflow.DumpResult) {
@@ -811,6 +900,9 @@ func (s *Service) startOperation(kind, name string, run func(context.Context, st
 // ordering prevents stale workbench data from surviving into a newly accepted
 // scan or read operation.
 func (s *Service) startPreparedOperation(kind, name string, prepare func(), run func(context.Context, string) error) (TaskDTO, error) {
+	if kind != "recovery_save" && s.keyReviewPending() {
+		return TaskDTO{}, ErrRecoveryReviewPending
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	id := fmt.Sprintf("%s-%04d", kind, s.nextID.Add(1))
 	s.mu.Lock()

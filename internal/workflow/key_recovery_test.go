@@ -308,3 +308,49 @@ func recoveryReadResult(t *testing.T, card nfc.CardInfo, readableSectors int) Du
 	}
 	return DumpResult{Card: card, Dump: image}
 }
+
+func TestRecoveryBaselineClassifiesNewReplacedAndExisting(t *testing.T) {
+	card := nfc.CardInfo{UID: []byte{1, 2, 3, 4}, ATQA: [2]byte{0, 4}, SAK: 0x08}
+	store := keys.NewStore()
+	cardID := keys.CardID(card)
+	preExisting, _, err := store.Add(nfc.Key{0x10, 0x20, 0x30, 0x40, 0x50, 0x60}, keys.SourceUserInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacing, _, err := store.Add(nfc.Key{0x70, 0x80, 0x90, 0xA0, 0xB0, 0xC0}, keys.SourceUserInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Verify(cardID, 0, nfc.KeyTypeA, preExisting.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Verify(cardID, 2, nfc.KeyTypeA, preExisting.ID); err != nil {
+		t.Fatal(err)
+	}
+	baseline := CaptureRecoveryBaseline(store, card)
+	if err := store.Verify(cardID, 0, nfc.KeyTypeA, replacing.ID); err != nil {
+		t.Fatal(err)
+	}
+	fresh, _, err := store.Add(nfc.Key{0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02}, keys.SourceAttackEngine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Verify(cardID, 1, nfc.KeyTypeB, fresh.ID); err != nil {
+		t.Fatal(err)
+	}
+	refs := baseline.Recovered(store, card)
+	if len(refs) != 3 {
+		t.Fatalf("refs = %+v", refs)
+	}
+	want := map[string]RecoveredKeyStatus{
+		"0/0": RecoveredKeyReplaced,
+		"1/1": RecoveredKeyNew,
+		"2/0": RecoveredKeyExisting,
+	}
+	for _, ref := range refs {
+		slot := recoverySlotKey(ref.Sector, ref.KeyType)
+		if want[slot] != ref.Status {
+			t.Fatalf("slot %s status = %s, want %s", slot, ref.Status, want[slot])
+		}
+	}
+}

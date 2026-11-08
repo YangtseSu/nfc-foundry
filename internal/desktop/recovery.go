@@ -152,13 +152,13 @@ func (s *shell) startRecovery(mode string) {
 		var err error
 		switch mode {
 		case "auto":
-			_, err = s.api.StartKeyRecovery(app.KeyRecoveryStartRequestDTO{Authorized: true})
+			_, err = s.api.StartKeyRecovery(app.KeyRecoveryStartRequestDTO{Authorized: true, SavePolicy: app.RecoverySaveReview})
 		case "nested":
-			_, err = s.api.StartMFoC(app.MFoCStartRequestDTO{Authorized: true})
+			_, err = s.api.StartMFoC(app.MFoCStartRequestDTO{Authorized: true, SavePolicy: app.RecoverySaveReview})
 		case "darkside":
-			_, err = s.api.StartMFCUKPipeline(app.MFCUKStartRequestDTO{Authorized: true})
+			_, err = s.api.StartMFCUKPipeline(app.MFCUKStartRequestDTO{Authorized: true, SavePolicy: app.RecoverySaveReview})
 		case "hardnested":
-			_, err = s.api.StartHardnested(app.HardnestedStartRequestDTO{Authorized: true})
+			_, err = s.api.StartHardnested(app.HardnestedStartRequestDTO{Authorized: true, SavePolicy: app.RecoverySaveReview})
 		}
 		s.update(func() {
 			s.pendingOps--

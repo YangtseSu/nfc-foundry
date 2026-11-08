@@ -80,10 +80,15 @@ func NewServiceWithOptions(options Options) *Service {
 		type4BackupRoot = filepath.Join(configRoot, "NFC Foundry", "type4-backups")
 	}
 
-	manager := device.NewManager(enumerator, newReader, deviceEventSink{emitter: emitter}, options.DeviceConfig)
+	sink := &deviceEventSink{emitter: emitter}
+	manager := device.NewManager(enumerator, newReader, sink, options.DeviceConfig)
 	keyStore := keys.NewStore()
+	var keyStoreLoadErr error
 	if keyStorePath != "" {
-		_ = keyStore.Load(keyStorePath)
+		if _, err := keyStore.LoadWithReport(keyStorePath); err != nil {
+			keyStoreLoadErr = err
+			keyStore = keys.NewStore()
+		}
 	}
 	mfocAttack := workflow.NewMFoCService(manager, manager, keyStore, func(invocation attack.MFoCInvocation) attack.AttackEngine {
 		return attack.NewMFoCEngine(locator, invocation)
@@ -95,17 +100,20 @@ func NewServiceWithOptions(options Options) *Service {
 		return attack.NewHardnestedEngine(locator, invocation)
 	})
 	keyScanner := workflow.NewKeyScanService(manager, keyStore)
+	keyVerify := workflow.NewKeyVerifyService(manager)
 	dumpService := workflow.NewDumpService(manager)
 	keyRecovery := workflow.NewKeyRecoveryService(keyScanner, keyStore, mfcukPipeline, mfocAttack, hardnestedAttack, dumpService)
 
-	return &Service{
+	service := &Service{
 		emitter:           emitter,
 		deviceManager:     manager,
 		deviceTimeout:     5 * time.Second,
 		keyStore:          keyStore,
 		keyStorePath:      keyStorePath,
+		keyStoreLoadErr:   keyStoreLoadErr,
 		bench:             workbench.New(),
 		keyScanner:        keyScanner,
+		keyVerify:         keyVerify,
 		keyRecovery:       keyRecovery,
 		dumpService:       dumpService,
 		restoreService:    workflow.NewRestoreService(manager),
@@ -127,4 +135,6 @@ func NewServiceWithOptions(options Options) *Service {
 		uidPreflights:     make(map[string]uidPreflightRecord),
 		dialogs:           noFileDialogs{},
 	}
+	sink.onCardChanged = service.handleCardChanged
+	return service
 }

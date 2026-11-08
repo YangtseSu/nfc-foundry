@@ -87,11 +87,14 @@ func (s *Service) HardnestedStatus() ExternalEngineStatusDTO {
 }
 
 func (s *Service) StartMFoC(input MFoCStartRequestDTO) (TaskDTO, error) {
-	return s.startMFoCFamily(mfoCFamilyMFoC, input.Authorized)
+	return s.startMFoCFamily(mfoCFamilyMFoC, input)
 }
 
 func (s *Service) StartHardnested(input HardnestedStartRequestDTO) (TaskDTO, error) {
-	return s.startMFoCFamily(mfoCFamilyHardnested, input.Authorized)
+	return s.startMFoCFamily(mfoCFamilyHardnested, MFoCStartRequestDTO{
+		Authorized: input.Authorized, SavePolicy: input.SavePolicy,
+		KeyName: input.KeyName, KeySetName: input.KeySetName,
+	})
 }
 
 type mfoCFamily int
@@ -101,9 +104,16 @@ const (
 	mfoCFamilyHardnested
 )
 
-func (s *Service) startMFoCFamily(family mfoCFamily, authorized bool) (TaskDTO, error) {
-	if !authorized {
+func (s *Service) startMFoCFamily(family mfoCFamily, input MFoCStartRequestDTO) (TaskDTO, error) {
+	if !input.Authorized {
 		return TaskDTO{}, workflow.ErrMFoCAuthorization
+	}
+	policy, err := recoveryPolicy(input.SavePolicy)
+	if err != nil {
+		return TaskDTO{}, err
+	}
+	if err := validateRecoverySaveOptions(input.KeyName, input.KeySetName); err != nil {
+		return TaskDTO{}, keyValidationError(err)
 	}
 	if s.mfocLocator == nil {
 		return TaskDTO{}, attack.ErrUnavailable
@@ -163,6 +173,10 @@ func (s *Service) startMFoCFamily(family mfoCFamily, authorized bool) (TaskDTO, 
 		return TaskDTO{}, workflow.ErrMFoCSeedRequired
 	}
 	deviceInfo := snapshot.Device
+	baseline, err := s.beginRecovery(card)
+	if err != nil {
+		return TaskDTO{}, err
+	}
 	return s.startOperation(kind, name, func(ctx context.Context, taskID string) error {
 		result, runErr := run(ctx, workflow.MFoCRequest{
 			TaskID: taskID, Card: card, Device: deviceInfo, Authorized: true,
@@ -174,13 +188,7 @@ func (s *Service) startMFoCFamily(family mfoCFamily, authorized bool) (TaskDTO, 
 			OutputValidated: result.External.Validated, Claimed: len(result.Claims), Added: result.Added,
 			Existing: result.Existing, Rejected: result.Rejected, Conflicts: result.Conflicts,
 		}
-		if len(result.Claims) != 0 {
-			s.emitter.Emit(KeyEventName, sectorKeyDTOs(s.keyStore, &card))
-			s.emitter.Emit(KeyCatalogEventName, keyDTOs(s.keyStore))
-			if err := s.persistKeys(); err != nil && runErr == nil {
-				runErr = err
-			}
-		}
+		runErr = s.finishRecovery(card, baseline, policy, input.KeyName, input.KeySetName, runErr)
 		if runErr == nil {
 			report.FilledBytes, report.DataConflicts, report.KeyConflicts, runErr = s.readAndMergeAttackResult(ctx, card, deviceInfo)
 			if runErr == nil {
@@ -196,7 +204,8 @@ func (s *Service) startMFoCFamily(family mfoCFamily, authorized bool) (TaskDTO, 
 		s.emitOperation(TaskEventDetailDTO{
 			TaskID: taskID, Kind: kind, Type: TaskEventProgress, Phase: string(result.External.State),
 			Engine: result.External.Engine, Version: result.External.Version, ExitCode: &exitCode, RecoveryError: recoveryError, MFoC: &report,
-			Message: fmt.Sprintf("%s: claimed %d, marked %d new keys verified, %d conflicts, %d failed re-verification", label, report.Claimed, report.Added, report.Conflicts, report.Rejected),
+			Recovered: recoveredKeyRefDTOs(baseline.Recovered(s.keyStore, card)),
+			Message:   fmt.Sprintf("%s: claimed %d, marked %d new keys verified, %d conflicts, %d failed re-verification", label, report.Claimed, report.Added, report.Conflicts, report.Rejected),
 		})
 		return runErr
 	})
@@ -208,6 +217,13 @@ func (s *Service) StartMFCUKPipeline(input MFCUKStartRequestDTO) (TaskDTO, error
 	}
 	if !input.Authorized {
 		return TaskDTO{}, workflow.ErrMFCUKAuthorization
+	}
+	policy, err := recoveryPolicy(input.SavePolicy)
+	if err != nil {
+		return TaskDTO{}, err
+	}
+	if err := validateRecoverySaveOptions(input.KeyName, input.KeySetName); err != nil {
+		return TaskDTO{}, keyValidationError(err)
 	}
 	status := s.MFCUKStatus()
 	if !status.Available {
@@ -237,6 +253,10 @@ func (s *Service) StartMFCUKPipeline(input MFCUKStartRequestDTO) (TaskDTO, error
 		return TaskDTO{}, workflow.ErrMFCUKSeedAlreadyKnown
 	}
 	deviceInfo := snapshot.Device
+	baseline, err := s.beginRecovery(card)
+	if err != nil {
+		return TaskDTO{}, err
+	}
 	return s.startOperation("mfcuk_pipeline", "MFCUK → MFOC automatic key recovery", func(ctx context.Context, taskID string) error {
 		result, runErr := s.mfcukPipeline.Run(ctx, workflow.MFCUKPipelineRequest{
 			TaskID: taskID, Card: card, Device: deviceInfo, Authorized: true, Timeout: 60 * time.Minute,
@@ -251,13 +271,7 @@ func (s *Service) StartMFCUKPipeline(input MFCUKStartRequestDTO) (TaskDTO, error
 			MFoCOutputValidated: result.MFoC.External.Validated, MFoCVersion: result.MFoC.External.Version,
 			MFoCDurationMillis: result.MFoC.External.Duration().Milliseconds(), MFoCAdded: result.MFoC.Added, MFoCRejected: result.MFoC.Rejected,
 		}
-		if len(result.Candidates) != 0 || len(result.MFoC.Claims) != 0 {
-			s.emitter.Emit(KeyEventName, sectorKeyDTOs(s.keyStore, &card))
-			s.emitter.Emit(KeyCatalogEventName, keyDTOs(s.keyStore))
-			if err := s.persistKeys(); err != nil && runErr == nil {
-				runErr = err
-			}
-		}
+		runErr = s.finishRecovery(card, baseline, policy, input.KeyName, input.KeySetName, runErr)
 		if runErr == nil {
 			s.emitOperation(TaskEventDetailDTO{TaskID: taskID, Kind: "mfcuk_pipeline", Type: TaskEventProgress, Phase: string(attack.StateReadingDump), Message: "two-stage key verification complete; re-reading the card"})
 			report.FilledBytes, report.DataConflicts, report.KeyConflicts, runErr = s.readAndMergeAttackResult(ctx, card, deviceInfo)
@@ -268,7 +282,8 @@ func (s *Service) StartMFCUKPipeline(input MFCUKStartRequestDTO) (TaskDTO, error
 		}
 		s.emitOperation(TaskEventDetailDTO{
 			TaskID: taskID, Kind: "mfcuk_pipeline", Type: TaskEventProgress, Phase: string(result.MFoC.External.State), MFCUK: &report,
-			Message: fmt.Sprintf("MFCUK candidates %d, verified %d, rejected %d; MFOC added %d verified keys", report.Candidates, report.Verified, report.Rejected, report.MFoCAdded),
+			Recovered: recoveredKeyRefDTOs(baseline.Recovered(s.keyStore, card)),
+			Message:   fmt.Sprintf("MFCUK candidates %d, verified %d, rejected %d; MFOC added %d verified keys", report.Candidates, report.Verified, report.Rejected, report.MFoCAdded),
 		})
 		return runErr
 	})

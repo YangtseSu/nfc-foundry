@@ -374,15 +374,26 @@ func (s *shell) blockStatusColor(p palette, status string) ui.Color {
 }
 
 func (s *shell) keysView(c *ui.Context, p palette) {
+	l := s.locales()
 	ui.Column(c).Grow(1).MinHeight(0).Gap(12).Children(func() {
+		if s.recoveryReview != nil && !s.recoveryReviewOpen {
+			ui.Row(c).Padding(10, 14).Gap(10).AlignItems(ui.Center).
+				Background(p.warningSoft).Radius(8).Border(1, p.warningBorder).Children(func() {
+				ui.Text(c, l.RecoveryReviewPending()).FontSize(10.5).TextColor(p.warning).Grow(1).Wrap()
+				if ui.Button(c, l.RecoveryReviewTitle()).Height(26).FontSize(10).Clicked() {
+					s.recoveryReviewOpen = true
+				}
+			})
+		}
 		s.sectorKeysPanel(c, p)
 		s.keyCatalogPanel(c, p)
+		s.keySetsPanel(c, p)
 	})
 }
 
 func (s *shell) sectorKeysPanel(c *ui.Context, p palette) {
 	l := s.locales()
-	ui.Column(c).Height(230).Shrink(0).Background(p.surface).Radius(10).
+	ui.Column(c).Height(200).Shrink(0).Background(p.surface).Radius(10).
 		Border(1, p.border).Children(func() {
 		ui.Row(c).Padding(12, 14, 10).Gap(8).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, l.KeysPanelTitle()).FontSize(12.5).Bold().TextColor(p.text)
@@ -390,6 +401,8 @@ func (s *shell) sectorKeysPanel(c *ui.Context, p palette) {
 				ui.Text(c, l.KeysPanelSub(s.verifiedKeyCount(), len(s.sectorKeys)*2)).
 					FontSize(10).TextColor(p.faint)
 			}
+			ui.Spacer(c)
+			ui.Checkbox(c, &s.scanBeforeRead, l.KeysScanBeforeRead())
 		})
 		if len(s.sectorKeys) == 0 {
 			s.emptyPanelBody(c, p, l.KeysMatrixEmpty())
@@ -464,6 +477,10 @@ func (s *shell) keyCatalogPanel(c *ui.Context, p palette) {
 			ui.Text(c, l.KeysTitle()).FontSize(12.5).Bold().TextColor(p.text)
 			ui.Text(c, l.KeyCount(len(s.keys))).FontSize(10).TextColor(p.faint)
 			ui.Spacer(c)
+			if ui.Button(c, l.KeysReload()).Height(26).FontSize(10).
+				Disabled(s.pendingOps > 0 || s.recoveryReview != nil).Clicked() {
+				s.reloadKeyStore()
+			}
 			if ui.Button(c, l.CommonImport()).Height(26).FontSize(10).
 				Disabled(s.pendingOps > 0).Clicked() {
 				s.importKeys()
@@ -500,6 +517,9 @@ func (s *shell) keyCatalogPanel(c *ui.Context, p palette) {
 				BorderWidth(0, 0, 1, 0).BorderColor(p.divider).Children(func() {
 				ui.Text(c, key.Value).Font("monospace").FontSize(10.5).
 					TextColor(p.text).SingleLine()
+				if key.Name != "" {
+					ui.Text(c, key.Name).FontSize(9.5).TextColor(p.muted).SingleLine()
+				}
 				if key.Builtin {
 					pill(c, l.KeysBuiltin(), p.accent, p.accentSoft, p.accentBorder)
 				} else {
@@ -524,6 +544,63 @@ func (s *shell) keyCatalogPanel(c *ui.Context, p palette) {
 				s.keyChosen = s.keys[s.keyChosenRow].ID
 			}
 		}
+	})
+}
+
+func (s *shell) keySetsPanel(c *ui.Context, p palette) {
+	l := s.locales()
+	ui.Column(c).Height(180).Shrink(0).Background(p.surface).Radius(10).
+		Border(1, p.border).Children(func() {
+		ui.Row(c).Padding(12, 14, 8).Gap(8).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, l.KeySetsTitle()).FontSize(12.5).Bold().TextColor(p.text)
+			ui.Text(c, l.KeySetListCount(len(s.keySets))).FontSize(10).TextColor(p.faint)
+			ui.Spacer(c)
+			if ui.Button(c, l.KeySetSaveVerified()).Height(26).FontSize(10).
+				Disabled(s.pendingOps > 0 || s.recoveryReview != nil || s.verifiedKeyCount() == 0).Clicked() {
+				s.keySetNameInput = ""
+				s.keySetError = ""
+				s.keySetCreateOpen = true
+			}
+		})
+		if s.keySetError != "" {
+			ui.Text(c, s.keySetError).FontSize(9.5).TextColor(p.danger).Wrap()
+		}
+		if len(s.keySets) == 0 {
+			s.emptyPanelBody(c, p, l.KeySetsEmpty())
+			return
+		}
+		ui.Scroll(c).Grow(1).MinHeight(0).Children(func() {
+			for _, set := range s.keySets {
+				set := set
+				ui.Row(c).Padding(8, 14).Gap(10).AlignItems(ui.Center).
+					BorderWidth(0, 0, 1, 0).BorderColor(p.divider).Children(func() {
+					ui.Text(c, set.Name).FontSize(10.5).Bold().TextColor(p.text).SingleLine()
+					pill(c, l.KeySetCount(set.KeyCount), p.muted, p.surfaceAlt, p.border)
+					scope := set.CardID
+					if scope == "" {
+						scope = l.KeySetAllCards()
+					}
+					ui.Text(c, scope).FontSize(9.5).TextColor(p.faint).Grow(1).SingleLine()
+					if linkButton(c, p, l.KeysRename()).Clicked() {
+						s.keySetRenameID = set.ID
+						s.keySetRenameInput = set.Name
+						s.keySetError = ""
+						s.keySetRenameOpen = true
+					}
+					if linkButton(c, p, l.KeySetExport()).Clicked() {
+						s.keySetExportID = set.ID
+						s.keySetError = ""
+						s.keySetExportOpen = true
+					}
+					button := iconButton(c, p, trashIcon, l.CommonDelete(), p.faint)
+					if button.Clicked() {
+						s.keySetDeleteID = set.ID
+						s.keySetError = ""
+						s.keySetDeleteOpen = true
+					}
+				})
+			}
+		})
 	})
 }
 

@@ -53,7 +53,7 @@ func TestGenericPCSCReaderRejectsUnsupportedWorkflowsBeforeHardware(t *testing.T
 			return err
 		}},
 		{"classic card read", func() error {
-			_, err := service.StartReadCard(false)
+			_, err := service.StartReadCard(ReadCardStartRequestDTO{})
 			return err
 		}},
 		{"type2 read", func() error {

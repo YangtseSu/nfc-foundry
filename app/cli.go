@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/YangtseSu/nfc-foundry/internal/device"
+	"github.com/YangtseSu/nfc-foundry/internal/keys"
 	"github.com/YangtseSu/nfc-foundry/internal/mifare"
 	"github.com/YangtseSu/nfc-foundry/internal/nfc"
 	"github.com/YangtseSu/nfc-foundry/internal/workbench"
@@ -31,6 +32,7 @@ type ClassicBlockResult struct {
 type classicKeyCandidate struct {
 	keyType nfc.KeyType
 	key     nfc.Key
+	keyID   string
 }
 
 // WaitForCard blocks until the polling loop reports a card or the reader
@@ -127,6 +129,7 @@ func (s *Service) ReadClassicBlock(ctx context.Context, block int, override *Cla
 		if !errors.Is(err, nfc.ErrAuthenticationFailed) {
 			return ClassicBlockResult{}, err
 		}
+		s.unverifyRejectedCandidate(card, block, candidate)
 	}
 	return ClassicBlockResult{}, lastErr
 }
@@ -163,8 +166,26 @@ func (s *Service) WriteClassicBlock(ctx context.Context, block int, data [nfc.Bl
 		if !errors.Is(err, nfc.ErrAuthenticationFailed) {
 			return ClassicBlockResult{}, err
 		}
+		s.unverifyRejectedCandidate(card, block, candidate)
 	}
 	return ClassicBlockResult{}, lastErr
+}
+
+func (s *Service) unverifyRejectedCandidate(card nfc.CardInfo, block int, candidate classicKeyCandidate) {
+	if candidate.keyID == "" {
+		return
+	}
+	layout, err := appLayoutForCard(card)
+	if err != nil {
+		return
+	}
+	sector, err := layout.SectorForBlock(block)
+	if err != nil {
+		return
+	}
+	s.keyStore.Unverify(keys.CardID(card), sector, candidate.keyType)
+	_ = s.persistKeys()
+	s.emitter.Emit(KeyEventName, sectorKeyDTOs(s.keyStore, &card))
 }
 
 func (s *Service) classicBlockContext(block int, override *ClassicKeyOverride) (nfc.CardInfo, mifare.Layout, []classicKeyCandidate, error) {
@@ -187,15 +208,18 @@ func (s *Service) classicBlockContext(block int, override *ClassicKeyOverride) (
 		}
 		return card, layout, []classicKeyCandidate{{keyType: override.KeyType, key: override.Key}}, nil
 	}
-	verified := verifiedSectorKeys(s.keyStore, card, layout)
 	candidates := make([]classicKeyCandidate, 0, 2)
-	if sector < len(verified) {
-		if verified[sector].KeyA != nil {
-			candidates = append(candidates, classicKeyCandidate{keyType: nfc.KeyTypeA, key: *verified[sector].KeyA})
+	for _, match := range s.keyStore.Verified(keys.CardID(card)) {
+		if match.Sector != sector {
+			continue
 		}
-		if verified[sector].KeyB != nil {
-			candidates = append(candidates, classicKeyCandidate{keyType: nfc.KeyTypeB, key: *verified[sector].KeyB})
+		record, exists := s.keyStore.Record(match.KeyID)
+		if !exists {
+			continue
 		}
+		candidates = append(candidates, classicKeyCandidate{
+			keyType: match.KeyType, key: record.Value, keyID: match.KeyID,
+		})
 	}
 	if len(candidates) == 0 {
 		return nfc.CardInfo{}, 0, nil, nfc.NewError("select key", nfc.CodeAuthenticationFailed, fmt.Sprintf("no verified key is available for sector %d; pass an explicit key or run classic keyscan", sector), nil)

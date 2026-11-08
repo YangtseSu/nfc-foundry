@@ -1101,7 +1101,9 @@
   },
   "@recoveryStartMode": {
     "placeholders": {
-      "mode": {"type": "String"}
+      "mode": {
+        "type": "String"
+      }
     }
   },
   "@recoveryConfirmTitle": {
@@ -1113,35 +1115,53 @@
   },
   "@diagnosticsBuild": {
     "placeholders": {
-      "version": {"type": "String"},
-      "commit": {"type": "String"}
+      "version": {
+        "type": "String"
+      },
+      "commit": {
+        "type": "String"
+      }
     }
   },
   "@diagnosticsGo": {
     "placeholders": {
-      "version": {"type": "String"},
-      "os": {"type": "String"},
-      "arch": {"type": "String"}
+      "version": {
+        "type": "String"
+      },
+      "os": {
+        "type": "String"
+      },
+      "arch": {
+        "type": "String"
+      }
     }
   },
   "@diagnosticsRuntime": {
     "placeholders": {
-      "version": {"type": "String"}
+      "version": {
+        "type": "String"
+      }
     }
   },
   "@diagnosticsRuntimeMissing": {
     "placeholders": {
-      "detail": {"type": "String"}
+      "detail": {
+        "type": "String"
+      }
     }
   },
   "@diagnosticsManifestVerified": {
     "placeholders": {
-      "files": {"type": "String"}
+      "files": {
+        "type": "String"
+      }
     }
   },
   "@diagnosticsManifestMissing": {
     "placeholders": {
-      "detail": {"type": "String"}
+      "detail": {
+        "type": "String"
+      }
     }
   },
   "@recoveryFailed": {
@@ -1203,6 +1223,168 @@
     "placeholders": {
       "message": {
         "type": "String"
+      }
+    }
+  },
+  "keysScanBeforeRead": "Scan keys before reading",
+  "keysReload": "Reload key store",
+  "keysReloaded": "Reloaded {keys} keys, {verifications} verifications, and {sets} key sets.",
+  "@keysReloaded": {
+    "placeholders": {
+      "keys": {
+        "type": "int"
+      },
+      "verifications": {
+        "type": "int"
+      },
+      "sets": {
+        "type": "int"
+      }
+    }
+  },
+  "keysReloadFailed": "Key store reload failed: {message}",
+  "@keysReloadFailed": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  },
+  "keysName": "Name",
+  "keysRename": "Rename",
+  "keysRenameTitle": "Rename key",
+  "keysRenamePlaceholder": "Optional name, e.g. Sector 5 Key A",
+  "@keysRenamePlaceholder": {
+    "placeholders": {}
+  },
+  "keySetsTitle": "Key sets",
+  "keySetsEmpty": "No saved key sets.",
+  "keySetCount": "{count, plural, =0 {No keys} one {# key} other {# keys}}",
+  "@keySetCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "keySetAllCards": "All cards",
+  "keySetSaveVerified": "Save verified keys",
+  "keySetCreateTitle": "Save verified keys as a key set",
+  "keySetCreateHint": "Every verified key for this card is added to the set. The card is not modified.",
+  "keySetNamePlaceholder": "Set name, e.g. Cloned access card",
+  "keySetRenameTitle": "Rename key set",
+  "keySetDeleteTitle": "Delete key set?",
+  "keySetDeleteMessage": "Delete {name}? The key records stay in the catalog.",
+  "@keySetDeleteMessage": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "keySetDelete": "Delete key set",
+  "keySetExport": "Export",
+  "keySetExportTitle": "Export {name}",
+  "@keySetExportTitle": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "keySetExportFormat": "Format",
+  "keySetFormatDIC": "Dictionary (.dic)",
+  "keySetFormatJSON": "JSON key set (.json)",
+  "keySetExported": "Exported {count} keys to {path}.",
+  "@keySetExported": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "keySetExportFailed": "Key set export failed: {message}",
+  "@keySetExportFailed": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  },
+  "keySetActionFailed": "Key set action failed: {message}",
+  "@keySetActionFailed": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  },
+  "recoveryReviewTitle": "Review recovered keys",
+  "recoveryReviewIntro": "These keys are only in memory. Saving writes names, a key set, and verifications, then reloads the store and authenticates every selected key against this card.",
+  "recoveryReviewStatusNew": "New",
+  "recoveryReviewStatusReplaced": "Replaced",
+  "recoveryReviewStatusExisting": "Existing",
+  "recoveryReviewKeySetName": "Key set name",
+  "recoveryReviewKeyName": "Key name",
+  "recoveryReviewKeyNamePlaceholder": "Optional",
+  "recoveryReviewSave": "Save and verify",
+  "recoveryReviewDiscard": "Discard",
+  "recoveryReviewDiscarded": "Recovered keys were discarded; nothing was saved.",
+  "recoveryReviewSaveStarted": "Saving, reloading, and verifying recovered keys.",
+  "recoverySavedVerified": "Saved and verified: {verified}/{total} key slots.",
+  "@recoverySavedVerified": {
+    "placeholders": {
+      "verified": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "recoverySavedVerifyFailed": "Saved, but verification failed: {failed}/{total} key slots rejected (sector {sector} Key {keyType}).",
+  "@recoverySavedVerifyFailed": {
+    "placeholders": {
+      "failed": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      },
+      "sector": {
+        "type": "int"
+      },
+      "keyType": {
+        "type": "String"
+      }
+    }
+  },
+  "recoverySaveFailed": "Recovered-key save failed: {message}",
+  "@recoverySaveFailed": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  },
+  "recoveryReviewPending": "A recovered-key review is pending; save or discard it first.",
+  "keysRenameFailed": "Could not rename the key: {message}",
+  "@keysRenameFailed": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  },
+  "commonSave": "Save",
+  "keySetListCount": "{count, plural, =0 {No sets} one {# set} other {# sets}}",
+  "@keySetListCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
       }
     }
   }

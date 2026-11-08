@@ -103,8 +103,8 @@ final document. Interrupting a watch exits 0.
 ```text
 nfctl classic read --block <n> [--key A:HEX|B:HEX]
 nfctl classic write --block <n> --data <HEX> [--key ...] --yes
-nfctl classic dump <file.bin|file.mfd|file.json> [--keys <file>]
-nfctl classic restore <file.bin|file.mfd|file.json> [--keys <file>] \
+nfctl classic dump <file.bin|file.mfd|file.json> [--keys <file>] [--scan]
+nfctl classic restore <file.bin|file.mfd|file.json> [--keys <file>] [--scan] \
     [--yes] [--confirm-trailers] [--dry-run]
 nfctl classic keyscan [--keys <file>]
 ```
@@ -145,17 +145,31 @@ persists verified matches, and reports missing slots. Values appear only with
 `--keys <file>` imports a dictionary. For `dump`, `restore`, and
 `nested`/`hardnested` recovery, it also runs a keyscan first so the imported
 candidates become verified keys for the current card. `classic keyscan --keys`
-uses the same scan it already performs.
+uses the same scan it already performs. `--scan` runs the same keyscan without
+importing a dictionary; it is off by default and cannot be combined with
+`--keys`, which already scans.
+
+A read or block operation that receives an authentication failure clears the
+card-scoped verification for that slot while keeping the key record. The
+verification is keyed by `UID/ATQA/SAK`; two physical cards with the same
+selection identity cannot be distinguished, so the stale claim is removed
+rather than hidden.
 
 ### Key recovery
 
 ```text
-nfctl recover nested --yes [--keys <file>]
-nfctl recover darkside --yes
-nfctl recover hardnested --yes [--keys <file>]
+nfctl recover nested --yes [--keys <file>] [--name NAME] [--key-set NAME] [--no-save]
+nfctl recover darkside --yes [--name NAME] [--key-set NAME] [--no-save]
+nfctl recover hardnested --yes [--keys <file>] [--name NAME] [--key-set NAME] [--no-save]
 ```
 
 All modes require `--yes` as explicit authorization for active card testing.
+Recovery persists its verified keys by default. `--key-set NAME` creates or
+updates that named set for the current card. `--name NAME` names the recovered
+key only when exactly one key slot was recovered; otherwise it is ignored with
+a warning. `--no-save` keeps recovered keys in memory for this invocation only,
+prints values only with `--show-keys`, and states that nothing was persisted.
+It cannot be combined with `--name`, `--key-set`, or `--keys`.
 
 - `nested` and `hardnested` need at least one verified seed key. `--keys`
   imports a dictionary and scans it first.
@@ -321,6 +335,13 @@ nfctl keys list [--show-keys]
 nfctl keys add <A:HEX|B:HEX|HEX>
 nfctl keys import <file>
 nfctl keys export <file>
+nfctl keys rename <key-id> <name>
+nfctl keys sets
+nfctl keys set create <name> --key <id>... [--card <cardId>]
+nfctl keys set rename <name> <new-name>
+nfctl keys set delete <name> --yes
+nfctl keys set export <name> [--format dic|keys] [--output <file>]
+nfctl keys reload
 ```
 
 `diag` runs the shared release self-check and prints each check. It exits 0
@@ -331,8 +352,25 @@ when the report was produced; scripts inspect the `healthy` field.
 value. `keys import` reports valid/added/duplicate/ignored counts and per-line
 issues. `keys export` writes a 0600 dictionary.
 
-Keys and Type 2 PWD/PACK pages are sensitive. Full values and raw engine logs
-appear only with `--show-keys`; no other flag or log level reveals them.
+`keys rename` sets or clears a key's display name. `keys sets` lists named key
+sets, their scope, member count, and source. `keys set create` references keys
+by ID from `keys list`; `--card` takes the store's `UID/ATQA/SAK` identity and
+without it the set is global. Recovery-created sets are scoped to that identity. `keys set export --format dic` writes one
+12-digit key per line; `--format keys` writes a JSON exchange object with key
+values and names. Writing key values to stdout requires `--output` or
+`--show-keys`. `keys reload` rebuilds the in-memory store from `keys.json` and
+reports pruned members.
+
+The internal store is authoritative and now writes version 2 with key names and
+key sets. Version 1 files load without migration. Dictionary files and key-set
+exports are exchange artifacts, not the source of truth. Key values remain
+sensitive: full values appear only with `--show-keys`, and exported files are
+mode 0600.
+
+Keys and Type 2 PWD/PACK pages are sensitive. Human output reveals full key
+values and raw engine logs only with `--show-keys`. Explicit export commands
+write key material to mode 0600 files; `keys set export` to stdout also
+requires `--show-keys`. No other flag or log level reveals key material.
 
 ## JSON output
 
@@ -356,7 +394,9 @@ Every `--json` run writes exactly one JSON document to stdout:
 - `result` is command-specific. Stable result keys include `devices`, `card`,
   `block`, `sector`, `kind`, `hex`, `ascii`, `path`, `sidecar`, `complete`,
   `verified`, `total`, `sectors`, `preflight`, `restore`, `mfoc`, `mfcuk`,
-  `keyScan`, `keys`, `product`, `productName`, `pages`, `page`, `pageCount`,
+  `keyScan`, `keys`, `sets`, `keySets`, `recovered`, `persisted`, `keyName`,
+  `keySetName`, `prunedKeyIds`, `droppedKeySets`, `product`, `productName`,
+  `pages`, `page`, `pageCount`,
   `userPages`, `cc`, `mad`, `application`, `family`, `type4cc`, `ats`, `sw`,
   `messageLength`, `ndef`, `protection`, `backup`, `planned`, `written`, and
   `skipped`. `product`, `productName`, and
@@ -368,7 +408,9 @@ Every `--json` run writes exactly one JSON document to stdout:
   `type2.info`, `type2.read`, `type2.write`, `type2.dump`, `type2.restore`,
   `ndef.read`, `ndef.write`, `ndef.format`, `apdu.raw`, `desfire.info`,
   `desfire.apps`, `desfire.files`, `desfire.read`, `uid.set`, `diag`,
-  `keys.list`, `keys.add`, `keys.import`, `keys.export`.
+  `keys.list`, `keys.add`, `keys.import`, `keys.export`, `keys.rename`,
+  `keys.sets`, `keys.set.create`, `keys.set.rename`, `keys.set.delete`,
+  `keys.set.export`, `keys.reload`.
 
 `--jsonl` emits one compact object per line:
 

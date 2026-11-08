@@ -19,9 +19,12 @@ writes with an in-process Gen1A path, Type 2 page access, NDEF read/write
 from the CLI and GUI, Classic NDEF read/write/format through the MIFARE
 Application Directory, an ISO/IEC 14443-4 APDU foundation with read-only
 DESFire access and Type 4 NDEF, diagnostics, and the key catalog. The GUI now
-exposes the CLI operations end to end: nested/darkside/hardnested key recovery,
-raw APDU diagnostics, read-only DESFire views, Type 4 NDEF read/write, and the
-self-check report. Classic GUI writes cover ordinary data blocks, changed-block
+exposes the CLI operations end to end: nested/darkside/hardnested key recovery
+with a review-and-save step, named key sets, store reload, raw APDU
+diagnostics, read-only DESFire views, Type 4 NDEF read/write, and the
+self-check report. Card-scoped key verification self-corrects when a read or
+scan proves a stored key wrong, and optional scan-before-read is available in
+both surfaces. Classic GUI writes cover ordinary data blocks, changed-block
 writes, full restore with a mandatory pre-write backup, and advanced UID
 writes. The reader layer compiles the five drivers in the application profile and reports an explicit capability profile
 for each; the remaining migration is tracked in
@@ -139,10 +142,10 @@ nfctl list
 nfctl scan [--watch]
 nfctl card info
 nfctl classic read|write|dump|restore|keyscan
-nfctl recover nested|darkside|hardnested
+nfctl recover nested|darkside|hardnested [--name NAME] [--key-set NAME] [--no-save]
 nfctl uid set
 nfctl diag
-nfctl keys list|add|import|export
+nfctl keys list|add|import|export|rename|sets|set|reload
 nfctl type2 info|read|write|dump|restore|copy|erase|lock|password
 nfctl ndef read|write
 nfctl apdu [--raw HEX]

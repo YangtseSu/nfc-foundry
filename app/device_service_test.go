@@ -53,7 +53,7 @@ func TestServiceRefreshConnectAndCardEvents(t *testing.T) {
 	enumerator := mock.NewEnumerator([]nfc.DeviceInfo{{Name: "PN532", ConnString: connString}}, nil)
 	reader := mock.NewReader()
 	reader.SetCardResult(nfc.CardInfo{UID: []byte{4, 1, 2, 3}, ATQA: [2]byte{0, 4}, SAK: 0x08}, nil)
-	manager := device.NewManager(enumerator, func() nfc.Reader { return reader }, deviceEventSink{emitter: emitter}, device.Config{
+	manager := device.NewManager(enumerator, func() nfc.Reader { return reader }, &deviceEventSink{emitter: emitter}, device.Config{
 		PollInterval:      time.Millisecond,
 		PollTimeout:       20 * time.Millisecond,
 		OpenTimeout:       20 * time.Millisecond,

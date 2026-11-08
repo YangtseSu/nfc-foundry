@@ -230,12 +230,19 @@ func (s *shell) keyInspector(c *ui.Context, p palette, key app.KeyDTO) {
 				kind = l.KeysBuiltin()
 			}
 			fieldRow(c, p, l.KeyType(), kind)
+			if key.Name != "" {
+				fieldRow(c, p, l.KeysName(), key.Name)
+			}
 			if sources := s.sourcesLabel(key.Sources); sources != "" {
 				fieldRow(c, p, l.KeysSources(), sources)
 			}
 			if key.Removable {
 				pill(c, l.KeyRemovable(), p.accent, p.accentSoft, p.accentBorder).
 					AlignSelf(ui.Start)
+			}
+			if ui.Button(c, l.KeysRename()).Height(26).FontSize(10).
+				Disabled(s.pendingOps > 0).Clicked() {
+				s.openKeyRename(key)
 			}
 		})
 	})

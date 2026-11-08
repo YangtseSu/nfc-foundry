@@ -35,6 +35,17 @@ func (s *Service) StartKeyRecovery(input KeyRecoveryStartRequestDTO) (TaskDTO, e
 	if _, err := appLayoutForCard(card); err != nil {
 		return TaskDTO{}, err
 	}
+	policy, err := recoveryPolicy(input.SavePolicy)
+	if err != nil {
+		return TaskDTO{}, err
+	}
+	if err := validateRecoverySaveOptions(input.KeyName, input.KeySetName); err != nil {
+		return TaskDTO{}, keyValidationError(err)
+	}
+	baseline, err := s.beginRecovery(card)
+	if err != nil {
+		return TaskDTO{}, err
+	}
 
 	return s.startPreparedOperation("key_recovery", "automatic key recovery", s.clearWorkbench, func(ctx context.Context, taskID string) error {
 		result, runErr := s.keyRecovery.Run(ctx, workflow.KeyRecoveryRequest{
@@ -45,11 +56,7 @@ func (s *Service) StartKeyRecovery(input KeyRecoveryStartRequestDTO) (TaskDTO, e
 			s.emitOperation(keyRecoveryEventDTO(taskID, event))
 		})
 
-		s.emitter.Emit(KeyEventName, sectorKeyDTOs(s.keyStore, &card))
-		s.emitter.Emit(KeyCatalogEventName, keyDTOs(s.keyStore))
-		if persistErr := s.persistKeys(); persistErr != nil && runErr == nil {
-			runErr = persistErr
-		}
+		runErr = s.finishRecovery(card, baseline, policy, input.KeyName, input.KeySetName, runErr)
 		if result.Read.Dump.Layout.Valid() && len(result.Read.Dump.Blocks) != 0 {
 			s.registerDumpKeys(result.Read)
 			if _, mergeErr := s.bench.MergeReadResult(result.Read); mergeErr != nil && runErr == nil {
@@ -104,6 +111,7 @@ func keyRecoveryResultDTO(result workflow.KeyRecoveryResult, snapshot device.Sna
 		CoveredSectors: result.CoveredSectors, ReadableSectors: result.ReadableSectors, TotalSectors: result.TotalSectors,
 		DumpComplete: result.DumpComplete, FailedStep: result.FailedStep, FailedStage: string(result.FailedStage),
 		Reason: result.Reason, HardnestedAvailable: result.HardnestedAvailable, ReaderRecovered: readerRecovered,
+		Recovered: recoveredKeyRefDTOs(result.Recovered),
 	}
 }
 

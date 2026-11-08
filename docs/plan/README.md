@@ -24,15 +24,15 @@ Status legend: `done`, `in progress`, `pending`, `conditional`.
 | 07b | GUI parity with the full CLI command surface | done |
 | 08 | FeliCa / Type 3 NDEF scope | conditional |
 | 09 | Card emulation for mobile Linux (scope to be defined) | conditional |
-| 10 | Key lifecycle, recovery save, and optional verification | pending |
+| 10 | Key lifecycle, recovery save, and optional verification | done |
 | 11 | Key and dump interchange formats | pending |
 | 12 | MCT-inspired diff, editors, clone, and factory format | pending |
 
 ## Implementation order
 
-Phase 10 comes next, followed by 11 and 12. Phase 07 hardware validation and
-Phase 04b UFUID/FUID validation remain open in parallel; they do not block the
-key-lifecycle and interchange work.
+Phase 10 is complete. Phase 11 comes next, followed by 12. Phase 07 hardware
+validation and Phase 04b UFUID/FUID validation remain open in parallel; they
+do not block the interchange work.
 
 ## Feature policy
 

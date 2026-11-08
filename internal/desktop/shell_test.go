@@ -18,8 +18,16 @@ type fakeBackend struct {
 	dashboard           app.DashboardDTO
 	workbench           app.WorkbenchDTO
 	keys                []app.KeyDTO
+	keySets             []app.KeySetDTO
+	keyReloads          int
+	recoveryReview      *app.RecoveryReviewDTO
+	savedReviews        []app.RecoverySaveRequestDTO
+	discardedReviews    int
+	exportedKeySets     []string
+	keyRenames          map[string]string
 	connects            []string
 	readStarts          int
+	readRequests        []app.ReadCardStartRequestDTO
 	scanStarts          int
 	type2Starts         int
 	type2ReadPassword   string
@@ -80,6 +88,80 @@ func (f *fakeBackend) AddKey(string) ([]app.KeyDTO, error) {
 }
 func (f *fakeBackend) DeleteKey(string) ([]app.KeyDTO, error) {
 	return f.keys, nil
+}
+func (f *fakeBackend) RenameKey(id, name string) ([]app.KeyDTO, error) {
+	f.mu.Lock()
+	if f.keyRenames == nil {
+		f.keyRenames = make(map[string]string)
+	}
+	f.keyRenames[id] = name
+	f.mu.Unlock()
+	return f.keys, nil
+}
+func (f *fakeBackend) GetKeySets() []app.KeySetDTO { return f.keySets }
+func (f *fakeBackend) CreateVerifiedKeySet(name string) ([]app.KeySetDTO, error) {
+	set := app.KeySetDTO{ID: "set-1", Name: name, KeyCount: 1, KeyIDs: []string{"builtin"}}
+	f.mu.Lock()
+	f.keySets = append(f.keySets, set)
+	f.mu.Unlock()
+	return f.keySets, nil
+}
+func (f *fakeBackend) RenameKeySet(id, name string) ([]app.KeySetDTO, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for index := range f.keySets {
+		if f.keySets[index].ID == id {
+			f.keySets[index].Name = name
+		}
+	}
+	return f.keySets, nil
+}
+func (f *fakeBackend) DeleteKeySet(id string) ([]app.KeySetDTO, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	kept := f.keySets[:0]
+	for _, set := range f.keySets {
+		if set.ID != id {
+			kept = append(kept, set)
+		}
+	}
+	f.keySets = kept
+	return f.keySets, nil
+}
+func (f *fakeBackend) ReloadKeyStore() (app.KeyStoreReloadDTO, error) {
+	f.mu.Lock()
+	f.keyReloads++
+	f.mu.Unlock()
+	return app.KeyStoreReloadDTO{Path: "keys.json", Keys: len(f.keys), KeySets: len(f.keySets)}, nil
+}
+func (f *fakeBackend) ExportKeySet(name, format string) (app.ExportResultDTO, error) {
+	f.mu.Lock()
+	f.exportedKeySets = append(f.exportedKeySets, name+"/"+format)
+	f.mu.Unlock()
+	return app.ExportResultDTO{Path: name + "." + format, Count: 1}, nil
+}
+func (f *fakeBackend) PendingRecoveryReview() *app.RecoveryReviewDTO {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.recoveryReview == nil {
+		return nil
+	}
+	clone := *f.recoveryReview
+	clone.Recovered = append([]app.RecoveredKeyRefDTO(nil), f.recoveryReview.Recovered...)
+	return &clone
+}
+func (f *fakeBackend) SaveRecoveryReview(request app.RecoverySaveRequestDTO) (app.TaskDTO, error) {
+	f.mu.Lock()
+	f.savedReviews = append(f.savedReviews, request)
+	f.mu.Unlock()
+	return app.TaskDTO{ID: "recovery_save-1", Name: "Save and verify recovered keys", Status: "running"}, nil
+}
+func (f *fakeBackend) DiscardRecoveryReview() error {
+	f.mu.Lock()
+	f.discardedReviews++
+	f.recoveryReview = nil
+	f.mu.Unlock()
+	return nil
 }
 func (f *fakeBackend) ImportKeyDictionary() (app.ImportReportDTO, error) {
 	return app.ImportReportDTO{Keys: f.keys}, nil
@@ -343,9 +425,10 @@ func (f *fakeBackend) StartType2ProtectionWrite(request app.Type2ProtectionWrite
 	f.mu.Unlock()
 	return app.TaskDTO{ID: "type2-protection-1", Name: "protection", Status: "running"}, nil
 }
-func (f *fakeBackend) StartReadCard(bool) (app.TaskDTO, error) {
+func (f *fakeBackend) StartReadCard(request app.ReadCardStartRequestDTO) (app.TaskDTO, error) {
 	f.mu.Lock()
 	f.readStarts++
+	f.readRequests = append(f.readRequests, request)
 	f.mu.Unlock()
 	return app.TaskDTO{ID: "read-1", Name: "read", Status: "running"}, nil
 }

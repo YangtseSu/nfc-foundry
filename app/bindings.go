@@ -44,6 +44,55 @@ func (b *Bindings) AddKey(value string) ([]KeyDTO, error) { return b.service.Add
 
 func (b *Bindings) DeleteKey(id string) ([]KeyDTO, error) { return b.service.DeleteKey(id) }
 
+func (b *Bindings) RenameKey(id, name string) ([]KeyDTO, error) {
+	return b.service.RenameKey(id, name)
+}
+
+func (b *Bindings) GetKeySets() []KeySetDTO { return b.service.KeySets() }
+
+func (b *Bindings) CreateVerifiedKeySet(name string) ([]KeySetDTO, error) {
+	return b.service.CreateVerifiedKeySet(name)
+}
+
+func (b *Bindings) RenameKeySet(id, name string) ([]KeySetDTO, error) {
+	return b.service.RenameKeySet(id, name)
+}
+
+func (b *Bindings) DeleteKeySet(id string) ([]KeySetDTO, error) {
+	return b.service.DeleteKeySet(id)
+}
+
+func (b *Bindings) ReloadKeyStore() (KeyStoreReloadDTO, error) {
+	return b.service.ReloadKeyStore()
+}
+
+func (b *Bindings) ExportKeySet(name, format string) (ExportResultDTO, error) {
+	extension := "*.dic;*.txt"
+	fileName := "nfc-foundry-key-set.dic"
+	if format == "keys" {
+		extension = "*.json"
+		fileName = "nfc-foundry-key-set.json"
+	}
+	path, err := b.service.dialogs.SaveFile("Export key set", fileName, extension)
+	if err != nil {
+		return ExportResultDTO{}, err
+	}
+	if path == "" {
+		return ExportResultDTO{Cancelled: true}, nil
+	}
+	return b.service.ExportKeySetFile(name, format, path)
+}
+
+func (b *Bindings) PendingRecoveryReview() *RecoveryReviewDTO {
+	return b.service.PendingRecoveryReview()
+}
+
+func (b *Bindings) SaveRecoveryReview(request RecoverySaveRequestDTO) (TaskDTO, error) {
+	return b.service.SaveRecoveryReview(request)
+}
+
+func (b *Bindings) DiscardRecoveryReview() error { return b.service.DiscardRecoveryReview() }
+
 func (b *Bindings) ImportKeyDictionary() (ImportReportDTO, error) {
 	return b.service.ImportKeyDictionary()
 }
@@ -126,8 +175,8 @@ func (b *Bindings) StartHardnested(request HardnestedStartRequestDTO) (TaskDTO, 
 	return b.service.StartHardnested(request)
 }
 
-func (b *Bindings) StartReadCard(discardDirty bool) (TaskDTO, error) {
-	return b.service.StartReadCard(discardDirty)
+func (b *Bindings) StartReadCard(request ReadCardStartRequestDTO) (TaskDTO, error) {
+	return b.service.StartReadCard(request)
 }
 
 // TransmitAPDU sends one diagnostic short APDU to the selected ISO-DEP card.

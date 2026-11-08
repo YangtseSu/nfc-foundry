@@ -23,14 +23,16 @@ import (
 )
 
 const (
-	DeviceEventName      = "nfc-foundry:device-state"
-	CardEventName        = "nfc-foundry:card-state"
-	TaskEventName        = "nfc-foundry:task"
-	WorkbenchEventName   = "nfc-foundry:workbench"
-	KeyEventName         = "nfc-foundry:sector-keys"
-	KeyCatalogEventName  = "nfc-foundry:key-catalog"
-	Type2EventName       = "nfc-foundry:type2"
-	ClassicNDEFEventName = "nfc-foundry:classic-ndef"
+	DeviceEventName         = "nfc-foundry:device-state"
+	CardEventName           = "nfc-foundry:card-state"
+	TaskEventName           = "nfc-foundry:task"
+	WorkbenchEventName      = "nfc-foundry:workbench"
+	KeyEventName            = "nfc-foundry:sector-keys"
+	KeyCatalogEventName     = "nfc-foundry:key-catalog"
+	KeySetEventName         = "nfc-foundry:key-sets"
+	RecoveryReviewEventName = "nfc-foundry:recovery-review"
+	Type2EventName          = "nfc-foundry:type2"
+	ClassicNDEFEventName    = "nfc-foundry:classic-ndef"
 
 	TaskEventStarted   = "started"
 	TaskEventProgress  = "progress"
@@ -114,8 +116,12 @@ type Service struct {
 	deviceTimeout     time.Duration
 	keyStore          *keys.Store
 	keyStorePath      string
+	keyStoreLoadErr   error
 	bench             *workbench.Model
 	keyScanner        *workflow.KeyScanService
+	keyVerify         *workflow.KeyVerifyService
+	reviewMu          sync.Mutex
+	recoveryReview    *RecoveryReviewDTO
 	keyRecovery       *workflow.KeyRecoveryService
 	dumpService       *workflow.DumpService
 	restoreService    *workflow.RestoreService
@@ -220,9 +226,12 @@ func (s *Service) Shutdown() {
 	s.deviceManager.Shutdown()
 }
 
-type deviceEventSink struct{ emitter EventEmitter }
+type deviceEventSink struct {
+	emitter       EventEmitter
+	onCardChanged func(device.CardEvent)
+}
 
-func (s deviceEventSink) DeviceStateChanged(snapshot device.Snapshot) {
+func (s *deviceEventSink) DeviceStateChanged(snapshot device.Snapshot) {
 	s.emitter.Emit(DeviceEventName, DeviceStateEventDTO{
 		Connection: connectionDTO(snapshot),
 		Device:     deviceDTO(snapshot.Device),
@@ -231,12 +240,15 @@ func (s deviceEventSink) DeviceStateChanged(snapshot device.Snapshot) {
 	})
 }
 
-func (s deviceEventSink) CardChanged(event device.CardEvent) {
+func (s *deviceEventSink) CardChanged(event device.CardEvent) {
 	s.emitter.Emit(CardEventName, CardEventDTO{
 		Type: string(event.Type),
 		Card: cardDTO(event.Card),
 		Time: event.Time.Format(time.RFC3339Nano),
 	})
+	if s.onCardChanged != nil {
+		s.onCardChanged(event)
+	}
 }
 
 func connectionDTO(snapshot device.Snapshot) ConnectionDTO {

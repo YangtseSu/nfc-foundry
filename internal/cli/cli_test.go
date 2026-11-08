@@ -497,3 +497,156 @@ func TestJSONLStreamsProgressAndOneResult(t *testing.T) {
 		t.Fatalf("jsonl progress=%d results=%d ok=%t output=%s", progress, results, resultOK, harness.stdout.String())
 	}
 }
+
+func TestClassicDumpScanVerifiesKeysBeforeReading(t *testing.T) {
+	fake := newFakeClassic()
+	harness := newHarness(t, fake)
+	path := filepath.Join(harness.dir, "scan.bin")
+	code, envelope := harness.run("classic", "dump", path, "--scan", "--json")
+	if code != 0 || !envelope.OK {
+		t.Fatalf("dump --scan: code=%d envelope=%+v stderr=%s", code, envelope, harness.stderr.String())
+	}
+	var result struct {
+		Complete         bool `json:"complete"`
+		VerifiedKeySlots int  `json:"verifiedKeySlots"`
+		KeySlots         int  `json:"keySlots"`
+	}
+	if err := json.Unmarshal(envelope.Result, &result); err != nil {
+		t.Fatal(err)
+	}
+	if !result.Complete || result.VerifiedKeySlots != 32 || result.KeySlots != 32 {
+		t.Fatalf("dump --scan result = %+v", result)
+	}
+
+	other := newHarness(t, newFakeClassic())
+	code, _ = other.run("classic", "dump", filepath.Join(other.dir, "plain.bin"), "--json")
+	if code == 0 {
+		t.Fatal("dump without scan succeeded with no verified keys")
+	}
+
+	code, _ = other.run("classic", "dump", filepath.Join(other.dir, "both.bin"), "--scan", "--keys", filepath.Join(other.dir, "card.dic"), "--json")
+	if code != cliExitUsage {
+		t.Fatalf("--scan with --keys code = %d", code)
+	}
+}
+
+func TestRecoverRejectsContradictorySaveFlags(t *testing.T) {
+	harness := newHarness(t, newFakeClassic())
+	code, envelope := harness.run("recover", "nested", "--yes", "--no-save", "--name", "Sector 5", "--json")
+	if code != cliExitUsage || envelope.Error == nil {
+		t.Fatalf("--no-save with --name: code=%d envelope=%+v", code, envelope)
+	}
+	code, envelope = harness.run("recover", "nested", "--yes", "--no-save", "--keys", "keys.dic", "--json")
+	if code != cliExitUsage || envelope.Error == nil {
+		t.Fatalf("--no-save with --keys: code=%d envelope=%+v", code, envelope)
+	}
+}
+
+func TestKeysNamesAndSetsLifecycle(t *testing.T) {
+	harness := newHarness(t, newFakeClassic())
+	code, envelope := harness.run("keys", "add", "010203040506", "--json")
+	if code != 0 || !envelope.OK {
+		t.Fatalf("keys add: code=%d envelope=%+v stderr=%s", code, envelope, harness.stderr.String())
+	}
+	var added struct {
+		Key struct {
+			ID string `json:"id"`
+		} `json:"key"`
+	}
+	if err := json.Unmarshal(envelope.Result, &added); err != nil {
+		t.Fatal(err)
+	}
+	if added.Key.ID == "" {
+		t.Fatal("keys add returned no key ID")
+	}
+	code, envelope = harness.run("keys", "rename", added.Key.ID, "Sector 5 Key A", "--json")
+	if code != 0 || !envelope.OK {
+		t.Fatalf("keys rename: code=%d envelope=%+v stderr=%s", code, envelope, harness.stderr.String())
+	}
+	var renamed struct {
+		Key struct {
+			Name string `json:"name"`
+		} `json:"key"`
+	}
+	if err := json.Unmarshal(envelope.Result, &renamed); err != nil {
+		t.Fatal(err)
+	}
+	if renamed.Key.Name != "Sector 5 Key A" {
+		t.Fatalf("renamed key = %+v", renamed.Key)
+	}
+
+	code, envelope = harness.run("keys", "set", "create", "Cloned access card", "--key", added.Key.ID, "--json")
+	if code != 0 || !envelope.OK {
+		t.Fatalf("keys set create: code=%d envelope=%+v stderr=%s", code, envelope, harness.stderr.String())
+	}
+	var sets struct {
+		Sets []app.KeySetDTO `json:"sets"`
+	}
+	if err := json.Unmarshal(envelope.Result, &sets); err != nil {
+		t.Fatal(err)
+	}
+	if len(sets.Sets) != 1 || sets.Sets[0].Name != "Cloned access card" || sets.Sets[0].KeyCount != 1 {
+		t.Fatalf("sets = %+v", sets.Sets)
+	}
+
+	dicPath := filepath.Join(harness.dir, "set.dic")
+	code, envelope = harness.run("keys", "set", "export", "Cloned access card", "--format", "dic", "--output", dicPath, "--json")
+	if code != 0 || !envelope.OK {
+		t.Fatalf("keys set export: code=%d envelope=%+v stderr=%s", code, envelope, harness.stderr.String())
+	}
+	exported, err := os.ReadFile(dicPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(exported)) != "010203040506" {
+		t.Fatalf("dictionary export = %q", exported)
+	}
+	if info, err := os.Stat(dicPath); err != nil || info.Mode().Perm()&0o077 != 0 {
+		t.Fatalf("dictionary export permissions = %v, err = %v", info, err)
+	}
+	jsonPath := filepath.Join(harness.dir, "set.json")
+	code, envelope = harness.run("keys", "set", "export", "Cloned access card", "--format", "keys", "--output", jsonPath, "--json")
+	if code != 0 || !envelope.OK {
+		t.Fatalf("keys set export keys: code=%d envelope=%+v stderr=%s", code, envelope, harness.stderr.String())
+	}
+	artifact, err := os.ReadFile(jsonPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(artifact, []byte(`"format": "nfc-foundry-key-set"`)) || !bytes.Contains(artifact, []byte(`"value": "010203040506"`)) {
+		t.Fatalf("json key-set artifact = %s", artifact)
+	}
+
+	code, _ = harness.run("keys", "set", "delete", "Cloned access card", "--json")
+	if code != cliExitUsage {
+		t.Fatalf("keys set delete without --yes code = %d", code)
+	}
+	code, envelope = harness.run("keys", "set", "rename", "Cloned access card", "Renamed card", "--json")
+	if code != 0 || !envelope.OK {
+		t.Fatalf("keys set rename: code=%d envelope=%+v stderr=%s", code, envelope, harness.stderr.String())
+	}
+	code, envelope = harness.run("keys", "set", "delete", "Renamed card", "--yes", "--json")
+	if code != 0 || !envelope.OK {
+		t.Fatalf("keys set delete: code=%d envelope=%+v stderr=%s", code, envelope, harness.stderr.String())
+	}
+	if err := json.Unmarshal(envelope.Result, &sets); err != nil {
+		t.Fatal(err)
+	}
+	if len(sets.Sets) != 0 {
+		t.Fatalf("key set survived delete: %+v", sets.Sets)
+	}
+
+	code, envelope = harness.run("keys", "reload", "--json")
+	if code != 0 || !envelope.OK {
+		t.Fatalf("keys reload: code=%d envelope=%+v stderr=%s", code, envelope, harness.stderr.String())
+	}
+	var reloaded struct {
+		Keys int `json:"keys"`
+	}
+	if err := json.Unmarshal(envelope.Result, &reloaded); err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.Keys == 0 {
+		t.Fatal("keys reload reported an empty catalog")
+	}
+}
