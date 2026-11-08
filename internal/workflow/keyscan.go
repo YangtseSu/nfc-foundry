@@ -70,6 +70,7 @@ func (s *KeyScanService) Scan(ctx context.Context, request KeyScanRequest, emit 
 		for sector := 0; sector < sectors; sector++ {
 			block, _ := layout.FirstBlock(sector)
 			for _, keyType := range []nfc.KeyType{nfc.KeyTypeA, nfc.KeyTypeB} {
+				matched := false
 				for _, candidate := range s.keys.Candidates(cardID, sector, keyType) {
 					if err := operationCtx.Err(); err != nil {
 						return err
@@ -98,6 +99,7 @@ func (s *KeyScanService) Scan(ctx context.Context, request KeyScanRequest, emit 
 						result.Matches = append(result.Matches, match)
 						progress.Matched = true
 						progress.Found = len(result.Matches)
+						matched = true
 						emit(progress)
 						break
 					}
@@ -105,6 +107,9 @@ func (s *KeyScanService) Scan(ctx context.Context, request KeyScanRequest, emit 
 					if !errors.Is(authErr, nfc.ErrAuthenticationFailed) {
 						return authErr
 					}
+				}
+				if !matched {
+					s.keys.Unverify(cardID, sector, keyType)
 				}
 			}
 		}

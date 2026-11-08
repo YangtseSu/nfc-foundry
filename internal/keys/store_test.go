@@ -116,3 +116,27 @@ func TestSaveAndLoadPreserveCardScopedVerifications(t *testing.T) {
 		t.Fatalf("verification leaked to another card: %+v", other)
 	}
 }
+
+func TestUnverifyRemovesOnlyTheRequestedSlot(t *testing.T) {
+	store := NewStore()
+	key := nfc.Key{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
+	record, _, err := store.Add(key, SourceBuiltin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cardID := "01020304/0400/08"
+	if err := store.Verify(cardID, 5, nfc.KeyTypeA, record.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Verify(cardID, 5, nfc.KeyTypeB, record.ID); err != nil {
+		t.Fatal(err)
+	}
+	store.Unverify(cardID, 5, nfc.KeyTypeA)
+	matches := store.Verified(cardID)
+	if len(matches) != 1 || matches[0].KeyType != nfc.KeyTypeB || matches[0].Sector != 5 {
+		t.Fatalf("remaining verifications = %+v", matches)
+	}
+	if _, ok := store.Record(record.ID); !ok {
+		t.Fatal("unverify deleted the key record")
+	}
+}

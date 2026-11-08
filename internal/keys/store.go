@@ -353,6 +353,17 @@ func (s *Store) Verify(cardID string, sector int, keyType nfc.KeyType, keyID str
 	return nil
 }
 
+// Unverify removes a card-scoped verification that a fresh authentication
+// attempt no longer supports, without deleting the key record itself.
+func (s *Store) Unverify(cardID string, sector int, keyType nfc.KeyType) {
+	if s == nil || cardID == "" || sector < 0 || !keyType.Valid() {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.verifications, verificationID(cardID, sector, keyType))
+}
+
 // MergeVerified atomically imports a freshly authenticated key without
 // replacing a different verification already stored for the same card slot.
 // A conflicting candidate is not added to the global key catalog.

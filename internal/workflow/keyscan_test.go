@@ -76,3 +76,29 @@ func TestKeyScanCancellationKeepsConfirmedResults(t *testing.T) {
 		t.Fatalf("persisted matches = %+v", matches)
 	}
 }
+
+func TestKeyScanClearsStaleVerificationForRejectedSlot(t *testing.T) {
+	card := classic1KCard(1)
+	store := keys.NewStore()
+	stale := nfc.Key{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
+	record, _, err := store.Add(stale, keys.SourceBuiltin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cardID := keys.CardID(card)
+	if err := store.Verify(cardID, 5, nfc.KeyTypeA, record.ID); err != nil {
+		t.Fatal(err)
+	}
+	reader := openMockReader(t, mock.ReaderFuncs{
+		CardInfo: func(context.Context) (nfc.CardInfo, error) { return card, nil },
+		Authenticate: func(context.Context, byte, nfc.KeyType, nfc.Key) error {
+			return nfc.ErrAuthenticationFailed
+		},
+	})
+	if _, err := workflow.NewKeyScanService(directExecutor{reader: reader}, store).Scan(context.Background(), workflow.KeyScanRequest{Card: card}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if matches := store.Verified(cardID); len(matches) != 0 {
+		t.Fatalf("stale verifications survived a failed scan: %+v", matches)
+	}
+}

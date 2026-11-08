@@ -45,3 +45,16 @@ Date: 2026-11-08
   underlying operations are available in the GUI.
 - Raw APDUs remain diagnostic. The GUI does not add convenience writes or
   claim that arbitrary APDUs are reversible.
+
+## Follow-up: stale key verification
+
+A card-scoped verification could outlive the key it proved: a later keyscan
+tried candidates, failed authentication, and left the old verification in
+place. Automatic recovery then counted the sector as covered and skipped
+nested/hardnested, ending as `partial` with that sector still unreadable.
+
+`keyscan` now removes a slot's verification when no candidate authenticates
+for it. The key record stays in the catalog; only the card-scoped claim is
+dropped. Validated on a clone card whose sector 5 had changed keys: the fixed
+scan reported 30/32 slots, nested recovered both sector-5 keys, and the dump
+became complete.
