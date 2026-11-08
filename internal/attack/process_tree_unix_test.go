@@ -5,6 +5,8 @@ package attack
 import (
 	"context"
 	"errors"
+	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -35,13 +37,34 @@ func TestCancellationTerminatesFixtureChildProcess(t *testing.T) {
 	pid := childPID(t, string(result.Stdout))
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		err := syscall.Kill(pid, 0)
-		if errors.Is(err, syscall.ESRCH) {
+		if processTerminated(pid) {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("child process %d still exists after cancellation", pid)
+}
+
+// processTerminated reports whether pid can no longer run. A zombie still has
+// a PID entry until its parent reaps it, and container PID 1 processes often
+// never call wait, so the fixture's orphan stays a zombie instead of vanishing.
+func processTerminated(pid int) bool {
+	if err := syscall.Kill(pid, 0); errors.Is(err, syscall.ESRCH) {
+		return true
+	}
+	if runtime.GOOS != "linux" {
+		return false
+	}
+	contents, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return false
+	}
+	// Fields after the parenthesized command name start with the state.
+	if index := strings.LastIndexByte(string(contents), ')'); index >= 0 {
+		fields := strings.Fields(string(contents[index+1:]))
+		return len(fields) > 0 && fields[0] == "Z"
+	}
+	return false
 }
 
 func waitForLog(t *testing.T, recorder *eventRecorder, wanted string) {

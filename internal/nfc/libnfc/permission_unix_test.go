@@ -12,6 +12,9 @@ import (
 )
 
 func TestConnStringPermissionErrorForInaccessibleUART(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses file permission checks")
+	}
 	path := filepath.Join(t.TempDir(), "tty-nfcx")
 	if err := os.WriteFile(path, []byte{}, 0o600); err != nil {
 		t.Fatal(err)
