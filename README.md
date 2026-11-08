@@ -170,6 +170,13 @@ No Windows, macOS, Debian/RPM, AppImage, Flatpak, or Snap packages are planned.
 - [Development workflow](docs/development.md)
 - [Phased plan](docs/plan/README.md)
 
+## Acknowledgements
+
+- [nfc-tools](https://github.com/nfc-tools): libnfc, mfoc, mfcuk, and
+  mfoc-hardnested provide the reader transport and key-recovery engines.
+- [NFCX](https://github.com/BennyThink/NFCX): the predecessor workbench; its
+  MIT-licensed MIFARE Classic implementation is the behavioral reference.
+
 ## License
 
 NFC Foundry is licensed under **GPL-3.0-or-later**. See [`LICENSE`](LICENSE).

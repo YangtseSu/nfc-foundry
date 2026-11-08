@@ -88,6 +88,9 @@ Date: 2026-11-05
 - Decision on 2026-11-05: keep `libnfc-ng` private and do not publish the
   package to the AUR yet. The PKGBUILD remains local-only until a public
   source location is chosen.
+- Resolved on 2026-11-08: `libnfc-ng` and `nfc-foundry` are public, so the
+  canonical PKGBUILD source is anonymously cloneable. AUR publication remains
+  a separate release step.
 - No hardware test was performed; Phase 01 has no reader/card acceptance
   requirement. The first hardware gate is the application integration in
   Phase 02.
