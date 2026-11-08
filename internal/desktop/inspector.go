@@ -49,6 +49,12 @@ func (s *shell) inspectorSub() string {
 		}
 		return l.Type2NoData()
 	case tabNDEF:
+		if s.cardFamily() == familyISO14443 {
+			if s.type4.Loaded {
+				return l.Type4CC()
+			}
+			return l.Type4NoData()
+		}
 		if s.cardFamily() == familyClassic {
 			if !s.classicNDEF.Loaded {
 				return l.ClassicNDEFNoData()
@@ -70,6 +76,12 @@ func (s *shell) inspectorSub() string {
 		return l.Type2NoNDEF()
 	case tabProtection:
 		return l.Type2ProtectionPanel()
+	case tabRecovery:
+		return l.RecoveryTitle()
+	case tabAPDU:
+		return l.ApduTitle()
+	case tabDESFire:
+		return l.DesfireTitle()
 	default:
 		return l.NoCardSelected()
 	}
@@ -100,13 +112,22 @@ func (s *shell) inspector(c *ui.Context, p palette) {
 		}
 		s.inspectorEmpty(c, p, s.locales().CardEmpty())
 	case tabNDEF:
-		if s.cardFamily() == familyClassic {
+		switch s.cardFamily() {
+		case familyClassic:
 			s.classicNDEFInspector(c, p)
-			return
+		case familyISO14443:
+			s.type4Inspector(c, p)
+		default:
+			s.type2Inspector(c, p)
 		}
-		s.type2Inspector(c, p)
 	case tabMemory, tabProtection:
 		s.type2Inspector(c, p)
+	case tabRecovery:
+		s.inspectorEmpty(c, p, s.locales().RecoveryIntro())
+	case tabAPDU:
+		s.inspectorEmpty(c, p, s.locales().ApduIntro())
+	case tabDESFire:
+		s.inspectorEmpty(c, p, s.locales().DesfireIntro())
 	default:
 		s.inspectorEmpty(c, p, s.locales().CardEmpty())
 	}

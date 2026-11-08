@@ -6,6 +6,20 @@
   "languageLabel": "Language",
   "languageShortEN": "EN",
   "languageShortZH": "中文",
+  "menuDiagnostics": "Diagnostics",
+  "diagnosticsTitle": "Diagnostics",
+  "diagnosticsLoading": "Running the self-check…",
+  "diagnosticsHealthy": "Healthy",
+  "diagnosticsUnhealthy": "Attention needed",
+  "diagnosticsBuild": "Build {version} ({commit})",
+  "diagnosticsGo": "Go {version} · {os}/{arch}",
+  "diagnosticsRuntime": "libnfc-ng {version}",
+  "diagnosticsRuntimeMissing": "libnfc-ng unavailable: {detail}",
+  "diagnosticsEngines": "Engines",
+  "diagnosticsManifest": "Runtime manifest",
+  "diagnosticsManifestVerified": "{files} files verified",
+  "diagnosticsManifestMissing": "Not verified: {detail}",
+  "diagnosticsClose": "Close",
   "menuLanguage": "Language",
   "commonRefresh": "Refresh",
   "commonConnect": "Connect",
@@ -67,6 +81,9 @@
   "tabMemory": "Memory",
   "tabNDEF": "NDEF",
   "tabProtection": "Protection",
+  "tabRecovery": "Recovery",
+  "tabAPDU": "APDU",
+  "tabDESFire": "DESFire",
   "metricBlocks": "Block count",
   "metricSectors": "Sector count",
   "healthDump": "Dump",
@@ -169,6 +186,91 @@
   "activityKindKeyRecovery": "Key recovery",
   "readStarted": "Reading the card…",
   "scanStarted": "Scanning keys…",
+  "recoveryTitle": "Key recovery",
+  "recoveryIntro": "Active card testing for unknown sector keys. Automatic recovery scans known keys, uses darkside only when no key is verified, then nested or hardnested, and finishes with a verified read. Every mode releases the reader to the bundled engine and stops on the first unrecoverable failure.",
+  "recoveryRefresh": "Refresh engines",
+  "recoveryAutomatic": "Automatic recovery",
+  "recoveryAutomaticHint": "Common keys → darkside as needed → nested → hardnested as needed → verified read.",
+  "recoveryNested": "Nested (MFOC)",
+  "recoveryNestedHint": "Needs at least one verified seed key and a non-hardened card.",
+  "recoveryDarkside": "Darkside (MFCUK)",
+  "recoveryDarksideHint": "Classic 1K on a PN532 UART reader, with no verified keys.",
+  "recoveryHardnested": "Hardnested",
+  "recoveryHardnestedHint": "Needs a verified seed key; use when nested fails on a hardened card.",
+  "recoveryEngineAvailable": "Available",
+  "recoveryEngineUnavailable": "Unavailable",
+  "recoveryStart": "Start",
+  "recoveryNoCard": "Place a MIFARE Classic card to recover its sector keys.",
+  "recoverySeedRequired": "Scan known keys first: this mode needs at least one verified key.",
+  "recoveryDarksideClassic1K": "Darkside supports MIFARE Classic 1K only.",
+  "recoveryDarksideSeedKnown": "Darkside requires a card with no verified keys.",
+  "recoveryStartMode": "Start {mode}",
+  "recoveryUnsavedChanges": "Save or discard the unsaved Classic changes before starting key recovery.",
+  "recoveryConfirmTitle": "Run {mode}?",
+  "recoveryConfirmMessage": "Only test cards you own or are authorized to use. The reader is released to the recovery engine, the engine output is validated, recovered keys are re-verified, and the card is re-read before the result is kept.",
+  "recoveryConfirm": "Start recovery",
+  "recoveryStarted": "Key recovery task started.",
+  "recoveryComplete": "Key recovery completed; verified keys and readable data were kept.",
+  "recoveryFailed": "Key recovery failed: {message}",
+  "familyISO14443": "ISO/IEC 14443-4",
+  "badgeISO14443": "ISO-DEP",
+  "cardISO14443Hint": "ISO/IEC 14443-4 card. Use the APDU, DESFire, or NDEF tab.",
+  "apduTitle": "APDU diagnostic",
+  "apduIntro": "Send one short APDU to the selected ISO-DEP card and inspect the response. This is a diagnostic path: arbitrary APDUs are not backed up, undone, or validated for safety.",
+  "apduInput": "APDU",
+  "apduPlaceholder": "00 A4 04 00",
+  "apduSend": "Send APDU",
+  "apduResponse": "Response",
+  "apduSW": "Status word",
+  "apduATS": "ATS",
+  "apduData": "Response data",
+  "apduStatusOK": "OK",
+  "apduStatusError": "Card error",
+  "apduFailed": "APDU exchange failed: {message}",
+  "desfireTitle": "DESFire read-only",
+  "desfireIntro": "Identify the card, list its applications and files, and read standard or backup files. Authentication and every write operation remain outside this GUI.",
+  "desfireIdentify": "Identify",
+  "desfireApplications": "Applications",
+  "desfireFailed": "DESFire operation failed: {message}",
+  "desfireInfo": "Product information",
+  "desfireVersion": "Version",
+  "desfireVendor": "Vendor",
+  "desfireType": "Type",
+  "desfireSubtype": "Subtype",
+  "desfireStorage": "Storage",
+  "desfireProtocol": "Protocol",
+  "desfireNoApplications": "The card reported no applications.",
+  "desfireAID": "Application ID",
+  "desfireAIDPlaceholder": "000000",
+  "desfireFiles": "List files",
+  "desfireFilesTitle": "Files in {aid}",
+  "desfireNoFiles": "The application reported no files.",
+  "desfireFileSize": "{size} bytes",
+  "desfireRead": "Read",
+  "desfireFileID": "File ID",
+  "desfireFileIDPlaceholder": "0",
+  "desfireReadFile": "Read file",
+  "desfireFileData": "File {file} in {aid} · {length} bytes",
+  "desfireInvalidFile": "File ID must be a decimal number from 0 to 255.",
+  "type4Title": "Type 4 NDEF",
+  "type4Intro": "NFC Forum Type 4 NDEF through ISO-DEP. Read the capability container before writing; a write creates a backup and verifies the final message.",
+  "type4Read": "Read Type 4 NDEF",
+  "type4CC": "Capability container",
+  "type4MappingVersion": "Mapping version",
+  "type4MLe": "MLe",
+  "type4MLc": "MLc",
+  "type4FileID": "NDEF file ID",
+  "type4MaxMessage": "Max message",
+  "type4ReadAccess": "Read access",
+  "type4WriteAccess": "Write access",
+  "type4ReadOnly": "NDEF is read-only.",
+  "type4NoData": "Read the Type 4 card to load its NDEF message.",
+  "type4Failed": "Type 4 NDEF operation failed: {message}",
+  "type4WriteConfirmTitle": "Write {length} Type 4 NDEF bytes?",
+  "type4WriteConfirmMessage": "The current message is backed up before writing, and the new message is read back and verified. Do not remove the card during the operation.",
+  "type4WriteConfirm": "Confirm NDEF write",
+  "type4WriteHint": "A backup is written before the message and the result is verified.",
+  "type4WriteComplete": "Type 4 NDEF message written and verified.",
   "actionNoDump": "No dump loaded",
   "actionBlocks": "{count, plural, =0 {No blocks} one {# block} other {# blocks}}",
   "actionKeys": "{count, plural, =0 {No keys} one {# key} other {# keys}}",
@@ -642,6 +744,7 @@
   "type2CopyProtected": "Copy protection pages",
   "type2CopySameUID": "Same UID only",
   "type2Repeat": "Targets",
+  "type2PasswordRemove": "Remove password",
   "type2Erase": "Erase user memory",
   "type2ProtectionEditor": "Protection editor",
   "type2ProtectionEditorHint": "Leave a field blank to keep its current value. Lock bits can only be set, and configuration changes can permanently lock or damage the tag.",
@@ -992,6 +1095,113 @@
         "type": "String"
       },
       "mad": {
+        "type": "String"
+      }
+    }
+  },
+  "@recoveryStartMode": {
+    "placeholders": {
+      "mode": {"type": "String"}
+    }
+  },
+  "@recoveryConfirmTitle": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
+  "@diagnosticsBuild": {
+    "placeholders": {
+      "version": {"type": "String"},
+      "commit": {"type": "String"}
+    }
+  },
+  "@diagnosticsGo": {
+    "placeholders": {
+      "version": {"type": "String"},
+      "os": {"type": "String"},
+      "arch": {"type": "String"}
+    }
+  },
+  "@diagnosticsRuntime": {
+    "placeholders": {
+      "version": {"type": "String"}
+    }
+  },
+  "@diagnosticsRuntimeMissing": {
+    "placeholders": {
+      "detail": {"type": "String"}
+    }
+  },
+  "@diagnosticsManifestVerified": {
+    "placeholders": {
+      "files": {"type": "String"}
+    }
+  },
+  "@diagnosticsManifestMissing": {
+    "placeholders": {
+      "detail": {"type": "String"}
+    }
+  },
+  "@recoveryFailed": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  },
+  "@apduFailed": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  },
+  "@desfireFailed": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  },
+  "@desfireFilesTitle": {
+    "placeholders": {
+      "aid": {
+        "type": "String"
+      }
+    }
+  },
+  "@desfireFileSize": {
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "@desfireFileData": {
+    "placeholders": {
+      "aid": {
+        "type": "String"
+      },
+      "file": {
+        "type": "String"
+      },
+      "length": {
+        "type": "String"
+      }
+    }
+  },
+  "@type4WriteConfirmTitle": {
+    "placeholders": {
+      "length": {
+        "type": "String"
+      }
+    }
+  },
+  "@type4Failed": {
+    "placeholders": {
+      "message": {
         "type": "String"
       }
     }

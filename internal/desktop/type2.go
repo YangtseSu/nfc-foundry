@@ -342,6 +342,14 @@ func (s *shell) type2AdvancedPanel(c *ui.Context, p palette) {
 					Operation: "erase", CurrentPassword: s.type2Password,
 				})
 			}
+			if s.type2.Protection.PasswordSet {
+				if ui.Button(c, l.Type2PasswordRemove()).Height(28).FontSize(10).
+					Disabled(s.writeBusy()).Clicked() {
+					s.requestType2Lifecycle(app.Type2LifecycleRequestDTO{
+						Operation: "password-remove", CurrentPassword: s.type2Password,
+					})
+				}
+			}
 		})
 	})
 	ui.Column(c).Padding(14).Gap(8).Background(p.surface).Radius(10).
@@ -868,6 +876,8 @@ func (s *shell) ndefWriteRow(c *ui.Context, p palette) {
 	hint := l.Type2WriteBackupHint()
 	if s.cardFamily() == familyClassic {
 		hint = l.ClassicNDEFWriteHint()
+	} else if s.cardFamily() == familyISO14443 {
+		hint = l.Type4WriteHint()
 	}
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 		ui.Text(c, hint).FontSize(9).TextColor(p.faint).Grow(1).Wrap()
@@ -879,10 +889,14 @@ func (s *shell) ndefWriteRow(c *ui.Context, p palette) {
 }
 
 func (s *shell) ndefTargetWritable() bool {
-	if s.cardFamily() == familyClassic {
+	switch s.cardFamily() {
+	case familyClassic:
 		return s.classicNDEF.Loaded && s.classicNDEF.Application && !s.classicNDEF.ReadOnly
+	case familyISO14443:
+		return s.type4.Loaded && !s.type4.ReadOnly
+	default:
+		return s.type2.CC.Valid
 	}
-	return s.type2.CC.Valid
 }
 
 func (s *shell) ndefReady() bool {
@@ -1093,6 +1107,10 @@ func (s *shell) requestType2PageWrite() {
 func (s *shell) requestType2NDEFWrite() {
 	if s.cardFamily() == familyClassic {
 		s.requestClassicNDEFWrite()
+		return
+	}
+	if s.cardFamily() == familyISO14443 {
+		s.requestType4NDEFWrite()
 		return
 	}
 	switch s.ndefMode {

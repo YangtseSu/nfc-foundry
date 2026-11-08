@@ -156,6 +156,7 @@ type Type2NDEFWriteStartRequestDTO struct {
 type Type2NDEFPreviewDTO struct {
 	Template string `json:"template"`
 	Length   int    `json:"length"`
+	Message  string `json:"message,omitempty"`
 }
 
 // Type2NDEFTemplateFieldDTO is one field of a common NDEF template.
@@ -312,7 +313,7 @@ func (s *Service) PreviewType2NDEF(request Type2NDEFWriteStartRequestDTO) (Type2
 	if err != nil {
 		return Type2NDEFPreviewDTO{}, err
 	}
-	return Type2NDEFPreviewDTO{Template: request.Template, Length: len(message)}, nil
+	return Type2NDEFPreviewDTO{Template: request.Template, Length: len(message), Message: strings.ToUpper(hex.EncodeToString(message))}, nil
 }
 
 // Type2Snapshot returns the latest Type 2 dump, if any.

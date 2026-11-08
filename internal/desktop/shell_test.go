@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/YangtseSu/nfc-foundry/app"
+	"github.com/YangtseSu/nfc-foundry/internal/diagnostic"
 	"github.com/YangtseSu/nfc-foundry/locales"
 	"github.com/egoist/mygo/ui"
 )
@@ -46,6 +47,10 @@ type fakeBackend struct {
 	classicWrites       []app.WriteStartRequestDTO
 	uidPreflights       []string
 	uidWrites           []app.UIDWriteStartRequestDTO
+	recoveryStarts      []string
+	apduCalls           []string
+	desfireReads        []string
+	type4Writes         []app.Type4NDEFWriteRequestDTO
 	dumpLoads           int
 	dumpSaves           int
 }
@@ -56,6 +61,9 @@ type classicEditCall struct {
 }
 
 func (f *fakeBackend) GetDashboard() app.DashboardDTO { return f.dashboard }
+func (f *fakeBackend) GetDiagnostics() diagnostic.Report {
+	return diagnostic.Report{Healthy: true}
+}
 func (f *fakeBackend) RefreshDevices() ([]app.DeviceDTO, error) {
 	return f.dashboard.Devices, nil
 }
@@ -187,7 +195,9 @@ func (f *fakeBackend) StartClassicNDEFRead() (app.TaskDTO, error) {
 }
 
 func (f *fakeBackend) PreviewNDEFTemplate(request app.Type2NDEFWriteStartRequestDTO) (app.Type2NDEFPreviewDTO, error) {
-	return f.PreviewType2NDEF(request)
+	preview, _ := f.PreviewType2NDEF(request)
+	preview.Message = "D1010A550161"
+	return preview, nil
 }
 
 func (f *fakeBackend) StartNDEFTemplateWrite(request app.Type2NDEFWriteStartRequestDTO) (app.TaskDTO, error) {
@@ -198,7 +208,9 @@ func (f *fakeBackend) StartNDEFTemplateWrite(request app.Type2NDEFWriteStartRequ
 }
 
 func (f *fakeBackend) PreviewNDEFRaw(request app.Type2NDEFRawRequestDTO) (app.Type2NDEFPreviewDTO, error) {
-	return f.PreviewType2NDEFRaw(request)
+	preview, _ := f.PreviewType2NDEFRaw(request)
+	preview.Message = "D1010A550161"
+	return preview, nil
 }
 
 func (f *fakeBackend) StartNDEFRawWrite(request app.Type2NDEFRawRequestDTO) (app.TaskDTO, error) {
@@ -209,7 +221,9 @@ func (f *fakeBackend) StartNDEFRawWrite(request app.Type2NDEFRawRequestDTO) (app
 }
 
 func (f *fakeBackend) PreviewNDEFRecords(request app.Type2NDEFRecordsRequestDTO) (app.Type2NDEFPreviewDTO, error) {
-	return f.PreviewType2NDEFRecords(request)
+	preview, _ := f.PreviewType2NDEFRecords(request)
+	preview.Message = "D1010A550161"
+	return preview, nil
 }
 
 func (f *fakeBackend) StartNDEFRecordsWrite(request app.Type2NDEFRecordsRequestDTO) (app.TaskDTO, error) {
@@ -340,6 +354,67 @@ func (f *fakeBackend) StartKeyScan(bool) (app.TaskDTO, error) {
 	f.scanStarts++
 	f.mu.Unlock()
 	return app.TaskDTO{ID: "keyscan-1", Name: "keyscan", Status: "running"}, nil
+}
+func (f *fakeBackend) MFoCStatus() app.ExternalEngineStatusDTO {
+	return app.ExternalEngineStatusDTO{ID: "mfoc", Available: true, Detail: "MFOC test"}
+}
+func (f *fakeBackend) MFCUKStatus() app.ExternalEngineStatusDTO {
+	return app.ExternalEngineStatusDTO{ID: "mfcuk-pipeline", Available: true, Detail: "MFCUK test"}
+}
+func (f *fakeBackend) HardnestedStatus() app.ExternalEngineStatusDTO {
+	return app.ExternalEngineStatusDTO{ID: "hardnested", Available: true, Detail: "Hardnested test"}
+}
+func (f *fakeBackend) StartKeyRecovery(app.KeyRecoveryStartRequestDTO) (app.TaskDTO, error) {
+	f.mu.Lock()
+	f.recoveryStarts = append(f.recoveryStarts, "auto")
+	f.mu.Unlock()
+	return app.TaskDTO{ID: "key_recovery-1", Name: "automatic key recovery", Status: "running"}, nil
+}
+func (f *fakeBackend) StartMFoC(app.MFoCStartRequestDTO) (app.TaskDTO, error) {
+	f.mu.Lock()
+	f.recoveryStarts = append(f.recoveryStarts, "nested")
+	f.mu.Unlock()
+	return app.TaskDTO{ID: "mfoc-1", Name: "MFOC nested key recovery", Status: "running"}, nil
+}
+func (f *fakeBackend) StartMFCUKPipeline(app.MFCUKStartRequestDTO) (app.TaskDTO, error) {
+	f.mu.Lock()
+	f.recoveryStarts = append(f.recoveryStarts, "darkside")
+	f.mu.Unlock()
+	return app.TaskDTO{ID: "mfcuk_pipeline-1", Name: "MFCUK → MFOC automatic key recovery", Status: "running"}, nil
+}
+func (f *fakeBackend) StartHardnested(app.HardnestedStartRequestDTO) (app.TaskDTO, error) {
+	f.mu.Lock()
+	f.recoveryStarts = append(f.recoveryStarts, "hardnested")
+	f.mu.Unlock()
+	return app.TaskDTO{ID: "hardnested-1", Name: "Hardnested key recovery", Status: "running"}, nil
+}
+func (f *fakeBackend) TransmitAPDU(raw string) (app.APDUResponseDTO, error) {
+	f.mu.Lock()
+	f.apduCalls = append(f.apduCalls, raw)
+	f.mu.Unlock()
+	return app.APDUResponseDTO{Data: "9000", SW: "9000", SW1: 0x90, SW2: 0x00, OK: true}, nil
+}
+func (f *fakeBackend) DESFireInfo() (app.DESFireVersionDTO, error) {
+	return app.DESFireVersionDTO{Version: "0x01.0x00"}, nil
+}
+func (f *fakeBackend) DESFireApplications() ([]string, error) { return []string{"000000"}, nil }
+func (f *fakeBackend) DESFireFiles(aid string) (app.DESFireFilesDTO, error) {
+	return app.DESFireFilesDTO{AID: aid}, nil
+}
+func (f *fakeBackend) DESFireReadFile(aid string, file byte) (app.DESFireReadDTO, error) {
+	f.mu.Lock()
+	f.desfireReads = append(f.desfireReads, aid)
+	f.mu.Unlock()
+	return app.DESFireReadDTO{AID: aid, File: file, Length: 4, Hex: "01020304"}, nil
+}
+func (f *fakeBackend) ReadType4NDEF() (app.Type4NDEFDTO, error) {
+	return app.Type4NDEFDTO{Loaded: true, CardType: "NFC Forum Type 4", CC: app.Type4CCDTO{FileID: "E104", MaxMessage: 256}}, nil
+}
+func (f *fakeBackend) StartType4NDEFWrite(request app.Type4NDEFWriteRequestDTO) (app.TaskDTO, error) {
+	f.mu.Lock()
+	f.type4Writes = append(f.type4Writes, request)
+	f.mu.Unlock()
+	return app.TaskDTO{ID: "type4_ndef-1", Name: "Write Type 4 NDEF message", Status: "running"}, nil
 }
 func (f *fakeBackend) CancelTask(string) error { return nil }
 

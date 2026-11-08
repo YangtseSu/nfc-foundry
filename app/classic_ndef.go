@@ -223,6 +223,13 @@ func (s *Service) StartClassicNDEFFormat(request ClassicNDEFFormatRequestDTO) (T
 
 // StartNDEFTemplateWrite dispatches a template write to the selected family.
 func (s *Service) StartNDEFTemplateWrite(request Type2NDEFWriteStartRequestDTO) (TaskDTO, error) {
+	if s.type4CardSelected() {
+		message, err := encodeType2NDEF(request)
+		if err != nil {
+			return TaskDTO{}, err
+		}
+		return s.StartType4NDEFWrite(Type4NDEFWriteRequestDTO{Message: message})
+	}
 	if !s.classicCardSelected() {
 		return s.StartType2NDEFWrite(request)
 	}
@@ -235,18 +242,25 @@ func (s *Service) StartNDEFTemplateWrite(request Type2NDEFWriteStartRequestDTO) 
 
 // PreviewNDEFTemplate validates a template for the selected family.
 func (s *Service) PreviewNDEFTemplate(request Type2NDEFWriteStartRequestDTO) (Type2NDEFPreviewDTO, error) {
-	if !s.classicCardSelected() {
+	if !s.classicCardSelected() && !s.type4CardSelected() {
 		return s.PreviewType2NDEF(request)
 	}
 	message, err := encodeType2NDEF(request)
 	if err != nil {
 		return Type2NDEFPreviewDTO{}, err
 	}
-	return Type2NDEFPreviewDTO{Template: request.Template, Length: len(message)}, nil
+	return Type2NDEFPreviewDTO{Template: request.Template, Length: len(message), Message: strings.ToUpper(hex.EncodeToString(message))}, nil
 }
 
 // StartNDEFRawWrite dispatches a raw message write to the selected family.
 func (s *Service) StartNDEFRawWrite(request Type2NDEFRawRequestDTO) (TaskDTO, error) {
+	if s.type4CardSelected() {
+		message, err := decodeType2NDEFHex(request.Raw)
+		if err != nil {
+			return TaskDTO{}, err
+		}
+		return s.StartType4NDEFWrite(Type4NDEFWriteRequestDTO{Message: message})
+	}
 	if !s.classicCardSelected() {
 		return s.StartType2NDEFRawWrite(request)
 	}
@@ -259,18 +273,25 @@ func (s *Service) StartNDEFRawWrite(request Type2NDEFRawRequestDTO) (TaskDTO, er
 
 // PreviewNDEFRaw validates a raw message for the selected family.
 func (s *Service) PreviewNDEFRaw(request Type2NDEFRawRequestDTO) (Type2NDEFPreviewDTO, error) {
-	if !s.classicCardSelected() {
+	if !s.classicCardSelected() && !s.type4CardSelected() {
 		return s.PreviewType2NDEFRaw(request)
 	}
 	message, err := decodeType2NDEFHex(request.Raw)
 	if err != nil {
 		return Type2NDEFPreviewDTO{}, err
 	}
-	return Type2NDEFPreviewDTO{Template: "raw", Length: len(message)}, nil
+	return Type2NDEFPreviewDTO{Template: "raw", Length: len(message), Message: strings.ToUpper(hex.EncodeToString(message))}, nil
 }
 
 // StartNDEFRecordsWrite dispatches a multi-record write to the selected family.
 func (s *Service) StartNDEFRecordsWrite(request Type2NDEFRecordsRequestDTO) (TaskDTO, error) {
+	if s.type4CardSelected() {
+		message, err := encodeType2NDEFRecords(request.Records)
+		if err != nil {
+			return TaskDTO{}, err
+		}
+		return s.StartType4NDEFWrite(Type4NDEFWriteRequestDTO{Message: message})
+	}
 	if !s.classicCardSelected() {
 		return s.StartType2NDEFRecordsWrite(request)
 	}
@@ -283,14 +304,14 @@ func (s *Service) StartNDEFRecordsWrite(request Type2NDEFRecordsRequestDTO) (Tas
 
 // PreviewNDEFRecords validates a multi-record message for the selected family.
 func (s *Service) PreviewNDEFRecords(request Type2NDEFRecordsRequestDTO) (Type2NDEFPreviewDTO, error) {
-	if !s.classicCardSelected() {
+	if !s.classicCardSelected() && !s.type4CardSelected() {
 		return s.PreviewType2NDEFRecords(request)
 	}
 	message, err := encodeType2NDEFRecords(request.Records)
 	if err != nil {
 		return Type2NDEFPreviewDTO{}, err
 	}
-	return Type2NDEFPreviewDTO{Template: "records", Length: len(message)}, nil
+	return Type2NDEFPreviewDTO{Template: "records", Length: len(message), Message: strings.ToUpper(hex.EncodeToString(message))}, nil
 }
 
 func (s *Service) startClassicNDEFMessage(message []byte) (TaskDTO, error) {

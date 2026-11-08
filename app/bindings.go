@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"time"
 
 	"github.com/YangtseSu/nfc-foundry/internal/diagnostic"
 )
@@ -100,8 +101,74 @@ func (b *Bindings) StartKeyScan(discardDirty bool) (TaskDTO, error) {
 	return b.service.StartKeyScan(discardDirty)
 }
 
+// Recovery engine availability for the GUI recovery panel.
+func (b *Bindings) MFoCStatus() ExternalEngineStatusDTO { return b.service.MFoCStatus() }
+
+func (b *Bindings) MFCUKStatus() ExternalEngineStatusDTO { return b.service.MFCUKStatus() }
+
+func (b *Bindings) HardnestedStatus() ExternalEngineStatusDTO { return b.service.HardnestedStatus() }
+
+// StartKeyRecovery runs the automatic common-keys/darkside/nested/hardnested
+// pipeline and finishes with a verified read.
+func (b *Bindings) StartKeyRecovery(request KeyRecoveryStartRequestDTO) (TaskDTO, error) {
+	return b.service.StartKeyRecovery(request)
+}
+
+func (b *Bindings) StartMFoC(request MFoCStartRequestDTO) (TaskDTO, error) {
+	return b.service.StartMFoC(request)
+}
+
+func (b *Bindings) StartMFCUKPipeline(request MFCUKStartRequestDTO) (TaskDTO, error) {
+	return b.service.StartMFCUKPipeline(request)
+}
+
+func (b *Bindings) StartHardnested(request HardnestedStartRequestDTO) (TaskDTO, error) {
+	return b.service.StartHardnested(request)
+}
+
 func (b *Bindings) StartReadCard(discardDirty bool) (TaskDTO, error) {
 	return b.service.StartReadCard(discardDirty)
+}
+
+// TransmitAPDU sends one diagnostic short APDU to the selected ISO-DEP card.
+func (b *Bindings) TransmitAPDU(raw string) (APDUResponseDTO, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return b.service.TransmitAPDU(ctx, raw)
+}
+
+func (b *Bindings) DESFireInfo() (DESFireVersionDTO, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	return b.service.DESFireInfo(ctx)
+}
+
+func (b *Bindings) DESFireApplications() ([]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	return b.service.DESFireApplications(ctx)
+}
+
+func (b *Bindings) DESFireFiles(aid string) (DESFireFilesDTO, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	return b.service.DESFireFiles(ctx, aid)
+}
+
+func (b *Bindings) DESFireReadFile(aid string, file byte) (DESFireReadDTO, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	return b.service.DESFireReadFile(ctx, aid, file)
+}
+
+func (b *Bindings) ReadType4NDEF() (Type4NDEFDTO, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	return b.service.ReadType4NDEF(ctx)
+}
+
+func (b *Bindings) StartType4NDEFWrite(request Type4NDEFWriteRequestDTO) (TaskDTO, error) {
+	return b.service.StartType4NDEFWrite(request)
 }
 
 // GetType2Dump returns the latest Type 2 memory snapshot.

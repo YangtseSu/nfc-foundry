@@ -23,6 +23,8 @@ func (s *shell) familyLabel() string {
 		return s.locales().FamilyClassic()
 	case familyType2:
 		return s.locales().FamilyType2()
+	case familyISO14443:
+		return s.locales().FamilyISO14443()
 	default:
 		return s.locales().CommonUnknown()
 	}
@@ -34,6 +36,8 @@ func (s *shell) familyBadge() string {
 		return s.locales().BadgeClassic()
 	case familyType2:
 		return s.locales().BadgeType2()
+	case familyISO14443:
+		return s.locales().BadgeISO14443()
 	default:
 		return s.locales().CommonUnknown()
 	}
@@ -80,14 +84,23 @@ func (s *shell) workspace(c *ui.Context, p palette) {
 				s.blocksView(c, p)
 			case tabKeys:
 				s.keysView(c, p)
+			case tabRecovery:
+				s.recoveryView(c, p)
+			case tabAPDU:
+				s.apduView(c, p)
+			case tabDESFire:
+				s.desfireView(c, p)
 			case tabDetails:
 				s.detailsView(c, p)
 			case tabMemory:
 				s.type2MemoryView(c, p)
 			case tabNDEF:
-				if s.cardFamily() == familyClassic {
+				switch s.cardFamily() {
+				case familyClassic:
 					s.classicNDEFView(c, p)
-				} else {
+				case familyISO14443:
+					s.type4View(c, p)
+				default:
 					s.type2NDEFView(c, p)
 				}
 			case tabProtection:
@@ -112,6 +125,8 @@ func (s *shell) cardSubtitle() string {
 			return l.Type2NoData()
 		}
 		return l.Type2Subtitle(s.type2.Info.ProductName, s.type2.Info.TotalPages, s.type2.Info.UserBytes)
+	case familyISO14443:
+		return l.CardISO14443Hint()
 	case familyUnknown:
 		return l.CardUnsupported()
 	default:
@@ -133,6 +148,12 @@ func (s *shell) tabLabel(id tabID) string {
 		return s.locales().TabNDEF()
 	case tabProtection:
 		return s.locales().TabProtection()
+	case tabRecovery:
+		return s.locales().TabRecovery()
+	case tabAPDU:
+		return s.locales().TabAPDU()
+	case tabDESFire:
+		return s.locales().TabDESFire()
 	default:
 		return ""
 	}

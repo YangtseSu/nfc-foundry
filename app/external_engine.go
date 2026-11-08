@@ -69,6 +69,23 @@ func (s *Service) MFCUKStatus() ExternalEngineStatusDTO {
 	return status
 }
 
+func (s *Service) HardnestedStatus() ExternalEngineStatusDTO {
+	status := ExternalEngineStatusDTO{ID: "hardnested"}
+	if s.hardnestedAttack == nil || s.mfocLocator == nil {
+		status.Detail = "Hardnested is not configured"
+		return status
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := s.hardnestedAttack.Available(ctx); err != nil {
+		status.Detail = err.Error()
+		return status
+	}
+	status.Available = true
+	status.Detail = "Hardnested · authorized Classic cards with a verified seed key"
+	return status
+}
+
 func (s *Service) StartMFoC(input MFoCStartRequestDTO) (TaskDTO, error) {
 	return s.startMFoCFamily(mfoCFamilyMFoC, input.Authorized)
 }

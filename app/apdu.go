@@ -104,8 +104,11 @@ type Type4NDEFDTO struct {
 
 // Type4NDEFWriteRequestDTO replaces the Type 4 NDEF message.
 type Type4NDEFWriteRequestDTO struct {
-	Message []byte `json:"message"`
-	DryRun  bool   `json:"dryRun"`
+	Message      []byte `json:"message"`
+	DryRun       bool   `json:"dryRun"`
+	ExpectedUID  string `json:"expectedUid,omitempty"`
+	ExpectedATQA string `json:"expectedAtqa,omitempty"`
+	ExpectedSAK  string `json:"expectedSak,omitempty"`
 }
 
 // Type4NDEFWriteResultDTO reports the backup and final Type 4 state.
@@ -236,10 +239,55 @@ func (s *Service) ReadType4NDEF(ctx context.Context) (Type4NDEFDTO, error) {
 	return type4NDEFDTO(card, document), nil
 }
 
+// StartType4NDEFWrite replaces the Type 4 NDEF message as an asynchronous
+// task with the same backup and read-back rules as the synchronous path.
+func (s *Service) StartType4NDEFWrite(request Type4NDEFWriteRequestDTO) (TaskDTO, error) {
+	return s.startOperation("type4_ndef", "Write Type 4 NDEF message", func(ctx context.Context, taskID string) error {
+		s.emitOperation(TaskEventDetailDTO{TaskID: taskID, Kind: "type4_ndef", Type: TaskEventProgress, Message: "writing the Type 4 NDEF message"})
+		result, err := s.WriteType4NDEF(ctx, request)
+		if err != nil {
+			return err
+		}
+		message := fmt.Sprintf("wrote %d Type 4 NDEF bytes; backup %s", len(request.Message), result.Backup)
+		event := TaskEventDetailDTO{TaskID: taskID, Kind: "type4_ndef", Type: TaskEventProgress, Progress: 100, Message: message, BackupPath: result.Backup}
+		if result.NDEF != nil {
+			event.Type4 = result.NDEF
+		}
+		s.emitOperation(event)
+		return nil
+	})
+}
+
+func (request Type4NDEFWriteRequestDTO) verifyCard(card nfc.CardInfo) error {
+	if request.ExpectedUID == "" && request.ExpectedATQA == "" && request.ExpectedSAK == "" {
+		return nil
+	}
+	uid := formatHex(card.UID)
+	atqa := formatHex(card.ATQA[:])
+	sak := fmt.Sprintf("%02X", card.SAK)
+	if !strings.EqualFold(strings.TrimSpace(request.ExpectedUID), uid) ||
+		!strings.EqualFold(strings.TrimSpace(request.ExpectedATQA), atqa) ||
+		!strings.EqualFold(strings.TrimSpace(request.ExpectedSAK), sak) {
+		return nfc.NewError("Type 4 NDEF write", nfc.CodeCardChanged, "the card changed before the NDEF write", nil)
+	}
+	return nil
+}
+
+func (s *Service) type4CardSelected() bool {
+	snapshot := s.deviceManager.Snapshot()
+	if snapshot.Card == nil {
+		return false
+	}
+	return nfc.InferCardType(*snapshot.Card) == nfc.CardTypeISO14443
+}
+
 // WriteType4NDEF replaces the Type 4 NDEF message with a backup.
 func (s *Service) WriteType4NDEF(ctx context.Context, request Type4NDEFWriteRequestDTO) (Type4NDEFWriteResultDTO, error) {
 	card, err := s.iso14443Card()
 	if err != nil {
+		return Type4NDEFWriteResultDTO{}, err
+	}
+	if err := request.verifyCard(card); err != nil {
 		return Type4NDEFWriteResultDTO{}, err
 	}
 	result, err := s.apduService.WriteType4NDEF(ctx, workflow.Type4WriteRequest{

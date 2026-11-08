@@ -21,6 +21,7 @@ Status legend: `done`, `in progress`, `pending`, `conditional`.
 | 05i | NTAG copy and lifecycle operations | done |
 | 06 | Reader expansion and capability matrix | done |
 | 07 | ISO14443-4 APDU and DESFire read | in progress |
+| 07b | GUI parity with the full CLI command surface | done |
 | 08 | FeliCa / Type 3 NDEF scope | conditional |
 | 09 | Card emulation for mobile Linux (scope to be defined) | conditional |
 
@@ -33,6 +34,9 @@ Status legend: `done`, `in progress`, `pending`, `conditional`.
   hardware tests explicitly.
 - "Dangerous" is handled with an Advanced mode, per-action confirmation,
   backups, and read-back verification, not by silently omitting the feature.
+- The GUI must cover every user-facing CLI capability with the same safety
+  rules. Machine-readable output, exit codes, and shell automation remain
+  CLI-only and are not GUI features.
 - Advanced mode may expose generic bulk writes and otherwise hidden destructive
   operations. It is a user-authorized UI layer, not a protocol bypass.
 - Genuine Type 2 UID pages remain physically read-only; magic-clone UID work is
@@ -46,6 +50,8 @@ Status legend: `done`, `in progress`, `pending`, `conditional`.
 ## Rules
 
 - One phase at a time unless work is genuinely independent.
+- Do not merge a new CLI operation without its GUI counterpart. Keep the
+  Phase 07b parity matrix current in the same change.
 - Every phase needs a spec in `docs/specs/` before implementation and a note in
   `docs/notes/` when it is complete.
 - Do not advertise a reader or card family until its hardware validation is

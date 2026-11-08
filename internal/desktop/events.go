@@ -50,9 +50,19 @@ func (s *shell) applyEvent(name string, payload any) {
 			if event.ClassicNDEF != nil {
 				s.classicNDEF = *event.ClassicNDEF
 			}
+			if event.Type4 != nil {
+				s.type4 = *event.Type4
+			}
 			s.applyTaskEvent(event)
 		}
 	}
+}
+
+func (s *shell) resetCardDialogs() {
+	s.recoveryOpen = false
+	s.recoveryIntent = ""
+	s.type4WriteOpen = false
+	s.type4WriteIntent = nil
 }
 
 func (s *shell) applyDeviceState(event app.DeviceStateEventDTO) {
@@ -94,6 +104,7 @@ func (s *shell) applyDeviceState(event app.DeviceStateEventDTO) {
 			s.classicNDEF = app.ClassicNDEFDTO{}
 		}
 		s.resetAdvanced()
+		s.resetCardDialogs()
 	}
 	s.clampSelections()
 }
@@ -104,6 +115,7 @@ func (s *shell) applyCardEvent(event app.CardEventDTO) {
 		s.card = nil
 		s.classicNDEF = app.ClassicNDEFDTO{}
 		s.resetAdvanced()
+		s.resetCardDialogs()
 		s.clampSelections()
 		return
 	}
@@ -112,6 +124,7 @@ func (s *shell) applyCardEvent(event app.CardEventDTO) {
 	if previous != cardIdentity(s.card) {
 		s.classicNDEF = app.ClassicNDEFDTO{}
 		s.resetAdvanced()
+		s.resetCardDialogs()
 	}
 	s.clampSelections()
 }
@@ -156,8 +169,12 @@ func (s *shell) applyTaskEvent(event app.TaskEventDetailDTO) {
 		s.errorText = s.locales().ClassicNDEFFormatFailed(event.Message)
 	case event.Type == "failed" && event.Kind == "classic_ndef_read":
 		s.errorText = s.locales().ClassicNDEFReadFailed(event.Message)
+	case event.Type == "failed" && event.Kind == "type4_ndef":
+		s.errorText = s.locales().Type4Failed(event.Message)
 	case event.Type == "failed" && (event.Kind == "write" || event.Kind == "uid_write"):
 		s.errorText = s.locales().ClassicWriteFailed(event.Message)
+	case event.Type == "failed" && (event.Kind == "key_recovery" || event.Kind == "mfoc" || event.Kind == "hardnested" || event.Kind == "mfcuk_pipeline"):
+		s.errorText = s.locales().RecoveryFailed(event.Message)
 	case event.Type == app.TaskEventCompleted && (event.Kind == "type2_write" || event.Kind == "type2_ndef" || event.Kind == "type2_lifecycle"):
 		s.errorText = ""
 		s.toastText = s.locales().Type2WriteComplete()
@@ -173,6 +190,12 @@ func (s *shell) applyTaskEvent(event app.TaskEventDetailDTO) {
 	case event.Type == app.TaskEventCompleted && event.Kind == "uid_write":
 		s.errorText = ""
 		s.toastText = s.locales().ClassicUIDComplete()
+	case event.Type == app.TaskEventCompleted && event.Kind == "type4_ndef":
+		s.errorText = ""
+		s.toastText = s.locales().Type4WriteComplete()
+	case event.Type == app.TaskEventCompleted && (event.Kind == "key_recovery" || event.Kind == "mfoc" || event.Kind == "hardnested" || event.Kind == "mfcuk_pipeline"):
+		s.errorText = ""
+		s.toastText = s.locales().RecoveryComplete()
 	}
 	if event.UID != nil && event.UID.Verified && event.UID.NewUID != "" && s.card != nil {
 		s.card.UID = event.UID.NewUID

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/YangtseSu/nfc-foundry/app"
+	"github.com/YangtseSu/nfc-foundry/internal/diagnostic"
 	"github.com/YangtseSu/nfc-foundry/locales"
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/i18n"
@@ -37,6 +38,9 @@ const (
 	tabMemory     tabID = "memory"
 	tabNDEF       tabID = "ndef"
 	tabProtection tabID = "protection"
+	tabRecovery   tabID = "recovery"
+	tabAPDU       tabID = "apdu"
+	tabDESFire    tabID = "desfire"
 )
 
 type tabSpec struct {
@@ -52,6 +56,7 @@ const (
 	familyNone cardFamily = iota
 	familyClassic
 	familyType2
+	familyISO14443
 	familyUnknown
 )
 
@@ -174,6 +179,35 @@ type shell struct {
 	type2ProtConfirm   string
 	keyChosen          string
 	keyChosenRow       int
+
+	recoveryStatuses map[string]app.ExternalEngineStatusDTO
+	recoveryLoaded   bool
+	recoveryLoading  bool
+	recoveryIntent   string
+	recoveryOpen     bool
+
+	apduInput    string
+	apduResponse *app.APDUResponseDTO
+	apduError    string
+	apduLoading  bool
+
+	desfireAID     string
+	desfireFileID  string
+	desfireInfo    *app.DESFireVersionDTO
+	desfireApps    []string
+	desfireFiles   *app.DESFireFilesDTO
+	desfireRead    *app.DESFireReadDTO
+	desfireError   string
+	desfireLoading bool
+
+	type4            app.Type4NDEFDTO
+	type4Loading     bool
+	type4WriteOpen   bool
+	type4WriteIntent *type4NDEFIntent
+
+	diagnosticsOpen    bool
+	diagnosticsLoading bool
+	diagnostics        *diagnostic.Report
 
 	blockList    ui.ListState
 	type2List    ui.ListState
@@ -315,6 +349,9 @@ func (s *shell) view(c *ui.Context) {
 	s.classicNDEFWriteDialog(c)
 	s.classicNDEFFormatDialog(c)
 	s.type2ProtectionDialog(c)
+	s.type4WriteDialog(c)
+	s.diagnosticsModal(c, p)
+	s.recoveryDialog(c)
 	s.classicDialogView(c)
 }
 
@@ -642,6 +679,8 @@ func (s *shell) cardFamily() cardFamily {
 		return familyClassic
 	case strings.Contains(code, "ntag"), strings.Contains(code, "ultralight"), strings.Contains(code, "type_2"), strings.Contains(code, "type2"):
 		return familyType2
+	case strings.Contains(code, "iso14443"):
+		return familyISO14443
 	default:
 		return familyUnknown
 	}
@@ -730,6 +769,7 @@ func (s *shell) tabSpecs() []tabSpec {
 				}
 				return ""
 			}},
+			{id: tabRecovery, label: locales.Messages.TabRecovery, enabled: true},
 			{id: tabNDEF, label: locales.Messages.TabNDEF, enabled: true},
 			{id: tabDetails, label: locales.Messages.TabDetails, enabled: true},
 		}
@@ -743,6 +783,13 @@ func (s *shell) tabSpecs() []tabSpec {
 			}},
 			{id: tabNDEF, label: locales.Messages.TabNDEF, enabled: true},
 			{id: tabProtection, label: locales.Messages.TabProtection, enabled: true},
+			{id: tabDetails, label: locales.Messages.TabDetails, enabled: true},
+		}
+	case familyISO14443:
+		return []tabSpec{
+			{id: tabAPDU, label: locales.Messages.TabAPDU, enabled: true},
+			{id: tabDESFire, label: locales.Messages.TabDESFire, enabled: true},
+			{id: tabNDEF, label: locales.Messages.TabNDEF, enabled: true},
 			{id: tabDetails, label: locales.Messages.TabDetails, enabled: true},
 		}
 	case familyUnknown:
@@ -920,7 +967,7 @@ func (s *shell) activityKindLabel(l locales.Messages, kind string) string {
 		return l.ActivityKindKeyScan()
 	case "keys":
 		return l.ActivityKindKeys()
-	case "key_recovery":
+	case "key_recovery", "mfoc", "hardnested", "mfcuk_pipeline":
 		return l.ActivityKindKeyRecovery()
 	case "write":
 		return l.ActivityKindClassicWrite()

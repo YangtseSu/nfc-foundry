@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/YangtseSu/nfc-foundry/app"
+	"github.com/YangtseSu/nfc-foundry/internal/diagnostic"
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 )
@@ -14,6 +15,7 @@ import (
 // by app.Bindings and replaced by a fake in UI tests.
 type Backend interface {
 	GetDashboard() app.DashboardDTO
+	GetDiagnostics() diagnostic.Report
 	RefreshDevices() ([]app.DeviceDTO, error)
 	ConnectDevice(connString string) error
 	DisconnectDevice() error
@@ -64,6 +66,20 @@ type Backend interface {
 	PreflightType2Protection(app.Type2ProtectionWriteRequestDTO) (app.Type2ProtectionPreflightDTO, error)
 	StartType2ProtectionWrite(app.Type2ProtectionWriteRequestDTO) (app.TaskDTO, error)
 	StartKeyScan(discardDirty bool) (app.TaskDTO, error)
+	TransmitAPDU(raw string) (app.APDUResponseDTO, error)
+	DESFireInfo() (app.DESFireVersionDTO, error)
+	DESFireApplications() ([]string, error)
+	DESFireFiles(aid string) (app.DESFireFilesDTO, error)
+	DESFireReadFile(aid string, file byte) (app.DESFireReadDTO, error)
+	ReadType4NDEF() (app.Type4NDEFDTO, error)
+	StartType4NDEFWrite(app.Type4NDEFWriteRequestDTO) (app.TaskDTO, error)
+	MFoCStatus() app.ExternalEngineStatusDTO
+	MFCUKStatus() app.ExternalEngineStatusDTO
+	HardnestedStatus() app.ExternalEngineStatusDTO
+	StartKeyRecovery(app.KeyRecoveryStartRequestDTO) (app.TaskDTO, error)
+	StartMFoC(app.MFoCStartRequestDTO) (app.TaskDTO, error)
+	StartMFCUKPipeline(app.MFCUKStartRequestDTO) (app.TaskDTO, error)
+	StartHardnested(app.HardnestedStartRequestDTO) (app.TaskDTO, error)
 	CancelTask(taskID string) error
 }
 

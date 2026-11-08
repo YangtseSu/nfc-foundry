@@ -323,6 +323,12 @@ Use `--device`, `--json`, `--yes`, and `--dry-run` consistently. Destructive
 operations require explicit confirmation. Exit codes must distinguish usage,
 validation, permission, hardware, and engine failures.
 
+The GUI must cover every user-facing capability in the CLI. A new CLI command
+is incomplete until the GUI exposes the same operation with the same preflight,
+confirmation, backup, and verification rules. Machine-readable output, exit
+codes, and shell automation are CLI-only; they do not excuse a missing GUI
+workflow.
+
 Do not reimplement upstream demo utilities, including their emulation examples,
 relay, DEP, SAM, or barcode experiments. Card emulation as a product capability
 is a conditional future phase (Phase 09), not a global non-goal; the initial

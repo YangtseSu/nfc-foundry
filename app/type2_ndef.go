@@ -94,7 +94,7 @@ func (s *Service) PreviewType2NDEFRaw(request Type2NDEFRawRequestDTO) (Type2NDEF
 	if err != nil {
 		return Type2NDEFPreviewDTO{}, err
 	}
-	return Type2NDEFPreviewDTO{Template: "raw", Length: len(message)}, nil
+	return Type2NDEFPreviewDTO{Template: "raw", Length: len(message), Message: strings.ToUpper(hex.EncodeToString(message))}, nil
 }
 
 // PreviewType2NDEFRecords validates a multi-record message without touching a
@@ -104,7 +104,7 @@ func (s *Service) PreviewType2NDEFRecords(request Type2NDEFRecordsRequestDTO) (T
 	if err != nil {
 		return Type2NDEFPreviewDTO{}, err
 	}
-	return Type2NDEFPreviewDTO{Template: "records", Length: len(message)}, nil
+	return Type2NDEFPreviewDTO{Template: "records", Length: len(message), Message: strings.ToUpper(hex.EncodeToString(message))}, nil
 }
 
 func encodeType2NDEFRecords(records []Type2NDEFRecordInputDTO) ([]byte, error) {

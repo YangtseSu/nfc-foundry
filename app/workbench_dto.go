@@ -220,6 +220,7 @@ type TaskEventDetailDTO struct {
 	Recovery         *KeyRecoveryResultDTO      `json:"recovery,omitempty"`
 	UID              *UIDWriteResultDTO         `json:"uid,omitempty"`
 	Type2            *Type2DumpDTO              `json:"type2,omitempty"`
+	Type4            *Type4NDEFDTO              `json:"type4,omitempty"`
 	ClassicNDEF      *ClassicNDEFDTO            `json:"classicNdef,omitempty"`
 	ClassicNDEFWrite *ClassicNDEFWriteResultDTO `json:"classicNdefWrite,omitempty"`
 	BackupPath       string                     `json:"backupPath,omitempty"`

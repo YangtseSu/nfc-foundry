@@ -18,10 +18,12 @@ facts, Classic block read/write, dump/restore, key scanning, key recovery, UID
 writes with an in-process Gen1A path, Type 2 page access, NDEF read/write
 from the CLI and GUI, Classic NDEF read/write/format through the MIFARE
 Application Directory, an ISO/IEC 14443-4 APDU foundation with read-only
-DESFire access and Type 4 NDEF, diagnostics, and the key catalog. Classic GUI writes
-cover ordinary data blocks, changed-block writes, full restore with a mandatory
-pre-write backup, and advanced UID writes. The reader layer compiles the five
-drivers in the application profile and reports an explicit capability profile
+DESFire access and Type 4 NDEF, diagnostics, and the key catalog. The GUI now
+exposes the CLI operations end to end: nested/darkside/hardnested key recovery,
+raw APDU diagnostics, read-only DESFire views, Type 4 NDEF read/write, and the
+self-check report. Classic GUI writes cover ordinary data blocks, changed-block
+writes, full restore with a mandatory pre-write backup, and advanced UID
+writes. The reader layer compiles the five drivers in the application profile and reports an explicit capability profile
 for each; the remaining migration is tracked in
 [`docs/plan/`](docs/plan/).
 

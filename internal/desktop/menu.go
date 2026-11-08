@@ -25,6 +25,9 @@ func (s *shell) menu() *mygo.Menu {
 		{Role: mygo.RoleAppMenu},
 		{Role: mygo.RoleEditMenu},
 		{Role: mygo.RoleViewMenu},
+		{Label: l.MenuDiagnostics(), Click: func(*mygo.MenuItem, *mygo.Window) {
+			s.openDiagnostics()
+		}},
 		{Label: l.MenuLanguage(), Submenu: languages},
 		{Role: mygo.RoleWindowMenu},
 	})

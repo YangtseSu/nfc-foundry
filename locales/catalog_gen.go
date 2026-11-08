@@ -94,6 +94,156 @@ func (msgs Messages) LanguageShortZH() string {
 	return Catalog.Format(msgs.locale, "languageShortZH", nil)
 }
 
+// MenuDiagnostics says "Diagnostics"
+// in the language the app shows.
+func MenuDiagnostics() string { return In(i18n.Locale()).MenuDiagnostics() }
+
+// MenuDiagnostics says "Diagnostics"
+// in the language of msgs.
+func (msgs Messages) MenuDiagnostics() string {
+	return Catalog.Format(msgs.locale, "menuDiagnostics", nil)
+}
+
+// DiagnosticsTitle says "Diagnostics"
+// in the language the app shows.
+func DiagnosticsTitle() string { return In(i18n.Locale()).DiagnosticsTitle() }
+
+// DiagnosticsTitle says "Diagnostics"
+// in the language of msgs.
+func (msgs Messages) DiagnosticsTitle() string {
+	return Catalog.Format(msgs.locale, "diagnosticsTitle", nil)
+}
+
+// DiagnosticsLoading says "Running the self-check…"
+// in the language the app shows.
+func DiagnosticsLoading() string { return In(i18n.Locale()).DiagnosticsLoading() }
+
+// DiagnosticsLoading says "Running the self-check…"
+// in the language of msgs.
+func (msgs Messages) DiagnosticsLoading() string {
+	return Catalog.Format(msgs.locale, "diagnosticsLoading", nil)
+}
+
+// DiagnosticsHealthy says "Healthy"
+// in the language the app shows.
+func DiagnosticsHealthy() string { return In(i18n.Locale()).DiagnosticsHealthy() }
+
+// DiagnosticsHealthy says "Healthy"
+// in the language of msgs.
+func (msgs Messages) DiagnosticsHealthy() string {
+	return Catalog.Format(msgs.locale, "diagnosticsHealthy", nil)
+}
+
+// DiagnosticsUnhealthy says "Attention needed"
+// in the language the app shows.
+func DiagnosticsUnhealthy() string { return In(i18n.Locale()).DiagnosticsUnhealthy() }
+
+// DiagnosticsUnhealthy says "Attention needed"
+// in the language of msgs.
+func (msgs Messages) DiagnosticsUnhealthy() string {
+	return Catalog.Format(msgs.locale, "diagnosticsUnhealthy", nil)
+}
+
+// DiagnosticsBuild says "Build {version} ({commit})"
+// in the language the app shows.
+func DiagnosticsBuild(version string, commit string) string {
+	return In(i18n.Locale()).DiagnosticsBuild(version, commit)
+}
+
+// DiagnosticsBuild says "Build {version} ({commit})"
+// in the language of msgs.
+func (msgs Messages) DiagnosticsBuild(version string, commit string) string {
+	return Catalog.Format(msgs.locale, "diagnosticsBuild", map[string]any{"version": version, "commit": commit})
+}
+
+// DiagnosticsGo says "Go {version} · {os}/{arch}"
+// in the language the app shows.
+func DiagnosticsGo(version string, os string, arch string) string {
+	return In(i18n.Locale()).DiagnosticsGo(version, os, arch)
+}
+
+// DiagnosticsGo says "Go {version} · {os}/{arch}"
+// in the language of msgs.
+func (msgs Messages) DiagnosticsGo(version string, os string, arch string) string {
+	return Catalog.Format(msgs.locale, "diagnosticsGo", map[string]any{"version": version, "os": os, "arch": arch})
+}
+
+// DiagnosticsRuntime says "libnfc-ng {version}"
+// in the language the app shows.
+func DiagnosticsRuntime(version string) string { return In(i18n.Locale()).DiagnosticsRuntime(version) }
+
+// DiagnosticsRuntime says "libnfc-ng {version}"
+// in the language of msgs.
+func (msgs Messages) DiagnosticsRuntime(version string) string {
+	return Catalog.Format(msgs.locale, "diagnosticsRuntime", map[string]any{"version": version})
+}
+
+// DiagnosticsRuntimeMissing says "libnfc-ng unavailable: {detail}"
+// in the language the app shows.
+func DiagnosticsRuntimeMissing(detail string) string {
+	return In(i18n.Locale()).DiagnosticsRuntimeMissing(detail)
+}
+
+// DiagnosticsRuntimeMissing says "libnfc-ng unavailable: {detail}"
+// in the language of msgs.
+func (msgs Messages) DiagnosticsRuntimeMissing(detail string) string {
+	return Catalog.Format(msgs.locale, "diagnosticsRuntimeMissing", map[string]any{"detail": detail})
+}
+
+// DiagnosticsEngines says "Engines"
+// in the language the app shows.
+func DiagnosticsEngines() string { return In(i18n.Locale()).DiagnosticsEngines() }
+
+// DiagnosticsEngines says "Engines"
+// in the language of msgs.
+func (msgs Messages) DiagnosticsEngines() string {
+	return Catalog.Format(msgs.locale, "diagnosticsEngines", nil)
+}
+
+// DiagnosticsManifest says "Runtime manifest"
+// in the language the app shows.
+func DiagnosticsManifest() string { return In(i18n.Locale()).DiagnosticsManifest() }
+
+// DiagnosticsManifest says "Runtime manifest"
+// in the language of msgs.
+func (msgs Messages) DiagnosticsManifest() string {
+	return Catalog.Format(msgs.locale, "diagnosticsManifest", nil)
+}
+
+// DiagnosticsManifestVerified says "{files} files verified"
+// in the language the app shows.
+func DiagnosticsManifestVerified(files string) string {
+	return In(i18n.Locale()).DiagnosticsManifestVerified(files)
+}
+
+// DiagnosticsManifestVerified says "{files} files verified"
+// in the language of msgs.
+func (msgs Messages) DiagnosticsManifestVerified(files string) string {
+	return Catalog.Format(msgs.locale, "diagnosticsManifestVerified", map[string]any{"files": files})
+}
+
+// DiagnosticsManifestMissing says "Not verified: {detail}"
+// in the language the app shows.
+func DiagnosticsManifestMissing(detail string) string {
+	return In(i18n.Locale()).DiagnosticsManifestMissing(detail)
+}
+
+// DiagnosticsManifestMissing says "Not verified: {detail}"
+// in the language of msgs.
+func (msgs Messages) DiagnosticsManifestMissing(detail string) string {
+	return Catalog.Format(msgs.locale, "diagnosticsManifestMissing", map[string]any{"detail": detail})
+}
+
+// DiagnosticsClose says "Close"
+// in the language the app shows.
+func DiagnosticsClose() string { return In(i18n.Locale()).DiagnosticsClose() }
+
+// DiagnosticsClose says "Close"
+// in the language of msgs.
+func (msgs Messages) DiagnosticsClose() string {
+	return Catalog.Format(msgs.locale, "diagnosticsClose", nil)
+}
+
 // MenuLanguage says "Language"
 // in the language the app shows.
 func MenuLanguage() string { return In(i18n.Locale()).MenuLanguage() }
@@ -712,6 +862,36 @@ func TabProtection() string { return In(i18n.Locale()).TabProtection() }
 // in the language of msgs.
 func (msgs Messages) TabProtection() string {
 	return Catalog.Format(msgs.locale, "tabProtection", nil)
+}
+
+// TabRecovery says "Recovery"
+// in the language the app shows.
+func TabRecovery() string { return In(i18n.Locale()).TabRecovery() }
+
+// TabRecovery says "Recovery"
+// in the language of msgs.
+func (msgs Messages) TabRecovery() string {
+	return Catalog.Format(msgs.locale, "tabRecovery", nil)
+}
+
+// TabAPDU says "APDU"
+// in the language the app shows.
+func TabAPDU() string { return In(i18n.Locale()).TabAPDU() }
+
+// TabAPDU says "APDU"
+// in the language of msgs.
+func (msgs Messages) TabAPDU() string {
+	return Catalog.Format(msgs.locale, "tabAPDU", nil)
+}
+
+// TabDESFire says "DESFire"
+// in the language the app shows.
+func TabDESFire() string { return In(i18n.Locale()).TabDESFire() }
+
+// TabDESFire says "DESFire"
+// in the language of msgs.
+func (msgs Messages) TabDESFire() string {
+	return Catalog.Format(msgs.locale, "tabDESFire", nil)
 }
 
 // MetricBlocks says "Block count"
@@ -1738,6 +1918,860 @@ func ScanStarted() string { return In(i18n.Locale()).ScanStarted() }
 // in the language of msgs.
 func (msgs Messages) ScanStarted() string {
 	return Catalog.Format(msgs.locale, "scanStarted", nil)
+}
+
+// RecoveryTitle says "Key recovery"
+// in the language the app shows.
+func RecoveryTitle() string { return In(i18n.Locale()).RecoveryTitle() }
+
+// RecoveryTitle says "Key recovery"
+// in the language of msgs.
+func (msgs Messages) RecoveryTitle() string {
+	return Catalog.Format(msgs.locale, "recoveryTitle", nil)
+}
+
+// RecoveryIntro says "Active card testing for unknown sector keys. Automatic recovery scans known keys, uses darkside only when no key is v…"
+// in the language the app shows.
+func RecoveryIntro() string { return In(i18n.Locale()).RecoveryIntro() }
+
+// RecoveryIntro says "Active card testing for unknown sector keys. Automatic recovery scans known keys, uses darkside only when no key is v…"
+// in the language of msgs.
+func (msgs Messages) RecoveryIntro() string {
+	return Catalog.Format(msgs.locale, "recoveryIntro", nil)
+}
+
+// RecoveryRefresh says "Refresh engines"
+// in the language the app shows.
+func RecoveryRefresh() string { return In(i18n.Locale()).RecoveryRefresh() }
+
+// RecoveryRefresh says "Refresh engines"
+// in the language of msgs.
+func (msgs Messages) RecoveryRefresh() string {
+	return Catalog.Format(msgs.locale, "recoveryRefresh", nil)
+}
+
+// RecoveryAutomatic says "Automatic recovery"
+// in the language the app shows.
+func RecoveryAutomatic() string { return In(i18n.Locale()).RecoveryAutomatic() }
+
+// RecoveryAutomatic says "Automatic recovery"
+// in the language of msgs.
+func (msgs Messages) RecoveryAutomatic() string {
+	return Catalog.Format(msgs.locale, "recoveryAutomatic", nil)
+}
+
+// RecoveryAutomaticHint says "Common keys → darkside as needed → nested → hardnested as needed → verified read."
+// in the language the app shows.
+func RecoveryAutomaticHint() string { return In(i18n.Locale()).RecoveryAutomaticHint() }
+
+// RecoveryAutomaticHint says "Common keys → darkside as needed → nested → hardnested as needed → verified read."
+// in the language of msgs.
+func (msgs Messages) RecoveryAutomaticHint() string {
+	return Catalog.Format(msgs.locale, "recoveryAutomaticHint", nil)
+}
+
+// RecoveryNested says "Nested (MFOC)"
+// in the language the app shows.
+func RecoveryNested() string { return In(i18n.Locale()).RecoveryNested() }
+
+// RecoveryNested says "Nested (MFOC)"
+// in the language of msgs.
+func (msgs Messages) RecoveryNested() string {
+	return Catalog.Format(msgs.locale, "recoveryNested", nil)
+}
+
+// RecoveryNestedHint says "Needs at least one verified seed key and a non-hardened card."
+// in the language the app shows.
+func RecoveryNestedHint() string { return In(i18n.Locale()).RecoveryNestedHint() }
+
+// RecoveryNestedHint says "Needs at least one verified seed key and a non-hardened card."
+// in the language of msgs.
+func (msgs Messages) RecoveryNestedHint() string {
+	return Catalog.Format(msgs.locale, "recoveryNestedHint", nil)
+}
+
+// RecoveryDarkside says "Darkside (MFCUK)"
+// in the language the app shows.
+func RecoveryDarkside() string { return In(i18n.Locale()).RecoveryDarkside() }
+
+// RecoveryDarkside says "Darkside (MFCUK)"
+// in the language of msgs.
+func (msgs Messages) RecoveryDarkside() string {
+	return Catalog.Format(msgs.locale, "recoveryDarkside", nil)
+}
+
+// RecoveryDarksideHint says "Classic 1K on a PN532 UART reader, with no verified keys."
+// in the language the app shows.
+func RecoveryDarksideHint() string { return In(i18n.Locale()).RecoveryDarksideHint() }
+
+// RecoveryDarksideHint says "Classic 1K on a PN532 UART reader, with no verified keys."
+// in the language of msgs.
+func (msgs Messages) RecoveryDarksideHint() string {
+	return Catalog.Format(msgs.locale, "recoveryDarksideHint", nil)
+}
+
+// RecoveryHardnested says "Hardnested"
+// in the language the app shows.
+func RecoveryHardnested() string { return In(i18n.Locale()).RecoveryHardnested() }
+
+// RecoveryHardnested says "Hardnested"
+// in the language of msgs.
+func (msgs Messages) RecoveryHardnested() string {
+	return Catalog.Format(msgs.locale, "recoveryHardnested", nil)
+}
+
+// RecoveryHardnestedHint says "Needs a verified seed key; use when nested fails on a hardened card."
+// in the language the app shows.
+func RecoveryHardnestedHint() string { return In(i18n.Locale()).RecoveryHardnestedHint() }
+
+// RecoveryHardnestedHint says "Needs a verified seed key; use when nested fails on a hardened card."
+// in the language of msgs.
+func (msgs Messages) RecoveryHardnestedHint() string {
+	return Catalog.Format(msgs.locale, "recoveryHardnestedHint", nil)
+}
+
+// RecoveryEngineAvailable says "Available"
+// in the language the app shows.
+func RecoveryEngineAvailable() string { return In(i18n.Locale()).RecoveryEngineAvailable() }
+
+// RecoveryEngineAvailable says "Available"
+// in the language of msgs.
+func (msgs Messages) RecoveryEngineAvailable() string {
+	return Catalog.Format(msgs.locale, "recoveryEngineAvailable", nil)
+}
+
+// RecoveryEngineUnavailable says "Unavailable"
+// in the language the app shows.
+func RecoveryEngineUnavailable() string { return In(i18n.Locale()).RecoveryEngineUnavailable() }
+
+// RecoveryEngineUnavailable says "Unavailable"
+// in the language of msgs.
+func (msgs Messages) RecoveryEngineUnavailable() string {
+	return Catalog.Format(msgs.locale, "recoveryEngineUnavailable", nil)
+}
+
+// RecoveryStart says "Start"
+// in the language the app shows.
+func RecoveryStart() string { return In(i18n.Locale()).RecoveryStart() }
+
+// RecoveryStart says "Start"
+// in the language of msgs.
+func (msgs Messages) RecoveryStart() string {
+	return Catalog.Format(msgs.locale, "recoveryStart", nil)
+}
+
+// RecoveryNoCard says "Place a MIFARE Classic card to recover its sector keys."
+// in the language the app shows.
+func RecoveryNoCard() string { return In(i18n.Locale()).RecoveryNoCard() }
+
+// RecoveryNoCard says "Place a MIFARE Classic card to recover its sector keys."
+// in the language of msgs.
+func (msgs Messages) RecoveryNoCard() string {
+	return Catalog.Format(msgs.locale, "recoveryNoCard", nil)
+}
+
+// RecoverySeedRequired says "Scan known keys first: this mode needs at least one verified key."
+// in the language the app shows.
+func RecoverySeedRequired() string { return In(i18n.Locale()).RecoverySeedRequired() }
+
+// RecoverySeedRequired says "Scan known keys first: this mode needs at least one verified key."
+// in the language of msgs.
+func (msgs Messages) RecoverySeedRequired() string {
+	return Catalog.Format(msgs.locale, "recoverySeedRequired", nil)
+}
+
+// RecoveryDarksideClassic1K says "Darkside supports MIFARE Classic 1K only."
+// in the language the app shows.
+func RecoveryDarksideClassic1K() string { return In(i18n.Locale()).RecoveryDarksideClassic1K() }
+
+// RecoveryDarksideClassic1K says "Darkside supports MIFARE Classic 1K only."
+// in the language of msgs.
+func (msgs Messages) RecoveryDarksideClassic1K() string {
+	return Catalog.Format(msgs.locale, "recoveryDarksideClassic1K", nil)
+}
+
+// RecoveryDarksideSeedKnown says "Darkside requires a card with no verified keys."
+// in the language the app shows.
+func RecoveryDarksideSeedKnown() string { return In(i18n.Locale()).RecoveryDarksideSeedKnown() }
+
+// RecoveryDarksideSeedKnown says "Darkside requires a card with no verified keys."
+// in the language of msgs.
+func (msgs Messages) RecoveryDarksideSeedKnown() string {
+	return Catalog.Format(msgs.locale, "recoveryDarksideSeedKnown", nil)
+}
+
+// RecoveryStartMode says "Start {mode}"
+// in the language the app shows.
+func RecoveryStartMode(mode string) string { return In(i18n.Locale()).RecoveryStartMode(mode) }
+
+// RecoveryStartMode says "Start {mode}"
+// in the language of msgs.
+func (msgs Messages) RecoveryStartMode(mode string) string {
+	return Catalog.Format(msgs.locale, "recoveryStartMode", map[string]any{"mode": mode})
+}
+
+// RecoveryUnsavedChanges says "Save or discard the unsaved Classic changes before starting key recovery."
+// in the language the app shows.
+func RecoveryUnsavedChanges() string { return In(i18n.Locale()).RecoveryUnsavedChanges() }
+
+// RecoveryUnsavedChanges says "Save or discard the unsaved Classic changes before starting key recovery."
+// in the language of msgs.
+func (msgs Messages) RecoveryUnsavedChanges() string {
+	return Catalog.Format(msgs.locale, "recoveryUnsavedChanges", nil)
+}
+
+// RecoveryConfirmTitle says "Run {mode}?"
+// in the language the app shows.
+func RecoveryConfirmTitle(mode string) string { return In(i18n.Locale()).RecoveryConfirmTitle(mode) }
+
+// RecoveryConfirmTitle says "Run {mode}?"
+// in the language of msgs.
+func (msgs Messages) RecoveryConfirmTitle(mode string) string {
+	return Catalog.Format(msgs.locale, "recoveryConfirmTitle", map[string]any{"mode": mode})
+}
+
+// RecoveryConfirmMessage says "Only test cards you own or are authorized to use. The reader is released to the recovery engine, the engine output is…"
+// in the language the app shows.
+func RecoveryConfirmMessage() string { return In(i18n.Locale()).RecoveryConfirmMessage() }
+
+// RecoveryConfirmMessage says "Only test cards you own or are authorized to use. The reader is released to the recovery engine, the engine output is…"
+// in the language of msgs.
+func (msgs Messages) RecoveryConfirmMessage() string {
+	return Catalog.Format(msgs.locale, "recoveryConfirmMessage", nil)
+}
+
+// RecoveryConfirm says "Start recovery"
+// in the language the app shows.
+func RecoveryConfirm() string { return In(i18n.Locale()).RecoveryConfirm() }
+
+// RecoveryConfirm says "Start recovery"
+// in the language of msgs.
+func (msgs Messages) RecoveryConfirm() string {
+	return Catalog.Format(msgs.locale, "recoveryConfirm", nil)
+}
+
+// RecoveryStarted says "Key recovery task started."
+// in the language the app shows.
+func RecoveryStarted() string { return In(i18n.Locale()).RecoveryStarted() }
+
+// RecoveryStarted says "Key recovery task started."
+// in the language of msgs.
+func (msgs Messages) RecoveryStarted() string {
+	return Catalog.Format(msgs.locale, "recoveryStarted", nil)
+}
+
+// RecoveryComplete says "Key recovery completed; verified keys and readable data were kept."
+// in the language the app shows.
+func RecoveryComplete() string { return In(i18n.Locale()).RecoveryComplete() }
+
+// RecoveryComplete says "Key recovery completed; verified keys and readable data were kept."
+// in the language of msgs.
+func (msgs Messages) RecoveryComplete() string {
+	return Catalog.Format(msgs.locale, "recoveryComplete", nil)
+}
+
+// RecoveryFailed says "Key recovery failed: {message}"
+// in the language the app shows.
+func RecoveryFailed(message string) string { return In(i18n.Locale()).RecoveryFailed(message) }
+
+// RecoveryFailed says "Key recovery failed: {message}"
+// in the language of msgs.
+func (msgs Messages) RecoveryFailed(message string) string {
+	return Catalog.Format(msgs.locale, "recoveryFailed", map[string]any{"message": message})
+}
+
+// FamilyISO14443 says "ISO/IEC 14443-4"
+// in the language the app shows.
+func FamilyISO14443() string { return In(i18n.Locale()).FamilyISO14443() }
+
+// FamilyISO14443 says "ISO/IEC 14443-4"
+// in the language of msgs.
+func (msgs Messages) FamilyISO14443() string {
+	return Catalog.Format(msgs.locale, "familyISO14443", nil)
+}
+
+// BadgeISO14443 says "ISO-DEP"
+// in the language the app shows.
+func BadgeISO14443() string { return In(i18n.Locale()).BadgeISO14443() }
+
+// BadgeISO14443 says "ISO-DEP"
+// in the language of msgs.
+func (msgs Messages) BadgeISO14443() string {
+	return Catalog.Format(msgs.locale, "badgeISO14443", nil)
+}
+
+// CardISO14443Hint says "ISO/IEC 14443-4 card. Use the APDU, DESFire, or NDEF tab."
+// in the language the app shows.
+func CardISO14443Hint() string { return In(i18n.Locale()).CardISO14443Hint() }
+
+// CardISO14443Hint says "ISO/IEC 14443-4 card. Use the APDU, DESFire, or NDEF tab."
+// in the language of msgs.
+func (msgs Messages) CardISO14443Hint() string {
+	return Catalog.Format(msgs.locale, "cardISO14443Hint", nil)
+}
+
+// ApduTitle says "APDU diagnostic"
+// in the language the app shows.
+func ApduTitle() string { return In(i18n.Locale()).ApduTitle() }
+
+// ApduTitle says "APDU diagnostic"
+// in the language of msgs.
+func (msgs Messages) ApduTitle() string {
+	return Catalog.Format(msgs.locale, "apduTitle", nil)
+}
+
+// ApduIntro says "Send one short APDU to the selected ISO-DEP card and inspect the response. This is a diagnostic path: arbitrary APDUs…"
+// in the language the app shows.
+func ApduIntro() string { return In(i18n.Locale()).ApduIntro() }
+
+// ApduIntro says "Send one short APDU to the selected ISO-DEP card and inspect the response. This is a diagnostic path: arbitrary APDUs…"
+// in the language of msgs.
+func (msgs Messages) ApduIntro() string {
+	return Catalog.Format(msgs.locale, "apduIntro", nil)
+}
+
+// ApduInput says "APDU"
+// in the language the app shows.
+func ApduInput() string { return In(i18n.Locale()).ApduInput() }
+
+// ApduInput says "APDU"
+// in the language of msgs.
+func (msgs Messages) ApduInput() string {
+	return Catalog.Format(msgs.locale, "apduInput", nil)
+}
+
+// ApduPlaceholder says "00 A4 04 00"
+// in the language the app shows.
+func ApduPlaceholder() string { return In(i18n.Locale()).ApduPlaceholder() }
+
+// ApduPlaceholder says "00 A4 04 00"
+// in the language of msgs.
+func (msgs Messages) ApduPlaceholder() string {
+	return Catalog.Format(msgs.locale, "apduPlaceholder", nil)
+}
+
+// ApduSend says "Send APDU"
+// in the language the app shows.
+func ApduSend() string { return In(i18n.Locale()).ApduSend() }
+
+// ApduSend says "Send APDU"
+// in the language of msgs.
+func (msgs Messages) ApduSend() string {
+	return Catalog.Format(msgs.locale, "apduSend", nil)
+}
+
+// ApduResponse says "Response"
+// in the language the app shows.
+func ApduResponse() string { return In(i18n.Locale()).ApduResponse() }
+
+// ApduResponse says "Response"
+// in the language of msgs.
+func (msgs Messages) ApduResponse() string {
+	return Catalog.Format(msgs.locale, "apduResponse", nil)
+}
+
+// ApduSW says "Status word"
+// in the language the app shows.
+func ApduSW() string { return In(i18n.Locale()).ApduSW() }
+
+// ApduSW says "Status word"
+// in the language of msgs.
+func (msgs Messages) ApduSW() string {
+	return Catalog.Format(msgs.locale, "apduSW", nil)
+}
+
+// ApduATS says "ATS"
+// in the language the app shows.
+func ApduATS() string { return In(i18n.Locale()).ApduATS() }
+
+// ApduATS says "ATS"
+// in the language of msgs.
+func (msgs Messages) ApduATS() string {
+	return Catalog.Format(msgs.locale, "apduATS", nil)
+}
+
+// ApduData says "Response data"
+// in the language the app shows.
+func ApduData() string { return In(i18n.Locale()).ApduData() }
+
+// ApduData says "Response data"
+// in the language of msgs.
+func (msgs Messages) ApduData() string {
+	return Catalog.Format(msgs.locale, "apduData", nil)
+}
+
+// ApduStatusOK says "OK"
+// in the language the app shows.
+func ApduStatusOK() string { return In(i18n.Locale()).ApduStatusOK() }
+
+// ApduStatusOK says "OK"
+// in the language of msgs.
+func (msgs Messages) ApduStatusOK() string {
+	return Catalog.Format(msgs.locale, "apduStatusOK", nil)
+}
+
+// ApduStatusError says "Card error"
+// in the language the app shows.
+func ApduStatusError() string { return In(i18n.Locale()).ApduStatusError() }
+
+// ApduStatusError says "Card error"
+// in the language of msgs.
+func (msgs Messages) ApduStatusError() string {
+	return Catalog.Format(msgs.locale, "apduStatusError", nil)
+}
+
+// ApduFailed says "APDU exchange failed: {message}"
+// in the language the app shows.
+func ApduFailed(message string) string { return In(i18n.Locale()).ApduFailed(message) }
+
+// ApduFailed says "APDU exchange failed: {message}"
+// in the language of msgs.
+func (msgs Messages) ApduFailed(message string) string {
+	return Catalog.Format(msgs.locale, "apduFailed", map[string]any{"message": message})
+}
+
+// DesfireTitle says "DESFire read-only"
+// in the language the app shows.
+func DesfireTitle() string { return In(i18n.Locale()).DesfireTitle() }
+
+// DesfireTitle says "DESFire read-only"
+// in the language of msgs.
+func (msgs Messages) DesfireTitle() string {
+	return Catalog.Format(msgs.locale, "desfireTitle", nil)
+}
+
+// DesfireIntro says "Identify the card, list its applications and files, and read standard or backup files. Authentication and every write…"
+// in the language the app shows.
+func DesfireIntro() string { return In(i18n.Locale()).DesfireIntro() }
+
+// DesfireIntro says "Identify the card, list its applications and files, and read standard or backup files. Authentication and every write…"
+// in the language of msgs.
+func (msgs Messages) DesfireIntro() string {
+	return Catalog.Format(msgs.locale, "desfireIntro", nil)
+}
+
+// DesfireIdentify says "Identify"
+// in the language the app shows.
+func DesfireIdentify() string { return In(i18n.Locale()).DesfireIdentify() }
+
+// DesfireIdentify says "Identify"
+// in the language of msgs.
+func (msgs Messages) DesfireIdentify() string {
+	return Catalog.Format(msgs.locale, "desfireIdentify", nil)
+}
+
+// DesfireApplications says "Applications"
+// in the language the app shows.
+func DesfireApplications() string { return In(i18n.Locale()).DesfireApplications() }
+
+// DesfireApplications says "Applications"
+// in the language of msgs.
+func (msgs Messages) DesfireApplications() string {
+	return Catalog.Format(msgs.locale, "desfireApplications", nil)
+}
+
+// DesfireFailed says "DESFire operation failed: {message}"
+// in the language the app shows.
+func DesfireFailed(message string) string { return In(i18n.Locale()).DesfireFailed(message) }
+
+// DesfireFailed says "DESFire operation failed: {message}"
+// in the language of msgs.
+func (msgs Messages) DesfireFailed(message string) string {
+	return Catalog.Format(msgs.locale, "desfireFailed", map[string]any{"message": message})
+}
+
+// DesfireInfo says "Product information"
+// in the language the app shows.
+func DesfireInfo() string { return In(i18n.Locale()).DesfireInfo() }
+
+// DesfireInfo says "Product information"
+// in the language of msgs.
+func (msgs Messages) DesfireInfo() string {
+	return Catalog.Format(msgs.locale, "desfireInfo", nil)
+}
+
+// DesfireVersion says "Version"
+// in the language the app shows.
+func DesfireVersion() string { return In(i18n.Locale()).DesfireVersion() }
+
+// DesfireVersion says "Version"
+// in the language of msgs.
+func (msgs Messages) DesfireVersion() string {
+	return Catalog.Format(msgs.locale, "desfireVersion", nil)
+}
+
+// DesfireVendor says "Vendor"
+// in the language the app shows.
+func DesfireVendor() string { return In(i18n.Locale()).DesfireVendor() }
+
+// DesfireVendor says "Vendor"
+// in the language of msgs.
+func (msgs Messages) DesfireVendor() string {
+	return Catalog.Format(msgs.locale, "desfireVendor", nil)
+}
+
+// DesfireType says "Type"
+// in the language the app shows.
+func DesfireType() string { return In(i18n.Locale()).DesfireType() }
+
+// DesfireType says "Type"
+// in the language of msgs.
+func (msgs Messages) DesfireType() string {
+	return Catalog.Format(msgs.locale, "desfireType", nil)
+}
+
+// DesfireSubtype says "Subtype"
+// in the language the app shows.
+func DesfireSubtype() string { return In(i18n.Locale()).DesfireSubtype() }
+
+// DesfireSubtype says "Subtype"
+// in the language of msgs.
+func (msgs Messages) DesfireSubtype() string {
+	return Catalog.Format(msgs.locale, "desfireSubtype", nil)
+}
+
+// DesfireStorage says "Storage"
+// in the language the app shows.
+func DesfireStorage() string { return In(i18n.Locale()).DesfireStorage() }
+
+// DesfireStorage says "Storage"
+// in the language of msgs.
+func (msgs Messages) DesfireStorage() string {
+	return Catalog.Format(msgs.locale, "desfireStorage", nil)
+}
+
+// DesfireProtocol says "Protocol"
+// in the language the app shows.
+func DesfireProtocol() string { return In(i18n.Locale()).DesfireProtocol() }
+
+// DesfireProtocol says "Protocol"
+// in the language of msgs.
+func (msgs Messages) DesfireProtocol() string {
+	return Catalog.Format(msgs.locale, "desfireProtocol", nil)
+}
+
+// DesfireNoApplications says "The card reported no applications."
+// in the language the app shows.
+func DesfireNoApplications() string { return In(i18n.Locale()).DesfireNoApplications() }
+
+// DesfireNoApplications says "The card reported no applications."
+// in the language of msgs.
+func (msgs Messages) DesfireNoApplications() string {
+	return Catalog.Format(msgs.locale, "desfireNoApplications", nil)
+}
+
+// DesfireAID says "Application ID"
+// in the language the app shows.
+func DesfireAID() string { return In(i18n.Locale()).DesfireAID() }
+
+// DesfireAID says "Application ID"
+// in the language of msgs.
+func (msgs Messages) DesfireAID() string {
+	return Catalog.Format(msgs.locale, "desfireAID", nil)
+}
+
+// DesfireAIDPlaceholder says "000000"
+// in the language the app shows.
+func DesfireAIDPlaceholder() string { return In(i18n.Locale()).DesfireAIDPlaceholder() }
+
+// DesfireAIDPlaceholder says "000000"
+// in the language of msgs.
+func (msgs Messages) DesfireAIDPlaceholder() string {
+	return Catalog.Format(msgs.locale, "desfireAIDPlaceholder", nil)
+}
+
+// DesfireFiles says "List files"
+// in the language the app shows.
+func DesfireFiles() string { return In(i18n.Locale()).DesfireFiles() }
+
+// DesfireFiles says "List files"
+// in the language of msgs.
+func (msgs Messages) DesfireFiles() string {
+	return Catalog.Format(msgs.locale, "desfireFiles", nil)
+}
+
+// DesfireFilesTitle says "Files in {aid}"
+// in the language the app shows.
+func DesfireFilesTitle(aid string) string { return In(i18n.Locale()).DesfireFilesTitle(aid) }
+
+// DesfireFilesTitle says "Files in {aid}"
+// in the language of msgs.
+func (msgs Messages) DesfireFilesTitle(aid string) string {
+	return Catalog.Format(msgs.locale, "desfireFilesTitle", map[string]any{"aid": aid})
+}
+
+// DesfireNoFiles says "The application reported no files."
+// in the language the app shows.
+func DesfireNoFiles() string { return In(i18n.Locale()).DesfireNoFiles() }
+
+// DesfireNoFiles says "The application reported no files."
+// in the language of msgs.
+func (msgs Messages) DesfireNoFiles() string {
+	return Catalog.Format(msgs.locale, "desfireNoFiles", nil)
+}
+
+// DesfireFileSize says "{size} bytes"
+// in the language the app shows.
+func DesfireFileSize(size string) string { return In(i18n.Locale()).DesfireFileSize(size) }
+
+// DesfireFileSize says "{size} bytes"
+// in the language of msgs.
+func (msgs Messages) DesfireFileSize(size string) string {
+	return Catalog.Format(msgs.locale, "desfireFileSize", map[string]any{"size": size})
+}
+
+// DesfireRead says "Read"
+// in the language the app shows.
+func DesfireRead() string { return In(i18n.Locale()).DesfireRead() }
+
+// DesfireRead says "Read"
+// in the language of msgs.
+func (msgs Messages) DesfireRead() string {
+	return Catalog.Format(msgs.locale, "desfireRead", nil)
+}
+
+// DesfireFileID says "File ID"
+// in the language the app shows.
+func DesfireFileID() string { return In(i18n.Locale()).DesfireFileID() }
+
+// DesfireFileID says "File ID"
+// in the language of msgs.
+func (msgs Messages) DesfireFileID() string {
+	return Catalog.Format(msgs.locale, "desfireFileID", nil)
+}
+
+// DesfireFileIDPlaceholder says "0"
+// in the language the app shows.
+func DesfireFileIDPlaceholder() string { return In(i18n.Locale()).DesfireFileIDPlaceholder() }
+
+// DesfireFileIDPlaceholder says "0"
+// in the language of msgs.
+func (msgs Messages) DesfireFileIDPlaceholder() string {
+	return Catalog.Format(msgs.locale, "desfireFileIDPlaceholder", nil)
+}
+
+// DesfireReadFile says "Read file"
+// in the language the app shows.
+func DesfireReadFile() string { return In(i18n.Locale()).DesfireReadFile() }
+
+// DesfireReadFile says "Read file"
+// in the language of msgs.
+func (msgs Messages) DesfireReadFile() string {
+	return Catalog.Format(msgs.locale, "desfireReadFile", nil)
+}
+
+// DesfireFileData says "File {file} in {aid} · {length} bytes"
+// in the language the app shows.
+func DesfireFileData(aid string, file string, length string) string {
+	return In(i18n.Locale()).DesfireFileData(aid, file, length)
+}
+
+// DesfireFileData says "File {file} in {aid} · {length} bytes"
+// in the language of msgs.
+func (msgs Messages) DesfireFileData(aid string, file string, length string) string {
+	return Catalog.Format(msgs.locale, "desfireFileData", map[string]any{"aid": aid, "file": file, "length": length})
+}
+
+// DesfireInvalidFile says "File ID must be a decimal number from 0 to 255."
+// in the language the app shows.
+func DesfireInvalidFile() string { return In(i18n.Locale()).DesfireInvalidFile() }
+
+// DesfireInvalidFile says "File ID must be a decimal number from 0 to 255."
+// in the language of msgs.
+func (msgs Messages) DesfireInvalidFile() string {
+	return Catalog.Format(msgs.locale, "desfireInvalidFile", nil)
+}
+
+// Type4Title says "Type 4 NDEF"
+// in the language the app shows.
+func Type4Title() string { return In(i18n.Locale()).Type4Title() }
+
+// Type4Title says "Type 4 NDEF"
+// in the language of msgs.
+func (msgs Messages) Type4Title() string {
+	return Catalog.Format(msgs.locale, "type4Title", nil)
+}
+
+// Type4Intro says "NFC Forum Type 4 NDEF through ISO-DEP. Read the capability container before writing; a write creates a backup and ver…"
+// in the language the app shows.
+func Type4Intro() string { return In(i18n.Locale()).Type4Intro() }
+
+// Type4Intro says "NFC Forum Type 4 NDEF through ISO-DEP. Read the capability container before writing; a write creates a backup and ver…"
+// in the language of msgs.
+func (msgs Messages) Type4Intro() string {
+	return Catalog.Format(msgs.locale, "type4Intro", nil)
+}
+
+// Type4Read says "Read Type 4 NDEF"
+// in the language the app shows.
+func Type4Read() string { return In(i18n.Locale()).Type4Read() }
+
+// Type4Read says "Read Type 4 NDEF"
+// in the language of msgs.
+func (msgs Messages) Type4Read() string {
+	return Catalog.Format(msgs.locale, "type4Read", nil)
+}
+
+// Type4CC says "Capability container"
+// in the language the app shows.
+func Type4CC() string { return In(i18n.Locale()).Type4CC() }
+
+// Type4CC says "Capability container"
+// in the language of msgs.
+func (msgs Messages) Type4CC() string {
+	return Catalog.Format(msgs.locale, "type4CC", nil)
+}
+
+// Type4MappingVersion says "Mapping version"
+// in the language the app shows.
+func Type4MappingVersion() string { return In(i18n.Locale()).Type4MappingVersion() }
+
+// Type4MappingVersion says "Mapping version"
+// in the language of msgs.
+func (msgs Messages) Type4MappingVersion() string {
+	return Catalog.Format(msgs.locale, "type4MappingVersion", nil)
+}
+
+// Type4MLe says "MLe"
+// in the language the app shows.
+func Type4MLe() string { return In(i18n.Locale()).Type4MLe() }
+
+// Type4MLe says "MLe"
+// in the language of msgs.
+func (msgs Messages) Type4MLe() string {
+	return Catalog.Format(msgs.locale, "type4MLe", nil)
+}
+
+// Type4MLc says "MLc"
+// in the language the app shows.
+func Type4MLc() string { return In(i18n.Locale()).Type4MLc() }
+
+// Type4MLc says "MLc"
+// in the language of msgs.
+func (msgs Messages) Type4MLc() string {
+	return Catalog.Format(msgs.locale, "type4MLc", nil)
+}
+
+// Type4FileID says "NDEF file ID"
+// in the language the app shows.
+func Type4FileID() string { return In(i18n.Locale()).Type4FileID() }
+
+// Type4FileID says "NDEF file ID"
+// in the language of msgs.
+func (msgs Messages) Type4FileID() string {
+	return Catalog.Format(msgs.locale, "type4FileID", nil)
+}
+
+// Type4MaxMessage says "Max message"
+// in the language the app shows.
+func Type4MaxMessage() string { return In(i18n.Locale()).Type4MaxMessage() }
+
+// Type4MaxMessage says "Max message"
+// in the language of msgs.
+func (msgs Messages) Type4MaxMessage() string {
+	return Catalog.Format(msgs.locale, "type4MaxMessage", nil)
+}
+
+// Type4ReadAccess says "Read access"
+// in the language the app shows.
+func Type4ReadAccess() string { return In(i18n.Locale()).Type4ReadAccess() }
+
+// Type4ReadAccess says "Read access"
+// in the language of msgs.
+func (msgs Messages) Type4ReadAccess() string {
+	return Catalog.Format(msgs.locale, "type4ReadAccess", nil)
+}
+
+// Type4WriteAccess says "Write access"
+// in the language the app shows.
+func Type4WriteAccess() string { return In(i18n.Locale()).Type4WriteAccess() }
+
+// Type4WriteAccess says "Write access"
+// in the language of msgs.
+func (msgs Messages) Type4WriteAccess() string {
+	return Catalog.Format(msgs.locale, "type4WriteAccess", nil)
+}
+
+// Type4ReadOnly says "NDEF is read-only."
+// in the language the app shows.
+func Type4ReadOnly() string { return In(i18n.Locale()).Type4ReadOnly() }
+
+// Type4ReadOnly says "NDEF is read-only."
+// in the language of msgs.
+func (msgs Messages) Type4ReadOnly() string {
+	return Catalog.Format(msgs.locale, "type4ReadOnly", nil)
+}
+
+// Type4NoData says "Read the Type 4 card to load its NDEF message."
+// in the language the app shows.
+func Type4NoData() string { return In(i18n.Locale()).Type4NoData() }
+
+// Type4NoData says "Read the Type 4 card to load its NDEF message."
+// in the language of msgs.
+func (msgs Messages) Type4NoData() string {
+	return Catalog.Format(msgs.locale, "type4NoData", nil)
+}
+
+// Type4Failed says "Type 4 NDEF operation failed: {message}"
+// in the language the app shows.
+func Type4Failed(message string) string { return In(i18n.Locale()).Type4Failed(message) }
+
+// Type4Failed says "Type 4 NDEF operation failed: {message}"
+// in the language of msgs.
+func (msgs Messages) Type4Failed(message string) string {
+	return Catalog.Format(msgs.locale, "type4Failed", map[string]any{"message": message})
+}
+
+// Type4WriteConfirmTitle says "Write {length} Type 4 NDEF bytes?"
+// in the language the app shows.
+func Type4WriteConfirmTitle(length string) string {
+	return In(i18n.Locale()).Type4WriteConfirmTitle(length)
+}
+
+// Type4WriteConfirmTitle says "Write {length} Type 4 NDEF bytes?"
+// in the language of msgs.
+func (msgs Messages) Type4WriteConfirmTitle(length string) string {
+	return Catalog.Format(msgs.locale, "type4WriteConfirmTitle", map[string]any{"length": length})
+}
+
+// Type4WriteConfirmMessage says "The current message is backed up before writing, and the new message is read back and verified. Do not remove the car…"
+// in the language the app shows.
+func Type4WriteConfirmMessage() string { return In(i18n.Locale()).Type4WriteConfirmMessage() }
+
+// Type4WriteConfirmMessage says "The current message is backed up before writing, and the new message is read back and verified. Do not remove the car…"
+// in the language of msgs.
+func (msgs Messages) Type4WriteConfirmMessage() string {
+	return Catalog.Format(msgs.locale, "type4WriteConfirmMessage", nil)
+}
+
+// Type4WriteConfirm says "Confirm NDEF write"
+// in the language the app shows.
+func Type4WriteConfirm() string { return In(i18n.Locale()).Type4WriteConfirm() }
+
+// Type4WriteConfirm says "Confirm NDEF write"
+// in the language of msgs.
+func (msgs Messages) Type4WriteConfirm() string {
+	return Catalog.Format(msgs.locale, "type4WriteConfirm", nil)
+}
+
+// Type4WriteHint says "A backup is written before the message and the result is verified."
+// in the language the app shows.
+func Type4WriteHint() string { return In(i18n.Locale()).Type4WriteHint() }
+
+// Type4WriteHint says "A backup is written before the message and the result is verified."
+// in the language of msgs.
+func (msgs Messages) Type4WriteHint() string {
+	return Catalog.Format(msgs.locale, "type4WriteHint", nil)
+}
+
+// Type4WriteComplete says "Type 4 NDEF message written and verified."
+// in the language the app shows.
+func Type4WriteComplete() string { return In(i18n.Locale()).Type4WriteComplete() }
+
+// Type4WriteComplete says "Type 4 NDEF message written and verified."
+// in the language of msgs.
+func (msgs Messages) Type4WriteComplete() string {
+	return Catalog.Format(msgs.locale, "type4WriteComplete", nil)
 }
 
 // ActionNoDump says "No dump loaded"
@@ -4168,6 +5202,16 @@ func Type2Repeat() string { return In(i18n.Locale()).Type2Repeat() }
 // in the language of msgs.
 func (msgs Messages) Type2Repeat() string {
 	return Catalog.Format(msgs.locale, "type2Repeat", nil)
+}
+
+// Type2PasswordRemove says "Remove password"
+// in the language the app shows.
+func Type2PasswordRemove() string { return In(i18n.Locale()).Type2PasswordRemove() }
+
+// Type2PasswordRemove says "Remove password"
+// in the language of msgs.
+func (msgs Messages) Type2PasswordRemove() string {
+	return Catalog.Format(msgs.locale, "type2PasswordRemove", nil)
 }
 
 // Type2Erase says "Erase user memory"
