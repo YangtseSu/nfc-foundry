@@ -5,45 +5,22 @@ use std::io;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use nfc_core::{BLOCK_SIZE, CardInfo, CardType, Key, KeyType, NfcError, Result};
+use nfc_core::{BLOCK_SIZE, CardInfo, Key, KeyType, NfcError, Result};
 
-use super::frame::{Frame, PN532_TFI, WAKEUP_PREAMBLE, build_frame, take_frame};
+use super::frame::{Frame, WAKEUP_PREAMBLE, build_frame, take_frame};
 use super::link::Pn532Link;
+use crate::pn53x::{
+    AUTO_ATR_RES_AND_RATS, FirmwareVersion, GET_FIRMWARE_VERSION, IN_COMMUNICATE_THRU,
+    IN_DATA_EXCHANGE, IN_LIST_PASSIVE_TARGET, INITIATOR, ISO14443A_106_KBPS, MAX_RAW_PAYLOAD,
+    MIFARE_AUTH_A, MIFARE_AUTH_B, MIFARE_READ, MIFARE_WRITE, READ_REGISTER, REG_CIU_BIT_FRAMING,
+    REG_CIU_CONTROL, REG_CIU_MANUAL_RCV, REG_CIU_RX_MODE, REG_CIU_STATUS2, REG_CIU_TX_MODE,
+    RF_CONFIGURATION, RF_FIELD, RF_RETRY_SELECT, RX_LAST_BITS, SAM_CONFIGURATION, SET_PARAMETERS,
+    TARGET_NUMBER, TX_RX_CRC_ENABLE, WRITE_REGISTER, parse_firmware, parse_passive_target,
+    parse_response, status_error,
+};
 
-const GET_FIRMWARE_VERSION: u8 = 0x02;
-const READ_REGISTER: u8 = 0x06;
-const WRITE_REGISTER: u8 = 0x08;
-const SET_PARAMETERS: u8 = 0x12;
-const SAM_CONFIGURATION: u8 = 0x14;
-const RF_CONFIGURATION: u8 = 0x32;
-const RF_FIELD: u8 = 0x01;
-const RF_RETRY_SELECT: u8 = 0x05;
-const IN_DATA_EXCHANGE: u8 = 0x40;
-const IN_COMMUNICATE_THRU: u8 = 0x42;
-const IN_LIST_PASSIVE_TARGET: u8 = 0x4A;
-
-const REG_CIU_TX_MODE: u16 = 0x6302;
-const REG_CIU_RX_MODE: u16 = 0x6303;
-const REG_CIU_MANUAL_RCV: u16 = 0x630D;
-const REG_CIU_STATUS2: u16 = 0x6338;
-const REG_CIU_CONTROL: u16 = 0x633C;
-const REG_CIU_BIT_FRAMING: u16 = 0x633D;
-
-const TX_RX_CRC_ENABLE: u8 = 0x80;
-const INITIATOR: u8 = 0x10;
-const RX_LAST_BITS: u8 = 0x07;
-const AUTO_ATR_RES_AND_RATS: u8 = 0x14;
-const PN532_IC: u8 = 0x32;
-const ISO14443A_SUPPORT: u8 = 0x01;
-
-const MIFARE_AUTH_A: u8 = 0x60;
-const MIFARE_AUTH_B: u8 = 0x61;
-const MIFARE_READ: u8 = 0x30;
-const MIFARE_WRITE: u8 = 0xA0;
-
-const TARGET_NUMBER: u8 = 0x01;
-const ISO14443A_106_KBPS: u8 = 0x00;
-const MAX_RAW_PAYLOAD: usize = 252;
+#[cfg(test)]
+use crate::pn53x::{ISO14443A_SUPPORT, PN532_IC};
 
 #[derive(Clone, Debug)]
 pub(crate) struct Pn532Config {
@@ -64,15 +41,6 @@ impl Default for Pn532Config {
             attempts: 3,
         }
     }
-}
-
-/// Firmware identity returned by `GetFirmwareVersion`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct FirmwareVersion {
-    pub ic: u8,
-    pub version: u8,
-    pub revision: u8,
-    pub support: u8,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -168,45 +136,7 @@ impl Pn532Protocol {
             self.config.command_timeout,
             Retry::Yes,
         )?;
-        let Some((&count, targets)) = response.split_first() else {
-            return Err(NfcError::Io(
-                "PN532 card selection response is empty".to_owned(),
-            ));
-        };
-        if count == 0 {
-            return Err(NfcError::NoCard);
-        }
-        if count != 1 {
-            return Err(NfcError::Io(format!(
-                "PN532 selected {count} cards, expected one"
-            )));
-        }
-        if targets.len() < 5 {
-            return Err(NfcError::Io(
-                "PN532 card selection data is truncated".to_owned(),
-            ));
-        }
-        if targets[0] != TARGET_NUMBER {
-            return Err(NfcError::Io(format!(
-                "PN532 returned target number {}, expected {TARGET_NUMBER}",
-                targets[0]
-            )));
-        }
-        let atqa = [targets[1], targets[2]];
-        let sak = targets[3];
-        let uid_length = targets[4] as usize;
-        if !(4..=10).contains(&uid_length) {
-            return Err(NfcError::Io(format!(
-                "PN532 reported an invalid UID length {uid_length}"
-            )));
-        }
-        if targets.len() < 5 + uid_length {
-            return Err(NfcError::Io(format!(
-                "PN532 card selection data has no complete {uid_length}-byte UID"
-            )));
-        }
-        let uid = targets[5..5 + uid_length].to_vec();
-        let card = CardInfo::new(uid, atqa, sak, CardType::infer(atqa, sak));
+        let card = parse_passive_target(&response, "PN532")?;
         self.selected = Some(card.clone());
         Ok(card)
     }
@@ -352,22 +282,7 @@ impl Pn532Protocol {
             }
             Err(error) => return Err(error),
         };
-        if firmware.len() < 4 || firmware[0] != PN532_IC {
-            return Err(NfcError::Unsupported(
-                "the connected device is not a supported PN532",
-            ));
-        }
-        if firmware[3] & ISO14443A_SUPPORT == 0 {
-            return Err(NfcError::Unsupported(
-                "the PN532 does not report ISO/IEC 14443A support",
-            ));
-        }
-        self.firmware = FirmwareVersion {
-            ic: firmware[0],
-            version: firmware[1],
-            revision: firmware[2],
-            support: firmware[3],
-        };
+        self.firmware = parse_firmware(&firmware)?;
         self.reset_settings()?;
         Ok(())
     }
@@ -543,7 +458,7 @@ impl Pn532Protocol {
             }
             match self.read_frame(timeout, "response") {
                 Ok(Frame::Data(data)) => {
-                    return parse_response(command[0], &data);
+                    return parse_response(command[0], &data, "PN532");
                 }
                 Ok(Frame::Ack) => {
                     let error = NfcError::Io("PN532 acknowledged the command twice".to_owned());
@@ -596,44 +511,14 @@ impl Pn532Protocol {
     }
 }
 
-fn parse_response(command: u8, data: &[u8]) -> Result<Vec<u8>> {
-    if data.len() < 2 {
-        return Err(NfcError::Io("PN532 response is too short".to_owned()));
-    }
-    if data[0] != PN532_TFI {
-        return Err(NfcError::Io(format!(
-            "PN532 response direction {:#04X} is invalid",
-            data[0]
-        )));
-    }
-    let expected = command.wrapping_add(1);
-    if data[1] != expected {
-        return Err(NfcError::Io(format!(
-            "PN532 response code {:#04X} does not match command {:#04X}",
-            data[1], command
-        )));
-    }
-    Ok(data[2..].to_vec())
-}
-
-fn status_error(status: u8) -> NfcError {
-    match status {
-        0x01 | 0x0A => NfcError::Timeout("the card did not answer".to_owned()),
-        0x14 => NfcError::AuthenticationFailed,
-        0x02 => NfcError::Io("PN532 reported a CRC error".to_owned()),
-        0x03 => NfcError::Io("PN532 reported a parity error".to_owned()),
-        0x04 => NfcError::Io("PN532 reported a bit-count error".to_owned()),
-        0x05 => NfcError::Io("PN532 reported a framing error".to_owned()),
-        0x06 => NfcError::Io("PN532 reported a collision".to_owned()),
-        0x13 => NfcError::Io("PN532 rejected the received frame".to_owned()),
-        other => NfcError::Io(format!("PN532 reported status {other:02X}")),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
     use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+
+    use nfc_core::CardType;
+
+    use crate::pn53x::PN532_TFI;
 
     use super::*;
 

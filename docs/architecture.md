@@ -113,6 +113,35 @@ card that is already ACTIVE does not answer a second `InListPassiveTarget`.
 Enumeration lists serial ports without opening them; only an exact open
 validates that the device is a PN532.
 
+### ACR122U USB
+
+`acr122_usb` is split into three layers:
+
+- `ccid`: `nusb` enumeration and interface claim, CCID message framing,
+  ICC power-on, `PC_to_RDR_XfrBlock`, timeouts, and stale bulk-IN draining.
+- `protocol`: the ACR122 pseudo-APDU (`FF 00 00 00 Lc D4 ...`), firmware
+  validation, initiator and RF field setup, card selection, Classic block
+  access, raw bytes/bits, and the Gen1A sequence.
+- reader: exact `acr122_usb:<bus>:<address>` open/close and the
+  `Reader`/`ManufacturerWriter` implementations.
+
+The ACR122U carries a PN532 behind its own firmware, so the command layer
+reuses the shared `pn53x` command values and response parsing. Responses arrive
+as `D5 <command+1>` plus an ISO 7816 status word; `61xx` is continued with
+GetResponse, and `6300` maps to the missing-card error. The ACR122U vendor CCID
+status `0x81` is not an error on data blocks.
+
+Initialization puts the internal PN532 in initiator mode and explicitly cycles
+the RF field on, because the driver turns it off on close. Repeated selection
+releases the current target first. Raw frames require an RF field cycle rather
+than `InRelease` alone to return the card to IDLE. The Gen1A path reselects the
+card before entering raw mode so no Crypto1 authentication state encrypts the
+backdoor frames.
+
+`pcscd` claims the same CCID interface through libusb, so the direct USB path
+and the PC/SC alias cannot be used at once. A busy interface is reported with
+the instruction to stop `pcscd`.
+
 ## Device ownership
 
 One reader is held by one operation at a time. `nfc-app` owns:

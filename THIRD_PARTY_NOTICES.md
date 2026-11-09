@@ -23,3 +23,9 @@ the selected dependency-license tooling.
 Proxmark3-derived recovery code and tables retain their GPL-3.0-or-later
 notices. The old mfoc/mfcuk/mfoc-hardnested implementations are not shipped;
 they may appear only in development notes as test oracles.
+
+The Gen1A unlock and manufacturer-block write sequence in
+`crates/nfc-drivers/src/acr122_usb/protocol.rs` is derived from the libnfc
+`nfc-mfsetuid` example (Adam Laurie, 2011; Dario Carluccio, 2014). It is
+available under BSD-2-Clause OR GPL-3.0-or-later; the BSD text is
+`LICENSES/BSD-2-Clause.txt`.

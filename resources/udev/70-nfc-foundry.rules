@@ -1,0 +1,3 @@
+# ACS ACR122U PICC interface (direct USB/CCID).
+# Grants the logged-in user access to this reader only.
+SUBSYSTEM=="usb", ATTR{idVendor}=="072f", ATTR{idProduct}=="2200", TAG+="uaccess"

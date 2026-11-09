@@ -4,7 +4,6 @@
 use nfc_core::{NfcError, Result};
 
 pub(crate) const HOST_TFI: u8 = 0xD4;
-pub(crate) const PN532_TFI: u8 = 0xD5;
 
 /// Host wake-up preamble for the High Speed Unit (HSU).
 pub(crate) const WAKEUP_PREAMBLE: [u8; 16] = [
@@ -186,6 +185,8 @@ fn find_start(buffer: &[u8]) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
+    use crate::pn53x::PN532_TFI;
+
     use super::*;
 
     fn response_frame(command: u8, payload: &[u8]) -> Vec<u8> {

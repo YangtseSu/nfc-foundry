@@ -9,18 +9,22 @@ dependency of this project.
 
 ## Status
 
-**Phase 04 complete.** The PN532 UART driver and the hardware-free Classic core
-are implemented. The Classic workflow layer covers key stores, common-key
-authentication, partial dumps, single-block reads and writes, restores, key
-scans, and atomic project-format backups. `nfctl` and the GPUI Kit Classic
-workspace call the same `nfc-app` methods. Every write checks access
-conditions, saves a backup, writes the block, reads it back, and rechecks card
-identity; restore requires confirmation, refuses to change manufacturer block
-0, writes data blocks before sector trailers, and stops at the first failure by
-default. PN532 hardware validation covered a 64/64-block dump, a 16-sector key
-scan, a temporary data-block write with backups and read-back, and restore of
-that block. Recovery algorithms and NDEF codecs arrive in later phases;
-operations that are not ready return an explicit `NotImplemented` error.
+**Phase 05 complete.** Both first-release readers are implemented: PN532 UART
+and ACR122U direct USB/CCID. The ACR122U path claims the CCID interface with
+`nusb`, carries PN532 commands in the ACR122 pseudo-APDU, and supports
+selection, Classic authentication and block access, raw bytes/bits, and a
+Gen1A manufacturer-block write capability. Hardware validation covered
+Classic and Type 2 reads, a raw 7-bit REQA, and a same-value Gen1A block 0
+write verified by reselection and read-back. The Classic workflow layer covers
+key stores, common-key authentication, partial dumps, single-block reads and
+writes, restores, key scans, and atomic project-format backups. `nfctl` and the
+GPUI Kit Classic workspace call the same `nfc-app` methods. Every write checks
+access conditions, saves a backup, writes the block, reads it back, and
+rechecks card identity; restore requires confirmation, refuses to change
+manufacturer block 0, writes data blocks before sector trailers, and stops at
+the first failure by default. Recovery algorithms and NDEF codecs arrive in
+later phases; operations that are not ready return an explicit
+`NotImplemented` error.
 
 ## Product scope
 
@@ -151,6 +155,19 @@ write, and restore are hardware-validated. Writes remain gated by
 `NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD`; see [Testing](docs/testing.md), the
 [phase 02 note](docs/notes/02-pn532-uart.md), and the
 [phase 04 note](docs/notes/04-classic-workflows.md) for the records.
+
+ACR122U selection is an exact bus/address connstring:
+
+```sh
+cargo run -p nfctl -- list
+cargo run -p nfctl -- --device acr122_usb:001:017 scan
+```
+
+`pcscd` holds the same CCID interface, so stop it before using the direct USB
+path and restart it afterwards. The ACR122U was validated for firmware
+identification, Classic 1K read, Type 2 read, raw 7-bit REQA, and a same-value
+Gen1A manufacturer-block write; see the
+[phase 05 note](docs/notes/05-acr122-usb.md).
 
 ## GUI
 

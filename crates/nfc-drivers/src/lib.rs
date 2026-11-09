@@ -2,11 +2,12 @@
 
 pub mod acr122_usb;
 pub mod pn532_uart;
+mod pn53x;
 
 use nfc_core::{NfcError, Result};
 use nfc_transport::{DeviceInfo, Reader, Transport};
 
-use crate::acr122_usb::Acr122Usb;
+use crate::acr122_usb::{Acr122Usb, READER_NAME as ACR122_READER_NAME};
 use crate::pn532_uart::{Pn532Uart, READER_NAME};
 
 pub const PN532_UART_PREFIX: &str = "pn532_uart:";
@@ -24,7 +25,7 @@ impl DriverRegistry {
     fn classify(conn_string: &str) -> Result<&'static str> {
         for (name, prefix) in [
             (READER_NAME, PN532_UART_PREFIX),
-            ("ACR122U USB", ACR122_USB_PREFIX),
+            (ACR122_READER_NAME, ACR122_USB_PREFIX),
         ] {
             if let Some(target) = conn_string.strip_prefix(prefix) {
                 if target.is_empty() {
@@ -91,7 +92,7 @@ mod tests {
                 .expect("acr reader")
                 .device()
                 .name,
-            "ACR122U USB"
+            ACR122_READER_NAME
         );
         assert!(matches!(
             registry.open("pn532_uart:"),

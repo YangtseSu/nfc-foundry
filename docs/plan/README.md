@@ -9,7 +9,7 @@ Status legend: `done`, `in progress`, `pending`, `optional`.
 | 02 | PN532 UART driver and reader lifecycle | done |
 | 03 | Classic core: geometry, BCC, access, value, dump, diff | done |
 | 04 | Classic read/write/dump/restore/keyscan CLI + GUI workspace | done |
-| 05 | ACR122U USB/CCID driver and raw bits/parity | pending |
+| 05 | ACR122U USB/CCID driver and raw bits/parity | done |
 | 06 | Native recovery: Crypto1, darkside, nested, staticnested | pending |
 | 07 | Native hardnested and FM11RF08S/static encrypted | pending |
 | 08 | NDEF core: records, TLV, templates, validation | pending |
@@ -145,6 +145,15 @@ Acceptance:
 - Raw bits/parity verified against a known card.
 - Gen1A UID write verified on a magic card with explicit confirmation.
 - Disconnect/reconnect and PC/SC alias coexistence documented.
+
+Status: complete. Direct USB/CCID enumeration, the ACR122 pseudo-APDU command
+layer, Classic and Type 2 selection/access, raw byte and bit exchange, and the
+Gen1A `ManufacturerWriter` path are implemented. Hardware validation on
+2026-11-10 used an ACR122U at `acr122_usb:001:017` with internal PN532 firmware
+1.6: Classic 1K block read with a known key, Type 2 page read, raw 7-bit REQA
+with a 16-bit ATQA, and a same-value Gen1A manufacturer-block write verified by
+reselection and read-back. `pcscd` must be stopped because it holds the same
+CCID interface. See `docs/notes/05-acr122-usb.md`.
 
 ### 06: Recovery foundation
 

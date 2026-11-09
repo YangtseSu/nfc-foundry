@@ -19,7 +19,7 @@ use crate::PN532_UART_PREFIX;
 use link::SerialLink;
 use protocol::{Pn532Config, Pn532Protocol};
 
-pub use protocol::FirmwareVersion;
+pub use crate::pn53x::FirmwareVersion;
 
 pub(crate) const READER_NAME: &str = "PN532 UART";
 const INITIAL_SERIAL_TIMEOUT: Duration = Duration::from_millis(50);

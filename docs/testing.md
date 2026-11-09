@@ -33,6 +33,8 @@ Required gates:
   `FFFFFFFFFFFF`.
 - `NFCX_HARDWARE_KEY_TYPE`: `A` or `B`; defaults to `A`.
 - `NFCX_HARDWARE_BLOCK`: Classic block for read/write tests; defaults to `4`.
+- `NFCX_HARDWARE_SECTOR0_KEY`: optional 12-hex Key A for manufacturer block 0
+  when it differs from `NFCX_HARDWARE_KEY`.
 - `NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD`: allow any write. The phase 02 test
   writes the original value back and refuses block 0 and sector trailers. The
   phase 04 workflow test changes one ordinary data block temporarily and writes
@@ -106,6 +108,46 @@ cargo test -p nfctl --features hardware-write -- --ignored
 
 It changes one ordinary data block, writes the original value back, and
 verifies the final read-back. It refuses block 0 and sector trailers.
+
+ACR122U hardware checks use the same gates with an `acr122_usb:` connstring.
+Stop `pcscd` first because it holds the same CCID interface:
+
+```sh
+sudo systemctl stop pcscd
+NFCX_HARDWARE=1 \
+NFCX_DEVICE=acr122_usb:001:017 \
+cargo test -p nfc-drivers --features hardware -- --ignored
+```
+
+The Gen1A write additionally requires `hardware-write` and two confirmations:
+
+```sh
+NFCX_HARDWARE=1 \
+NFCX_DEVICE=acr122_usb:001:017 \
+NFCX_HARDWARE_KEY=<sector-key> \
+NFCX_HARDWARE_SECTOR0_KEY=<sector-0-key> \
+NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD \
+NFCX_HARDWARE_GEN1A_CONFIRM=I_OWN_THIS_CARD \
+cargo test -p nfc-drivers --features hardware-write -- --ignored
+```
+
+The test writes the current manufacturer block back unchanged unless
+`NFCX_TEST_UID` is set, then reselects and verifies block 0. It refuses a card
+that is not a four-byte UID MIFARE Classic 1K and a block with an invalid BCC.
+Restart `pcscd` afterwards when the PC/SC alias is needed.
+
+The phase 05 hardware record on 2026-11-10 used an ACR122U at
+`acr122_usb:001:017` with internal PN532 firmware 1.6:
+
+- Classic 1K `FA B9 CF F4`, block 4 with Key A `D3F7D3F7D3F7`:
+  `03 2B D1 01 27 54 02 65 6E 4E 46 43 20 46 6F 75`;
+- Type 2 tag `04 34 4C C2 83 5C 80`, pages 4..7:
+  `03 4B D2 0A 3E 74 65 78 74 2F 76 63 61 72 64 42`;
+- raw 7-bit REQA: ATQA `04 00` in 16 bits;
+- Gen1A manufacturer block 0 same-value write on the owned magic Classic 1K
+  card, verified by reselection and read-back; the UID stayed
+  `FA B9 CF F4`;
+- several open/close cycles; a physical unplug/replug was not exercised.
 
 The phase 04 hardware record on 2026-11-10 used a PN532 over
 `/dev/ttyUSB0` and a MIFARE Classic 1K (`FA B9 CF F4`):
