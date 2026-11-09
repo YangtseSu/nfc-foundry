@@ -8,6 +8,25 @@ pub enum Layout {
 }
 
 impl Layout {
+    pub const ALL: [Self; 2] = [Self::Classic1K, Self::Classic4K];
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Classic1K => "classic_1k",
+            Self::Classic4K => "classic_4k",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Result<Self> {
+        match name {
+            "classic_1k" => Ok(Self::Classic1K),
+            "classic_4k" => Ok(Self::Classic4K),
+            _ => Err(NfcError::InvalidArgument(format!(
+                "unknown MIFARE Classic layout {name:?}"
+            ))),
+        }
+    }
+
     pub const fn sector_count(self) -> usize {
         match self {
             Self::Classic1K => 16,

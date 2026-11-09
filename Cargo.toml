@@ -53,6 +53,7 @@ nusb = "0.2.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serialport = "4.10.1"
+proptest = "1.12.0"
 thiserror = "2.0.21"
 
 [workspace.lints.rust]
@@ -64,6 +65,9 @@ dbg_macro = "deny"
 todo = "deny"
 unimplemented = "deny"
 unwrap_used = "deny"
+
+[profile.dev]
+debug = "line-tables-only"
 
 [profile.release]
 codegen-units = 1

@@ -31,7 +31,7 @@ application shell, or a sibling feature.
 | `nfc-core` | Card identity, card type, shared errors, ISO/IEC 14443A constants | no |
 | `nfc-transport` | `Reader`, `Transport`, raw and capability traits, device facts | no |
 | `nfc-drivers` | PN532 UART and ACR122U USB/CCID mechanics | yes |
-| `nfc-classic` | Classic geometry, BCC, access bits, value blocks, dump, diff | no |
+| `nfc-classic` | Classic geometry, BCC, access bits, value blocks, dump, diff, exchange | no |
 | `nfc-recover` | Crypto1, darkside, nested, staticnested, hardnested, FM11RF08S, auto | via transport |
 | `nfc-ndef` | NDEF message/record, TLV, templates, validation | no |
 | `nfc-type2` | Type 2 / NTAG pages, CC, lock/config, NDEF TLV adapter | via transport |
@@ -132,11 +132,36 @@ hand the reader to another process.
 Cross-process locking and physical-reader identity are added with the Classic
 workflow phase; the in-process lease is already exclusive by borrow.
 
+## Classic core
+
+`nfc-classic` is the hardware-free Classic model. It owns:
+
+- 1K/4K geometry: sectors, blocks, trailers, and access groups, including the
+  sixteen-block large 4K sectors;
+- manufacturer-block BCC validation for known four-byte UIDs;
+- access-bit complement decoding, data and trailer permissions, and value
+  blocks;
+- `Dump` with a per-byte known mask and per-block status, so unknown bytes are
+  never confused with known zero bytes;
+- readability counts, trailer validation, and block diff with byte and trailer
+  detail;
+- dump interchange for project JSON, raw images, MCT text, and Proxmark3
+  `mfc v2`/`mfc v3` JSON.
+
+The project format is the only format that represents partial images, masked
+bytes, and malformed trailers. Raw, MCT, and Proxmark3 exports require a
+complete image with valid trailers; BCC is checked when the card identity is
+known. Imports reject duplicate JSON keys, missing blocks, inconsistent
+addresses, broken trailer complements, and Proxmark3 SectorKeys that disagree
+with trailer bytes. The exchange layer works on bytes; the workflow layer owns
+file paths, sidecars, and backup policy.
+
 ## Classic and NDEF boundary
 
 Classic block geometry and NDEF are separate models:
 
-- `nfc-classic` knows sectors, blocks, trailers, access bits, and dumps.
+- `nfc-classic` knows sectors, blocks, trailers, access bits, dumps, and dump
+  interchange.
 - `nfc-ndef` knows messages, records, TLVs, and templates; it has no card
   knowledge.
 - `nfc-type2` maps NDEF TLVs onto Type 2 pages and CC/locks.

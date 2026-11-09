@@ -7,7 +7,7 @@ Status legend: `done`, `in progress`, `pending`, `optional`.
 | 00 | Rust workspace, crate boundaries, docs, CI, REUSE | done |
 | 01 | Core model, transport traits, mock reader, CLI skeleton | done |
 | 02 | PN532 UART driver and reader lifecycle | done |
-| 03 | Classic core: geometry, BCC, access, value, dump, diff | pending |
+| 03 | Classic core: geometry, BCC, access, value, dump, diff | done |
 | 04 | Classic read/write/dump/restore/keyscan CLI + GUI workspace | pending |
 | 05 | ACR122U USB/CCID driver and raw bits/parity | pending |
 | 06 | Native recovery: Crypto1, darkside, nested, staticnested | pending |
@@ -102,6 +102,11 @@ Acceptance:
 - Known vectors from the old implementation and independent fixtures match.
 - Unknown bytes are never zero-filled.
 - Diff classifies equal/changed/unknown correctly.
+
+Status: complete. The hardware-free model, codecs, dump certainty model, diff,
+and four interchange formats are implemented with deterministic and property
+tests. No hardware, CLI, or GUI operation is part of this phase. See
+`docs/notes/03-classic-core.md`.
 
 ### 04: Classic workflows
 

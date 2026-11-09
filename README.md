@@ -9,13 +9,16 @@ dependency of this project.
 
 ## Status
 
-**Phase 02 complete.** The PN532 UART framing, initialization, ISO/IEC 14443A
+**Phase 03 complete.** The PN532 UART framing, initialization, ISO/IEC 14443A
 selection, MIFARE Classic authentication and block read/write, raw byte/bit
 exchange, and reader lifecycle are implemented. Firmware identification,
 Classic 1K selection/authentication/read, Type 2 selection/read, raw REQA, and
 missing-card/wrong-reader errors are validated on a PN532 over UART; the
 same-value write test remains behind explicit authorization and was not run.
-Classic workflows, recovery algorithms, and NDEF codecs arrive in later phases;
+The hardware-free Classic core now covers 1K/4K geometry, BCC, access and
+trailer permissions, value blocks, partial dumps with per-byte certainty,
+readability, block diff, and project/raw/MCT/Proxmark3 exchange. Classic
+workflows, recovery algorithms, and NDEF codecs arrive in later phases;
 operations that are not ready return an explicit `NotImplemented` error.
 
 ## Product scope
@@ -57,7 +60,7 @@ crates/
   nfc-core            # card identity, errors, shared primitives
   nfc-transport       # Reader/Transport traits
   nfc-drivers         # pn532_uart, acr122_usb
-  nfc-classic         # geometry, BCC, access, value, dump, diff
+  nfc-classic         # geometry, BCC, access, value, dump, diff, exchange
   nfc-recover         # Crypto1 and Classic key-recovery attacks
   nfc-ndef            # NDEF/TLV/message/record core
   nfc-type2           # Type 2 / NTAG page and NDEF adapter

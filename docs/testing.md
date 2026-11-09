@@ -69,6 +69,12 @@ missing-card errors were checked on hardware. The same-value write needs
 explicit authorization and was not run. `cargo test --workspace` uses only the
 scripted link and never touches hardware.
 
+The phase 03 core tests are hardware-free. Deterministic vectors cover access
+codes, value blocks, BCC, trailers, 1K/4K geometry, diff, and malformed dump
+files. Property tests round-trip access and value codecs, walk every block in
+both layouts, and round-trip raw, project, MCT, and Proxmark3 images. Real MCT
+and Proxmark3 client file interoperability remains a release check.
+
 ## Hardware failure triage
 
 A silent or malformed reader response is a driver bug until the reference path
@@ -117,7 +123,8 @@ cargo clippy -p nfc-drivers --features hardware --all-targets -- -D warnings
 
 ## Fixtures
 
-- Classic dump fixtures from the old implementation and independent images.
+- Classic dump and codec fixtures: access, value, BCC, trailer, geometry, diff,
+  and malformed project/raw/MCT/Proxmark3 inputs.
 - NDEF message/TLV vectors, including malformed and chunked records.
 - Nonce/key fixtures from Proxmark3 tests and captured old-engine runs.
 - Mock transport scripts for card selection, auth, read/write, timeout,

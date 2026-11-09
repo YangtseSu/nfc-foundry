@@ -1,0 +1,221 @@
+use std::collections::BTreeMap;
+
+use nfc_classic::{BlockStatus, Dump, DumpFormat, Layout, exchange};
+use serde_json::json;
+
+fn complete_dump(layout: Layout) -> Dump {
+    let mut raw = vec![0u8; layout.dump_size()];
+    raw[0..4].copy_from_slice(&[1, 2, 3, 4]);
+    raw[4] = raw[0] ^ raw[1] ^ raw[2] ^ raw[3];
+    for sector in 0..layout.sector_count() {
+        let block = layout.trailer_block(sector).expect("trailer");
+        let offset = block * 16;
+        raw[offset + 6..offset + 9].copy_from_slice(&[0xFF, 0x07, 0x80]);
+    }
+    Dump::from_raw(&raw).expect("complete image")
+}
+
+#[test]
+fn project_round_trip_preserves_partial_state() {
+    let mut dump = Dump::new(Layout::Classic1K);
+    dump.blocks[4].set_read([0x11; 16]);
+    dump.blocks[5].known_mask = 0x000F;
+    dump.blocks[5].data[0..2].copy_from_slice(&[0xAA, 0xBB]);
+    dump.blocks[5].status = BlockStatus::ReadFailed;
+    dump.blocks[5].error = Some("card timeout".to_owned());
+    let encoded = exchange::export(&dump, DumpFormat::Project).expect("project export");
+    assert!(String::from_utf8_lossy(&encoded).contains("\"knownMask\": \"000F\""));
+    let loaded = exchange::load_as(&encoded, DumpFormat::Project).expect("project import");
+    assert_eq!(loaded.dump, dump);
+    assert!(loaded.warnings.is_empty());
+}
+
+#[test]
+fn duplicate_json_keys_are_rejected() {
+    let dump = complete_dump(Layout::Classic1K);
+    let encoded = exchange::export(&dump, DumpFormat::Project).expect("project export");
+    let text = String::from_utf8(encoded).expect("utf-8");
+    let tampered = text.replacen("\"version\": 1,", "\"version\": 1,\n  \"version\": 1,", 1);
+    assert!(exchange::load(tampered.as_bytes()).is_err());
+}
+
+#[test]
+fn project_structural_errors_are_rejected() {
+    let dump = complete_dump(Layout::Classic1K);
+    let encoded = exchange::export(&dump, DumpFormat::Project).expect("project export");
+    let text = String::from_utf8(encoded).expect("utf-8");
+
+    let cases = [
+        text.replacen("\"version\": 1", "\"version\": 2", 1),
+        text.replacen(
+            "\"layout\": \"classic_1k\"",
+            "\"layout\": \"classic_mini\"",
+            1,
+        ),
+        text.replacen("\"knownMask\": \"FFFF\"", "\"knownMask\": \"FFFFF\"", 1),
+        text.replacen("\"status\": \"read\"", "\"status\": \"broken\"", 1),
+    ];
+    for case in cases {
+        assert!(exchange::load_as(case.as_bytes(), DumpFormat::Project).is_err());
+    }
+
+    let mut incomplete = dump;
+    incomplete.blocks[0].known_mask = 0;
+    let encoded = exchange::export(&incomplete, DumpFormat::Project).expect("project export");
+    let text = String::from_utf8(encoded).expect("utf-8");
+    let tampered = text.replacen("\"complete\": false", "\"complete\": true", 1);
+    assert!(exchange::load_as(tampered.as_bytes(), DumpFormat::Project).is_err());
+}
+
+#[test]
+fn partial_dump_cannot_be_exported_to_external_formats() {
+    let dump = Dump::new(Layout::Classic1K);
+    for format in [DumpFormat::Raw, DumpFormat::Mct, DumpFormat::Proxmark3] {
+        assert!(
+            exchange::export(&dump, format).is_err(),
+            "format {format:?}"
+        );
+    }
+    let project = exchange::export(&dump, DumpFormat::Project).expect("project");
+    let loaded = exchange::load_as(&project, DumpFormat::Project).expect("project");
+    assert!(loaded.dump.raw().is_err());
+}
+
+#[test]
+fn formats_are_detected_from_content() {
+    let dump = complete_dump(Layout::Classic4K);
+    for format in [DumpFormat::Raw, DumpFormat::Mct, DumpFormat::Proxmark3] {
+        let encoded = exchange::export(&dump, format).expect("export");
+        assert_eq!(
+            exchange::detect_dump_format(&encoded).expect("detect"),
+            format
+        );
+    }
+    let project = exchange::export(&dump, DumpFormat::Project).expect("project");
+    assert_eq!(
+        exchange::detect_dump_format(&project).expect("detect"),
+        DumpFormat::Project
+    );
+    assert!(exchange::detect_dump_format(&[0u8; 1023]).is_err());
+    assert!(exchange::detect_dump_format(b"").is_err());
+}
+
+#[test]
+fn mct_rejects_duplicate_missing_and_malformed_sectors() {
+    let dump = complete_dump(Layout::Classic1K);
+    let encoded = exchange::export(&dump, DumpFormat::Mct).expect("mct");
+    let text = String::from_utf8(encoded).expect("utf-8");
+
+    let duplicate = text.replacen("+Sector: 1\n", "+Sector: 1\n+Sector: 1\n", 1);
+    assert!(exchange::load_as(duplicate.as_bytes(), DumpFormat::Mct).is_err());
+
+    let missing = text
+        .split_once("+Sector: 15")
+        .expect("sector 15 header")
+        .0
+        .to_owned();
+    assert!(exchange::load_as(missing.as_bytes(), DumpFormat::Mct).is_err());
+
+    let short = text.replacen(&"00".repeat(16), "00", 1);
+    assert!(exchange::load_as(short.as_bytes(), DumpFormat::Mct).is_err());
+}
+
+fn proxmark_document(
+    uid: &str,
+    block0_bcc: u8,
+    sector_keys: serde_json::Value,
+) -> serde_json::Value {
+    let layout = Layout::Classic1K;
+    let mut blocks = BTreeMap::new();
+    for block in 0..layout.block_count() {
+        let mut data = [0u8; 16];
+        if block == 0 {
+            data[0..4].copy_from_slice(&[1, 2, 3, 4]);
+            data[4] = block0_bcc;
+        }
+        if layout.is_trailer(block).expect("trailer") {
+            data[6..9].copy_from_slice(&[0xFF, 0x07, 0x80]);
+        }
+        blocks.insert(block.to_string(), hex(&data));
+    }
+    json!({
+        "Created": "NFC Foundry",
+        "FileType": "mfc v2",
+        "Card": { "UID": uid, "ATQA": "0004", "SAK": "08" },
+        "blocks": blocks,
+        "SectorKeys": sector_keys,
+    })
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02X}")).collect()
+}
+
+#[test]
+fn proxmark_import_validates_bcc_and_trailer_keys() {
+    let document = proxmark_document("01020304", 4, json!({}));
+    let encoded = serde_json::to_vec(&document).expect("json");
+    let load = exchange::load_as(&encoded, DumpFormat::Proxmark3).expect("import");
+    assert_eq!(load.dump.layout, Layout::Classic1K);
+    assert_eq!(load.dump.card.expect("card").uid, vec![1, 2, 3, 4]);
+
+    let bad_bcc = proxmark_document("01020304", 5, json!({}));
+    let encoded = serde_json::to_vec(&bad_bcc).expect("json");
+    assert!(exchange::load_as(&encoded, DumpFormat::Proxmark3).is_err());
+
+    let conflicting_key =
+        proxmark_document("01020304", 4, json!({ "0": { "KeyA": "FFFFFFFFFFFF" } }));
+    let encoded = serde_json::to_vec(&conflicting_key).expect("json");
+    assert!(exchange::load_as(&encoded, DumpFormat::Proxmark3).is_err());
+
+    let matching_key = proxmark_document(
+        "01020304",
+        4,
+        json!({ "0": {
+            "KeyA": "000000000000",
+            "KeyB": "000000000000",
+            "AccessConditions": "FF078099"
+        }}),
+    );
+    let encoded = serde_json::to_vec(&matching_key).expect("json");
+    assert!(exchange::load_as(&encoded, DumpFormat::Proxmark3).is_err());
+}
+
+#[test]
+fn proxmark_v3_warns_about_dropped_fields() {
+    let mut document = proxmark_document("01020304", 4, json!({}));
+    let object = document.as_object_mut().expect("object");
+    object.insert("FileType".to_owned(), json!("mfc v3"));
+    object
+        .get_mut("Card")
+        .and_then(serde_json::Value::as_object_mut)
+        .expect("card")
+        .insert("ATS".to_owned(), json!("06075A0001"));
+    let encoded = serde_json::to_vec(&document).expect("json");
+    let load = exchange::load_as(&encoded, DumpFormat::Proxmark3).expect("import");
+    assert!(load.warnings.iter().any(|warning| warning.contains("ATS")));
+}
+
+#[test]
+fn proxmark_export_contains_trailer_keys_and_access_text() {
+    let dump = complete_dump(Layout::Classic1K);
+    let encoded = exchange::export(&dump, DumpFormat::Proxmark3).expect("export");
+    let document: serde_json::Value = serde_json::from_slice(&encoded).expect("json");
+    assert_eq!(document["FileType"], "mfc v2");
+    assert_eq!(document["blocks"]["3"], "000000000000FF078000000000000000");
+    assert_eq!(document["SectorKeys"]["0"]["KeyA"], "000000000000");
+    assert_eq!(
+        document["SectorKeys"]["0"]["AccessConditionsText"]["block0"],
+        "read A|B, write A|B, increment A|B, decrement A|B"
+    );
+}
+
+#[test]
+fn project_export_of_a_default_dump_keeps_unknown_bytes_unknown() {
+    let dump = Dump::new(Layout::Classic1K);
+    let encoded = exchange::export(&dump, DumpFormat::Project).expect("project");
+    let text = String::from_utf8(encoded).expect("utf-8");
+    assert!(text.contains("\"knownMask\": \"0000\""));
+    let loaded = exchange::load_as(text.as_bytes(), DumpFormat::Project).expect("project");
+    assert_eq!(loaded.dump.blocks[0].known_mask, 0);
+}
