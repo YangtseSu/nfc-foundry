@@ -1,0 +1,19 @@
+[package]
+name = "nfc-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+nfc-classic.workspace = true
+nfc-classic-ndef.workspace = true
+nfc-core.workspace = true
+nfc-ndef.workspace = true
+nfc-recover.workspace = true
+nfc-transport.workspace = true
+nfc-type2.workspace = true
+nfc-type4.workspace = true
+
+[lints]
+workspace = true

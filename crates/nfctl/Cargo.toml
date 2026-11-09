@@ -1,0 +1,18 @@
+[package]
+name = "nfctl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "nfctl"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+nfc-app.workspace = true
+nfc-core.workspace = true
+
+[lints]
+workspace = true

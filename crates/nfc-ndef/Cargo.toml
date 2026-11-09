@@ -1,0 +1,12 @@
+[package]
+name = "nfc-ndef"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+nfc-core.workspace = true
+
+[lints]
+workspace = true

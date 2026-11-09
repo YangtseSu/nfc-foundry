@@ -1,0 +1,14 @@
+[package]
+name = "nfc-classic-ndef"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+nfc-classic.workspace = true
+nfc-ndef.workspace = true
+nfc-transport.workspace = true
+
+[lints]
+workspace = true

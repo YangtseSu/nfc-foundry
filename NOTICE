@@ -1,0 +1,16 @@
+NFC Foundry
+Copyright (C) 2026 NFC Foundry contributors
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+The full license text is in LICENSE and LICENSES/GPL-3.0-or-later.txt.
+
+Third-party components retain their own copyright and license notices. See
+THIRD_PARTY_NOTICES.md and the dependency licenses included with a release.

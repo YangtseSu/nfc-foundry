@@ -1,0 +1,17 @@
+[package]
+name = "nfc-foundry"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "nfc-foundry"
+path = "src/main.rs"
+
+[dependencies]
+gpui-kit.workspace = true
+nfc-app.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,71 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/nfc-core",
+    "crates/nfc-transport",
+    "crates/nfc-drivers",
+    "crates/nfc-classic",
+    "crates/nfc-recover",
+    "crates/nfc-ndef",
+    "crates/nfc-type2",
+    "crates/nfc-classic-ndef",
+    "crates/nfc-type4",
+    "crates/nfc-app",
+    "crates/nfctl",
+    "crates/gui/nfc-foundry",
+]
+default-members = [
+    "crates/nfc-core",
+    "crates/nfc-transport",
+    "crates/nfc-drivers",
+    "crates/nfc-classic",
+    "crates/nfc-recover",
+    "crates/nfc-ndef",
+    "crates/nfc-type2",
+    "crates/nfc-classic-ndef",
+    "crates/nfc-type4",
+    "crates/nfc-app",
+    "crates/nfctl",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/YangtseSu/nfc-foundry-rs"
+rust-version = "1.99"
+
+[workspace.dependencies]
+nfc-core = { path = "crates/nfc-core" }
+nfc-transport = { path = "crates/nfc-transport" }
+nfc-drivers = { path = "crates/nfc-drivers" }
+nfc-classic = { path = "crates/nfc-classic" }
+nfc-recover = { path = "crates/nfc-recover" }
+nfc-ndef = { path = "crates/nfc-ndef" }
+nfc-type2 = { path = "crates/nfc-type2" }
+nfc-classic-ndef = { path = "crates/nfc-classic-ndef" }
+nfc-type4 = { path = "crates/nfc-type4" }
+nfc-app = { path = "crates/nfc-app" }
+
+clap = { version = "4.6.7", features = ["derive"] }
+gpui-kit = "0.9.1"
+nusb = "0.2.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serialport = "4.10.1"
+thiserror = "2.0.21"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+unwrap_used = "deny"
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+strip = "symbols"
