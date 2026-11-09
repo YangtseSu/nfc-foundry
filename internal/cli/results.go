@@ -41,6 +41,7 @@ type keyscanResult struct {
 
 type dumpResult struct {
 	Path             string         `json:"path"`
+	Format           string         `json:"format,omitempty"`
 	Sidecar          string         `json:"sidecar,omitempty"`
 	Layout           string         `json:"layout"`
 	Complete         bool           `json:"complete"`
@@ -56,6 +57,7 @@ type restoreResult struct {
 	Preflight *app.WritePreflightDTO `json:"preflight"`
 	Restore   *app.RestoreResultDTO  `json:"restore,omitempty"`
 	KeyScan   *keyscanResult         `json:"keyScan,omitempty"`
+	Warnings  []string               `json:"warnings,omitempty"`
 }
 
 type recoverResult struct {
@@ -117,12 +119,14 @@ type keyAddedResult struct {
 
 type keysImportResult struct {
 	Path       string               `json:"path"`
+	Format     string               `json:"format,omitempty"`
 	Valid      int                  `json:"valid"`
 	Added      int                  `json:"added"`
 	Duplicates int                  `json:"duplicates"`
 	Ignored    int                  `json:"ignored"`
 	Issues     []app.ImportIssueDTO `json:"issues"`
 	Keys       int                  `json:"keys"`
+	KeySet     *app.KeySetDTO       `json:"keySet,omitempty"`
 }
 
 type type2PageResult struct {
@@ -154,8 +158,10 @@ type ndefReadResult struct {
 }
 
 type keysExportResult struct {
-	Path  string `json:"path"`
-	Count int    `json:"count"`
+	Path   string `json:"path"`
+	Format string `json:"format"`
+	Set    string `json:"set,omitempty"`
+	Count  int    `json:"count"`
 }
 
 func buildKeyscanResult(dashboard app.DashboardDTO, showKeys bool) keyscanResult {

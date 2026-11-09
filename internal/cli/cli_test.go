@@ -604,10 +604,22 @@ func TestKeysNamesAndSetsLifecycle(t *testing.T) {
 	if info, err := os.Stat(dicPath); err != nil || info.Mode().Perm()&0o077 != 0 {
 		t.Fatalf("dictionary export permissions = %v, err = %v", info, err)
 	}
-	jsonPath := filepath.Join(harness.dir, "set.json")
-	code, envelope = harness.run("keys", "set", "export", "Cloned access card", "--format", "keys", "--output", jsonPath, "--json")
+	keysPath := filepath.Join(harness.dir, "set.keys")
+	code, envelope = harness.run("keys", "set", "export", "Cloned access card", "--format", "keys", "--output", keysPath, "--json")
 	if code != 0 || !envelope.OK {
 		t.Fatalf("keys set export keys: code=%d envelope=%+v stderr=%s", code, envelope, harness.stderr.String())
+	}
+	mctKeys, err := os.ReadFile(keysPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(mctKeys)) != "010203040506" {
+		t.Fatalf("keys vocabulary export = %q", mctKeys)
+	}
+	jsonPath := filepath.Join(harness.dir, "set.json")
+	code, envelope = harness.run("keys", "set", "export", "Cloned access card", "--format", "json", "--output", jsonPath, "--json")
+	if code != 0 || !envelope.OK {
+		t.Fatalf("keys set export json: code=%d envelope=%+v stderr=%s", code, envelope, harness.stderr.String())
 	}
 	artifact, err := os.ReadFile(jsonPath)
 	if err != nil {

@@ -148,6 +148,14 @@
   "keysImported": "Imported {added} keys; {duplicates} duplicates, {ignored} ignored.",
   "keysExportDone": "Exported {count} keys.",
   "keysImportIssues": "Import issues: {count}.",
+  "keysImportTitle": "Import key file",
+  "keysImportAction": "Choose file",
+  "keysImportFormat": "File format",
+  "keysImportFormatDictionary": "Text dictionary (.keys/.dic/.txt)",
+  "keysImportFormatKeyArray": "Proxmark3 raw key array (.bin)",
+  "keysImportSetHint": "Optionally add every key from the file to a named key set. Leave empty to update the catalog only.",
+  "keysImportSetLabel": "Add to key set (optional)",
+  "keysImportedSet": "Imported {added} keys; key set {name} now holds {count} keys.",
   "detailsCard": "Card facts",
   "detailsDump": "Dump",
   "detailsSource": "Source",
@@ -429,6 +437,19 @@
   },
   "@keysImportIssues": {
     "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@keysImportedSet": {
+    "placeholders": {
+      "added": {
+        "type": "int"
+      },
+      "name": {
+        "type": "String"
+      },
       "count": {
         "type": "int"
       }
@@ -777,6 +798,17 @@
   "classicLoadFailed": "Could not load the dump: {message}",
   "classicSaveFailed": "Could not save the dump: {message}",
   "classicDumpSaved": "Dump saved to {path}.",
+  "classicDumpFormat": "Format",
+  "classicDumpFormatProject": "NFC Foundry project",
+  "classicDumpFormatRaw": "Raw image",
+  "classicDumpFormatProxmark3": "Proxmark3 JSON",
+  "classicDumpFormatKeyArray": "Proxmark3 key array",
+  "classicDumpFormatMCTJSON": "MCT JSON",
+  "classicDumpFormatMCT": "MCT text",
+  "classicDumpFormatEML": "EML text",
+  "classicDumpFormatSidecar": "Metadata sidecar",
+  "classicLoadWarnings": "Loaded with {count} format warnings; see the log.",
+  "classicIncompleteFormat": "An incomplete dump can only be saved as an NFC Foundry project.",
   "classicBlockEditor": "Block editor",
   "classicSelectDataBlock": "Select an ordinary data block to edit.",
   "classicBlockHexPlaceholder": "32 hexadecimal digits",
@@ -826,6 +858,13 @@
     "placeholders": {
       "message": {
         "type": "String"
+      }
+    }
+  },
+  "@classicLoadWarnings": {
+    "placeholders": {
+      "count": {
+        "type": "int"
       }
     }
   },
@@ -1294,6 +1333,7 @@
   },
   "keySetExportFormat": "Format",
   "keySetFormatDIC": "Dictionary (.dic)",
+  "keySetFormatKeys": "MCT key file (.keys)",
   "keySetFormatJSON": "JSON key set (.json)",
   "keySetExported": "Exported {count} keys to {path}.",
   "@keySetExported": {

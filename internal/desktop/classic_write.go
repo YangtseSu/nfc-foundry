@@ -17,6 +17,30 @@ func (s *shell) classicActions(c *ui.Context, p palette) {
 		if linkButton(c, p, l.ClassicLoadDump()).Disabled(busy).Clicked() {
 			s.loadDump()
 		}
+		if s.workbench.Loaded {
+			choices := dumpFormatChoices(l)
+			if !s.workbench.Complete {
+				choices = choices[:1]
+			}
+			labels := make([]string, len(choices))
+			selected := labels[0]
+			for index, choice := range choices {
+				labels[index] = choice.Label
+				if choice.ID == s.dumpFormat {
+					selected = choice.Label
+				}
+			}
+			ui.Text(c, l.ClassicDumpFormat()).FontSize(9.5).TextColor(p.faint).Shrink(0)
+			selector := ui.Select(c, &selected, labels)
+			if selector.Changed() {
+				for index, label := range labels {
+					if label == selected {
+						s.dumpFormat = choices[index].ID
+						break
+					}
+				}
+			}
+		}
 		save := linkButton(c, p, l.ClassicSaveDump()).Disabled(busy || !s.workbench.Loaded)
 		if save.Clicked() {
 			s.saveDump()
@@ -121,6 +145,12 @@ func (s *shell) startLoadDump(discardDirty bool) {
 			s.workbench = workbench
 			s.errorText = ""
 			s.clampSelections()
+			for _, warning := range workbench.Warnings {
+				s.appendLog("dump", app.TaskEventProgress, warning, 0)
+			}
+			if len(workbench.Warnings) > 0 {
+				s.toastText = s.locales().ClassicLoadWarnings(len(workbench.Warnings))
+			}
 		})
 	}()
 }
@@ -129,9 +159,17 @@ func (s *shell) saveDump() {
 	if s.writeBusy() || !s.workbench.Loaded {
 		return
 	}
+	format := s.dumpFormat
+	if format == "" {
+		format = string(app.DumpFormatProject)
+	}
+	if format != string(app.DumpFormatProject) && !s.workbench.Complete {
+		s.errorText = s.locales().ClassicIncompleteFormat()
+		return
+	}
 	s.pendingOps++
 	go func() {
-		result, err := s.api.SaveDump()
+		result, err := s.api.SaveDump(format)
 		s.update(func() {
 			s.pendingOps--
 			if err != nil {

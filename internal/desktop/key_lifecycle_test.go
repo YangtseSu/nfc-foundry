@@ -191,6 +191,36 @@ func TestKeySetCreateDialogUsesVerifiedKeys(t *testing.T) {
 	})
 }
 
+func TestKeyImportDialogPassesSetName(t *testing.T) {
+	backend := classicFixture()
+	model := newShell(backend)
+	tester := ui.NewTester(model.view, 1360, 860)
+	if err := tester.Click("Keys"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tester.Click("Import…"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if !tester.HasText("Import key file") || !tester.HasText("Add to key set (optional)") {
+		t.Fatalf("key import dialog missing: %q", tester.Texts())
+	}
+	model.keyImportSetName = "Imported batch"
+	model.keyImportFormat = "keyarray"
+	tester.Frame()
+	if !tester.HasText("Proxmark3 raw key array (.bin)") {
+		t.Fatalf("key import format selector missing: %q", tester.Texts())
+	}
+	if err := tester.Click("Choose file"); err != nil {
+		t.Fatal(err)
+	}
+	waitForParity(t, func() bool {
+		backend.mu.Lock()
+		defer backend.mu.Unlock()
+		return len(backend.keyImportSets) == 1 && backend.keyImportSets[0] == "keyarray/Imported batch"
+	})
+}
+
 func TestKeySetExportAndDeleteActions(t *testing.T) {
 	backend := classicFixture()
 	backend.keySets = []app.KeySetDTO{{ID: "set-1", Name: "Cloned access card", KeyCount: 2, CreatedAt: "2026-11-08T15:10:00Z", Source: "recovery"}}

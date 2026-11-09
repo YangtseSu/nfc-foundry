@@ -127,6 +127,7 @@ type shell struct {
 	tabIndex    int
 
 	advanced             bool
+	dumpFormat           string
 	classicDialog        string
 	classicDialogOpen    bool
 	classicIntent        *classicWriteIntent
@@ -184,6 +185,10 @@ type shell struct {
 	keyRenameOpen      bool
 	keyRenameID        string
 	keyRenameInput     string
+	keyImportOpen      bool
+	keyImportSetName   string
+	keyImportFormat    string
+	keyImportError     string
 	keySetCreateOpen   bool
 	keySetNameInput    string
 	keySetRenameOpen   bool
@@ -255,6 +260,8 @@ func newShell(api Backend) *shell {
 		recoveryKeyNames:   make(map[string]*string),
 		recoverySelected:   make(map[string]bool),
 		keySetExportFormat: "dic",
+		keyImportFormat:    "dic",
+		dumpFormat:         string(app.DumpFormatRaw),
 	}
 	s.reloadSnapshot()
 	return s
@@ -570,29 +577,48 @@ func (s *shell) deleteKey(id string) {
 	}()
 }
 
-func (s *shell) importKeys() {
+func (s *shell) openKeyImportDialog() {
 	if s.pendingOps > 0 {
 		return
 	}
+	s.keyImportSetName = ""
+	s.keyImportFormat = "dic"
+	s.keyImportError = ""
+	s.keyImportOpen = true
+}
+
+func (s *shell) startImportKeys(setName string) {
+	if s.pendingOps > 0 {
+		return
+	}
+	format := s.keyImportFormat
 	s.pendingOps++
 	go func() {
-		report, err := s.api.ImportKeyDictionary()
+		report, err := s.api.ImportKeyFileToSet(format, setName)
 		s.update(func() {
 			s.pendingOps--
 			if err != nil {
-				s.errorText = s.locales().KeysImportFailed(err.Error())
+				s.keyImportError = s.locales().KeysImportFailed(err.Error())
 				return
 			}
 			if report.Cancelled {
+				s.keyImportOpen = false
+				s.keyImportError = ""
 				return
 			}
-			s.keys = append([]app.KeyDTO(nil), report.Keys...)
+			s.keyImportOpen = false
+			s.keyImportError = ""
+			s.reloadKeySnapshot()
 			l := s.locales()
-			s.appendLog("keys", app.TaskEventCompleted, l.KeysImported(report.Added, report.Duplicates, report.Ignored), 100)
+			message := l.KeysImported(report.Added, report.Duplicates, report.Ignored)
+			if report.KeySet != nil {
+				message = l.KeysImportedSet(report.Added, report.KeySet.Name, report.KeySet.KeyCount)
+			}
+			s.appendLog("keys", app.TaskEventCompleted, message, 100)
 			if len(report.Issues) > 0 {
 				s.appendLog("keys", app.TaskEventProgress, l.KeysImportIssues(len(report.Issues)), 0)
 			}
-			s.toastText = l.KeysImported(report.Added, report.Duplicates, report.Ignored)
+			s.toastText = message
 			s.errorText = ""
 			s.syncKeyChoice()
 		})
@@ -634,6 +660,9 @@ func (s *shell) appendLog(kind, eventType, message string, progress int) {
 }
 
 func (s *shell) clampSelections() {
+	if !s.workbench.Complete && s.dumpFormat != string(app.DumpFormatProject) {
+		s.dumpFormat = string(app.DumpFormatProject)
+	}
 	if !s.cardPresent() {
 		s.sectorKeys = nil
 	}

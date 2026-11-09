@@ -61,6 +61,8 @@ type fakeBackend struct {
 	type4Writes         []app.Type4NDEFWriteRequestDTO
 	dumpLoads           int
 	dumpSaves           int
+	dumpFormats         []string
+	keyImportSets       []string
 }
 
 type classicEditCall struct {
@@ -166,6 +168,16 @@ func (f *fakeBackend) DiscardRecoveryReview() error {
 func (f *fakeBackend) ImportKeyDictionary() (app.ImportReportDTO, error) {
 	return app.ImportReportDTO{Keys: f.keys}, nil
 }
+func (f *fakeBackend) ImportKeyFileToSet(format, setName string) (app.ImportReportDTO, error) {
+	f.mu.Lock()
+	f.keyImportSets = append(f.keyImportSets, format+"/"+setName)
+	f.mu.Unlock()
+	report := app.ImportReportDTO{Keys: f.keys}
+	if strings.TrimSpace(setName) != "" {
+		report.KeySet = &app.KeySetDTO{ID: "set-import", Name: setName, KeyCount: len(f.keys), KeyIDs: []string{"imported"}}
+	}
+	return report, nil
+}
 func (f *fakeBackend) ExportKeyDictionary() (app.ExportResultDTO, error) {
 	return app.ExportResultDTO{Count: len(f.keys)}, nil
 }
@@ -200,11 +212,15 @@ func (f *fakeBackend) LoadDumpFile(string, bool) (app.WorkbenchDTO, error) {
 	f.mu.Unlock()
 	return f.workbench, nil
 }
-func (f *fakeBackend) SaveDump() (app.SaveResultDTO, error) {
+func (f *fakeBackend) SaveDump(format string) (app.SaveResultDTO, error) {
 	f.mu.Lock()
 	f.dumpSaves++
+	f.dumpFormats = append(f.dumpFormats, format)
 	f.mu.Unlock()
-	return app.SaveResultDTO{Path: "card.nfcx.json"}, nil
+	if format == string(app.DumpFormatSidecar) {
+		return app.SaveResultDTO{Path: "card.bin.nfcx.json", Format: format}, nil
+	}
+	return app.SaveResultDTO{Path: "card.nfcx.json", Format: format}, nil
 }
 func (f *fakeBackend) SaveDumpFile(path string) (app.SaveResultDTO, error) {
 	f.mu.Lock()
@@ -1351,6 +1367,62 @@ func TestClassicWriteFailureShowsBackupPath(t *testing.T) {
 	})
 	if !strings.Contains(model.errorText, "/tmp/classic-backup.json") {
 		t.Fatalf("error text = %q", model.errorText)
+	}
+}
+
+func TestClassicDumpFormatSelectorSavesSelectedFormat(t *testing.T) {
+	backend := classicFixture()
+	model := newShell(backend)
+	tester := ui.NewTester(model.view, 1360, 860)
+	if !tester.HasText("Format") {
+		t.Fatalf("dump format selector missing: %q", tester.Texts())
+	}
+	model.dumpFormat = string(app.DumpFormatMCT)
+	tester.Frame()
+	if err := tester.Click("Save dump"); err != nil {
+		t.Fatal(err)
+	}
+	waitForParity(t, func() bool {
+		backend.mu.Lock()
+		defer backend.mu.Unlock()
+		return len(backend.dumpFormats) == 1 && backend.dumpFormats[0] == string(app.DumpFormatMCT)
+	})
+
+	model.dumpFormat = string(app.DumpFormatKeyArray)
+	tester.Frame()
+	if !tester.HasText("Proxmark3 key array") {
+		t.Fatalf("key array format option missing: %q", tester.Texts())
+	}
+	if err := tester.Click("Save dump"); err != nil {
+		t.Fatal(err)
+	}
+	waitForParity(t, func() bool {
+		backend.mu.Lock()
+		defer backend.mu.Unlock()
+		return len(backend.dumpFormats) == 2 && backend.dumpFormats[1] == string(app.DumpFormatKeyArray)
+	})
+}
+
+func TestClassicPartialDumpRefusesExternalFormat(t *testing.T) {
+	backend := classicFixture()
+	backend.workbench.Complete = false
+	model := newShell(backend)
+	tester := ui.NewTester(model.view, 1360, 860)
+	model.clampSelections()
+	if model.dumpFormat != string(app.DumpFormatProject) {
+		t.Fatalf("partial dump format = %q", model.dumpFormat)
+	}
+	model.dumpFormat = string(app.DumpFormatRaw)
+	tester.Frame()
+	model.saveDump()
+	backend.mu.Lock()
+	saves := backend.dumpSaves
+	backend.mu.Unlock()
+	if saves != 0 {
+		t.Fatal("partial dump reached the backend with an external format")
+	}
+	if model.errorText != "An incomplete dump can only be saved as an NFC Foundry project." {
+		t.Fatalf("incomplete-format error = %q", model.errorText)
 	}
 }
 

@@ -100,28 +100,43 @@ func (r *Runner) keysAdd(_ context.Context, args []string) error {
 	return nil
 }
 
+var keysImportSpecs = map[string]flagSpec{
+	"set":    {takesValue: true},
+	"format": {takesValue: true},
+}
+
 func (r *Runner) keysImport(_ context.Context, args []string) error {
-	parsed, err := parseCommandArgs(args, nil)
+	parsed, err := parseCommandArgs(args, keysImportSpecs)
 	if err != nil {
 		return err
 	}
 	if len(parsed.positionals) != 1 {
-		return usagef("usage: nfctl keys import <file>")
+		return usagef("usage: nfctl keys import <file> [--set NAME] [--format dic|keys|keyarray]")
 	}
 	if r.global.dryRun {
 		return usagef("keys import does not support --dry-run")
 	}
+	format := strings.ToLower(strings.TrimSpace(parsed.value("format")))
+	if format == "" {
+		format = "dic"
+	}
+	if format != "dic" && format != "keys" && format != "keyarray" {
+		return usagef("--format must be dic, keys, or keyarray")
+	}
 	path := parsed.positionals[0]
-	report, err := r.service.ImportKeyDictionaryFile(path)
+	report, err := r.service.ImportKeyFileWithSet(path, format, parsed.value("set"))
 	if err != nil {
 		return err
 	}
 	result := keysImportResult{
-		Path: path, Valid: report.Valid, Added: report.Added, Duplicates: report.Duplicates,
-		Ignored: report.Ignored, Issues: report.Issues, Keys: len(report.Keys),
+		Path: path, Format: format, Valid: report.Valid, Added: report.Added, Duplicates: report.Duplicates,
+		Ignored: report.Ignored, Issues: report.Issues, Keys: len(report.Keys), KeySet: report.KeySet,
 	}
-	r.out.humanf("imported %s: %d valid, %d added, %d duplicates, %d ignored, %d catalog keys\n",
-		path, result.Valid, result.Added, result.Duplicates, result.Ignored, result.Keys)
+	r.out.humanf("imported %s (%s): %d valid, %d added, %d duplicates, %d ignored, %d catalog keys\n",
+		path, format, result.Valid, result.Added, result.Duplicates, result.Ignored, result.Keys)
+	if result.KeySet != nil {
+		r.out.humanf("key set %q now holds %d keys\n", result.KeySet.Name, result.KeySet.KeyCount)
+	}
 	for _, issue := range report.Issues {
 		r.out.humanf("line %d: %s\n", issue.Line, issue.Message)
 	}
@@ -129,24 +144,46 @@ func (r *Runner) keysImport(_ context.Context, args []string) error {
 	return nil
 }
 
+var keysExportSpecs = map[string]flagSpec{
+	"set":    {takesValue: true},
+	"format": {takesValue: true},
+}
+
 func (r *Runner) keysExport(_ context.Context, args []string) error {
-	parsed, err := parseCommandArgs(args, nil)
+	parsed, err := parseCommandArgs(args, keysExportSpecs)
 	if err != nil {
 		return err
 	}
 	if len(parsed.positionals) != 1 {
-		return usagef("usage: nfctl keys export <file>")
+		return usagef("usage: nfctl keys export <file> [--set NAME] [--format dic|keys]")
 	}
 	if r.global.dryRun {
 		return usagef("keys export does not support --dry-run")
 	}
 	path := parsed.positionals[0]
-	report, err := r.service.ExportKeyDictionaryFile(path)
-	if err != nil {
-		return err
+	format := strings.ToLower(strings.TrimSpace(parsed.value("format")))
+	if format == "" {
+		format = "dic"
 	}
-	result := keysExportResult{Path: path, Count: report.Count}
-	r.out.humanf("exported %d keys to %s\n", result.Count, result.Path)
+	if format != "dic" && format != "keys" {
+		return usagef("--format must be dic or keys")
+	}
+	result := keysExportResult{Path: path, Format: format, Set: parsed.value("set")}
+	if result.Set != "" {
+		exported, err := r.service.ExportKeySetFile(result.Set, format, path)
+		if err != nil {
+			return err
+		}
+		result.Count = exported.Count
+		r.out.humanf("exported %d keys from %q to %s (%s)\n", result.Count, result.Set, path, format)
+	} else {
+		report, err := r.service.ExportKeyDictionaryFile(path)
+		if err != nil {
+			return err
+		}
+		result.Count = report.Count
+		r.out.humanf("exported %d keys to %s (%s)\n", result.Count, path, format)
+	}
 	r.out.emit("keys.export", "", nil, nil, result)
 	return nil
 }
@@ -310,7 +347,7 @@ func (r *Runner) keysSetExport(_ context.Context, args []string) error {
 		return err
 	}
 	if len(parsed.positionals) != 1 {
-		return usagef("usage: nfctl keys set export <name> [--format dic|keys] [--output <file>]")
+		return usagef("usage: nfctl keys set export <name> [--format dic|keys|json] [--output <file>]")
 	}
 	if r.global.dryRun {
 		return usagef("keys set export does not support --dry-run")
@@ -320,8 +357,8 @@ func (r *Runner) keysSetExport(_ context.Context, args []string) error {
 	if format == "" {
 		format = "dic"
 	}
-	if format != "dic" && format != "keys" {
-		return usagef("--format must be dic or keys")
+	if format != "dic" && format != "keys" && format != "json" {
+		return usagef("--format must be dic, keys, or json")
 	}
 	path := parsed.value("output")
 	if path == "" && !r.global.showKeys {

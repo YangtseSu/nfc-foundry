@@ -266,11 +266,59 @@ func (s *shell) discardRecoveryReview() {
 
 func (s *shell) keyLifecycleDialogs(c *ui.Context) {
 	s.keyRenameDialog(c)
+	s.keyImportDialog(c)
 	s.keySetCreateDialog(c)
 	s.keySetRenameDialog(c)
 	s.keySetDeleteDialog(c)
 	s.keySetExportDialog(c)
 	s.recoveryReviewDialog(c)
+}
+
+func (s *shell) keyImportDialog(c *ui.Context) {
+	if !s.keyImportOpen {
+		return
+	}
+	l := s.locales()
+	p := paletteFor(c.Theme())
+	ui.Modal(c, &s.keyImportOpen, func() {
+		ui.Text(c, l.KeysImportTitle()).FontSize(15).Bold().TextColor(p.text)
+		ui.Text(c, l.KeysImportSetHint()).FontSize(10.5).TextColor(p.muted).Wrap()
+		ui.Text(c, l.KeysImportFormat()).FontSize(10).TextColor(p.muted)
+		formatLabels := []string{l.KeysImportFormatDictionary(), l.KeysImportFormatKeyArray()}
+		formatIDs := []string{"dic", "keyarray"}
+		selectedFormat := formatLabels[0]
+		for index, id := range formatIDs {
+			if id == s.keyImportFormat {
+				selectedFormat = formatLabels[index]
+			}
+		}
+		formatSelector := ui.Select(c, &selectedFormat, formatLabels)
+		if formatSelector.Changed() {
+			for index, label := range formatLabels {
+				if label == selectedFormat {
+					s.keyImportFormat = formatIDs[index]
+					break
+				}
+			}
+		}
+		ui.Text(c, l.KeysImportSetLabel()).FontSize(10).TextColor(p.muted)
+		input := ui.TextInput(c, &s.keyImportSetName).Placeholder(l.KeySetNamePlaceholder()).AutoFocus()
+		if input.Submitted() {
+			s.startImportKeys(s.keyImportSetName)
+		}
+		if s.keyImportError != "" {
+			ui.Text(c, s.keyImportError).FontSize(10).TextColor(p.danger).Wrap()
+		}
+		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
+			if ui.Button(c, l.CommonCancel()).Clicked() {
+				s.keyImportOpen = false
+				s.keyImportError = ""
+			}
+			if ui.Button(c, l.KeysImportAction()).Disabled(s.pendingOps > 0).Clicked() {
+				s.startImportKeys(s.keyImportSetName)
+			}
+		})
+	})
 }
 
 func (s *shell) keyRenameDialog(c *ui.Context) {
@@ -370,8 +418,8 @@ func (s *shell) keySetExportDialog(c *ui.Context) {
 	ui.Modal(c, &s.keySetExportOpen, func() {
 		ui.Text(c, l.KeySetExportTitle(set.Name)).FontSize(15).Bold().TextColor(p.text)
 		ui.Text(c, l.KeySetExportFormat()).FontSize(10.5).TextColor(p.muted)
-		labels := []string{l.KeySetFormatDIC(), l.KeySetFormatJSON()}
-		ids := []string{"dic", "keys"}
+		labels := []string{l.KeySetFormatDIC(), l.KeySetFormatKeys(), l.KeySetFormatJSON()}
+		ids := []string{"dic", "keys", "json"}
 		selected := labels[0]
 		for index, id := range ids {
 			if id == s.keySetExportFormat {

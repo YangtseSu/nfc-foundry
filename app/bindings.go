@@ -69,7 +69,11 @@ func (b *Bindings) ReloadKeyStore() (KeyStoreReloadDTO, error) {
 func (b *Bindings) ExportKeySet(name, format string) (ExportResultDTO, error) {
 	extension := "*.dic;*.txt"
 	fileName := "nfc-foundry-key-set.dic"
-	if format == "keys" {
+	switch format {
+	case "keys":
+		extension = "*.keys"
+		fileName = "nfc-foundry-key-set.keys"
+	case "json":
 		extension = "*.json"
 		fileName = "nfc-foundry-key-set.json"
 	}
@@ -97,6 +101,12 @@ func (b *Bindings) ImportKeyDictionary() (ImportReportDTO, error) {
 	return b.service.ImportKeyDictionary()
 }
 
+// ImportKeyFileToSet imports a text dictionary or raw key array with an
+// optional named key set. An empty set name keeps the import catalog-only.
+func (b *Bindings) ImportKeyFileToSet(format, setName string) (ImportReportDTO, error) {
+	return b.service.ImportKeyFileToSet(format, setName)
+}
+
 func (b *Bindings) ExportKeyDictionary() (ExportResultDTO, error) {
 	return b.service.ExportKeyDictionary()
 }
@@ -118,12 +128,27 @@ func (b *Bindings) LoadDumpFile(path string, discardDirty bool) (WorkbenchDTO, e
 	return b.service.LoadDumpFile(path, discardDirty)
 }
 
-// SaveDump opens the native dump save dialog.
-func (b *Bindings) SaveDump() (SaveResultDTO, error) { return b.service.SaveDump() }
+// SaveDump opens the native dump save dialog for an explicit format.
+func (b *Bindings) SaveDump(format string) (SaveResultDTO, error) {
+	parsed, err := ParseDumpFormat(format)
+	if err != nil {
+		return SaveResultDTO{}, err
+	}
+	return b.service.SaveDump(parsed)
+}
 
 // SaveDumpFile writes the current dump to an explicit path.
 func (b *Bindings) SaveDumpFile(path string) (SaveResultDTO, error) {
 	return b.service.SaveDumpFile(path)
+}
+
+// SaveDumpFileAs writes the current dump in an explicit format.
+func (b *Bindings) SaveDumpFileAs(path, format string) (SaveResultDTO, error) {
+	parsed, err := ParseDumpFormat(format)
+	if err != nil {
+		return SaveResultDTO{}, err
+	}
+	return b.service.SaveDumpFileAs(path, parsed)
 }
 
 // PreflightWrite validates a planned Classic write.

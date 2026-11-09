@@ -214,7 +214,11 @@ func (r *Runner) printKeyscan(summary keyscanResult) {
 }
 
 func (r *Runner) printDump(result dumpResult) {
-	r.out.humanf("wrote %s\n", result.Path)
+	format := ""
+	if result.Format != "" {
+		format = " (" + result.Format + ")"
+	}
+	r.out.humanf("wrote %s%s\n", result.Path, format)
 	if result.Sidecar != "" {
 		r.out.humanf("metadata %s\n", result.Sidecar)
 	}
@@ -229,6 +233,9 @@ func (r *Runner) printDump(result dumpResult) {
 }
 
 func (r *Runner) printRestore(result restoreResult) {
+	for _, warning := range result.Warnings {
+		r.out.humanf("warning: %s\n", warning)
+	}
 	preflight := result.Preflight
 	if preflight == nil {
 		return

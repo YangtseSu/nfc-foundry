@@ -483,7 +483,7 @@ func (s *shell) keyCatalogPanel(c *ui.Context, p palette) {
 			}
 			if ui.Button(c, l.CommonImport()).Height(26).FontSize(10).
 				Disabled(s.pendingOps > 0).Clicked() {
-				s.importKeys()
+				s.openKeyImportDialog()
 			}
 			if ui.Button(c, l.CommonExport()).Height(26).FontSize(10).
 				Disabled(s.pendingOps > 0).Clicked() {

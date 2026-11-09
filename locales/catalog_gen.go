@@ -1540,6 +1540,88 @@ func (msgs Messages) KeysImportIssues(count int) string {
 	return Catalog.Format(msgs.locale, "keysImportIssues", map[string]any{"count": count})
 }
 
+// KeysImportTitle says "Import key file"
+// in the language the app shows.
+func KeysImportTitle() string { return In(i18n.Locale()).KeysImportTitle() }
+
+// KeysImportTitle says "Import key file"
+// in the language of msgs.
+func (msgs Messages) KeysImportTitle() string {
+	return Catalog.Format(msgs.locale, "keysImportTitle", nil)
+}
+
+// KeysImportAction says "Choose file"
+// in the language the app shows.
+func KeysImportAction() string { return In(i18n.Locale()).KeysImportAction() }
+
+// KeysImportAction says "Choose file"
+// in the language of msgs.
+func (msgs Messages) KeysImportAction() string {
+	return Catalog.Format(msgs.locale, "keysImportAction", nil)
+}
+
+// KeysImportFormat says "File format"
+// in the language the app shows.
+func KeysImportFormat() string { return In(i18n.Locale()).KeysImportFormat() }
+
+// KeysImportFormat says "File format"
+// in the language of msgs.
+func (msgs Messages) KeysImportFormat() string {
+	return Catalog.Format(msgs.locale, "keysImportFormat", nil)
+}
+
+// KeysImportFormatDictionary says "Text dictionary (.keys/.dic/.txt)"
+// in the language the app shows.
+func KeysImportFormatDictionary() string { return In(i18n.Locale()).KeysImportFormatDictionary() }
+
+// KeysImportFormatDictionary says "Text dictionary (.keys/.dic/.txt)"
+// in the language of msgs.
+func (msgs Messages) KeysImportFormatDictionary() string {
+	return Catalog.Format(msgs.locale, "keysImportFormatDictionary", nil)
+}
+
+// KeysImportFormatKeyArray says "Proxmark3 raw key array (.bin)"
+// in the language the app shows.
+func KeysImportFormatKeyArray() string { return In(i18n.Locale()).KeysImportFormatKeyArray() }
+
+// KeysImportFormatKeyArray says "Proxmark3 raw key array (.bin)"
+// in the language of msgs.
+func (msgs Messages) KeysImportFormatKeyArray() string {
+	return Catalog.Format(msgs.locale, "keysImportFormatKeyArray", nil)
+}
+
+// KeysImportSetHint says "Optionally add every key from the file to a named key set. Leave empty to update the catalog only."
+// in the language the app shows.
+func KeysImportSetHint() string { return In(i18n.Locale()).KeysImportSetHint() }
+
+// KeysImportSetHint says "Optionally add every key from the file to a named key set. Leave empty to update the catalog only."
+// in the language of msgs.
+func (msgs Messages) KeysImportSetHint() string {
+	return Catalog.Format(msgs.locale, "keysImportSetHint", nil)
+}
+
+// KeysImportSetLabel says "Add to key set (optional)"
+// in the language the app shows.
+func KeysImportSetLabel() string { return In(i18n.Locale()).KeysImportSetLabel() }
+
+// KeysImportSetLabel says "Add to key set (optional)"
+// in the language of msgs.
+func (msgs Messages) KeysImportSetLabel() string {
+	return Catalog.Format(msgs.locale, "keysImportSetLabel", nil)
+}
+
+// KeysImportedSet says "Imported {added} keys; key set {name} now holds {count} keys."
+// in the language the app shows.
+func KeysImportedSet(added int, name string, count int) string {
+	return In(i18n.Locale()).KeysImportedSet(added, name, count)
+}
+
+// KeysImportedSet says "Imported {added} keys; key set {name} now holds {count} keys."
+// in the language of msgs.
+func (msgs Messages) KeysImportedSet(added int, name string, count int) string {
+	return Catalog.Format(msgs.locale, "keysImportedSet", map[string]any{"added": added, "name": name, "count": count})
+}
+
 // DetailsCard says "Card facts"
 // in the language the app shows.
 func DetailsCard() string { return In(i18n.Locale()).DetailsCard() }
@@ -5540,6 +5622,116 @@ func (msgs Messages) ClassicDumpSaved(path string) string {
 	return Catalog.Format(msgs.locale, "classicDumpSaved", map[string]any{"path": path})
 }
 
+// ClassicDumpFormat says "Format"
+// in the language the app shows.
+func ClassicDumpFormat() string { return In(i18n.Locale()).ClassicDumpFormat() }
+
+// ClassicDumpFormat says "Format"
+// in the language of msgs.
+func (msgs Messages) ClassicDumpFormat() string {
+	return Catalog.Format(msgs.locale, "classicDumpFormat", nil)
+}
+
+// ClassicDumpFormatProject says "NFC Foundry project"
+// in the language the app shows.
+func ClassicDumpFormatProject() string { return In(i18n.Locale()).ClassicDumpFormatProject() }
+
+// ClassicDumpFormatProject says "NFC Foundry project"
+// in the language of msgs.
+func (msgs Messages) ClassicDumpFormatProject() string {
+	return Catalog.Format(msgs.locale, "classicDumpFormatProject", nil)
+}
+
+// ClassicDumpFormatRaw says "Raw image"
+// in the language the app shows.
+func ClassicDumpFormatRaw() string { return In(i18n.Locale()).ClassicDumpFormatRaw() }
+
+// ClassicDumpFormatRaw says "Raw image"
+// in the language of msgs.
+func (msgs Messages) ClassicDumpFormatRaw() string {
+	return Catalog.Format(msgs.locale, "classicDumpFormatRaw", nil)
+}
+
+// ClassicDumpFormatProxmark3 says "Proxmark3 JSON"
+// in the language the app shows.
+func ClassicDumpFormatProxmark3() string { return In(i18n.Locale()).ClassicDumpFormatProxmark3() }
+
+// ClassicDumpFormatProxmark3 says "Proxmark3 JSON"
+// in the language of msgs.
+func (msgs Messages) ClassicDumpFormatProxmark3() string {
+	return Catalog.Format(msgs.locale, "classicDumpFormatProxmark3", nil)
+}
+
+// ClassicDumpFormatKeyArray says "Proxmark3 key array"
+// in the language the app shows.
+func ClassicDumpFormatKeyArray() string { return In(i18n.Locale()).ClassicDumpFormatKeyArray() }
+
+// ClassicDumpFormatKeyArray says "Proxmark3 key array"
+// in the language of msgs.
+func (msgs Messages) ClassicDumpFormatKeyArray() string {
+	return Catalog.Format(msgs.locale, "classicDumpFormatKeyArray", nil)
+}
+
+// ClassicDumpFormatMCTJSON says "MCT JSON"
+// in the language the app shows.
+func ClassicDumpFormatMCTJSON() string { return In(i18n.Locale()).ClassicDumpFormatMCTJSON() }
+
+// ClassicDumpFormatMCTJSON says "MCT JSON"
+// in the language of msgs.
+func (msgs Messages) ClassicDumpFormatMCTJSON() string {
+	return Catalog.Format(msgs.locale, "classicDumpFormatMCTJSON", nil)
+}
+
+// ClassicDumpFormatMCT says "MCT text"
+// in the language the app shows.
+func ClassicDumpFormatMCT() string { return In(i18n.Locale()).ClassicDumpFormatMCT() }
+
+// ClassicDumpFormatMCT says "MCT text"
+// in the language of msgs.
+func (msgs Messages) ClassicDumpFormatMCT() string {
+	return Catalog.Format(msgs.locale, "classicDumpFormatMCT", nil)
+}
+
+// ClassicDumpFormatEML says "EML text"
+// in the language the app shows.
+func ClassicDumpFormatEML() string { return In(i18n.Locale()).ClassicDumpFormatEML() }
+
+// ClassicDumpFormatEML says "EML text"
+// in the language of msgs.
+func (msgs Messages) ClassicDumpFormatEML() string {
+	return Catalog.Format(msgs.locale, "classicDumpFormatEML", nil)
+}
+
+// ClassicDumpFormatSidecar says "Metadata sidecar"
+// in the language the app shows.
+func ClassicDumpFormatSidecar() string { return In(i18n.Locale()).ClassicDumpFormatSidecar() }
+
+// ClassicDumpFormatSidecar says "Metadata sidecar"
+// in the language of msgs.
+func (msgs Messages) ClassicDumpFormatSidecar() string {
+	return Catalog.Format(msgs.locale, "classicDumpFormatSidecar", nil)
+}
+
+// ClassicLoadWarnings says "Loaded with {count} format warnings; see the log."
+// in the language the app shows.
+func ClassicLoadWarnings(count int) string { return In(i18n.Locale()).ClassicLoadWarnings(count) }
+
+// ClassicLoadWarnings says "Loaded with {count} format warnings; see the log."
+// in the language of msgs.
+func (msgs Messages) ClassicLoadWarnings(count int) string {
+	return Catalog.Format(msgs.locale, "classicLoadWarnings", map[string]any{"count": count})
+}
+
+// ClassicIncompleteFormat says "An incomplete dump can only be saved as an NFC Foundry project."
+// in the language the app shows.
+func ClassicIncompleteFormat() string { return In(i18n.Locale()).ClassicIncompleteFormat() }
+
+// ClassicIncompleteFormat says "An incomplete dump can only be saved as an NFC Foundry project."
+// in the language of msgs.
+func (msgs Messages) ClassicIncompleteFormat() string {
+	return Catalog.Format(msgs.locale, "classicIncompleteFormat", nil)
+}
+
 // ClassicBlockEditor says "Block editor"
 // in the language the app shows.
 func ClassicBlockEditor() string { return In(i18n.Locale()).ClassicBlockEditor() }
@@ -6532,6 +6724,16 @@ func KeySetFormatDIC() string { return In(i18n.Locale()).KeySetFormatDIC() }
 // in the language of msgs.
 func (msgs Messages) KeySetFormatDIC() string {
 	return Catalog.Format(msgs.locale, "keySetFormatDIC", nil)
+}
+
+// KeySetFormatKeys says "MCT key file (.keys)"
+// in the language the app shows.
+func KeySetFormatKeys() string { return In(i18n.Locale()).KeySetFormatKeys() }
+
+// KeySetFormatKeys says "MCT key file (.keys)"
+// in the language of msgs.
+func (msgs Messages) KeySetFormatKeys() string {
+	return Catalog.Format(msgs.locale, "keySetFormatKeys", nil)
 }
 
 // KeySetFormatJSON says "JSON key set (.json)"

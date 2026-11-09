@@ -33,12 +33,13 @@ type Backend interface {
 	SaveRecoveryReview(app.RecoverySaveRequestDTO) (app.TaskDTO, error)
 	DiscardRecoveryReview() error
 	ImportKeyDictionary() (app.ImportReportDTO, error)
+	ImportKeyFileToSet(format, setName string) (app.ImportReportDTO, error)
 	ExportKeyDictionary() (app.ExportResultDTO, error)
 	GetWorkbench() app.WorkbenchDTO
 	EditBlockHex(block int, hex string) (app.WorkbenchDTO, error)
 	LoadDump(discardDirty bool) (app.WorkbenchDTO, error)
 	LoadDumpFile(path string, discardDirty bool) (app.WorkbenchDTO, error)
-	SaveDump() (app.SaveResultDTO, error)
+	SaveDump(format string) (app.SaveResultDTO, error)
 	SaveDumpFile(path string) (app.SaveResultDTO, error)
 	PreflightWrite(app.WritePreflightRequestDTO) (app.WritePreflightDTO, error)
 	StartWrite(app.WriteStartRequestDTO) (app.TaskDTO, error)

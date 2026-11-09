@@ -103,8 +103,10 @@ final document. Interrupting a watch exits 0.
 ```text
 nfctl classic read --block <n> [--key A:HEX|B:HEX]
 nfctl classic write --block <n> --data <HEX> [--key ...] --yes
-nfctl classic dump <file.bin|file.mfd|file.json> [--keys <file>] [--scan]
-nfctl classic restore <file.bin|file.mfd|file.json> [--keys <file>] [--scan] \
+nfctl classic dump <file.bin|file.mfd|file.json|file.mct|file.eml> [--keys <file>] [--scan]
+nfctl classic export <file> --format raw|project|proxmark3|keyarray|mct|mct-json|eml|sidecar \
+    [--keys <file>] [--scan]
+nfctl classic restore <file.bin|file.mfd|file.json|file.mct|file.eml> [--keys <file>] [--scan] \
     [--yes] [--confirm-trailers] [--dry-run]
 nfctl classic keyscan [--keys <file>]
 ```
@@ -119,16 +121,41 @@ dump error.
 restore`). `Reader.WriteBlock` performs immediate read-back verification.
 `--dry-run` authenticates and reads the current block but does not write.
 
-`dump` reads with all verified keys for the card. A `.json` path always stores
-an NFC Foundry project, complete or partial. Other paths store a complete raw
-image as `.bin`/`.mfd` plus `<name>.nfcx.json`; an incomplete image is rejected
-for raw paths because unknown bytes are never zero-filled. If the read task
-fails, no dump is written.
+`dump` reads with all verified keys for the card and infers the output format
+from an unambiguous extension. A `.json` path always stores an NFC Foundry
+project, complete or partial. `.bin`/`.mfd` stores a complete raw image plus
+`<name>.nfcx.json`; `.mct` and `.eml` store complete MCT text and EML text.
+Incomplete images are rejected by every external format because unknown bytes
+are never zero-filled. If the read task fails, no dump is written.
 
-`restore` loads a complete dump, runs the restore preflight, and writes ordinary
-blocks before trailers, verifying every block. The dump must carry metadata
-whose card UID/ATQA/SAK matches the current card. Manufacturer block 0 is
-always skipped. An actual restore requires `--yes` **and**
+`export` performs the same card read and then writes an explicit format,
+resolving the `.json` ambiguity. `raw` writes the image and sidecar, `project`
+writes the NFC Foundry JSON, `sidecar` writes only `<file>.nfcx.json`,
+`keyarray` writes the Proxmark3 raw key array, and
+`proxmark3`/`mct-json`/`mct`/`eml` write the corresponding external format.
+External formats are complete-image only. The `classic.dump` and
+`classic.export` JSON result includes the selected `format`; `classic.restore`
+includes import `warnings`.
+
+| Format | Extension | Complete only | Preserves partial state |
+|---|---|---|---|
+| NFC Foundry project | `.json` | no | yes |
+| Raw image + sidecar | `.bin`, `.mfd` | yes | no |
+| Metadata sidecar | `.nfcx.json` | yes | no |
+| Proxmark3 `mfc v2` JSON | `.json` | yes | no |
+| Proxmark3 raw key array | `.bin` | yes | no |
+| MCT `mfcard` JSON | `.json` | yes | no |
+| MCT text | `.mct` | yes | no |
+| EML text | `.eml` | yes | no |
+
+`restore` auto-detects a raw image with or without its sidecar, an NFC Foundry
+project, MCT text, EML text, MCT JSON, or Proxmark3 `mfc v2`/`mfc v3` JSON,
+then runs the restore preflight and writes ordinary blocks before trailers,
+verifying every block. The dump must carry metadata whose card UID/ATQA/SAK
+matches the current card. MCT text, EML text, and MCT JSON without a `Card`
+object carry no identity, so they load for inspection and export but cannot be
+restored; import warnings are printed before the preflight. Manufacturer block
+0 is always skipped. An actual restore requires `--yes` **and**
 `--confirm-trailers`, because a full restore replaces keys and access
 conditions. Before writing, it reads the current card into a complete JSON
 backup under `$XDG_CONFIG_HOME/NFC Foundry/classic-backups/`; a failed backup
@@ -333,14 +360,14 @@ area is re-read and compared. The GUI requires the card UID to be typed; the CLI
 nfctl diag
 nfctl keys list [--show-keys]
 nfctl keys add <A:HEX|B:HEX|HEX>
-nfctl keys import <file>
-nfctl keys export <file>
+nfctl keys import <file> [--set NAME] [--format dic|keys|keyarray]
+nfctl keys export <file> [--set NAME] [--format dic|keys]
 nfctl keys rename <key-id> <name>
 nfctl keys sets
 nfctl keys set create <name> --key <id>... [--card <cardId>]
 nfctl keys set rename <name> <new-name>
 nfctl keys set delete <name> --yes
-nfctl keys set export <name> [--format dic|keys] [--output <file>]
+nfctl keys set export <name> [--format dic|keys|json] [--output <file>]
 nfctl keys reload
 ```
 
@@ -350,16 +377,28 @@ when the report was produced; scripts inspect the `healthy` field.
 `keys list` omits values unless `--show-keys`. `keys add` strips an optional
 `A:`/`B:` prefix, persists the catalog with mode 0600, and does not echo the
 value. `keys import` reports valid/added/duplicate/ignored counts and per-line
-issues. `keys export` writes a 0600 dictionary.
+issues. `--format dic` and `--format keys` read text dictionaries.
+`--format keyarray` reads a Proxmark3 raw key array (`hf-mf-<uid>-key.bin`):
+192 bytes for a 1K card or 480 bytes for a 4K card, with every sector's Key A
+in the first half and Key B in the second half. Set `--format keyarray` and
+`--set NAME` together to put all array keys into a named key set; existing
+duplicates are reported. `--set NAME` also adds every valid unique key from a
+text file to a global named key set; an existing set with the same name is
+extended. `keys export` writes a 0600 value-only dictionary. `--set` exports
+that key set instead of the complete catalog. `--format dic` and
+`--format keys` produce the same text line content; the extension selects the
+Proxmark3 or MCT vocabulary. Export a raw key array from a complete card dump
+with `classic export FILE --format keyarray`; a key set is not a sector map
+and cannot be rendered as one.
 
 `keys rename` sets or clears a key's display name. `keys sets` lists named key
 sets, their scope, member count, and source. `keys set create` references keys
 by ID from `keys list`; `--card` takes the store's `UID/ATQA/SAK` identity and
-without it the set is global. Recovery-created sets are scoped to that identity. `keys set export --format dic` writes one
-12-digit key per line; `--format keys` writes a JSON exchange object with key
-values and names. Writing key values to stdout requires `--output` or
-`--show-keys`. `keys reload` rebuilds the in-memory store from `keys.json` and
-reports pruned members.
+without it the set is global. Recovery-created sets are scoped to that identity. `keys set export --format dic` and `--format keys` write one
+12-digit key per line. `--format json` writes the explicit key-set exchange
+object with values and names. Writing key values to stdout requires `--output`
+or `--show-keys`. `keys reload` rebuilds the in-memory store from `keys.json`
+and reports pruned members.
 
 The internal store is authoritative and now writes version 2 with key names and
 key sets. Version 1 files load without migration. Dictionary files and key-set

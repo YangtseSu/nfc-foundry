@@ -137,6 +137,7 @@ Commands:
   classic read --block N            Read one Classic block
   classic write --block N --data H  Write one data block (requires --yes)
   classic dump FILE [--scan]        Read the card into a dump file
+  classic export FILE --format F    Read the card into an explicit dump format
   classic restore FILE [--scan]     Restore a complete dump (requires --yes)
   classic keyscan                   Verify known keys on the card
   type2 info                        Detect the Type 2 product
@@ -163,6 +164,7 @@ Commands:
   diag                              Run the release self-check
   keys list|add|import|export|rename|sets|set|reload
                                      Manage keys, names, and named key sets
+                                     (import --set/--format, export --set/--format)
 
 Global options:
   --device <connstring>   Exact reader selection

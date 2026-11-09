@@ -82,9 +82,49 @@ func (s *Service) ImportKeyDictionary() (ImportReportDTO, error) {
 	return s.ImportKeyDictionaryFile(path)
 }
 
+// ImportKeyFileToSet imports a text dictionary or a Proxmark3 raw key array
+// with an optional named key set. The GUI uses it so the key-import surface
+// matches `keys import --format`.
+func (s *Service) ImportKeyFileToSet(format, setName string) (ImportReportDTO, error) {
+	normalized, err := normalizeKeyImportFormat(format)
+	if err != nil {
+		return ImportReportDTO{}, err
+	}
+	title, pattern := "Import MIFARE Classic key dictionary", "*.dic;*.txt;*.keys"
+	if normalized == "keyarray" {
+		title, pattern = "Import Proxmark3 raw key array", "*.bin"
+	}
+	path, err := s.dialogs.OpenFile(title, pattern)
+	if err != nil {
+		return ImportReportDTO{}, err
+	}
+	if path == "" {
+		return ImportReportDTO{Cancelled: true, Keys: keyDTOs(s.keyStore), Issues: []ImportIssueDTO{}}, nil
+	}
+	return s.ImportKeyFileWithSet(path, normalized, setName)
+}
+
 // ImportKeyDictionaryFile imports a key dictionary without a native file
 // dialog. The CLI uses it for --keys and `nfctl keys import`.
 func (s *Service) ImportKeyDictionaryFile(path string) (ImportReportDTO, error) {
+	return s.ImportKeyDictionaryFileWithSet(path, "")
+}
+
+// ImportKeyFileWithSet dispatches an explicit key-file format.
+func (s *Service) ImportKeyFileWithSet(path, format, setName string) (ImportReportDTO, error) {
+	normalized, err := normalizeKeyImportFormat(format)
+	if err != nil {
+		return ImportReportDTO{}, err
+	}
+	if normalized == "keyarray" {
+		return s.ImportKeyArrayFileWithSet(path, setName)
+	}
+	return s.ImportKeyDictionaryFileWithSet(path, setName)
+}
+
+// ImportKeyDictionaryFileWithSet imports a dictionary and, when setName is
+// non-empty, adds every valid unique key from the file to a global key set.
+func (s *Service) ImportKeyDictionaryFileWithSet(path, setName string) (ImportReportDTO, error) {
 	if err := s.requireKeyMutationAllowed(); err != nil {
 		return ImportReportDTO{}, err
 	}
@@ -92,7 +132,7 @@ func (s *Service) ImportKeyDictionaryFile(path string) (ImportReportDTO, error) 
 	if err != nil {
 		return ImportReportDTO{}, err
 	}
-	report, added, importErr := s.keyStore.Import(file, keys.SourceFileImport)
+	report, importErr := keys.ParseDictionary(file)
 	closeErr := file.Close()
 	if importErr != nil {
 		return ImportReportDTO{}, importErr
@@ -100,8 +140,67 @@ func (s *Service) ImportKeyDictionaryFile(path string) (ImportReportDTO, error) 
 	if closeErr != nil {
 		return ImportReportDTO{}, closeErr
 	}
-	if err := s.persistKeys(); err != nil {
+	return s.finishKeyImport(path, setName, report)
+}
+
+// ImportKeyArrayFileWithSet imports a Proxmark3 raw key array. The array has
+// no names or card scope; every Key A and Key B slot becomes a catalog key.
+func (s *Service) ImportKeyArrayFileWithSet(path, setName string) (ImportReportDTO, error) {
+	if err := s.requireKeyMutationAllowed(); err != nil {
 		return ImportReportDTO{}, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ImportReportDTO{}, err
+	}
+	array, err := workflow.ParseKeyArray(data)
+	if err != nil {
+		return ImportReportDTO{}, err
+	}
+	report := keys.ParseReport{}
+	seen := make(map[nfc.Key]struct{}, 2*len(array.Sectors))
+	for _, sector := range array.Sectors {
+		for _, candidate := range []*nfc.Key{sector.KeyA, sector.KeyB} {
+			if candidate == nil {
+				continue
+			}
+			if _, duplicate := seen[*candidate]; duplicate {
+				report.Duplicates++
+				continue
+			}
+			seen[*candidate] = struct{}{}
+			report.Keys = append(report.Keys, *candidate)
+			report.Valid++
+		}
+	}
+	return s.finishKeyImport(path, setName, report)
+}
+
+// finishKeyImport adds parsed keys to the catalog and optionally to a named
+// key set, then persists and emits the new state.
+func (s *Service) finishKeyImport(path, setName string, report keys.ParseReport) (ImportReportDTO, error) {
+	setName = strings.TrimSpace(setName)
+	if setName != "" {
+		if err := keys.ValidateKeySetName(setName); err != nil {
+			return ImportReportDTO{}, keyValidationError(err)
+		}
+	}
+	if setName != "" && len(report.Keys) == 0 {
+		return ImportReportDTO{}, keyValidationError(errors.New("the key file contains no valid keys; no key set was created"))
+	}
+	added := 0
+	keyIDs := make([]string, 0, len(report.Keys))
+	for _, key := range report.Keys {
+		record, created, err := s.keyStore.Add(key, keys.SourceFileImport)
+		if err != nil {
+			return ImportReportDTO{}, err
+		}
+		if created {
+			added++
+		} else {
+			report.Duplicates++
+		}
+		keyIDs = append(keyIDs, record.ID)
 	}
 	dto := ImportReportDTO{
 		Path: filepath.Base(path), Valid: report.Valid, Added: added, Duplicates: report.Duplicates,
@@ -110,12 +209,42 @@ func (s *Service) ImportKeyDictionaryFile(path string) (ImportReportDTO, error) 
 	for index, issue := range report.Issues {
 		dto.Issues[index] = ImportIssueDTO{Line: issue.Line, Message: issue.Message}
 	}
+	if setName != "" {
+		set, err := s.keyStore.CreateKeySet(setName, "", keys.KeySetSourceManual)
+		if err != nil {
+			return ImportReportDTO{}, keyValidationError(err)
+		}
+		set, err = s.keyStore.AddKeySetKeys(set.ID, keyIDs)
+		if err != nil {
+			return ImportReportDTO{}, keyValidationError(err)
+		}
+		setDTO := keySetDTO(set)
+		dto.KeySet = &setDTO
+	}
+	if err := s.persistKeys(); err != nil {
+		return ImportReportDTO{}, err
+	}
 	s.emitter.Emit(KeyCatalogEventName, dto.Keys)
+	s.emitter.Emit(KeySetEventName, keySetDTOs(s.keyStore))
+	if s.deviceManager != nil {
+		s.emitter.Emit(KeyEventName, sectorKeyDTOs(s.keyStore, s.currentCardPtr()))
+	}
 	return dto, nil
 }
 
+func normalizeKeyImportFormat(format string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "", "dic", "keys", "txt":
+		return "dic", nil
+	case "keyarray":
+		return "keyarray", nil
+	default:
+		return "", keyValidationError(fmt.Errorf("unknown key-file format %q; use dic, keys, or keyarray", format))
+	}
+}
+
 func (s *Service) ExportKeyDictionary() (ExportResultDTO, error) {
-	path, err := s.dialogs.SaveFile("Export all known keys", "nfc-foundry-known-keys.dic", "*.dic;*.txt")
+	path, err := s.dialogs.SaveFile("Export all known keys", "nfc-foundry-known-keys.keys", "*.keys;*.dic;*.txt")
 	if err != nil {
 		return ExportResultDTO{}, err
 	}
@@ -230,7 +359,7 @@ func (s *Service) LoadDump(discardDirty bool) (WorkbenchDTO, error) {
 	if s.bench.Snapshot().Dirty && !discardDirty {
 		return WorkbenchDTO{}, ErrDirtyWorkbench
 	}
-	path, err := s.dialogs.OpenFile("Load MIFARE Classic dump", "*.bin;*.mfd;*.json")
+	path, err := s.dialogs.OpenFile("Load MIFARE Classic dump", "*.bin;*.mfd;*.json;*.mct;*.eml")
 	if err != nil {
 		return WorkbenchDTO{}, err
 	}
@@ -240,23 +369,18 @@ func (s *Service) LoadDump(discardDirty bool) (WorkbenchDTO, error) {
 	return s.LoadDumpFile(path, discardDirty)
 }
 
-// LoadDumpFile loads a raw dump or NFC Foundry project from an explicit path.
-// It keeps the same validation and key registration as the GUI file dialog.
+// LoadDumpFile loads a raw dump, an NFC Foundry project, or a supported
+// external dump from an explicit path. It keeps the same validation and key
+// registration as the GUI file dialog.
 func (s *Service) LoadDumpFile(path string, discardDirty bool) (WorkbenchDTO, error) {
 	if s.bench.Snapshot().Dirty && !discardDirty {
 		return WorkbenchDTO{}, ErrDirtyWorkbench
 	}
-	var result workflow.DumpResult
-	var err error
-	if strings.HasSuffix(strings.ToLower(path), ".json") {
-		result, err = workflow.LoadDumpProject(path)
-	} else {
-		result, err = workflow.LoadRawDump(path)
-	}
+	load, err := workflow.LoadDumpFile(path)
 	if err != nil {
 		return WorkbenchDTO{}, err
 	}
-	if err := s.bench.Load(result, path); err != nil {
+	if err := s.bench.Load(load.Result, path); err != nil {
 		return WorkbenchDTO{}, err
 	}
 	// Keys stored in a dump are source metadata. They are not proof that the
@@ -267,19 +391,20 @@ func (s *Service) LoadDumpFile(path string, discardDirty bool) (WorkbenchDTO, er
 			s.emitter.Emit(KeyEventName, sectorKeyDTOs(s.keyStore, currentCard))
 		}
 	}
-	return s.emitWorkbench(), nil
+	dto := s.emitWorkbench()
+	dto.Warnings = append([]string(nil), load.Warnings...)
+	return dto, nil
 }
 
-func (s *Service) SaveDump() (SaveResultDTO, error) {
+func (s *Service) SaveDump(format DumpFormat) (SaveResultDTO, error) {
 	result, err := s.bench.Result()
 	if err != nil {
 		return SaveResultDTO{}, err
 	}
-	complete := result.Complete()
-	defaultName, pattern := "card-dump.nfcx.json", "*.json"
-	if complete {
-		defaultName, pattern = "card-dump.bin", "*.bin;*.mfd"
+	if !result.Complete() && format != DumpFormatProject {
+		format = DumpFormatProject
 	}
+	defaultName, pattern := dumpSaveDefaults(format, result.Complete())
 	path, err := s.dialogs.SaveFile("Save MIFARE Classic dump", defaultName, pattern)
 	if err != nil {
 		return SaveResultDTO{}, err
@@ -287,40 +412,49 @@ func (s *Service) SaveDump() (SaveResultDTO, error) {
 	if path == "" {
 		return SaveResultDTO{Cancelled: true}, nil
 	}
-	return s.SaveDumpFile(path)
+	return s.SaveDumpFileAs(path, format)
 }
 
-// SaveDumpFile writes the current workbench image to an explicit path. A .json
-// path always stores an NFC Foundry project, complete or partial. Other paths
-// store a complete raw image plus a metadata sidecar; partial images are
-// rejected so unknown bytes are never presented as card data.
+// SaveDumpFile writes the current workbench image to an explicit path. The
+// extension selects an unambiguous format; .json always stores an NFC Foundry
+// project so existing scripts keep their meaning.
 func (s *Service) SaveDumpFile(path string) (SaveResultDTO, error) {
+	format, err := workflow.DumpFormatForPath(path)
+	if err != nil {
+		return SaveResultDTO{}, err
+	}
+	return s.SaveDumpFileAs(path, format)
+}
+
+// SaveDumpFileAs writes the current workbench image in an explicit format.
+// External formats require a complete image; a partial image is only valid as
+// a project and is never zero-filled.
+func (s *Service) SaveDumpFileAs(path string, format DumpFormat) (SaveResultDTO, error) {
 	result, err := s.bench.Result()
 	if err != nil {
 		return SaveResultDTO{}, err
 	}
-	complete := result.Complete()
-	if complete {
+	if format != DumpFormatProject && !result.Complete() {
+		return SaveResultDTO{}, nfc.NewError("save dump", nfc.CodeInvalidArgument, "an incomplete dump must be saved as an NFC Foundry project; unknown bytes are never zero-filled", nil)
+	}
+	if format != DumpFormatProject && format != DumpFormatSidecar {
 		validation := s.bench.ValidateForSave()
 		if !validation.Valid {
 			return SaveResultDTO{}, errors.New(strings.Join(validation.Errors, "; "))
 		}
 	}
-	project := strings.HasSuffix(strings.ToLower(path), ".json")
-	if !complete && !project {
-		return SaveResultDTO{}, nfc.NewError("save dump", nfc.CodeInvalidArgument, "an incomplete dump must be saved as an .json project; unknown bytes are never zero-filled", nil)
+	response := SaveResultDTO{Format: string(format)}
+	metadataPath, err := workflow.ExportDumpFile(path, format, result)
+	if err != nil {
+		return SaveResultDTO{}, err
 	}
-	response := SaveResultDTO{Path: filepath.Base(path)}
-	if project {
-		if err := workflow.SaveDumpProject(path, result); err != nil {
-			return SaveResultDTO{}, err
-		}
-	} else {
-		sidecar, err := workflow.SaveRawDump(path, result)
-		if err != nil {
-			return SaveResultDTO{}, err
-		}
-		response.Sidecar = filepath.Base(sidecar)
+	if format == DumpFormatSidecar {
+		response.Path = filepath.Base(metadataPath)
+		return response, nil
+	}
+	response.Path = filepath.Base(path)
+	if metadataPath != "" {
+		response.Sidecar = filepath.Base(metadataPath)
 	}
 	if err := s.bench.MarkSaved(path); err != nil {
 		return SaveResultDTO{}, err

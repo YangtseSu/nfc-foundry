@@ -506,26 +506,6 @@ func (s *Store) DeleteKeySet(id string) error {
 	return nil
 }
 
-func (s *Store) Import(reader io.Reader, source Source) (ParseReport, int, error) {
-	report, err := ParseDictionary(reader)
-	if err != nil {
-		return ParseReport{}, 0, err
-	}
-	added := 0
-	for _, key := range report.Keys {
-		_, created, err := s.Add(key, source)
-		if err != nil {
-			return ParseReport{}, added, err
-		}
-		if created {
-			added++
-		} else {
-			report.Duplicates++
-		}
-	}
-	return report, added, nil
-}
-
 func (s *Store) Delete(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

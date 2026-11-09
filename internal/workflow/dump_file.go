@@ -2,7 +2,6 @@ package workflow
 
 import (
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -173,11 +172,10 @@ func SaveRawDump(path string, result DumpResult) (string, error) {
 		return "", err
 	}
 	metadataPath := path + ".nfcx.json"
-	encoded, err := json.MarshalIndent(MetadataFromDump(result), "", "  ")
+	encoded, err := encodeDumpMetadata(result)
 	if err != nil {
 		return "", err
 	}
-	encoded = append(encoded, '\n')
 	if err := atomicWriteFile(path, raw); err != nil {
 		return "", err
 	}
@@ -190,11 +188,11 @@ func SaveRawDump(path string, result DumpResult) (string, error) {
 // SaveDumpProject persists complete or partial state without manufacturing a
 // raw image for unknown bytes.
 func SaveDumpProject(path string, result DumpResult) error {
-	encoded, err := json.MarshalIndent(MetadataFromDump(result), "", "  ")
+	encoded, err := encodeDumpMetadata(result)
 	if err != nil {
 		return err
 	}
-	return atomicWriteFile(path, append(encoded, '\n'))
+	return atomicWriteFile(path, encoded)
 }
 
 func LoadDumpProject(path string) (DumpResult, error) {
@@ -202,11 +200,7 @@ func LoadDumpProject(path string) (DumpResult, error) {
 	if err != nil {
 		return DumpResult{}, err
 	}
-	var metadata DumpMetadata
-	if err := json.Unmarshal(encoded, &metadata); err != nil {
-		return DumpResult{}, err
-	}
-	return DumpFromMetadata(metadata)
+	return parseDumpProject(encoded)
 }
 
 // LoadRawDump accepts .bin and .mfd bytes without requiring NFCX metadata. If
@@ -216,35 +210,8 @@ func LoadRawDump(path string) (DumpResult, error) {
 	if err != nil {
 		return DumpResult{}, err
 	}
-	image, err := mifare.ParseRaw(raw)
-	if err != nil {
-		return DumpResult{}, err
-	}
-	metadataPath := path + ".nfcx.json"
-	result, err := LoadDumpProject(metadataPath)
-	if os.IsNotExist(err) {
-		if err := image.ValidateTrailers(); err != nil {
-			return DumpResult{}, err
-		}
-		return DumpResult{Dump: image}, nil
-	}
-	if err != nil {
-		return DumpResult{}, err
-	}
-	stored, err := result.Dump.Raw()
-	if err != nil {
-		return DumpResult{}, err
-	}
-	if !equalBytes(stored, raw) {
-		return DumpResult{}, fmt.Errorf("raw dump does not match its NFCX metadata sidecar")
-	}
-	if err := result.Dump.ValidateTrailers(); err != nil {
-		return DumpResult{}, err
-	}
-	if _, err := result.Dump.ValidateBCC(len(result.Card.UID)); err != nil {
-		return DumpResult{}, err
-	}
-	return result, nil
+	result, _, err := loadRawDumpBytes(path, raw)
+	return result, err
 }
 
 func atomicWriteFile(path string, data []byte) error {

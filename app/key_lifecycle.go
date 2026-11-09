@@ -552,7 +552,10 @@ type exportedKey struct {
 	Name  string `json:"name,omitempty"`
 }
 
-// KeySetArtifact renders a key set as a dictionary or a JSON exchange object.
+// KeySetArtifact renders a key set as a value-only dictionary or the explicit
+// JSON exchange object. dic and keys are the same content; the extension
+// selects the target tool's vocabulary. Names and verification state stay
+// authoritative in keys.json.
 func (s *Service) KeySetArtifact(nameOrID, format string) (string, keys.KeySet, int, error) {
 	s.mu.Lock()
 	running := len(s.operations) != 0
@@ -573,14 +576,14 @@ func (s *Service) KeySetArtifact(nameOrID, format string) (string, keys.KeySet, 
 		records = append(records, record)
 	}
 	switch strings.ToLower(strings.TrimSpace(format)) {
-	case "", "dic":
+	case "", "dic", "keys":
 		var builder strings.Builder
 		for _, record := range records {
 			builder.WriteString(record.Hex())
 			builder.WriteByte('\n')
 		}
 		return builder.String(), set, len(records), nil
-	case "keys":
+	case "json":
 		artifact := exportedKeySet{Format: "nfc-foundry-key-set", Version: 1, Name: set.Name, CardID: set.CardID}
 		for _, record := range records {
 			artifact.Keys = append(artifact.Keys, exportedKey{Value: record.Hex(), Name: record.Name})
@@ -591,7 +594,7 @@ func (s *Service) KeySetArtifact(nameOrID, format string) (string, keys.KeySet, 
 		}
 		return string(append(encoded, '\n')), set, len(records), nil
 	default:
-		return "", set, 0, keyValidationError(fmt.Errorf("unknown key set export format %q; use dic or keys", format))
+		return "", set, 0, keyValidationError(fmt.Errorf("unknown key set export format %q; use dic, keys, or json", format))
 	}
 }
 
@@ -643,6 +646,13 @@ func recoveredKeyRefDTOs(refs []workflow.RecoveredKeyRef) []RecoveredKeyRefDTO {
 	return result
 }
 
+func keySetDTO(set keys.KeySet) KeySetDTO {
+	return KeySetDTO{
+		ID: set.ID, Name: set.Name, CardID: set.CardID, KeyIDs: append([]string(nil), set.KeyIDs...),
+		KeyCount: len(set.KeyIDs), CreatedAt: set.CreatedAt.UTC().Format(time.RFC3339), Source: string(set.Source),
+	}
+}
+
 func keySetDTOs(store *keys.Store) []KeySetDTO {
 	if store == nil {
 		return []KeySetDTO{}
@@ -650,10 +660,7 @@ func keySetDTOs(store *keys.Store) []KeySetDTO {
 	sets := store.KeySets()
 	result := make([]KeySetDTO, 0, len(sets))
 	for _, set := range sets {
-		result = append(result, KeySetDTO{
-			ID: set.ID, Name: set.Name, CardID: set.CardID, KeyIDs: append([]string(nil), set.KeyIDs...),
-			KeyCount: len(set.KeyIDs), CreatedAt: set.CreatedAt.UTC().Format(time.RFC3339), Source: string(set.Source),
-		})
+		result = append(result, keySetDTO(set))
 	}
 	return result
 }

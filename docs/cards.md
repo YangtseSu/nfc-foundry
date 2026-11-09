@@ -37,6 +37,19 @@ Rules:
 - Abort if UID, ATQA, or SAK changes mid-operation.
 - Keep `.mfd`/`.bin` compatibility; metadata goes in a sidecar JSON file.
 
+Complete images exchange with MCT and Proxmark3 without conversion. Import and
+export use raw `.bin`/`.mfd`, MCT text `.mct`, EML `.eml`, MCT `mfcard` JSON,
+and Proxmark3 `mfc v2`/`mfc v3` JSON. A partial image is stored only as an NFC
+Foundry `.nfcx.json` project; external exports reject it rather than
+zero-filling unknown bytes. Proxmark3 `SectorKeys` are validated against the
+trailer bytes and preserved; v3 `ATS`/`SIGNATURE` fields are reported as dropped
+because the dump model does not store them. Key dictionaries exchange as MCT
+`.keys` or Proxmark3 `.dic` text with the same line content. A complete dump
+also exports the Proxmark3 raw key array (`hf-mf-<uid>-key.bin`): 192 bytes for
+1K or 480 bytes for 4K, with Key A for every sector followed by Key B for every
+sector. The array can be imported into the key catalog or a named key set; a
+key set cannot be exported back to an array because it has no sector map.
+
 Block 0 writes are limited to 4-byte UID Classic 1K special cards. The workflow
 first attempts an ordinary authenticated DirectWrite to block 0, then the
 in-process Gen1A unlock when that leaves the UID unchanged. The ordinary path

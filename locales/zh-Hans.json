@@ -148,6 +148,14 @@
   "keysImported": "导入了 {added} 个密钥；{duplicates} 个重复，{ignored} 个忽略。",
   "keysExportDone": "导出了 {count} 个密钥。",
   "keysImportIssues": "导入问题：{count} 个。",
+  "keysImportTitle": "导入密钥文件",
+  "keysImportAction": "选择文件",
+  "keysImportFormat": "文件格式",
+  "keysImportFormatDictionary": "文本字典（.keys/.dic/.txt）",
+  "keysImportFormatKeyArray": "Proxmark3 原始密钥数组（.bin）",
+  "keysImportSetHint": "可选择将文件中的每个密钥加入一个命名密钥集。留空则只更新密钥目录。",
+  "keysImportSetLabel": "加入密钥集（可选）",
+  "keysImportedSet": "导入了 {added} 个密钥；密钥集 {name} 现在包含 {count} 个密钥。",
   "detailsCard": "卡片信息",
   "detailsDump": "转储",
   "detailsSource": "来源",
@@ -630,6 +638,17 @@
   "classicLoadFailed": "无法载入转储：{message}",
   "classicSaveFailed": "无法保存转储：{message}",
   "classicDumpSaved": "转储已保存到 {path}。",
+  "classicDumpFormat": "格式",
+  "classicDumpFormatProject": "NFC Foundry 项目",
+  "classicDumpFormatRaw": "原始镜像",
+  "classicDumpFormatProxmark3": "Proxmark3 JSON",
+  "classicDumpFormatKeyArray": "Proxmark3 密钥数组",
+  "classicDumpFormatMCTJSON": "MCT JSON",
+  "classicDumpFormatMCT": "MCT 文本",
+  "classicDumpFormatEML": "EML 文本",
+  "classicDumpFormatSidecar": "元数据附属文件",
+  "classicLoadWarnings": "载入时出现 {count} 条格式警告；请查看日志。",
+  "classicIncompleteFormat": "不完整的转储只能保存为 NFC Foundry 项目。",
   "classicBlockEditor": "区块编辑器",
   "classicSelectDataBlock": "选择普通数据区块进行编辑。",
   "classicBlockHexPlaceholder": "32 个十六进制数字",
@@ -679,6 +698,13 @@
     "placeholders": {
       "message": {
         "type": "String"
+      }
+    }
+  },
+  "@classicLoadWarnings": {
+    "placeholders": {
+      "count": {
+        "type": "int"
       }
     }
   },
@@ -900,6 +926,7 @@
   "keySetExportTitle": "导出 {name}",
   "keySetExportFormat": "格式",
   "keySetFormatDIC": "字典（.dic）",
+  "keySetFormatKeys": "MCT 密钥文件（.keys）",
   "keySetFormatJSON": "JSON 密钥集（.json）",
   "keySetExported": "已将 {count} 个密钥导出到 {path}。",
   "keySetExportFailed": "密钥集导出失败：{message}",

@@ -15,7 +15,7 @@ import (
 
 func (r *Runner) cmdClassic(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return usagef("usage: nfctl classic read|write|dump|restore|keyscan")
+		return usagef("usage: nfctl classic read|write|dump|export|restore|keyscan")
 	}
 	switch args[0] {
 	case "read":
@@ -27,6 +27,9 @@ func (r *Runner) cmdClassic(ctx context.Context, args []string) error {
 	case "dump":
 		r.command = "classic.dump"
 		return r.classicDump(ctx, args[1:])
+	case "export":
+		r.command = "classic.export"
+		return r.classicExport(ctx, args[1:])
 	case "restore":
 		r.command = "classic.restore"
 		return r.classicRestore(ctx, args[1:])
@@ -156,50 +159,106 @@ func (r *Runner) classicDump(ctx context.Context, args []string) error {
 		return err
 	}
 	if len(parsed.positionals) != 1 {
-		return usagef("usage: nfctl classic dump <file.bin|file.mfd|file.json> [--keys <file>] [--scan]")
+		return usagef("usage: nfctl classic dump <file.bin|file.mfd|file.json|file.mct|file.eml> [--keys <file>] [--scan]")
 	}
 	if r.global.dryRun {
 		return usagef("classic dump does not support --dry-run")
 	}
-	if parsed.bool("scan") && parsed.value("keys") != "" {
-		return usagef("--scan is already implied by --keys; pass one of them")
-	}
-	scanBeforeRead := parsed.bool("scan")
 	path := parsed.positionals[0]
-	if _, err := r.connect(ctx); err != nil {
-		return err
-	}
-	if _, err := r.waitForCard(ctx); err != nil {
-		return err
-	}
-	keyScan, err := r.importKeysAndScan(ctx, parsed.value("keys"))
+	keyScan, err := r.readClassicDump(ctx, parsed.value("keys"), parsed.bool("scan"))
 	if err != nil {
 		return err
 	}
-	task, err := r.service.StartReadCard(app.ReadCardStartRequestDTO{DiscardDirty: true, ScanKeys: scanBeforeRead})
-	if err != nil {
-		return err
-	}
-	if _, err := r.waitTask(ctx, task); err != nil {
-		return err
-	}
-	workbench := r.service.Workbench()
-	dashboard := r.service.Dashboard()
 	saved, err := r.service.SaveDumpFile(path)
 	if err != nil {
 		return err
 	}
-	result := dumpResult{
-		Path: path, Layout: workbench.Layout, Complete: workbench.Complete, Blocks: len(workbench.Blocks),
-		VerifiedKeySlots: countVerifiedSlots(dashboard.Keys), KeySlots: len(dashboard.Keys) * 2, KeyScan: keyScan,
-	}
-	if saved.Sidecar != "" {
-		result.Sidecar = filepath.Join(filepath.Dir(path), saved.Sidecar)
-	}
+	result := r.buildDumpResult(path, saved, keyScan)
 	warnings := dumpWarnings(result)
 	r.printDump(result)
 	r.out.emit("classic.dump", r.device, r.card, warnings, result)
 	return nil
+}
+
+var classicExportSpecs = map[string]flagSpec{
+	"keys":   {takesValue: true},
+	"scan":   {},
+	"format": {takesValue: true},
+}
+
+func (r *Runner) classicExport(ctx context.Context, args []string) error {
+	parsed, err := parseCommandArgs(args, classicExportSpecs)
+	if err != nil {
+		return err
+	}
+	if len(parsed.positionals) != 1 {
+		return usagef("usage: nfctl classic export <file> --format raw|project|proxmark3|keyarray|mct|mct-json|eml|sidecar [--keys <file>] [--scan]")
+	}
+	if r.global.dryRun {
+		return usagef("classic export does not support --dry-run")
+	}
+	formatName := parsed.value("format")
+	if formatName == "" {
+		return usagef("classic export requires --format raw|project|proxmark3|keyarray|mct|mct-json|eml|sidecar")
+	}
+	format, err := app.ParseDumpFormat(formatName)
+	if err != nil {
+		return usagef("%v", err)
+	}
+	path := parsed.positionals[0]
+	keyScan, err := r.readClassicDump(ctx, parsed.value("keys"), parsed.bool("scan"))
+	if err != nil {
+		return err
+	}
+	saved, err := r.service.SaveDumpFileAs(path, format)
+	if err != nil {
+		return err
+	}
+	result := r.buildDumpResult(path, saved, keyScan)
+	warnings := dumpWarnings(result)
+	r.printDump(result)
+	r.out.emit("classic.export", r.device, r.card, warnings, result)
+	return nil
+}
+
+func (r *Runner) readClassicDump(ctx context.Context, keyFile string, scan bool) (*keyscanResult, error) {
+	if scan && keyFile != "" {
+		return nil, usagef("--scan is already implied by --keys; pass one of them")
+	}
+	if _, err := r.connect(ctx); err != nil {
+		return nil, err
+	}
+	if _, err := r.waitForCard(ctx); err != nil {
+		return nil, err
+	}
+	keyScan, err := r.importKeysAndScan(ctx, keyFile)
+	if err != nil {
+		return nil, err
+	}
+	task, err := r.service.StartReadCard(app.ReadCardStartRequestDTO{DiscardDirty: true, ScanKeys: scan})
+	if err != nil {
+		return nil, err
+	}
+	if _, err := r.waitTask(ctx, task); err != nil {
+		return nil, err
+	}
+	return keyScan, nil
+}
+
+func (r *Runner) buildDumpResult(path string, saved app.SaveResultDTO, keyScan *keyscanResult) dumpResult {
+	workbench := r.service.Workbench()
+	dashboard := r.service.Dashboard()
+	result := dumpResult{
+		Path: path, Format: saved.Format, Layout: workbench.Layout, Complete: workbench.Complete, Blocks: len(workbench.Blocks),
+		VerifiedKeySlots: countVerifiedSlots(dashboard.Keys), KeySlots: len(dashboard.Keys) * 2, KeyScan: keyScan,
+	}
+	if saved.Format == string(app.DumpFormatSidecar) {
+		result.Path = filepath.Join(filepath.Dir(path), saved.Path)
+	}
+	if saved.Sidecar != "" {
+		result.Sidecar = filepath.Join(filepath.Dir(path), saved.Sidecar)
+	}
+	return result
 }
 
 var classicRestoreSpecs = map[string]flagSpec{
@@ -249,7 +308,8 @@ func (r *Runner) classicRestore(ctx context.Context, args []string) error {
 		summary := buildKeyscanResult(r.service.Dashboard(), r.global.showKeys)
 		keyScan = &summary
 	}
-	if _, err := r.service.LoadDumpFile(path, true); err != nil {
+	workbench, err := r.service.LoadDumpFile(path, true)
+	if err != nil {
 		return err
 	}
 	preflight, err := r.service.PreflightWrite(app.WritePreflightRequestDTO{Mode: "full"})
@@ -259,7 +319,7 @@ func (r *Runner) classicRestore(ctx context.Context, args []string) error {
 	if !preflight.Valid {
 		return nfc.NewError("classic restore preflight", nfc.CodeInvalidArgument, preflight.Error, nil)
 	}
-	result := restoreResult{Path: path, DryRun: r.global.dryRun, Preflight: &preflight, KeyScan: keyScan}
+	result := restoreResult{Path: path, DryRun: r.global.dryRun, Preflight: &preflight, KeyScan: keyScan, Warnings: workbench.Warnings}
 	if r.global.dryRun {
 		r.printRestore(result)
 		r.out.emit("classic.restore", r.device, r.card, preflight.Warnings, result)

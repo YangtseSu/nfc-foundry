@@ -18,7 +18,10 @@ facts, Classic block read/write, dump/restore, key scanning, key recovery, UID
 writes with an in-process Gen1A path, Type 2 page access, NDEF read/write
 from the CLI and GUI, Classic NDEF read/write/format through the MIFARE
 Application Directory, an ISO/IEC 14443-4 APDU foundation with read-only
-DESFire access and Type 4 NDEF, diagnostics, and the key catalog. The GUI now
+DESFire access and Type 4 NDEF, diagnostics, and the key catalog. Classic
+dumps and key dictionaries interchange with MCT and Proxmark3 text/JSON
+formats, including Proxmark3 raw key arrays, while partial state stays in the
+NFC Foundry project file. The GUI now
 exposes the CLI operations end to end: nested/darkside/hardnested key recovery
 with a review-and-save step, named key sets, store reload, raw APDU
 diagnostics, read-only DESFire views, Type 4 NDEF read/write, and the
@@ -141,7 +144,7 @@ localized. Automation should not depend on translated output.
 nfctl list
 nfctl scan [--watch]
 nfctl card info
-nfctl classic read|write|dump|restore|keyscan
+nfctl classic read|write|dump|export|restore|keyscan
 nfctl recover nested|darkside|hardnested [--name NAME] [--key-set NAME] [--no-save]
 nfctl uid set
 nfctl diag

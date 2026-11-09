@@ -55,6 +55,7 @@ type ImportReportDTO struct {
 	Ignored    int              `json:"ignored"`
 	Issues     []ImportIssueDTO `json:"issues"`
 	Keys       []KeyDTO         `json:"keys"`
+	KeySet     *KeySetDTO       `json:"keySet,omitempty"`
 }
 
 type ExportResultDTO struct {
@@ -74,6 +75,7 @@ type WorkbenchDTO struct {
 	Blocks      []WorkbenchBlockDTO    `json:"blocks"`
 	Diffs       []WorkbenchDiffDTO     `json:"diffs"`
 	Validation  WorkbenchValidationDTO `json:"validation"`
+	Warnings    []string               `json:"warnings,omitempty"`
 	SourceUID   string                 `json:"sourceUid,omitempty"`
 	UIDLength   int                    `json:"uidLength"`
 }
@@ -207,6 +209,7 @@ type SaveResultDTO struct {
 	Cancelled bool   `json:"cancelled"`
 	Path      string `json:"path,omitempty"`
 	Sidecar   string `json:"sidecar,omitempty"`
+	Format    string `json:"format,omitempty"`
 }
 
 type TaskEventDetailDTO struct {

@@ -204,6 +204,8 @@ nfctl keys reload
   is global; recovery-created sets remain card-scoped.
 - `keys set export --format dic` writes one 12-digit key per line.
   `--format keys` writes a JSON key-set artifact with values and names.
+  Superseded by Phase 11 on 2026-11-09: `--format keys` writes MCT text, and
+  the JSON key-set artifact is `--format json`.
   Without `--output`, the artifact goes to stdout; JSON mode includes it.
 - Machine output uses the existing result envelope and stays English-only.
 

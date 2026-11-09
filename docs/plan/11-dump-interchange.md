@@ -163,3 +163,11 @@ vocabulary because it is the simplest and most widely exchanged text format.
 - No attempt to make Proxmark3 JSON represent partial certainty.
 - No Android/MCT app integration or emulation.
 - No DESFire or Type 2 format work beyond the explicitly listed follow-up.
+
+## Completion
+
+Implemented on 2026-11-09. See `docs/notes/11-dump-interchange.md`. Raw,
+MCT text/EML/MCT JSON, Proxmark3 `mfc v2`/`mfc v3` JSON, and Proxmark3 raw
+key-array interchange is covered by hardware-free round-trip and
+malformed-input tests. Real MCT/Proxmark3 client interoperability was not
+exercised.
