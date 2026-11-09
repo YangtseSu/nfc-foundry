@@ -97,6 +97,13 @@ disappears.
 - reader: exact-connstring open/close and the `Reader`/`TrailerWriter`
   implementations.
 
+Every host command carries the HSU wake-up preamble, so the driver works after
+the PN532 power-down state and while it is already awake. Card selection stores
+the selected `CardInfo`; MIFARE authentication appends the last four UID bytes
+after the key, as `InDataExchange` requires. `cycle_rf_field` powers the field
+off and on and clears the cached selection so raw frames can start from an
+IDLE card.
+
 Raw mode disables hardware CRC and rejects ordinary MIFARE operations; ordinary
 mode rejects raw transceive. The PN532 still generates and checks parity for raw
 bit frames, so the transport trait carries bits and a received bit count rather

@@ -16,6 +16,8 @@ const WRITE_REGISTER: u8 = 0x08;
 const SET_PARAMETERS: u8 = 0x12;
 const SAM_CONFIGURATION: u8 = 0x14;
 const RF_CONFIGURATION: u8 = 0x32;
+const RF_FIELD: u8 = 0x01;
+const RF_RETRY_SELECT: u8 = 0x05;
 const IN_DATA_EXCHANGE: u8 = 0x40;
 const IN_COMMUNICATE_THRU: u8 = 0x42;
 const IN_LIST_PASSIVE_TARGET: u8 = 0x4A;
@@ -87,6 +89,7 @@ pub(crate) struct Pn532Protocol {
     raw_mode: bool,
     firmware: FirmwareVersion,
     tx_last_bits: u8,
+    selected: Option<CardInfo>,
 }
 
 impl Pn532Protocol {
@@ -98,6 +101,7 @@ impl Pn532Protocol {
             raw_mode: false,
             firmware: FirmwareVersion::default(),
             tx_last_bits: 0,
+            selected: None,
         };
         protocol.handshake()?;
         Ok(protocol)
@@ -105,7 +109,7 @@ impl Pn532Protocol {
 
     pub(crate) fn shutdown(&mut self) {
         let _ = self.command(
-            &[RF_CONFIGURATION, 0x01, 0x00],
+            &[RF_CONFIGURATION, RF_FIELD, 0x00],
             Duration::from_millis(100),
             Retry::No,
         );
@@ -113,6 +117,23 @@ impl Pn532Protocol {
 
     pub(crate) fn firmware(&self) -> FirmwareVersion {
         self.firmware
+    }
+
+    /// Power-cycle the RF field so an already selected card returns to idle.
+    pub(crate) fn cycle_rf_field(&mut self) -> Result<()> {
+        self.command(
+            &[RF_CONFIGURATION, RF_FIELD, 0x00],
+            self.config.command_timeout,
+            Retry::Yes,
+        )?;
+        self.command(
+            &[RF_CONFIGURATION, RF_FIELD, 0x01],
+            self.config.command_timeout,
+            Retry::Yes,
+        )?;
+        thread::sleep(Duration::from_millis(10));
+        self.selected = None;
+        Ok(())
     }
 
     pub(crate) fn set_raw_mode(&mut self, enabled: bool) -> Result<()> {
@@ -134,6 +155,7 @@ impl Pn532Protocol {
 
     pub(crate) fn select_card(&mut self) -> Result<CardInfo> {
         self.require_ordinary("card selection")?;
+        self.selected = None;
         self.set_tx_last_bits(0)?;
         let response = self.command(
             &[IN_LIST_PASSIVE_TARGET, 0x01, ISO14443A_106_KBPS],
@@ -178,25 +200,36 @@ impl Pn532Protocol {
             )));
         }
         let uid = targets[5..5 + uid_length].to_vec();
-        Ok(CardInfo::new(uid, atqa, sak, CardType::infer(atqa, sak)))
+        let card = CardInfo::new(uid, atqa, sak, CardType::infer(atqa, sak));
+        self.selected = Some(card.clone());
+        Ok(card)
     }
 
     pub(crate) fn authenticate(&mut self, block: u8, key_type: KeyType, key: Key) -> Result<()> {
         self.require_ordinary("MIFARE authentication")?;
+        let card = self.selected.as_ref().ok_or(NfcError::NoCard)?;
+        if card.uid.len() < 4 {
+            return Err(NfcError::Io(
+                "selected card has no four-byte UID suffix for authentication".to_owned(),
+            ));
+        }
+        let uid_tail = card.uid[card.uid.len() - 4..].to_vec();
         let command = match key_type {
             KeyType::A => MIFARE_AUTH_A,
             KeyType::B => MIFARE_AUTH_B,
         };
-        let mut payload = Vec::with_capacity(8);
+        let mut payload = Vec::with_capacity(12);
         payload.push(command);
         payload.push(block);
         payload.extend_from_slice(key.as_bytes());
+        payload.extend_from_slice(&uid_tail);
         self.data_exchange(&payload, self.config.command_timeout, Retry::Yes)?;
         Ok(())
     }
 
     pub(crate) fn read_block(&mut self, block: u8) -> Result<[u8; BLOCK_SIZE]> {
         self.require_ordinary("MIFARE block read")?;
+        self.selected.as_ref().ok_or(NfcError::NoCard)?;
         let data = self.data_exchange(
             &[MIFARE_READ, block],
             self.config.command_timeout,
@@ -215,6 +248,7 @@ impl Pn532Protocol {
 
     pub(crate) fn write_block(&mut self, block: u8, data: [u8; BLOCK_SIZE]) -> Result<()> {
         self.require_ordinary("MIFARE block write")?;
+        self.selected.as_ref().ok_or(NfcError::NoCard)?;
         let mut payload = Vec::with_capacity(2 + BLOCK_SIZE);
         payload.push(MIFARE_WRITE);
         payload.push(block);
@@ -291,10 +325,6 @@ impl Pn532Protocol {
     }
 
     fn handshake(&mut self) -> Result<()> {
-        self.link
-            .write_all(&WAKEUP_PREAMBLE)
-            .map_err(|error| NfcError::Io(format!("PN532 wake-up failed: {error}")))?;
-        thread::sleep(Duration::from_millis(100));
         let firmware = match self
             .command(
                 &[SAM_CONFIGURATION, 0x01],
@@ -339,7 +369,7 @@ impl Pn532Protocol {
     fn reset_settings(&mut self) -> Result<()> {
         self.set_parameters(AUTO_ATR_RES_AND_RATS)?;
         self.command(
-            &[RF_CONFIGURATION, 0x00, 0x00, 0x01, 0x00],
+            &[RF_CONFIGURATION, RF_RETRY_SELECT, 0x00, 0x01, 0x00],
             self.config.command_timeout,
             Retry::Yes,
         )?;
@@ -472,6 +502,12 @@ impl Pn532Protocol {
 
     fn command(&mut self, command: &[u8], timeout: Duration, retry: Retry) -> Result<Vec<u8>> {
         let frame = build_frame(command)?;
+        // The PN532 only wakes from low-power or power-down when the HSU
+        // preamble is immediately followed by a command. Every command carries
+        // the preamble, matching the known-good UART sequences.
+        let mut packet = Vec::with_capacity(WAKEUP_PREAMBLE.len() + frame.len());
+        packet.extend_from_slice(&WAKEUP_PREAMBLE);
+        packet.extend_from_slice(&frame);
         let attempts = if retry == Retry::Yes {
             self.config.attempts.max(1)
         } else {
@@ -484,7 +520,7 @@ impl Pn532Protocol {
                 .flush_input()
                 .map_err(|error| NfcError::Io(format!("PN532 serial flush failed: {error}")))?;
             self.link
-                .write_all(&frame)
+                .write_all(&packet)
                 .map_err(|error| NfcError::Io(format!("PN532 serial write failed: {error}")))?;
             match self.read_frame(self.config.ack_timeout, "acknowledgement") {
                 Ok(Frame::Ack) => {}
@@ -621,15 +657,18 @@ mod tests {
         fn commands(&self) -> Vec<Vec<u8>> {
             self.writes()
                 .into_iter()
-                .filter_map(|frame| {
-                    if !frame.starts_with(&[0x00, 0x00, 0xFF]) || frame.len() < 8 {
+                .filter_map(|packet| {
+                    let start = packet
+                        .windows(3)
+                        .position(|window| window == [0x00, 0x00, 0xFF])?;
+                    if packet.len() < start + 6 {
                         return None;
                     }
-                    let length = frame[3] as usize;
-                    if length == 0 || frame.len() < 5 + length + 2 {
+                    let length = packet[start + 3] as usize;
+                    if length == 0 || packet.len() < start + 5 + length {
                         return None;
                     }
-                    Some(frame[6..5 + length].to_vec())
+                    Some(packet[start + 6..start + 5 + length].to_vec())
                 })
                 .collect()
         }
@@ -637,7 +676,7 @@ mod tests {
         fn host_frames(&self) -> usize {
             self.writes()
                 .into_iter()
-                .filter(|frame| frame.starts_with(&[0x00, 0x00, 0xFF]))
+                .filter(|packet| packet.windows(3).any(|window| window == [0x00, 0x00, 0xFF]))
                 .count()
         }
     }
@@ -771,6 +810,15 @@ mod tests {
         }
     }
 
+    fn selected_card() -> CardInfo {
+        CardInfo::new(
+            vec![0x04, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66],
+            [0x00, 0x04],
+            0x08,
+            CardType::MifareClassic1K,
+        )
+    }
+
     fn test_protocol(link: Box<dyn Pn532Link>) -> Pn532Protocol {
         Pn532Protocol {
             link,
@@ -784,6 +832,7 @@ mod tests {
                 support: ISO14443A_SUPPORT,
             },
             tx_last_bits: 0,
+            selected: Some(selected_card()),
         }
     }
 
@@ -825,14 +874,17 @@ mod tests {
                 support: ISO14443A_SUPPORT,
             }
         );
-        assert_eq!(script.writes()[0], WAKEUP_PREAMBLE);
+        assert_eq!(
+            &script.writes()[0][..WAKEUP_PREAMBLE.len()],
+            &WAKEUP_PREAMBLE
+        );
         assert_eq!(
             script.commands(),
             vec![
                 vec![SAM_CONFIGURATION, 0x01],
                 vec![GET_FIRMWARE_VERSION],
                 vec![SET_PARAMETERS, AUTO_ATR_RES_AND_RATS],
-                vec![RF_CONFIGURATION, 0x00, 0x00, 0x01, 0x00],
+                vec![RF_CONFIGURATION, RF_RETRY_SELECT, 0x00, 0x01, 0x00],
                 vec![WRITE_REGISTER, 0x63, 0x02, TX_RX_CRC_ENABLE],
                 vec![WRITE_REGISTER, 0x63, 0x03, TX_RX_CRC_ENABLE],
                 vec![WRITE_REGISTER, 0x63, 0x0D, 0x00],
@@ -873,6 +925,10 @@ mod tests {
         assert_eq!(
             script.commands(),
             vec![vec![IN_LIST_PASSIVE_TARGET, 0x01, ISO14443A_106_KBPS]]
+        );
+        assert!(
+            script.writes()[0].starts_with(&WAKEUP_PREAMBLE),
+            "each command must carry the HSU wake-up preamble"
         );
 
         let (link, script) = ScriptedLink::scripted();
@@ -920,6 +976,10 @@ mod tests {
                 0xA3,
                 0xA4,
                 0xA5,
+                0x33,
+                0x44,
+                0x55,
+                0x66,
             ]]
         );
 

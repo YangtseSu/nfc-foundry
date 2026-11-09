@@ -9,13 +9,14 @@ dependency of this project.
 
 ## Status
 
-**Phase 02 implemented; hardware validation pending.** The PN532 UART framing,
-initialization, ISO/IEC 14443A selection, MIFARE Classic authentication and
-block read/write, raw byte/bit exchange, and reader lifecycle are implemented
-and covered by scripted tests. The attached serial adapter did not respond as a
-PN532, so hardware support is not claimed yet. Classic workflows, recovery
-algorithms, and NDEF codecs arrive in later phases; operations that are not
-ready return an explicit `NotImplemented` error.
+**Phase 02 complete.** The PN532 UART framing, initialization, ISO/IEC 14443A
+selection, MIFARE Classic authentication and block read/write, raw byte/bit
+exchange, and reader lifecycle are implemented. Firmware identification,
+Classic 1K selection/authentication/read, Type 2 selection/read, raw REQA, and
+missing-card/wrong-reader errors are validated on a PN532 over UART; the
+same-value write test remains behind explicit authorization and was not run.
+Classic workflows, recovery algorithms, and NDEF codecs arrive in later phases;
+operations that are not ready return an explicit `NotImplemented` error.
 
 ## Product scope
 
@@ -114,10 +115,11 @@ cargo run -p nfctl -- list
 cargo run -p nfctl -- --device pn532_uart:/dev/ttyUSB0 scan
 ```
 
-The PN532 path is implemented but not yet hardware-validated; see
-[Testing](docs/testing.md) for the gated hardware checks and
-[the phase 02 note](docs/notes/02-pn532-uart.md) for the current validation
-record.
+PN532 UART firmware identification, Classic 1K selection/authentication/read,
+Type 2 selection/read, and raw 7-bit REQA are hardware-validated. The
+same-value write remains gated by `NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD`; see
+[Testing](docs/testing.md) for the gated checks and
+[the phase 02 note](docs/notes/02-pn532-uart.md) for the validation record.
 
 ## Documentation
 

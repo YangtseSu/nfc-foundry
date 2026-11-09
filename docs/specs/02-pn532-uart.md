@@ -83,7 +83,9 @@ added in this phase.
 ## Current validation status
 
 The protocol and lifecycle are implemented and covered by scripted tests. The
-attached CH340 serial adapter produced no bytes for the PN532 wake-up and
-firmware commands across the standard HSU baud rates, so the hardware acceptance
-items remain open. Hardware support is not claimed until a recorded PN532 run
-succeeds.
+PN532 UART path is hardware-validated on the attached CH340 adapter (firmware
+1.6) for firmware identification, Classic 1K selection/authentication/read,
+Type 2 selection/read, a raw 7-bit REQA with a 16-bit ATQA response,
+wrong-reader errors, and missing-card errors. The same-value write test is
+gated by explicit authorization and was not run. The physical disconnect path
+is covered by the scripted transport tests.

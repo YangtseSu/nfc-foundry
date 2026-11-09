@@ -12,9 +12,9 @@ No other reader is advertised in the first release.
 ## PN532 UART
 
 The connstring is `pn532_uart:<serial-port>`. `nfctl list` reports every serial
-port as a candidate; opening the exact connstring sends the HSU wake-up
-preamble, enters SAM normal mode, and verifies `GetFirmwareVersion` before any
-card operation.
+port as a candidate; opening the exact connstring validates the PN532 firmware
+before any card operation. Every host command carries the HSU wake-up preamble
+so the chip works after power-down and while already awake.
 
 Implement:
 
@@ -37,9 +37,10 @@ Hardware tests:
 - same-value Classic write with explicit confirmation and read-back;
 - raw transceive after driver stabilization.
 
-Current status: implemented and scripted-tested. The attached CH340 adapter did
-not answer the PN532 wake-up and firmware commands, so the hardware items above
-are not yet validated.
+Current status: firmware identification, Classic 1K selection/authentication/
+read, Type 2 selection/read, and a raw 7-bit REQA (16-bit ATQA response) are
+validated on a PN532 (CH340 UART adapter, firmware 1.6). The same-value write
+is implemented and gated but was not run without explicit authorization.
 
 ## ACR122U
 

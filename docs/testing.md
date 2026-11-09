@@ -62,9 +62,12 @@ A missing card fails with an instruction to place one; it is not skipped. Never
 write a card by default. A test that cannot run must report the missing gate,
 not skip silently in release validation.
 
-The phase 02 hardware record is currently open: the attached CH340 adapter did
-not answer the PN532 wake-up and firmware commands. This does not affect
-`cargo test --workspace`, which uses only the scripted link.
+The phase 02 hardware record covers firmware identification, Classic 1K
+selection/authentication/read, Type 2 selection/read, and a raw 7-bit REQA with
+a 16-bit ATQA response on a PN532 (CH340 UART, firmware 1.6). Wrong-reader and
+missing-card errors were checked on hardware. The same-value write needs
+explicit authorization and was not run. `cargo test --workspace` uses only the
+scripted link and never touches hardware.
 
 ## Required checks
 

@@ -49,6 +49,11 @@ impl Pn532Uart {
         self.protocol.as_ref().map(Pn532Protocol::firmware)
     }
 
+    /// Power-cycle the RF field so an already selected card returns to idle.
+    pub fn cycle_rf_field(&mut self) -> Result<()> {
+        self.protocol()?.cycle_rf_field()
+    }
+
     /// List every serial port as a PN532 candidate. A UART adapter cannot be
     /// identified as a PN532 without opening it, so selection stays explicit.
     pub fn enumerate() -> Result<Vec<DeviceInfo>> {

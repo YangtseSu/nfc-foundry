@@ -78,6 +78,7 @@ fn classic_key_type() -> KeyType {
     }
 }
 
+#[cfg(feature = "hardware-write")]
 fn is_ordinary_data_block(card_type: CardType, block: u8) -> bool {
     if block == 0 {
         return false;
@@ -149,6 +150,37 @@ fn reads_the_selected_card() {
         CardType::Type2 => read_type2(&mut reader, &card),
         other => panic!("expected a MIFARE Classic or Type 2 card, selected {other:?}"),
     }
+    reader.close().expect("close the PN532");
+}
+
+#[test]
+#[ignore = "requires a PN532 and an ISO/IEC 14443A card"]
+fn raw_bits_receive_atqa() {
+    let _guard = lock_hardware();
+    let conn_string = device_connstring();
+    let mut reader = open_reader(&conn_string);
+    let _card = selected_card(&mut reader);
+    reader.cycle_rf_field().expect("cycle the RF field");
+    reader.set_raw_mode(true).expect("enter raw mode");
+
+    let (atqa, bits) = reader
+        .transceive_bits(&[0x26], 7)
+        .expect("send the seven-bit REQA");
+    assert!(
+        bits >= 16,
+        "REQA response has {bits} bits, expected at least 16"
+    );
+    assert!(
+        atqa.len() >= 2,
+        "REQA response has {} bytes, expected at least 2",
+        atqa.len()
+    );
+    assert!(
+        atqa[..2].iter().any(|byte| *byte != 0),
+        "REQA response ATQA is zero"
+    );
+    println!("raw REQA ATQA: {:02X?} ({bits} bits)", &atqa[..2]);
+    reader.set_raw_mode(false).expect("leave raw mode");
     reader.close().expect("close the PN532");
 }
 
