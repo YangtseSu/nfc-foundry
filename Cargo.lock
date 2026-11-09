@@ -4047,6 +4047,8 @@ dependencies = [
  "clap",
  "nfc-app",
  "nfc-core",
+ "nfc-drivers",
+ "nfc-transport",
 ]
 
 [[package]]

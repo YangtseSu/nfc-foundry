@@ -14,6 +14,10 @@ pub enum NfcError {
     Cancelled,
     #[error("no card is present")]
     NoCard,
+    #[error("no reader is selected")]
+    NoReader,
+    #[error("reader timed out: {0}")]
+    Timeout(String),
     #[error("authentication failed")]
     AuthenticationFailed,
     #[error("the card identity changed")]

@@ -64,6 +64,19 @@ Trailer and manufacturer writes are separate capability traits. Card families,
 NDEF, and attack engines stay above this boundary. No OS handle, native
 pointer, or driver-specific type crosses it.
 
+Drivers are reached only through the factory trait:
+
+```rust
+trait Transport: Send + Sync {
+    fn enumerate(&self) -> Result<Vec<DeviceInfo>>;
+    fn open(&self, conn_string: &str) -> Result<Box<dyn Reader>>;
+}
+```
+
+`DriverRegistry` in `nfc-drivers` implements it for the supported connstrings.
+`nfc-app` receives an `Arc<dyn Transport>` and never names a driver type.
+Trait objects are also what keeps the boundary object-safe and testable.
+
 ## Device ownership
 
 One reader is held by one operation at a time. `nfc-app` owns:
@@ -74,8 +87,17 @@ One reader is held by one operation at a time. `nfc-app` owns:
 - cancellation and task events;
 - pre-write backups and post-write verification.
 
-The GUI, CLI, card polling, and recovery use the same manager. Recovery does
-not hand the reader to another process.
+`DeviceManager` opens the selected reader on first use and returns an
+`Operation` guard that borrows it for the duration of the operation. The guard
+checks a `CancelToken` before card I/O, reads every write back before reporting
+success, and exposes an explicit identity check. Reselecting a card resets
+Classic authentication, so workflows call the identity check at sector or
+operation boundaries rather than between an authentication and its write. The
+GUI, CLI, card polling, and recovery use the same manager. Recovery does not
+hand the reader to another process.
+
+Cross-process locking and physical-reader identity are added with the Classic
+workflow phase; the in-process lease is already exclusive by borrow.
 
 ## Classic and NDEF boundary
 
@@ -134,6 +156,6 @@ gui/app
   boundaries.
 - CLI maps errors to stable exit codes; JSON output carries a stable code and
   message.
-- `CancellationToken`/atomic cancellation is passed through long operations.
-- Hardware timeouts are explicit; no infinite retries without a user-visible
-  bound.
+- `nfc-core::CancelToken` is a shared atomic flag checked before reader I/O and
+  between write verification steps. Long operations surface
+  `NfcError::Cancelled`; hardware timeouts are explicit and bounded.

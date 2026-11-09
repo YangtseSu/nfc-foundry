@@ -9,10 +9,11 @@ dependency of this project.
 
 ## Status
 
-**Skeleton, Phase 00 complete.** The workspace, crate boundaries, documentation,
-CLI surface, GPUI Kit shell, licensing, and CI definition exist. Reader drivers,
-Classic workflows, recovery algorithms, and NDEF codecs are implemented in later
-phases; operations that are not ready return an explicit `NotImplemented` error.
+**Phase 01 complete.** The workspace, transport boundary, scripted mock reader,
+device manager, exclusive operation lease, and mock-backed `nfctl list`, `scan`,
+and `card info` exist. Hardware drivers, Classic workflows, recovery algorithms,
+and NDEF codecs arrive in later phases; operations that are not ready return an
+explicit `NotImplemented` error.
 
 ## Product scope
 
@@ -69,7 +70,7 @@ Dependency direction:
 ```text
 gui/* -> nfc-app -> nfc-recover / nfc-classic / nfc-type2 / nfc-classic-ndef
       -> nfc-ndef -> nfc-core
-nfc-transport -> nfc-drivers
+nfc-drivers -> nfc-transport
 ```
 
 ## Build
@@ -89,6 +90,19 @@ cargo run -p nfc-foundry
 
 Hardware tests never run by default. They require an explicit feature and
 environment variable; see `docs/testing.md`.
+
+## Mock reader
+
+The CLI can run without hardware against two scripted readers:
+
+```sh
+cargo run -p nfctl -- --mock list
+cargo run -p nfctl -- --mock --device mock:classic-1k scan
+cargo run -p nfctl -- --mock --device mock:ntag215 card info
+```
+
+Device selection is always an exact connstring. Hardware commands use the same
+`--device` flag once a driver is implemented.
 
 ## Documentation
 

@@ -5,7 +5,9 @@
 
 pub mod device;
 pub mod event;
+pub mod operation;
 pub mod service;
 
 pub use device::DeviceManager;
+pub use operation::{Operation, OperationKind};
 pub use service::Service;

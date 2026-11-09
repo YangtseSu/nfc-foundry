@@ -1,16 +1,34 @@
-use nfc_core::{NfcError, Result};
-use nfc_transport::DeviceInfo;
+use std::sync::Arc;
 
-/// In-memory device selection state. Driver enumeration is wired in phase 01.
-#[derive(Clone, Debug, Default)]
+use nfc_core::{CancelToken, NfcError, Result};
+use nfc_transport::{DeviceInfo, NoTransport, Reader, Transport};
+
+use crate::operation::{Operation, OperationKind};
+
+/// Reader selection and lifecycle state. A reader is opened only when an
+/// operation needs it and is closed on release, device loss, or a selection
+/// change.
 pub struct DeviceManager {
+    transport: Arc<dyn Transport>,
     devices: Vec<DeviceInfo>,
     selected: Option<String>,
+    reader: Option<Box<dyn Reader>>,
+}
+
+impl Default for DeviceManager {
+    fn default() -> Self {
+        Self::with_transport(Arc::new(NoTransport))
+    }
 }
 
 impl DeviceManager {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn with_transport(transport: Arc<dyn Transport>) -> Self {
+        Self {
+            transport,
+            devices: Vec::new(),
+            selected: None,
+            reader: None,
+        }
     }
 
     pub fn devices(&self) -> &[DeviceInfo] {
@@ -19,6 +37,22 @@ impl DeviceManager {
 
     pub fn selected(&self) -> Option<&str> {
         self.selected.as_deref()
+    }
+
+    /// Refresh the device list from the transport. A selection that no longer
+    /// exists is dropped and its reader is closed.
+    pub fn refresh(&mut self) -> Result<()> {
+        let devices = self.transport.enumerate()?;
+        let selection_is_gone = self
+            .selected
+            .as_ref()
+            .is_some_and(|selected| !devices.iter().any(|device| device.conn_string == *selected));
+        if selection_is_gone {
+            self.release()?;
+            self.selected = None;
+        }
+        self.devices = devices;
+        Ok(())
     }
 
     pub fn select(&mut self, conn_string: &str) -> Result<()> {
@@ -31,35 +65,36 @@ impl DeviceManager {
                 "reader {conn_string} is not in the device list"
             )));
         }
+        if self.selected.as_deref() == Some(conn_string) {
+            return Ok(());
+        }
+        self.release()?;
         self.selected = Some(conn_string.to_owned());
         Ok(())
     }
 
-    pub fn replace_devices(&mut self, devices: Vec<DeviceInfo>) {
-        self.devices = devices;
-        if let Some(selected) = &self.selected
-            && !self
-                .devices
-                .iter()
-                .any(|device| device.conn_string == *selected)
-        {
-            self.selected = None;
+    pub fn release(&mut self) -> Result<()> {
+        if let Some(mut reader) = self.reader.take() {
+            reader.close()?;
         }
+        Ok(())
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn selecting_requires_a_known_reader() {
-        let mut manager = DeviceManager::new();
-        manager.replace_devices(vec![DeviceInfo::new("PN532", "pn532_uart:/dev/ttyUSB0")]);
-        assert!(manager.select("pn532_uart:/dev/ttyUSB0").is_ok());
-        assert_eq!(manager.selected(), Some("pn532_uart:/dev/ttyUSB0"));
-
-        manager.replace_devices(Vec::new());
-        assert_eq!(manager.selected(), None);
+    /// Open the selected reader if needed and return the exclusive lease for
+    /// one operation.
+    pub fn begin_operation(
+        &mut self,
+        kind: OperationKind,
+        cancel: CancelToken,
+    ) -> Result<Operation<'_>> {
+        cancel.check()?;
+        let selected = self.selected.clone().ok_or(NfcError::NoReader)?;
+        if self.reader.is_none() {
+            let reader = self.transport.open(&selected)?;
+            self.reader = Some(reader);
+        }
+        let reader = self.reader.as_mut().ok_or(NfcError::NoReader)?;
+        let card = reader.card_info()?;
+        Ok(Operation::new(kind, reader.as_mut(), card, cancel))
     }
 }

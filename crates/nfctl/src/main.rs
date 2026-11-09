@@ -1,8 +1,13 @@
 use std::process::ExitCode;
+use std::sync::Arc;
+use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 use nfc_app::Service;
-use nfc_core::{NfcError, Result};
+use nfc_core::{CardInfo, CardType, NfcError, Result};
+use nfc_drivers::DriverRegistry;
+use nfc_transport::DeviceInfo;
+use nfc_transport::mock::MockTransport;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -12,6 +17,12 @@ use nfc_core::{NfcError, Result};
     long_about = None
 )]
 struct Cli {
+    /// Use the scripted in-memory readers instead of hardware.
+    #[arg(long, global = true)]
+    mock: bool,
+    /// Exact reader connstring.
+    #[arg(long, global = true, value_name = "CONNSTRING")]
+    device: Option<String>,
     #[command(subcommand)]
     command: Command,
 }
@@ -115,22 +126,25 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> Result<()> {
-    let service = Service::new();
+    let mut service = build_service(cli.mock);
     match cli.command {
-        Command::List => {
-            if service.devices().is_empty() {
-                println!("no readers found");
+        Command::List => list(&mut service),
+        Command::Scan { watch } => {
+            prepare(&mut service, cli.device.as_deref())?;
+            if watch {
+                watch_card(&mut service)
             } else {
-                for device in service.devices() {
-                    println!("{}\t{}", device.name, device.conn_string);
-                }
+                print_card(&service.scan()?);
+                Ok(())
             }
-            Ok(())
         }
-        Command::Scan { watch: _ } => Err(NfcError::NotImplemented("nfctl scan")),
         Command::Card {
             command: CardCommand::Info,
-        } => Err(NfcError::NotImplemented("nfctl card info")),
+        } => {
+            prepare(&mut service, cli.device.as_deref())?;
+            print_card(&service.card_info()?);
+            Ok(())
+        }
         Command::Classic { command } => match command {
             ClassicCommand::Read => Err(NfcError::NotImplemented("nfctl classic read")),
             ClassicCommand::Write => Err(NfcError::NotImplemented("nfctl classic write")),
@@ -175,5 +189,97 @@ fn run(cli: Cli) -> Result<()> {
             println!("nfctl {} (skeleton)", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
+    }
+}
+
+fn build_service(mock: bool) -> Service {
+    if mock {
+        mock_service()
+    } else {
+        Service::with_transport(Arc::new(DriverRegistry))
+    }
+}
+
+fn mock_service() -> Service {
+    let transport = MockTransport::new();
+    transport.add(
+        DeviceInfo::new("Mock Classic 1K", "mock:classic-1k"),
+        Some(CardInfo::new(
+            vec![0x04, 0xA2, 0x24, 0x8A, 0x1B, 0x2C, 0x80],
+            [0x00, 0x04],
+            0x08,
+            CardType::MifareClassic1K,
+        )),
+    );
+    transport.add(
+        DeviceInfo::new("Mock NTAG215", "mock:ntag215"),
+        Some(CardInfo::new(
+            vec![0x04, 0x5B, 0x1C, 0x2A, 0x3B, 0x4C, 0x80],
+            [0x44, 0x00],
+            0x00,
+            CardType::Type2,
+        )),
+    );
+    Service::with_transport(Arc::new(transport))
+}
+
+fn list(service: &mut Service) -> Result<()> {
+    service.refresh_devices()?;
+    if service.devices().is_empty() {
+        println!("no readers found");
+    } else {
+        for device in service.devices() {
+            println!("{}\t{}", device.name, device.conn_string);
+        }
+    }
+    Ok(())
+}
+
+fn prepare(service: &mut Service, device: Option<&str>) -> Result<()> {
+    service.refresh_devices()?;
+    let conn_string = device.ok_or_else(|| {
+        NfcError::InvalidArgument("pass --device <connstring> to select a reader".to_owned())
+    })?;
+    service.select_device(conn_string)
+}
+
+fn watch_card(service: &mut Service) -> Result<()> {
+    let mut last: Option<CardInfo> = None;
+    loop {
+        match service.scan() {
+            Ok(card) => {
+                if last
+                    .as_ref()
+                    .is_none_or(|previous| !previous.same_identity(&card))
+                {
+                    print_card(&card);
+                    last = Some(card);
+                }
+            }
+            Err(NfcError::NoCard) => {
+                if last.take().is_some() {
+                    println!("card removed");
+                }
+            }
+            Err(error) => return Err(error),
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+}
+
+fn print_card(card: &CardInfo) {
+    println!("type: {}", card_type_label(card.card_type));
+    println!("uid: {}", card.uid_hex());
+    println!("atqa: {:02X} {:02X}", card.atqa[0], card.atqa[1]);
+    println!("sak: {:02X}", card.sak);
+}
+
+fn card_type_label(card_type: CardType) -> &'static str {
+    match card_type {
+        CardType::Unknown => "unknown",
+        CardType::MifareClassic1K => "MIFARE Classic 1K",
+        CardType::MifareClassic4K => "MIFARE Classic 4K",
+        CardType::Type2 => "NFC Forum Type 2",
+        CardType::Iso14443 => "ISO/IEC 14443A",
     }
 }

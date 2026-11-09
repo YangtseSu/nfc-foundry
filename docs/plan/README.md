@@ -5,7 +5,7 @@ Status legend: `done`, `in progress`, `pending`, `optional`.
 | Phase | Scope | Status |
 |---|---|---|
 | 00 | Rust workspace, crate boundaries, docs, CI, REUSE | done |
-| 01 | Core model, transport traits, mock reader, CLI skeleton | pending |
+| 01 | Core model, transport traits, mock reader, CLI skeleton | done |
 | 02 | PN532 UART driver and reader lifecycle | pending |
 | 03 | Classic core: geometry, BCC, access, value, dump, diff | pending |
 | 04 | Classic read/write/dump/restore/keyscan CLI + GUI workspace | pending |
