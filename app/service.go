@@ -125,6 +125,7 @@ type Service struct {
 	keyRecovery       *workflow.KeyRecoveryService
 	dumpService       *workflow.DumpService
 	restoreService    *workflow.RestoreService
+	cloneService      *workflow.CloneService
 	classicIO         *workflow.ClassicIO
 	uidService        *workflow.UIDService
 	type2Service      *workflow.Type2Service
@@ -147,6 +148,11 @@ type Service struct {
 	operations        map[string]*operationTask
 	preflights        map[string]writePreflightRecord
 	uidPreflights     map[string]uidPreflightRecord
+	clonePreflights   map[string]clonePreflightRecord
+	factoryPreflights map[string]factoryPreflightRecord
+	comparisonMu      sync.Mutex
+	comparison        *workflow.DumpResult
+	comparisonPath    string
 	dialogs           FileDialogs
 }
 

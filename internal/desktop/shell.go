@@ -41,6 +41,7 @@ const (
 	tabRecovery   tabID = "recovery"
 	tabAPDU       tabID = "apdu"
 	tabDESFire    tabID = "desfire"
+	tabDiff       tabID = "diff"
 )
 
 type tabSpec struct {
@@ -79,6 +80,7 @@ type classicWriteIntent struct {
 	Preflight app.WritePreflightDTO
 	UID       string
 	UIDPlan   app.UIDWritePreflightDTO
+	Value     *app.ValueBlockPreviewDTO
 }
 
 type ndefRecordDraft struct {
@@ -138,6 +140,44 @@ type shell struct {
 	blockRowChosen       int
 	uidInput             string
 	sectorChosen         int
+	valueInput           string
+	valueAddressInput    string
+	valuePreview         *app.ValueBlockPreviewDTO
+	valuePreviewBlock    int
+	trailerDialogOpen    bool
+	trailerIntent        *classicWriteIntent
+	trailerConfirm       string
+	trailerKeyA          string
+	trailerKeyB          string
+	trailerGPB           string
+	trailerGroups        [4][3]bool
+	trailerPreview       *app.TrailerPreviewDTO
+	trailerPreviewBlock  int
+	diff                 app.DumpDiffDTO
+	diffLoaded           bool
+	diffPath             string
+	diffChangedOnly      bool
+	diffUnknownOnly      bool
+	diffTrailersOnly     bool
+	diffRows             []int
+	diffList             ui.ListState
+	cloneOpen            bool
+	clonePlan            *app.ClonePreflightDTO
+	cloneConfirm         string
+	cloneError           string
+	factoryOpen          bool
+	factoryPlan          *app.FactoryPreflightDTO
+	factoryConfirm       string
+	factoryKeepData      bool
+	factoryError         string
+	keyFileOpen          bool
+	keyFilePath          string
+	keyFileLines         []string
+	keyFilePreview       app.KeyFilePreviewDTO
+	keyFileError         string
+	keyFileSetName       string
+	keyFileDirty         bool
+	keyFileList          ui.ListState
 	type2PageChosen      int
 	type2PageInput       string
 	type2PageInputPage   int
@@ -262,6 +302,7 @@ func newShell(api Backend) *shell {
 		keySetExportFormat: "dic",
 		keyImportFormat:    "dic",
 		dumpFormat:         string(app.DumpFormatRaw),
+		diffChangedOnly:    true,
 	}
 	s.reloadSnapshot()
 	return s
@@ -392,6 +433,10 @@ func (s *shell) view(c *ui.Context) {
 	s.recoveryDialog(c)
 	s.keyLifecycleDialogs(c)
 	s.classicDialogView(c)
+	s.trailerDialog(c)
+	s.cloneDialog(c)
+	s.factoryDialog(c)
+	s.keyFileEditorDialog(c)
 }
 
 func languages() []string {
@@ -727,6 +772,19 @@ func (s *shell) resetAdvanced() {
 	s.type2CopyProtected = false
 	s.type2CopySameUID = false
 	s.type2CopyRepeat = ""
+	s.trailerDialogOpen = false
+	s.trailerIntent = nil
+	s.trailerConfirm = ""
+	s.valuePreview = nil
+	s.trailerPreview = nil
+	s.cloneOpen = false
+	s.clonePlan = nil
+	s.cloneConfirm = ""
+	s.cloneError = ""
+	s.factoryOpen = false
+	s.factoryPlan = nil
+	s.factoryConfirm = ""
+	s.factoryError = ""
 	s.ndefReveal = false
 }
 
@@ -832,6 +890,7 @@ func (s *shell) tabSpecs() []tabSpec {
 			}},
 			{id: tabRecovery, label: locales.Messages.TabRecovery, enabled: true},
 			{id: tabNDEF, label: locales.Messages.TabNDEF, enabled: true},
+			{id: tabDiff, label: locales.Messages.TabDiff, enabled: true},
 			{id: tabDetails, label: locales.Messages.TabDetails, enabled: true},
 		}
 	case familyType2:
@@ -924,15 +983,26 @@ func normalizeClassicHex(value string) string {
 
 func (s *shell) syncBlockEditor(reset bool) {
 	block, ok := s.selectedBlock()
-	if !ok || block.Kind != "data" {
+	if !ok {
 		s.blockInput = ""
 		s.blockInputBlock = -1
+		s.valueInput = ""
+		s.valueAddressInput = ""
+		s.valuePreview = nil
+		s.trailerPreview = nil
 		return
 	}
-	if reset || s.blockInputBlock != block.Block {
-		s.blockInput = normalizeClassicHex(block.Hex)
+	if block.Kind == "data" {
+		if reset || s.blockInputBlock != block.Block {
+			s.blockInput = normalizeClassicHex(block.Hex)
+		}
+		s.blockInputBlock = block.Block
+	} else {
+		s.blockInput = ""
+		s.blockInputBlock = -1
 	}
-	s.blockInputBlock = block.Block
+	s.syncValueEditor(reset, block)
+	s.syncTrailerEditor(reset, block)
 }
 
 func (s *shell) hasWritableChanges() bool {
@@ -1034,6 +1104,10 @@ func (s *shell) activityKindLabel(l locales.Messages, kind string) string {
 		return l.ActivityKindClassicWrite()
 	case "uid_write":
 		return l.ActivityKindUIDWrite()
+	case "clone":
+		return l.ActivityKindClone()
+	case "factory":
+		return l.ActivityKindFactory()
 	default:
 		return kind
 	}

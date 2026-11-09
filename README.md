@@ -29,7 +29,11 @@ self-check report. Card-scoped key verification self-corrects when a read or
 scan proves a stored key wrong, and optional scan-before-read is available in
 both surfaces. Classic GUI writes cover ordinary data blocks, changed-block
 writes, full restore with a mandatory pre-write backup, and advanced UID
-writes. The reader layer compiles the five drivers in the application profile and reports an explicit capability profile
+writes. Phase 12 adds dump diffing, value-block and access-condition editors,
+a BCC calculator, clone and factory-format workflows, a key-file editor, and
+partial-read reporting; clone and factory format reuse the same backup,
+authentication, and read-back verification rules. The reader layer compiles
+the five drivers in the application profile and reports an explicit capability profile
 for each; the remaining migration is tracked in
 [`docs/plan/`](docs/plan/).
 
@@ -145,6 +149,7 @@ nfctl list
 nfctl scan [--watch]
 nfctl card info
 nfctl classic read|write|dump|export|restore|keyscan
+nfctl classic diff|value|trailer|clone|format
 nfctl recover nested|darkside|hardnested [--name NAME] [--key-set NAME] [--no-save]
 nfctl uid set
 nfctl diag

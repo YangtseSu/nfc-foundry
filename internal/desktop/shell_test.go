@@ -17,6 +17,7 @@ type fakeBackend struct {
 	mu                  sync.Mutex
 	dashboard           app.DashboardDTO
 	workbench           app.WorkbenchDTO
+	diff                app.DumpDiffDTO
 	keys                []app.KeyDTO
 	keySets             []app.KeySetDTO
 	keyReloads          int
@@ -63,6 +64,17 @@ type fakeBackend struct {
 	dumpSaves           int
 	dumpFormats         []string
 	keyImportSets       []string
+	valuePreviews       []app.ValueBlockPreviewRequestDTO
+	trailerPreviews     []app.TrailerPreviewRequestDTO
+	comparisons         int
+	comparisonClears    int
+	clonePreflights     int
+	cloneStarts         []app.CloneStartRequestDTO
+	factoryPreflights   int
+	factoryStarts       []app.FactoryStartRequestDTO
+	keyFilePreviews     []string
+	keyFileSaves        []string
+	keyTextImports      []string
 }
 
 type classicEditCall struct {
@@ -454,6 +466,114 @@ func (f *fakeBackend) StartKeyScan(bool) (app.TaskDTO, error) {
 	f.mu.Unlock()
 	return app.TaskDTO{ID: "keyscan-1", Name: "keyscan", Status: "running"}, nil
 }
+func (f *fakeBackend) PreviewValueBlock(request app.ValueBlockPreviewRequestDTO) (app.ValueBlockPreviewDTO, error) {
+	f.mu.Lock()
+	f.valuePreviews = append(f.valuePreviews, request)
+	f.mu.Unlock()
+	return app.ValueBlockPreviewDTO{
+		Block: request.Block, Sector: request.Block / 4, Hex: "640000009BFFFFFF6400000001FE01FE",
+		Decoded: app.ValueBlockDTO{Valid: true, Value: 100, Address: 1, ValueHex: "00000064"},
+	}, nil
+}
+func (f *fakeBackend) PreviewTrailer(request app.TrailerPreviewRequestDTO) (app.TrailerPreviewDTO, error) {
+	f.mu.Lock()
+	f.trailerPreviews = append(f.trailerPreviews, request)
+	f.mu.Unlock()
+	access := app.AccessSummaryDTO{Valid: true, Groups: []app.AccessGroupDTO{
+		{Group: 0, Code: "000"}, {Group: 1, Code: "000"}, {Group: 2, Code: "000"}, {Group: 3, Code: "001"},
+	}}
+	return app.TrailerPreviewDTO{
+		Block: request.Block, Sector: request.Block / 4, OldHex: "FFFFFFFFFFFFFF078069FFFFFFFFFFFF",
+		Hex: "FFFFFFFFFFFFFF078069A0A1A2A3A4A5", KeyA: "FFFFFFFFFFFF", KeyB: "A0A1A2A3A4A5", GPB: "69", Access: access,
+	}, nil
+}
+func (f *fakeBackend) OpenComparisonDump() (app.DumpDiffDTO, error) {
+	return f.ComparisonDiff()
+}
+func (f *fakeBackend) ComparisonDiff() (app.DumpDiffDTO, error) {
+	f.mu.Lock()
+	f.comparisons++
+	f.mu.Unlock()
+	return app.DumpDiffDTO{
+		Layout: "classic_1k", ChangedBlocks: 1, EqualBlocks: 63, UnknownBlocks: 0, TrailerChanges: 1,
+		Before: app.DumpIdentityDTO{UID: "04 A1 B2 C3", Layout: "classic_1k", Complete: true, ReadableBlocks: 64, TotalBlocks: 64},
+		After:  app.DumpIdentityDTO{UID: "04 A1 B2 C3", Layout: "classic_1k", Complete: true, ReadableBlocks: 64, TotalBlocks: 64},
+		Blocks: []app.DumpBlockDiffDTO{
+			{Block: 1, Sector: 0, Kind: "data", State: "changed", BeforeHex: "0000", AfterHex: "DEAD"},
+			{Block: 3, Sector: 0, Kind: "trailer", State: "changed", BeforeHex: "FF", AfterHex: "00",
+				Trailer: &app.DumpTrailerDiffDTO{Valid: true, KeyAChanged: true, BeforeKeyA: "FFFFFFFFFFFF", AfterKeyA: "000000000000"}},
+		},
+	}, nil
+}
+func (f *fakeBackend) ComparisonPath() string { return "comparison.json" }
+func (f *fakeBackend) ClearComparisonDump() {
+	f.mu.Lock()
+	f.comparisonClears++
+	f.mu.Unlock()
+}
+func (f *fakeBackend) PreflightClone() (app.ClonePreflightDTO, error) {
+	f.mu.Lock()
+	f.clonePreflights++
+	f.mu.Unlock()
+	return app.ClonePreflightDTO{
+		Token: "clone-token", Valid: true, Block0Write: true,
+		Source:    app.DumpIdentityDTO{UID: "04 A1 B2 C3", Layout: "classic_1k", Complete: true, ReadableBlocks: 64, TotalBlocks: 64},
+		Target:    app.CardDTO{Present: true, UID: "04 A1 B2 C3", Type: "MIFARE Classic 1K"},
+		OldBlock0: "04 A1 B2 C3 00", NewBlock0: "04 11 22 33 04", Blocks: []int{1, 2}, TrailerBlocks: []int{3},
+		BackupPath: "/tmp/clone-backup.json", Warnings: []string{"clone warning"},
+	}, nil
+}
+func (f *fakeBackend) StartClone(request app.CloneStartRequestDTO) (app.TaskDTO, error) {
+	f.mu.Lock()
+	f.cloneStarts = append(f.cloneStarts, request)
+	f.mu.Unlock()
+	return app.TaskDTO{ID: "clone-1", Name: "clone", Status: "running"}, nil
+}
+func (f *fakeBackend) PreflightFactoryFormat(keepData bool) (app.FactoryPreflightDTO, error) {
+	f.mu.Lock()
+	f.factoryPreflights++
+	f.mu.Unlock()
+	return app.FactoryPreflightDTO{
+		Token: "factory-token", Valid: true, KeepData: keepData,
+		Card:   app.CardDTO{Present: true, UID: "04 A1 B2 C3", Type: "MIFARE Classic 1K"},
+		Blocks: []int{1, 2}, TrailerBlocks: []int{3}, BackupPath: "/tmp/factory-backup.json",
+		Warnings: []string{"factory warning"},
+	}, nil
+}
+func (f *fakeBackend) StartFactoryFormat(request app.FactoryStartRequestDTO) (app.TaskDTO, error) {
+	f.mu.Lock()
+	f.factoryStarts = append(f.factoryStarts, request)
+	f.mu.Unlock()
+	return app.TaskDTO{ID: "factory-1", Name: "factory", Status: "running"}, nil
+}
+func (f *fakeBackend) PreviewKeyFile(content string) app.KeyFilePreviewDTO {
+	f.mu.Lock()
+	f.keyFilePreviews = append(f.keyFilePreviews, content)
+	f.mu.Unlock()
+	return app.KeyFilePreviewDTO{
+		Valid: 1, Duplicates: 1, Issues: []app.ImportIssueDTO{{Line: 3, Message: "key must be 12 hexadecimal digits"}},
+		Lines: []app.KeyFileLineDTO{
+			{Number: 1, Text: "FFFFFFFFFFFF", Key: "FFFFFFFFFFFF"},
+			{Number: 2, Text: "FF FF FF FF FF FF", Duplicate: true},
+			{Number: 3, Text: "nope", Problem: "key must be 12 hexadecimal digits"},
+		},
+	}
+}
+func (f *fakeBackend) OpenKeyFileEditor() (app.KeyFileContentDTO, error) {
+	return app.KeyFileContentDTO{Path: "keys.keys", Content: "FFFFFFFFFFFF\n"}, nil
+}
+func (f *fakeBackend) SaveKeyFileEditor(content string) (app.ExportResultDTO, error) {
+	f.mu.Lock()
+	f.keyFileSaves = append(f.keyFileSaves, content)
+	f.mu.Unlock()
+	return app.ExportResultDTO{Path: "keys.keys", Count: 1}, nil
+}
+func (f *fakeBackend) ImportKeyTextWithSet(content, setName string) (app.ImportReportDTO, error) {
+	f.mu.Lock()
+	f.keyTextImports = append(f.keyTextImports, content+"|"+setName)
+	f.mu.Unlock()
+	return app.ImportReportDTO{Valid: 1, Added: 1, Issues: []app.ImportIssueDTO{}, Keys: f.keys}, nil
+}
 func (f *fakeBackend) MFoCStatus() app.ExternalEngineStatusDTO {
 	return app.ExternalEngineStatusDTO{ID: "mfoc", Available: true, Detail: "MFOC test"}
 }
@@ -558,7 +678,8 @@ func classicFixture() *fakeBackend {
 		Type: "MIFARE Classic 1K", TypeCode: "mifare_classic_1k", Inferred: true,
 	}
 	blocks := []app.WorkbenchBlockDTO{
-		{Block: 0, Sector: 0, Kind: "manufacturer", Hex: "04 A1 B2 C3 D4 E5 F6 88 04 00 00 00 00 00 00 00", ASCII: "........", Status: "read"},
+		{Block: 0, Sector: 0, Kind: "manufacturer", Hex: "04 A1 B2 C3 D4 E5 F6 88 04 00 00 00 00 00 00 00", ASCII: "........", Status: "read",
+			BCC: &app.BCCBlockDTO{Applicable: true, Valid: true, Expected: "D4", Actual: "D4"}},
 		{Block: 1, Sector: 0, Kind: "data", Hex: "00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F", ASCII: "................", Status: "read"},
 		{Block: 2, Sector: 0, Kind: "data", Hex: "AA BB CC DD EE FF 00 11 22 33 44 55 66 77 88 99", ASCII: ".. .#DUfw..", Status: "read"},
 		{Block: 3, Sector: 0, Kind: "trailer", Hex: "FF FF FF FF FF FF FF 07 80 69 FF FF FF FF FF FF", ASCII: "........i......", Status: "read",
@@ -567,6 +688,11 @@ func classicFixture() *fakeBackend {
 		{Block: 5, Sector: 1, Kind: "data", Hex: "01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F 10", ASCII: "................", Status: "read"},
 		{Block: 6, Sector: 1, Kind: "data", Hex: "DE AD BE EF 00 00 00 00 00 00 00 00 00 00 00 00", ASCII: "................", Status: "read"},
 		{Block: 7, Sector: 1, Kind: "trailer", Hex: "FF FF FF FF FF FF FF 07 80 69 FF FF FF FF FF FF", ASCII: "........i......", Status: "read"},
+	}
+	for index := range blocks {
+		if blocks[index].KnownMask == "" {
+			blocks[index].KnownMask = "FFFF"
+		}
 	}
 	workbench := app.WorkbenchDTO{
 		Loaded: true, Layout: "classic_1k", Complete: true, Name: "card.nfcx",
@@ -1234,8 +1360,8 @@ func TestClassicBlockEditorWritesSelectedBlock(t *testing.T) {
 	backend := classicFixture()
 	model := newShell(backend)
 	tester := ui.NewTester(model.view, 1360, 860)
-	if !tester.HasText("Select an ordinary data block to edit.") {
-		t.Fatalf("protected block hint missing: %q", tester.Texts())
+	if !tester.HasText("BCC") || !tester.HasText("BCC expected D4, stored D4 (valid)") {
+		t.Fatalf("manufacturer BCC hint missing: %q", tester.Texts())
 	}
 	model.blockChosen = 1
 	model.syncBlockEditor(true)

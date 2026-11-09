@@ -26,9 +26,10 @@ Options may appear before or after the subcommand. `--json` and `--jsonl` are
 mutually exclusive. Human output is written to stdout; diagnostics, progress,
 warnings, and raw engine logs are written to stderr.
 
-`--dry-run` is supported by `classic write`, `classic restore`, `uid set`,
-`type2 write`, `type2 restore`, and `ndef write`. Other commands reject it
-instead of silently ignoring it.
+`--dry-run` is supported by `classic write`, `classic restore`,
+`classic value set`, `classic trailer set`, `classic clone`, `classic format`,
+`uid set`, `type2 write`, `type2 restore`, and `ndef write`. Other commands
+reject it instead of silently ignoring it.
 
 ## Device selection and ownership
 
@@ -181,6 +182,56 @@ card-scoped verification for that slot while keeping the key record. The
 verification is keyed by `UID/ATQA/SAK`; two physical cards with the same
 selection identity cannot be distinguished, so the stale claim is removed
 rather than hidden.
+
+### Analysis, editing, and clone
+
+```text
+nfctl classic diff <before> <after> [--json]
+nfctl classic value set <file> --block N --value V [--address N] \
+    [--keys <file>] [--scan] [--yes] [--dry-run]
+nfctl classic trailer set <file> --block N [--key-a HEX] [--key-b HEX] \
+    [--access G0,G1,G2,G3] [--gpb HEX] --yes --confirm N \
+    [--keys <file>] [--scan] [--dry-run]
+nfctl classic clone <file> --yes --confirm <source-uid> \
+    [--keys <file>] [--scan] [--dry-run]
+nfctl classic format [--keep-data] --yes --confirm FORMAT \
+    [--keys <file>] [--scan] [--dry-run]
+```
+
+`diff` loads both files without opening a reader. It reports changed, equal,
+and unknown blocks, trailer Key A/Key B/access/GPB changes, and identity
+changes. A block with any unknown byte is `unknown`, never equal to a known
+zero block. The command never writes a card.
+
+`value set` loads a dump, encodes a signed 32-bit value plus address byte,
+enables the ordinary single-data-block write path, and verifies the read-back.
+The address defaults to the block number. Inconsistent value-block copies are
+rejected, and the editor never bypasses authentication or access conditions.
+
+`trailer set` assembles the full trailer from Key A, the four access groups,
+the GPB byte, and Key B. `--access` takes four 3-bit group codes such as
+`000,000,000,001`; when omitted, the current decoded groups are used. The
+command requires `--yes` and the trailer block number as `--confirm`. It saves
+a complete pre-write backup, writes one protected trailer, and verifies the
+replacement keys and access bytes.
+
+`clone` requires a complete image with card identity and a target card on the
+reader. It preflights capacity, BCC, trailers, and target keys, saves a
+complete target backup, writes data blocks, then trailers, then block 0 only
+when the source manufacturer block differs. Block 0 uses the existing
+DirectWrite/Gen1A path; a genuine read-only block 0 fails and is never reported
+as a successful clone. The target is read back, diffed against the source, and
+verified. `--confirm` must repeat the source UID.
+
+`format` restores factory transport configuration: Key A/B
+`FFFFFFFFFFFF`, access bytes `FF 07 80`, GPB `69`, and user data zeroed unless
+`--keep-data` is set. It requires a fully readable target, saves a complete
+backup, never writes block 0, and verifies the read-back. `--confirm FORMAT`
+is required.
+
+`classic dump` reports readable blocks and skipped sectors instead of calling
+a partial image complete. A partial read keeps unknown bytes unknown and only
+supports the NFC Foundry project format.
 
 ### Key recovery
 

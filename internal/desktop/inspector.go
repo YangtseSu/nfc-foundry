@@ -78,6 +78,11 @@ func (s *shell) inspectorSub() string {
 		return l.Type2ProtectionPanel()
 	case tabRecovery:
 		return l.RecoveryTitle()
+	case tabDiff:
+		if s.diffLoaded {
+			return s.diffPath
+		}
+		return l.DiffNoComparison()
 	case tabAPDU:
 		return l.ApduTitle()
 	case tabDESFire:
@@ -124,6 +129,8 @@ func (s *shell) inspector(c *ui.Context, p palette) {
 		s.type2Inspector(c, p)
 	case tabRecovery:
 		s.inspectorEmpty(c, p, s.locales().RecoveryIntro())
+	case tabDiff:
+		s.diffInspector(c, p)
 	case tabAPDU:
 		s.inspectorEmpty(c, p, s.locales().ApduIntro())
 	case tabDESFire:
@@ -185,6 +192,20 @@ func (s *shell) blockInspector(c *ui.Context, p palette, block app.WorkbenchBloc
 					readable).
 					Font("monospace").FontSize(8.5).TextColor(p.muted).Wrap()
 			}
+		}
+		if block.Value != nil {
+			ui.Text(c, l.ClassicValueDecoded(fmt.Sprintf("%d", block.Value.Value), fmt.Sprintf("%d", block.Value.Address))).
+				FontSize(9.5).TextColor(p.muted).Wrap()
+		}
+		if block.BCC != nil && block.BCC.Applicable {
+			status := l.ClassicBCCInvalid()
+			color := p.danger
+			if block.BCC.Valid {
+				status = l.ClassicBCCValid()
+				color = p.success
+			}
+			ui.Text(c, l.ClassicBCCResult(block.BCC.Expected, block.BCC.Actual, status)).
+				Font("monospace").FontSize(9).TextColor(color).Wrap()
 		}
 	})
 }

@@ -65,19 +65,24 @@ type ExportResultDTO struct {
 }
 
 type WorkbenchDTO struct {
-	Loaded      bool                   `json:"loaded"`
-	Saved       bool                   `json:"saved"`
-	Name        string                 `json:"name,omitempty"`
-	Layout      string                 `json:"layout,omitempty"`
-	Complete    bool                   `json:"complete"`
-	Dirty       bool                   `json:"dirty"`
-	DirtyBlocks []int                  `json:"dirtyBlocks"`
-	Blocks      []WorkbenchBlockDTO    `json:"blocks"`
-	Diffs       []WorkbenchDiffDTO     `json:"diffs"`
-	Validation  WorkbenchValidationDTO `json:"validation"`
-	Warnings    []string               `json:"warnings,omitempty"`
-	SourceUID   string                 `json:"sourceUid,omitempty"`
-	UIDLength   int                    `json:"uidLength"`
+	Loaded          bool                   `json:"loaded"`
+	Saved           bool                   `json:"saved"`
+	Name            string                 `json:"name,omitempty"`
+	Layout          string                 `json:"layout,omitempty"`
+	Complete        bool                   `json:"complete"`
+	ReadableBlocks  int                    `json:"readableBlocks"`
+	TotalBlocks     int                    `json:"totalBlocks"`
+	ReadableSectors int                    `json:"readableSectors"`
+	TotalSectors    int                    `json:"totalSectors"`
+	SkippedSectors  []int                  `json:"skippedSectors"`
+	Dirty           bool                   `json:"dirty"`
+	DirtyBlocks     []int                  `json:"dirtyBlocks"`
+	Blocks          []WorkbenchBlockDTO    `json:"blocks"`
+	Diffs           []WorkbenchDiffDTO     `json:"diffs"`
+	Validation      WorkbenchValidationDTO `json:"validation"`
+	Warnings        []string               `json:"warnings,omitempty"`
+	SourceUID       string                 `json:"sourceUid,omitempty"`
+	UIDLength       int                    `json:"uidLength"`
 }
 
 type WorkbenchBlockDTO struct {
@@ -91,6 +96,8 @@ type WorkbenchBlockDTO struct {
 	Dirty     bool              `json:"dirty"`
 	Warning   string            `json:"warning,omitempty"`
 	Access    *AccessSummaryDTO `json:"access,omitempty"`
+	Value     *ValueBlockDTO    `json:"value,omitempty"`
+	BCC       *BCCBlockDTO      `json:"bcc,omitempty"`
 }
 
 // EditableBlockDTO is returned after an explicit editor action and contains the
@@ -103,6 +110,8 @@ type EditableBlockDTO struct {
 	ASCII   string            `json:"ascii"`
 	Warning string            `json:"warning,omitempty"`
 	Access  *AccessSummaryDTO `json:"access,omitempty"`
+	Value   *ValueBlockDTO    `json:"value,omitempty"`
+	BCC     *BCCBlockDTO      `json:"bcc,omitempty"`
 }
 
 type WorkbenchDiffDTO struct {
@@ -135,8 +144,14 @@ type AccessSummaryDTO struct {
 type AccessGroupDTO struct {
 	Group            int    `json:"group"`
 	Code             string `json:"code"`
+	DataReadKeys     string `json:"dataReadKeys"`
 	DataWriteKeys    string `json:"dataWriteKeys"`
+	IncrementKeys    string `json:"incrementKeys"`
+	DecrementKeys    string `json:"decrementKeys"`
 	TrailerWriteKeys string `json:"trailerWriteKeys"`
+	TrailerKeyA      string `json:"trailerKeyA"`
+	TrailerAccess    string `json:"trailerAccess"`
+	TrailerKeyB      string `json:"trailerKeyB"`
 	KeyBReadable     bool   `json:"keyBReadable"`
 }
 
@@ -171,6 +186,7 @@ type WriteStartRequestDTO struct {
 	Token           string `json:"token"`
 	ConfirmTrailers bool   `json:"confirmTrailers"`
 	ConfirmUID      string `json:"confirmUid,omitempty"`
+	Confirmation    string `json:"confirmation,omitempty"`
 }
 
 type UIDWritePreviewDTO struct {
@@ -248,6 +264,8 @@ type TaskEventDetailDTO struct {
 	Type4            *Type4NDEFDTO              `json:"type4,omitempty"`
 	ClassicNDEF      *ClassicNDEFDTO            `json:"classicNdef,omitempty"`
 	ClassicNDEFWrite *ClassicNDEFWriteResultDTO `json:"classicNdefWrite,omitempty"`
+	Clone            *CloneResultDTO            `json:"clone,omitempty"`
+	Factory          *FactoryResultDTO          `json:"factory,omitempty"`
 	BackupPath       string                     `json:"backupPath,omitempty"`
 }
 
@@ -441,7 +459,7 @@ func sectorKeyDTOs(store *keys.Store, card *nfc.CardInfo) []SectorKeyDTO {
 
 func workbenchDTO(snapshot workbench.Snapshot) WorkbenchDTO {
 	if !snapshot.Loaded {
-		return WorkbenchDTO{Blocks: []WorkbenchBlockDTO{}, Diffs: []WorkbenchDiffDTO{}, DirtyBlocks: []int{}, Validation: WorkbenchValidationDTO{Valid: false, Errors: []string{"no dump loaded"}, Warnings: []string{}}}
+		return WorkbenchDTO{Blocks: []WorkbenchBlockDTO{}, Diffs: []WorkbenchDiffDTO{}, DirtyBlocks: []int{}, SkippedSectors: []int{}, Validation: WorkbenchValidationDTO{Valid: false, Errors: []string{"no dump loaded"}, Warnings: []string{}}}
 	}
 	dirty := make(map[int]bool, len(snapshot.DirtyBlocks))
 	for _, block := range snapshot.DirtyBlocks {
@@ -456,6 +474,10 @@ func workbenchDTO(snapshot workbench.Snapshot) WorkbenchDTO {
 		}
 		if kind == workbench.BlockManufacturer {
 			dto.Warning = "Manufacturer block: editable here, always skipped when writing the card"
+			dto.BCC = bccBlockDTO(block)
+		}
+		if kind == workbench.BlockData && block.Complete() {
+			dto.Value = valueBlockDTO(block.Data)
 		}
 		if kind == workbench.BlockTrailer {
 			dto.Warning = "Sector trailer: writing changes keys or access conditions and needs extra confirmation"
@@ -480,9 +502,13 @@ func workbenchDTO(snapshot workbench.Snapshot) WorkbenchDTO {
 	if snapshot.Path != "" {
 		name = filepath.Base(snapshot.Path)
 	}
+	readability := workflow.DumpReadability(snapshot.Result.Dump)
 	return WorkbenchDTO{
 		Loaded: true, Saved: snapshot.Path != "", Name: name, Layout: dumpLayoutName(snapshot.Result.Dump.Layout), Complete: snapshot.Result.Complete(),
-		Dirty: snapshot.Dirty, DirtyBlocks: append([]int(nil), snapshot.DirtyBlocks...), Blocks: blocks, Diffs: diffs, Validation: validation,
+		ReadableBlocks: readability.ReadableBlocks, TotalBlocks: readability.TotalBlocks,
+		ReadableSectors: readability.ReadableSectors, TotalSectors: readability.TotalSectors,
+		SkippedSectors: append([]int(nil), readability.SkippedSectors...),
+		Dirty:          snapshot.Dirty, DirtyBlocks: append([]int(nil), snapshot.DirtyBlocks...), Blocks: blocks, Diffs: diffs, Validation: validation,
 		SourceUID: formatHex(snapshot.Result.Card.UID), UIDLength: len(snapshot.Result.Card.UID),
 	}
 }
@@ -524,7 +550,12 @@ func snapshotValidation(snapshot workbench.Snapshot) WorkbenchValidationDTO {
 func accessDTO(summary workbench.AccessSummary) AccessSummaryDTO {
 	dto := AccessSummaryDTO{Valid: summary.Valid, Error: summary.Error, Groups: make([]AccessGroupDTO, len(summary.Groups))}
 	for index, group := range summary.Groups {
-		dto.Groups[index] = AccessGroupDTO{Group: group.Group, Code: group.Code, DataWriteKeys: group.DataWriteKeys, TrailerWriteKeys: group.TrailerWriteKeys, KeyBReadable: group.KeyBReadable}
+		dto.Groups[index] = AccessGroupDTO{
+			Group: group.Group, Code: group.Code, DataReadKeys: group.DataReadKeys,
+			DataWriteKeys: group.DataWriteKeys, IncrementKeys: group.IncrementKeys, DecrementKeys: group.DecrementKeys,
+			TrailerWriteKeys: group.TrailerWriteKeys, TrailerKeyA: group.TrailerKeyA,
+			TrailerAccess: group.TrailerAccess, TrailerKeyB: group.TrailerKeyB, KeyBReadable: group.KeyBReadable,
+		}
 	}
 	return dto
 }

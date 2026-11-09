@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"encoding/hex"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -45,10 +46,11 @@ func (s *shell) classicActions(c *ui.Context, p palette) {
 		if save.Clicked() {
 			s.saveDump()
 		}
-		ui.Spacer(c)
-		if !s.advanced {
-			return
-		}
+	})
+	if !s.advanced {
+		return
+	}
+	ui.Row(c).Padding(0, 14, 10).Gap(8).AlignItems(ui.Center).Children(func() {
 		changed := linkButton(c, p, l.ClassicWriteChanged()).
 			Disabled(busy || !s.hasWritableChanges())
 		if changed.Clicked() {
@@ -59,18 +61,45 @@ func (s *shell) classicActions(c *ui.Context, p palette) {
 		if full.Clicked() {
 			s.requestFullRestore()
 		}
+		clone := linkButton(c, p, l.CloneAction()).
+			Disabled(busy || !s.workbench.Loaded || !s.workbench.Complete || !s.cardPresent())
+		if clone.Clicked() {
+			s.requestClonePreflight()
+		}
+		factory := linkButton(c, p, l.FactoryAction()).
+			Disabled(busy || !s.cardPresent() || s.cardFamily() != familyClassic)
+		if factory.Clicked() {
+			s.requestFactoryPreflight(s.factoryKeepData)
+		}
 	})
 }
 
 func (s *shell) classicBlockEditor(c *ui.Context, p palette) {
 	l := s.locales()
 	block, ok := s.selectedBlock()
-	if !ok || block.Kind != "data" {
+	if !ok {
 		ui.Row(c).Padding(0, 14, 8).Children(func() {
 			ui.Text(c, l.ClassicSelectDataBlock()).FontSize(9.5).TextColor(p.faint).Wrap()
 		})
 		return
 	}
+	s.syncBlockEditor(false)
+	block, _ = s.selectedBlock()
+	if block.Kind == "manufacturer" {
+		s.manufacturerBlockPanel(c, p, block)
+		return
+	}
+	if block.Kind != "data" && block.Kind != "trailer" {
+		ui.Row(c).Padding(0, 14, 8).Children(func() {
+			ui.Text(c, l.ClassicSelectDataBlock()).FontSize(9.5).TextColor(p.faint).Wrap()
+		})
+		return
+	}
+	if block.Kind == "trailer" {
+		s.trailerEditor(c, p, block)
+		return
+	}
+	s.valueBlockEditor(c, p, block)
 	ui.Row(c).Padding(0, 14, 8).Gap(8).AlignItems(ui.Center).Children(func() {
 		ui.Textf(c, "%s %d", l.ClassicBlock(), block.Block).Font("monospace").FontSize(9.5).
 			TextColor(p.faint).Shrink(0)
@@ -227,9 +256,13 @@ func (s *shell) requestBlockWrite() {
 				return
 			}
 			s.errorText = ""
-			s.openClassicDialog("block", &classicWriteIntent{
+			intent := &classicWriteIntent{
 				Kind: "block", Block: block.Block, Hex: value, Preflight: preflight,
-			})
+			}
+			if s.valuePreview != nil && s.valuePreview.Block == block.Block {
+				intent.Value = s.valuePreview
+			}
+			s.openClassicDialog("block", intent)
 		})
 	}()
 }
@@ -330,6 +363,10 @@ func (s *shell) startClassicWrite(intent classicWriteIntent) {
 			if intent.Kind == "full" || intent.Kind == "changes" && len(intent.Preflight.TrailerBlocks) != 0 {
 				request.ConfirmTrailers = true
 			}
+			if intent.Kind == "trailer" {
+				request.ConfirmTrailers = true
+				request.Confirmation = fmt.Sprintf("%d", intent.Block)
+			}
 			_, err = s.api.StartWrite(request)
 		}
 		s.update(func() {
@@ -361,6 +398,8 @@ func (s *shell) classicDialogView(c *ui.Context) {
 		title, message, confirm = l.ClassicAdvancedTitle(), l.ClassicAdvancedMessage(), l.ClassicAdvancedEnable()
 	case "discard":
 		title, message, confirm = l.ClassicDiscardTitle(), l.ClassicDiscardMessage(), l.ClassicDiscardConfirm()
+	case "reread":
+		title, message, confirm = l.ClassicReadAgainTitle(), l.ClassicReadAgainMessage(), l.ClassicReadAgainConfirm()
 	case "block":
 		if intent == nil {
 			s.classicDialogOpen = false
@@ -371,6 +410,13 @@ func (s *shell) classicDialogView(c *ui.Context) {
 			l.ClassicNewValue(spacedHex(intent.Hex)),
 			l.ClassicBlockWriteNote(),
 		}, "\n")
+		if intent.Value != nil {
+			message = strings.Join([]string{
+				l.ClassicValueDecoded(fmt.Sprintf("%d", intent.Value.Decoded.Value), fmt.Sprintf("%d", intent.Value.Decoded.Address)),
+				l.ClassicNewValue(spacedHex(intent.Hex)),
+				l.ClassicBlockWriteNote(),
+			}, "\n")
+		}
 		confirm = l.ClassicConfirmBlock()
 	case "changes":
 		if intent == nil {
@@ -430,6 +476,8 @@ func (s *shell) classicDialogView(c *ui.Context) {
 		s.advanced = true
 	case "discard":
 		s.startLoadDump(true)
+	case "reread":
+		s.startReadAgain()
 	case "block", "changes", "full", "uid":
 		if intent != nil {
 			s.startClassicWrite(*intent)

@@ -127,46 +127,7 @@ func (s *RestoreService) Restore(ctx context.Context, request RestoreRequest, em
 		if err != nil {
 			return err
 		}
-		trailerWriter, supportsTrailers := reader.(nfc.ClassicTrailerWriter)
-		for _, operation := range plan.Operations {
-			emit(RestoreEvent{Phase: RestoreExecute, Block: operation.Block, Message: "writing block"})
-			entry := &result.Blocks[operation.Block]
-			if err := selectExpectedCard(operationCtx, reader, plan.Card); err != nil {
-				markRestoreFailure(entry, false, false, err)
-				return err
-			}
-			if err := reader.Authenticate(operationCtx, byte(operation.Block), operation.KeyType, operation.Key); err != nil {
-				markRestoreFailure(entry, false, false, err)
-				return err
-			}
-			entry.Attempted = true
-			if !operation.Trailer {
-				err := reader.WriteBlock(operationCtx, byte(operation.Block), operation.Data)
-				if err != nil {
-					markRestoreFailure(entry, true, errors.Is(err, nfc.ErrVerificationFailed), err)
-					return err
-				}
-				entry.Status, entry.Written, entry.WriteOutcomeKnown, entry.Verified = RestoreVerified, true, true, true
-				emit(RestoreEvent{Phase: RestoreVerify, Block: operation.Block, Message: "block readback verified"})
-				continue
-			}
-
-			if !supportsTrailers {
-				return nfc.NewError("restore", nfc.CodeUnsupported, "reader does not support protected sector trailer writes", nil)
-			}
-			if err := trailerWriter.WriteSectorTrailer(operationCtx, byte(operation.Block), operation.Data); err != nil {
-				markRestoreFailure(entry, true, false, err)
-				return err
-			}
-			entry.Status, entry.Written, entry.WriteOutcomeKnown = RestoreWritten, true, true
-			emit(RestoreEvent{Phase: RestoreVerify, Block: operation.Block, Message: "verifying replacement trailer and keys"})
-			if err := verifyRestoredTrailer(operationCtx, reader, plan.Card, operation); err != nil {
-				markRestoreFailure(entry, true, true, err)
-				return err
-			}
-			entry.Status, entry.Verified = RestoreVerified, true
-		}
-		return nil
+		return executeRestorePlan(operationCtx, reader, plan, &result, emit)
 	})
 	if err != nil {
 		result.Phase = RestoreFailed
@@ -177,6 +138,51 @@ func (s *RestoreService) Restore(ctx context.Context, request RestoreRequest, em
 	finalizeRestoreResult(&result)
 	emit(RestoreEvent{Phase: RestoreComplete, Block: -1, Message: "restore completed"})
 	return result, nil
+}
+
+// executeRestorePlan writes and immediately verifies a plan on a reader the
+// caller already owns. It is shared by restore, clone, and factory format.
+func executeRestorePlan(ctx context.Context, reader nfc.Reader, plan RestorePlan, result *RestoreResult, emit func(RestoreEvent)) error {
+	trailerWriter, supportsTrailers := reader.(nfc.ClassicTrailerWriter)
+	for _, operation := range plan.Operations {
+		emit(RestoreEvent{Phase: RestoreExecute, Block: operation.Block, Message: "writing block"})
+		entry := &result.Blocks[operation.Block]
+		if err := selectExpectedCard(ctx, reader, plan.Card); err != nil {
+			markRestoreFailure(entry, false, false, err)
+			return err
+		}
+		if err := reader.Authenticate(ctx, byte(operation.Block), operation.KeyType, operation.Key); err != nil {
+			markRestoreFailure(entry, false, false, err)
+			return err
+		}
+		entry.Attempted = true
+		if !operation.Trailer {
+			err := reader.WriteBlock(ctx, byte(operation.Block), operation.Data)
+			if err != nil {
+				markRestoreFailure(entry, true, errors.Is(err, nfc.ErrVerificationFailed), err)
+				return err
+			}
+			entry.Status, entry.Written, entry.WriteOutcomeKnown, entry.Verified = RestoreVerified, true, true, true
+			emit(RestoreEvent{Phase: RestoreVerify, Block: operation.Block, Message: "block readback verified"})
+			continue
+		}
+
+		if !supportsTrailers {
+			return nfc.NewError("restore", nfc.CodeUnsupported, "reader does not support protected sector trailer writes", nil)
+		}
+		if err := trailerWriter.WriteSectorTrailer(ctx, byte(operation.Block), operation.Data); err != nil {
+			markRestoreFailure(entry, true, false, err)
+			return err
+		}
+		entry.Status, entry.Written, entry.WriteOutcomeKnown = RestoreWritten, true, true
+		emit(RestoreEvent{Phase: RestoreVerify, Block: operation.Block, Message: "verifying replacement trailer and keys"})
+		if err := verifyRestoredTrailer(ctx, reader, plan.Card, operation); err != nil {
+			markRestoreFailure(entry, true, true, err)
+			return err
+		}
+		entry.Status, entry.Verified = RestoreVerified, true
+	}
+	return nil
 }
 
 func buildRestorePlan(ctx context.Context, reader nfc.Reader, request RestoreRequest) (RestorePlan, error) {

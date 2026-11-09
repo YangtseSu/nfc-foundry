@@ -26,13 +26,13 @@ Status legend: `done`, `in progress`, `pending`, `conditional`.
 | 09 | Card emulation for mobile Linux (scope to be defined) | conditional |
 | 10 | Key lifecycle, recovery save, and optional verification | done |
 | 11 | Key and dump interchange formats | done |
-| 12 | MCT-inspired diff, editors, clone, and factory format | pending |
+| 12 | MCT-inspired diff, editors, clone, and factory format | done |
 
 ## Implementation order
 
-Phase 10 and Phase 11 are complete. Phase 12 comes next. Phase 07 hardware
-validation and Phase 04b UFUID/FUID validation remain open in parallel; they
-do not block the remaining file-format work.
+Phase 10, Phase 11, and Phase 12 are complete. Phase 07 hardware validation and
+Phase 04b UFUID/FUID validation remain open in parallel; they do not block the
+remaining file-format work.
 
 ## Feature policy
 

@@ -464,8 +464,14 @@ type AccessSummary struct {
 type AccessGroup struct {
 	Group            int
 	Code             string
+	DataReadKeys     string
 	DataWriteKeys    string
+	IncrementKeys    string
+	DecrementKeys    string
 	TrailerWriteKeys string
+	TrailerKeyA      string
+	TrailerAccess    string
+	TrailerKeyB      string
 	KeyBReadable     bool
 }
 
@@ -476,11 +482,18 @@ func ExplainAccess(block mifare.Block) AccessSummary {
 	}
 	summary := AccessSummary{Valid: true}
 	for index, condition := range bits.Groups {
+		permissions := condition.TrailerAccess()
 		summary.Groups[index] = AccessGroup{
 			Group: index, Code: fmt.Sprintf("%03b", condition.Code()),
+			DataReadKeys:     keyMaskLabel(condition.DataReadKeys()),
 			DataWriteKeys:    keyMaskLabel(condition.DataWriteKeys()),
+			IncrementKeys:    keyMaskLabel(condition.DataIncrementKeys()),
+			DecrementKeys:    keyMaskLabel(condition.DataDecrementKeys()),
 			TrailerWriteKeys: keyMaskLabel(condition.FullTrailerWriteKeys()),
-			KeyBReadable:     condition.KeyBReadable(),
+			TrailerKeyA:      keyMaskLabel(permissions.WriteKeyA),
+			TrailerAccess:    keyMaskLabel(permissions.WriteAccess),
+			TrailerKeyB:      keyMaskLabel(permissions.WriteKeyB),
+			KeyBReadable:     permissions.KeyBReadable,
 		}
 	}
 	return summary

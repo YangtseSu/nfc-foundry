@@ -27,6 +27,14 @@ Date: 2026-11-08
 - Added UI tests for recovery, APDU, and Type 4 write confirmation in
   `internal/desktop/parity_test.go`.
 
+Phase 12 keeps the matrix current: the GUI has a **Diff** tab, value-block and
+access-condition editors, clone and factory-format dialogs with typed
+confirmation, a line-based key-file editor, a BCC calculator, and a
+partial-read banner with scan-and-read-again. `nfctl` exposes the same
+operations as `classic diff`, `classic value set`, `classic trailer set`,
+`classic clone`, and `classic format` with the same preflight, backup, and
+read-back rules. Machine-readable output and dry-run flags remain CLI-only.
+
 ## Validation
 
 - `go test ./...`

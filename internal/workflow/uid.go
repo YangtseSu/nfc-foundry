@@ -159,45 +159,70 @@ func (s *UIDService) Write(ctx context.Context, request UIDWriteRequest, emit fu
 		}
 		result.BackupPath = backupPath
 
-		writer, ok := reader.(nfc.ClassicManufacturerWriter)
-		if !ok {
-			return nfc.NewError("write UID", nfc.CodeUnsupported, "reader does not expose the protected manufacturer-block capability", nil)
-		}
-		if err := selectExpectedCard(operationCtx, reader, plan.Card); err != nil {
-			return err
-		}
-		if err := reader.Authenticate(operationCtx, 0, plan.KeyType, plan.Key); err != nil {
-			return err
-		}
-		emit(UIDWriteEvent{Phase: UIDWriteExecute, Message: "writing the UID and BCC"})
-		writeErr := writer.WriteManufacturerBlock(operationCtx, plan.NewBlock0)
-		if writeErr != nil && !uidWriteMayHaveCommitted(writeErr) {
-			return writeErr
-		}
-		if writeErr != nil {
-			emit(UIDWriteEvent{Phase: UIDWriteReselect, Message: "the write response was uncertain; reselecting and verifying the actual result"})
-		} else {
-			emit(UIDWriteEvent{Phase: UIDWriteReselect, Message: "reselecting the card and confirming the new UID"})
-		}
-
-		raw, rawAvailable := reader.(nfc.RawTransceiver)
-		newCard, waitErr := s.waitForNewUID(operationCtx, plan.Card, request.NewUID, reader, rawAvailable)
-		if waitErr != nil {
-			if !rawAvailable || !errors.Is(waitErr, errUIDUnchanged) {
-				if writeErr != nil {
-					return nfc.NewError("verify UID write", nfc.CodeVerificationFailed, "the write response was abnormal and the target UID was not observed after reselection", errors.Join(writeErr, waitErr))
-				}
-				return waitErr
-			}
-			return s.writeGen1A(operationCtx, reader, raw, plan, writeErr, waitErr, &result, emit)
-		}
-		return verifyUIDBlock(operationCtx, reader, newCard, plan, &result, emit)
+		return s.writePlanWithReader(operationCtx, reader, plan, &result, emit)
 	})
 	if err != nil {
 		return result, err
 	}
 	emit(UIDWriteEvent{Phase: UIDWriteComplete, Message: "UID and the complete block 0 verified"})
 	return result, nil
+}
+
+// writePlanWithReader performs the DirectWrite attempt, reselect verification,
+// and in-process Gen1A fallback on a reader the caller already owns. Clone and
+// UID write share it so both follow the same committed/uncertain rules.
+func (s *UIDService) writePlanWithReader(ctx context.Context, reader nfc.Reader, plan UIDWritePlan, result *UIDWriteResult, emit func(UIDWriteEvent)) error {
+	writer, ok := reader.(nfc.ClassicManufacturerWriter)
+	if !ok {
+		return nfc.NewError("write block 0", nfc.CodeUnsupported, "reader does not expose the protected manufacturer-block capability", nil)
+	}
+	if err := selectExpectedCard(ctx, reader, plan.Card); err != nil {
+		return err
+	}
+	if err := reader.Authenticate(ctx, 0, plan.KeyType, plan.Key); err != nil {
+		return err
+	}
+	emit(UIDWriteEvent{Phase: UIDWriteExecute, Message: "writing block 0"})
+	writeErr := writer.WriteManufacturerBlock(ctx, plan.NewBlock0)
+	if writeErr != nil && !uidWriteMayHaveCommitted(writeErr) {
+		return writeErr
+	}
+	if writeErr != nil {
+		emit(UIDWriteEvent{Phase: UIDWriteReselect, Message: "the write response was uncertain; reselecting and verifying the actual result"})
+	} else {
+		emit(UIDWriteEvent{Phase: UIDWriteReselect, Message: "reselecting the card and confirming the new block 0"})
+	}
+
+	raw, rawAvailable := reader.(nfc.RawTransceiver)
+	newUID := plan.NewBlock0[0:4]
+	if bytes.Equal(newUID, plan.Card.UID) {
+		// Clone can replace manufacturer bytes 5..15 while the UID stays the
+		// same, so UID-change waiting cannot detect the write. Reselect and
+		// verify the complete block instead.
+		newCard, waitErr := s.waitForNewUID(ctx, plan.Card, newUID, reader, false)
+		if waitErr != nil {
+			if writeErr != nil {
+				return nfc.NewError("verify block 0 write", nfc.CodeVerificationFailed, "the write response was abnormal and the card was not reselected", errors.Join(writeErr, waitErr))
+			}
+			return waitErr
+		}
+		verifyErr := verifyUIDBlock(ctx, reader, newCard, plan, result, emit)
+		if verifyErr == nil || !rawAvailable {
+			return verifyErr
+		}
+		return s.writeGen1A(ctx, reader, raw, plan, writeErr, verifyErr, result, emit)
+	}
+	newCard, waitErr := s.waitForNewUID(ctx, plan.Card, newUID, reader, rawAvailable)
+	if waitErr != nil {
+		if !rawAvailable || !errors.Is(waitErr, errUIDUnchanged) {
+			if writeErr != nil {
+				return nfc.NewError("verify block 0 write", nfc.CodeVerificationFailed, "the write response was abnormal and the target UID was not observed after reselection", errors.Join(writeErr, waitErr))
+			}
+			return waitErr
+		}
+		return s.writeGen1A(ctx, reader, raw, plan, writeErr, waitErr, result, emit)
+	}
+	return verifyUIDBlock(ctx, reader, newCard, plan, result, emit)
 }
 
 // writeGen1A runs the backdoor sequence on the reader that already holds the
@@ -279,18 +304,34 @@ func validateUIDWriteRequest(request UIDWriteRequest) error {
 }
 
 func buildUIDWritePlan(ctx context.Context, reader nfc.Reader, request UIDWriteRequest) (UIDWritePlan, error) {
-	if _, ok := reader.(nfc.ClassicManufacturerWriter); !ok {
-		return UIDWritePlan{}, nfc.NewError("UID write preflight", nfc.CodeUnsupported, "reader does not expose the protected manufacturer-block capability", nil)
+	plan, err := buildBlock0WritePlan(ctx, reader, request.Card, request.Sector0Keys, request.ExpectedBlock0)
+	if err != nil {
+		return UIDWritePlan{}, err
 	}
-	verified, err := verifyProvidedKeys(ctx, reader, request.Card, 0, mifare.Classic1K, request.Sector0Keys)
+	newBlock := plan.OldBlock0
+	copy(newBlock[0:4], request.NewUID)
+	bcc, _ := mifare.BCCFor4ByteUID(request.NewUID)
+	newBlock[4] = bcc
+	plan.NewBlock0, plan.BCC = newBlock, bcc
+	return plan, nil
+}
+
+// buildBlock0WritePlan validates the target reader and sector 0 before any
+// mutation. The caller supplies the complete replacement manufacturer block;
+// UID write replaces only the UID and BCC, while clone uses the source image.
+func buildBlock0WritePlan(ctx context.Context, reader nfc.Reader, card nfc.CardInfo, sector0Keys SectorKeys, expected *[nfc.BlockSize]byte) (UIDWritePlan, error) {
+	if _, ok := reader.(nfc.ClassicManufacturerWriter); !ok {
+		return UIDWritePlan{}, nfc.NewError("block 0 write preflight", nfc.CodeUnsupported, "reader does not expose the protected manufacturer-block capability", nil)
+	}
+	verified, err := verifyProvidedKeys(ctx, reader, card, 0, mifare.Classic1K, sector0Keys)
 	if err != nil {
 		return UIDWritePlan{}, err
 	}
 	readType, readKey, ok := preferredVerifiedKey(verified)
 	if !ok {
-		return UIDWritePlan{}, nfc.NewError("UID write preflight", nfc.CodeAuthenticationFailed, "no verified key is available to read sector 0", nil)
+		return UIDWritePlan{}, nfc.NewError("block 0 write preflight", nfc.CodeAuthenticationFailed, "no verified key is available to read sector 0", nil)
 	}
-	if err := selectExpectedCard(ctx, reader, request.Card); err != nil {
+	if err := selectExpectedCard(ctx, reader, card); err != nil {
 		return UIDWritePlan{}, err
 	}
 	if err := reader.Authenticate(ctx, 3, readType, readKey); err != nil {
@@ -302,13 +343,13 @@ func buildUIDWritePlan(ctx context.Context, reader nfc.Reader, request UIDWriteR
 	}
 	access, err := mifare.DecodeAccessBits([3]byte{trailer[6], trailer[7], trailer[8]})
 	if err != nil {
-		return UIDWritePlan{}, nfc.NewError("UID write preflight", nfc.CodeInvalidArgument, "sector 0 access bits are invalid", err)
+		return UIDWritePlan{}, nfc.NewError("block 0 write preflight", nfc.CodeInvalidArgument, "sector 0 access bits are invalid", err)
 	}
 	keyType, key, ok := choosePermittedKey(access.Groups[0].DataWriteKeys(), verified)
 	if !ok {
-		return UIDWritePlan{}, nfc.NewError("UID write preflight", nfc.CodePermission, "sector 0 access conditions do not permit block 0 writing with a verified key", nil)
+		return UIDWritePlan{}, nfc.NewError("block 0 write preflight", nfc.CodePermission, "sector 0 access conditions do not permit block 0 writing with a verified key", nil)
 	}
-	if err := selectExpectedCard(ctx, reader, request.Card); err != nil {
+	if err := selectExpectedCard(ctx, reader, card); err != nil {
 		return UIDWritePlan{}, err
 	}
 	if err := reader.Authenticate(ctx, 0, keyType, key); err != nil {
@@ -318,21 +359,17 @@ func buildUIDWritePlan(ctx context.Context, reader nfc.Reader, request UIDWriteR
 	if err != nil {
 		return UIDWritePlan{}, err
 	}
-	if !bytes.Equal(oldBlock[0:4], request.Card.UID) {
-		return UIDWritePlan{}, nfc.NewError("UID write preflight", nfc.CodeVerificationFailed, "block 0 UID does not match the selected card", nil)
+	if !bytes.Equal(oldBlock[0:4], card.UID) {
+		return UIDWritePlan{}, nfc.NewError("block 0 write preflight", nfc.CodeVerificationFailed, "block 0 UID does not match the selected card", nil)
 	}
-	oldBCC, _ := mifare.BCCFor4ByteUID(request.Card.UID)
+	oldBCC, _ := mifare.BCCFor4ByteUID(card.UID)
 	if oldBlock[4] != oldBCC {
-		return UIDWritePlan{}, nfc.NewError("UID write preflight", nfc.CodeVerificationFailed, "current block 0 BCC is invalid", nil)
+		return UIDWritePlan{}, nfc.NewError("block 0 write preflight", nfc.CodeVerificationFailed, "current block 0 BCC is invalid", nil)
 	}
-	if request.ExpectedBlock0 != nil && oldBlock != *request.ExpectedBlock0 {
-		return UIDWritePlan{}, nfc.NewError("UID write preflight", nfc.CodeCardChanged, "block 0 changed after the write preview", nil)
+	if expected != nil && oldBlock != *expected {
+		return UIDWritePlan{}, nfc.NewError("block 0 write preflight", nfc.CodeCardChanged, "block 0 changed after the write preview", nil)
 	}
-	newBlock := oldBlock
-	copy(newBlock[0:4], request.NewUID)
-	bcc, _ := mifare.BCCFor4ByteUID(request.NewUID)
-	newBlock[4] = bcc
-	return UIDWritePlan{Card: request.Card.Clone(), OldBlock0: oldBlock, NewBlock0: newBlock, BCC: bcc, KeyType: keyType, Key: key}, nil
+	return UIDWritePlan{Card: card.Clone(), OldBlock0: oldBlock, KeyType: keyType, Key: key}, nil
 }
 
 func (s *UIDService) waitForNewUID(ctx context.Context, oldCard nfc.CardInfo, newUID []byte, reader nfc.Reader, oldUIDIsFinal bool) (nfc.CardInfo, error) {

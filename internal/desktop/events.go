@@ -75,6 +75,13 @@ func (s *shell) resetCardDialogs() {
 	s.recoveryReviewOpen = false
 	s.recoverySelected = make(map[string]bool)
 	s.recoveryKeyNames = make(map[string]*string)
+	s.trailerDialogOpen = false
+	s.trailerIntent = nil
+	s.cloneOpen = false
+	s.clonePlan = nil
+	s.factoryOpen = false
+	s.factoryPlan = nil
+	s.keyFileOpen = false
 }
 
 func (s *shell) applyDeviceState(event app.DeviceStateEventDTO) {
@@ -198,6 +205,8 @@ func (s *shell) applyTaskEvent(event app.TaskEventDetailDTO) {
 		s.errorText = s.locales().Type4Failed(event.Message)
 	case event.Type == "failed" && (event.Kind == "write" || event.Kind == "uid_write"):
 		s.errorText = s.locales().ClassicWriteFailed(event.Message)
+	case event.Type == "failed" && (event.Kind == "clone" || event.Kind == "factory"):
+		s.errorText = s.locales().ClassicWriteFailed(event.Message)
 	case event.Type == "failed" && (event.Kind == "key_recovery" || event.Kind == "mfoc" || event.Kind == "hardnested" || event.Kind == "mfcuk_pipeline"):
 		s.errorText = s.locales().RecoveryFailed(event.Message)
 	case event.Type == "failed" && event.Kind == "recovery_save":
@@ -218,6 +227,12 @@ func (s *shell) applyTaskEvent(event app.TaskEventDetailDTO) {
 	case event.Type == app.TaskEventCompleted && event.Kind == "uid_write":
 		s.errorText = ""
 		s.toastText = s.locales().ClassicUIDComplete()
+	case event.Type == app.TaskEventCompleted && event.Kind == "clone":
+		s.errorText = ""
+		s.toastText = s.locales().CloneComplete()
+	case event.Type == app.TaskEventCompleted && event.Kind == "factory":
+		s.errorText = ""
+		s.toastText = s.locales().FactoryComplete()
 	case event.Type == app.TaskEventCompleted && event.Kind == "type4_ndef":
 		s.errorText = ""
 		s.toastText = s.locales().Type4WriteComplete()
@@ -235,6 +250,12 @@ func (s *shell) applyTaskEvent(event app.TaskEventDetailDTO) {
 		eventType: event.Type,
 		message:   event.Message,
 		progress:  event.Progress,
+	}
+	if event.Clone != nil && event.Clone.BackupPath != "" {
+		entry.message += " · " + s.locales().ClassicBackupPath(event.Clone.BackupPath)
+	}
+	if event.Factory != nil && event.Factory.BackupPath != "" {
+		entry.message += " · " + s.locales().ClassicBackupPath(event.Factory.BackupPath)
 	}
 	if entry.message == "" {
 		return

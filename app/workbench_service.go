@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -203,8 +204,11 @@ func (s *Service) finishKeyImport(path, setName string, report keys.ParseReport)
 		keyIDs = append(keyIDs, record.ID)
 	}
 	dto := ImportReportDTO{
-		Path: filepath.Base(path), Valid: report.Valid, Added: added, Duplicates: report.Duplicates,
+		Valid: report.Valid, Added: added, Duplicates: report.Duplicates,
 		Ignored: report.Ignored, Issues: make([]ImportIssueDTO, len(report.Issues)), Keys: keyDTOs(s.keyStore),
+	}
+	if path != "" {
+		dto.Path = filepath.Base(path)
 	}
 	for index, issue := range report.Issues {
 		dto.Issues[index] = ImportIssueDTO{Line: issue.Line, Message: issue.Message}
@@ -321,6 +325,10 @@ func (s *Service) EditableBlock(blockNumber int) (EditableBlockDTO, error) {
 	}
 	if kind == workbench.BlockManufacturer {
 		dto.Warning = "Manufacturer block: editable here, always skipped when writing the card"
+		dto.BCC = bccBlockDTO(block)
+	}
+	if kind == workbench.BlockData && block.Complete() {
+		dto.Value = valueBlockDTO(block.Data)
 	}
 	if kind == workbench.BlockTrailer {
 		dto.Warning = "Sector trailer: this view contains full keys; writing needs extra confirmation"
@@ -706,6 +714,22 @@ func (s *Service) PreflightWrite(input WritePreflightRequestDTO) (WritePreflight
 			return WritePreflightDTO{Mode: mode, SkippedBlock0: true, Error: "only ordinary data blocks can be written from the block editor"}, nil
 		}
 		blocks = []int{block}
+	case "trailer":
+		if input.WriteUID {
+			return WritePreflightDTO{}, nfc.NewError("restore preflight", nfc.CodeInvalidArgument, "UID can be written only together with a full dump restore", nil)
+		}
+		if len(input.Blocks) != 1 {
+			return WritePreflightDTO{Mode: mode, SkippedBlock0: true, Error: "one sector trailer must be selected"}, nil
+		}
+		block := input.Blocks[0]
+		if block < 0 || block >= len(snapshot.Result.Dump.Blocks) {
+			return WritePreflightDTO{Mode: mode, SkippedBlock0: true, Error: fmt.Sprintf("block %d is outside the loaded dump", block)}, nil
+		}
+		kind := workbench.KindForBlock(snapshot.Result.Dump.Layout, block)
+		if kind != workbench.BlockTrailer {
+			return WritePreflightDTO{Mode: mode, SkippedBlock0: true, Error: "only a sector trailer can be written from the trailer editor"}, nil
+		}
+		blocks = []int{block}
 	case "changes":
 		if input.WriteUID {
 			return WritePreflightDTO{}, nfc.NewError("restore preflight", nfc.CodeInvalidArgument, "UID can be written only together with a full dump restore", nil)
@@ -859,6 +883,15 @@ func (s *Service) StartWrite(input WriteStartRequestDTO) (TaskDTO, error) {
 	if len(record.trailers) != 0 && !input.ConfirmTrailers {
 		return TaskDTO{}, ErrTrailerConfirm
 	}
+	if record.mode == "trailer" {
+		want := ""
+		if len(record.request.Blocks) == 1 {
+			want = strconv.Itoa(record.request.Blocks[0])
+		}
+		if want == "" || strings.TrimSpace(input.Confirmation) != want {
+			return TaskDTO{}, errors.New("trailer writes require the trailer block number as typed confirmation")
+		}
+	}
 	if record.uidRequest != nil {
 		confirmation, err := parseFourByteUID(input.ConfirmUID)
 		if err != nil || !bytes.Equal(confirmation, record.uidRequest.NewUID) {
@@ -926,8 +959,15 @@ func annotateBackup(err error, path string) error {
 }
 
 func (s *Service) savePreWriteBackup(ctx context.Context, card nfc.CardInfo, keys []workflow.SectorKeys, path, taskID, kind string) error {
+	_, err := s.readAndSavePreWriteBackup(ctx, card, keys, path, taskID, kind)
+	return err
+}
+
+// readAndSavePreWriteBackup returns the image it persisted so factory format
+// can derive its target image from the exact bytes written to the backup.
+func (s *Service) readAndSavePreWriteBackup(ctx context.Context, card nfc.CardInfo, keys []workflow.SectorKeys, path, taskID, kind string) (workflow.DumpResult, error) {
 	if s.dumpService == nil || s.deviceManager == nil {
-		return nfc.NewError("pre-write backup", nfc.CodeNotOpen, "the reader is unavailable; the card was not modified", nil)
+		return workflow.DumpResult{}, nfc.NewError("pre-write backup", nfc.CodeNotOpen, "the reader is unavailable; the card was not modified", nil)
 	}
 	card = card.Clone()
 	s.emitOperation(TaskEventDetailDTO{
@@ -938,29 +978,29 @@ func (s *Service) savePreWriteBackup(ctx context.Context, card nfc.CardInfo, key
 		Card: card, Device: s.deviceManager.Snapshot().Device, Keys: keys,
 	})
 	if err != nil {
-		return nfc.NewError("pre-write backup", nfc.CodeIO, fmt.Sprintf("could not read the current card for the pre-write backup at %s; the card was not modified", path), err)
+		return result, nfc.NewError("pre-write backup", nfc.CodeIO, fmt.Sprintf("could not read the current card for the pre-write backup at %s; the card was not modified", path), err)
 	}
 	if !nfc.SameCard(card, result.Card) {
-		return nfc.NewError("pre-write backup", nfc.CodeCardChanged, "the selected card changed while reading the pre-write backup; the card was not modified", nil)
+		return result, nfc.NewError("pre-write backup", nfc.CodeCardChanged, "the selected card changed while reading the pre-write backup; the card was not modified", nil)
 	}
 	if !result.Complete() {
-		return nfc.NewError("pre-write backup", nfc.CodeInvalidArgument, fmt.Sprintf("the pre-write backup at %s is incomplete; the card was not modified", path), mifare.ErrIncompleteDump)
+		return result, nfc.NewError("pre-write backup", nfc.CodeInvalidArgument, fmt.Sprintf("the pre-write backup at %s is incomplete; the card was not modified", path), mifare.ErrIncompleteDump)
 	}
 	directory := filepath.Dir(path)
 	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return nfc.NewError("pre-write backup", nfc.CodeIO, fmt.Sprintf("could not create the pre-write backup directory for %s; the card was not modified", path), err)
+		return result, nfc.NewError("pre-write backup", nfc.CodeIO, fmt.Sprintf("could not create the pre-write backup directory for %s; the card was not modified", path), err)
 	}
 	if err := os.Chmod(directory, 0o700); err != nil {
-		return nfc.NewError("pre-write backup", nfc.CodeIO, fmt.Sprintf("could not secure the pre-write backup directory for %s; the card was not modified", path), err)
+		return result, nfc.NewError("pre-write backup", nfc.CodeIO, fmt.Sprintf("could not secure the pre-write backup directory for %s; the card was not modified", path), err)
 	}
 	if err := workflow.SaveDumpProject(path, result); err != nil {
-		return nfc.NewError("pre-write backup", nfc.CodeIO, fmt.Sprintf("could not save the pre-write backup to %s; the card was not modified", path), err)
+		return result, nfc.NewError("pre-write backup", nfc.CodeIO, fmt.Sprintf("could not save the pre-write backup to %s; the card was not modified", path), err)
 	}
 	s.emitOperation(TaskEventDetailDTO{
 		TaskID: taskID, Kind: kind, Type: TaskEventProgress, Progress: 1,
 		BackupPath: path, Message: "pre-write backup saved to " + path,
 	})
-	return nil
+	return result, nil
 }
 
 func (s *Service) registerRestoredKeys(request workflow.RestoreRequest, result workflow.RestoreResult) {

@@ -132,20 +132,47 @@ type ParseReport struct {
 	Issues     []ImportIssue
 }
 
-func ParseDictionary(reader io.Reader) (ParseReport, error) {
+// DictionaryLine is the editor-facing result for one line of a key file.
+type DictionaryLine struct {
+	Number    int
+	Text      string
+	Key       *nfc.Key
+	Problem   string
+	Duplicate bool
+	Comment   bool
+	Ignored   bool
+}
+
+// DictionaryAnalysis keeps both the per-line editor view and the import
+// report so the GUI and the importer use one parser.
+type DictionaryAnalysis struct {
+	Lines  []DictionaryLine
+	Report ParseReport
+}
+
+// AnalyzeDictionary returns one result per line. It follows the same rules as
+// ParseDictionary: '#' starts a comment, whitespace inside a key is ignored,
+// and each key is exactly 12 hexadecimal digits.
+func AnalyzeDictionary(reader io.Reader) (DictionaryAnalysis, error) {
 	if reader == nil {
-		return ParseReport{}, errors.New("dictionary reader is required")
+		return DictionaryAnalysis{}, errors.New("dictionary reader is required")
 	}
-	var report ParseReport
+	var analysis DictionaryAnalysis
 	seen := make(map[nfc.Key]struct{})
 	scanner := bufio.NewScanner(reader)
 	for lineNumber := 1; scanner.Scan(); lineNumber++ {
-		line := strings.TrimSpace(scanner.Text())
-		if comment := strings.IndexByte(line, '#'); comment >= 0 {
-			line = strings.TrimSpace(line[:comment])
+		original := scanner.Text()
+		line := strings.TrimSpace(original)
+		entry := DictionaryLine{Number: lineNumber, Text: original}
+		comment := strings.HasPrefix(line, "#")
+		if hash := strings.IndexByte(line, '#'); hash >= 0 {
+			line = strings.TrimSpace(line[:hash])
 		}
 		if line == "" {
-			report.Ignored++
+			entry.Ignored = true
+			entry.Comment = comment
+			analysis.Report.Ignored++
+			analysis.Lines = append(analysis.Lines, entry)
 			continue
 		}
 		compact := strings.Map(func(value rune) rune {
@@ -155,27 +182,38 @@ func ParseDictionary(reader io.Reader) (ParseReport, error) {
 			return value
 		}, line)
 		if len(compact) != nfc.KeySize*2 {
-			report.Issues = append(report.Issues, ImportIssue{Line: lineNumber, Message: "key must be 12 hexadecimal digits"})
-			continue
+			entry.Problem = "key must be 12 hexadecimal digits"
+		} else if decoded, err := hex.DecodeString(compact); err != nil {
+			entry.Problem = "key contains a non-hexadecimal character"
+		} else {
+			key, _ := nfc.KeyFromBytes(decoded)
+			if _, duplicate := seen[key]; duplicate {
+				entry.Duplicate = true
+				analysis.Report.Duplicates++
+			} else {
+				seen[key] = struct{}{}
+				entry.Key = &key
+				analysis.Report.Keys = append(analysis.Report.Keys, key)
+				analysis.Report.Valid++
+			}
 		}
-		decoded, err := hex.DecodeString(compact)
-		if err != nil {
-			report.Issues = append(report.Issues, ImportIssue{Line: lineNumber, Message: "key contains a non-hexadecimal character"})
-			continue
+		if entry.Problem != "" {
+			analysis.Report.Issues = append(analysis.Report.Issues, ImportIssue{Line: lineNumber, Message: entry.Problem})
 		}
-		key, _ := nfc.KeyFromBytes(decoded)
-		if _, duplicate := seen[key]; duplicate {
-			report.Duplicates++
-			continue
-		}
-		seen[key] = struct{}{}
-		report.Keys = append(report.Keys, key)
-		report.Valid++
+		analysis.Lines = append(analysis.Lines, entry)
 	}
 	if err := scanner.Err(); err != nil {
+		return DictionaryAnalysis{}, err
+	}
+	return analysis, nil
+}
+
+func ParseDictionary(reader io.Reader) (ParseReport, error) {
+	analysis, err := AnalyzeDictionary(reader)
+	if err != nil {
 		return ParseReport{}, err
 	}
-	return report, nil
+	return analysis.Report, nil
 }
 
 func ParseKey(value string) (nfc.Key, error) {

@@ -122,7 +122,73 @@ func (c AccessCondition) FullTrailerWriteKeys() KeyMask {
 	}
 }
 
-// AccessGroupForBlock maps a block to C1x/C2x/C3x group zero through three.
+// DataReadKeys reports which keys may read a data block under this access
+// condition.
+func (c AccessCondition) DataReadKeys() KeyMask {
+	switch c.Code() {
+	case 3, 5:
+		return KeyMaskB
+	case 7:
+		return KeyMaskNone
+	default:
+		return KeyMaskAny
+	}
+}
+
+// DataIncrementKeys reports which keys may increment a value block.
+func (c AccessCondition) DataIncrementKeys() KeyMask {
+	switch c.Code() {
+	case 0:
+		return KeyMaskAny
+	case 6:
+		return KeyMaskB
+	default:
+		return KeyMaskNone
+	}
+}
+
+// DataDecrementKeys reports which keys may decrement or restore a value block.
+func (c AccessCondition) DataDecrementKeys() KeyMask {
+	switch c.Code() {
+	case 0, 1:
+		return KeyMaskAny
+	case 6:
+		return KeyMaskB
+	default:
+		return KeyMaskNone
+	}
+}
+
+// TrailerPermissions is the decoded trailer access for one block group.
+type TrailerPermissions struct {
+	ReadKeys     KeyMask
+	WriteKeyA    KeyMask
+	WriteAccess  KeyMask
+	WriteKeyB    KeyMask
+	KeyBReadable bool
+}
+
+// TrailerAccess decodes the trailer-specific permissions of this group. Key A
+// is never returned as data by a genuine MIFARE Classic card.
+func (c AccessCondition) TrailerAccess() TrailerPermissions {
+	permissions := TrailerPermissions{ReadKeys: KeyMaskAny, KeyBReadable: c.KeyBReadable()}
+	switch c.Code() {
+	case 0:
+		permissions.WriteKeyA, permissions.WriteAccess, permissions.WriteKeyB = KeyMaskA, KeyMaskNone, KeyMaskA
+	case 1:
+		permissions.WriteKeyA, permissions.WriteAccess, permissions.WriteKeyB = KeyMaskA, KeyMaskA, KeyMaskA
+	case 2, 6, 7:
+		permissions.WriteKeyA, permissions.WriteAccess, permissions.WriteKeyB = KeyMaskNone, KeyMaskNone, KeyMaskNone
+	case 3:
+		permissions.WriteKeyA, permissions.WriteAccess, permissions.WriteKeyB = KeyMaskB, KeyMaskB, KeyMaskB
+	case 4:
+		permissions.WriteKeyA, permissions.WriteAccess, permissions.WriteKeyB = KeyMaskB, KeyMaskNone, KeyMaskB
+	case 5:
+		permissions.WriteKeyA, permissions.WriteAccess, permissions.WriteKeyB = KeyMaskNone, KeyMaskB, KeyMaskNone
+	}
+	return permissions
+}
+
 func (l Layout) AccessGroupForBlock(block int) (int, error) {
 	sector, err := l.SectorForBlock(block)
 	if err != nil {

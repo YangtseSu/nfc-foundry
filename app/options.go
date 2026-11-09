@@ -103,6 +103,8 @@ func NewServiceWithOptions(options Options) *Service {
 	keyVerify := workflow.NewKeyVerifyService(manager)
 	dumpService := workflow.NewDumpService(manager)
 	keyRecovery := workflow.NewKeyRecoveryService(keyScanner, keyStore, mfcukPipeline, mfocAttack, hardnestedAttack, dumpService)
+	uidService := workflow.NewUIDService(manager, workflow.FileUIDBackupStore{Root: uidBackupRoot})
+	cloneService := workflow.NewCloneService(manager, dumpService, uidService)
 
 	service := &Service{
 		emitter:           emitter,
@@ -117,8 +119,9 @@ func NewServiceWithOptions(options Options) *Service {
 		keyRecovery:       keyRecovery,
 		dumpService:       dumpService,
 		restoreService:    workflow.NewRestoreService(manager),
+		cloneService:      cloneService,
 		classicIO:         workflow.NewClassicIO(manager),
-		uidService:        workflow.NewUIDService(manager, workflow.FileUIDBackupStore{Root: uidBackupRoot}),
+		uidService:        uidService,
 		type2Service:      workflow.NewType2Service(manager, workflow.FileType2BackupStore{Root: type2BackupRoot}),
 		classicNDEF:       workflow.NewClassicNDEFService(manager, dumpService, workflow.FileClassicNDEFBackupStore{Root: classicBackupRoot}),
 		apduService:       workflow.NewAPDUService(manager),
@@ -133,6 +136,8 @@ func NewServiceWithOptions(options Options) *Service {
 		operations:        make(map[string]*operationTask),
 		preflights:        make(map[string]writePreflightRecord),
 		uidPreflights:     make(map[string]uidPreflightRecord),
+		clonePreflights:   make(map[string]clonePreflightRecord),
+		factoryPreflights: make(map[string]factoryPreflightRecord),
 		dialogs:           noFileDialogs{},
 	}
 	sink.onCardChanged = service.handleCardChanged

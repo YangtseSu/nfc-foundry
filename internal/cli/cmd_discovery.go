@@ -224,9 +224,17 @@ func (r *Runner) printDump(result dumpResult) {
 	}
 	completeness := "complete"
 	if !result.Complete {
-		completeness = "incomplete"
+		completeness = "partial"
 	}
-	r.out.humanf("layout %s, %d blocks, %s, %d/%d key slots verified\n", result.Layout, result.Blocks, completeness, result.VerifiedKeySlots, result.KeySlots)
+	readable := result.Blocks
+	if result.TotalBlocks != 0 {
+		readable = result.ReadableBlocks
+	}
+	r.out.humanf("layout %s, %d/%d blocks readable (%s), %d/%d key slots verified\n",
+		result.Layout, readable, result.Blocks, completeness, result.VerifiedKeySlots, result.KeySlots)
+	if len(result.SkippedSectors) != 0 {
+		r.out.humanf("skipped sectors: %s\n", formatSkippedSectors(result.SkippedSectors))
+	}
 	if result.KeyScan != nil {
 		r.printKeyscan(*result.KeyScan)
 	}

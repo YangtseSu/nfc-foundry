@@ -46,6 +46,11 @@ type dumpResult struct {
 	Layout           string         `json:"layout"`
 	Complete         bool           `json:"complete"`
 	Blocks           int            `json:"blocks"`
+	ReadableBlocks   int            `json:"readableBlocks"`
+	TotalBlocks      int            `json:"totalBlocks"`
+	ReadableSectors  int            `json:"readableSectors"`
+	TotalSectors     int            `json:"totalSectors"`
+	SkippedSectors   []int          `json:"skippedSectors,omitempty"`
 	VerifiedKeySlots int            `json:"verifiedKeySlots"`
 	KeySlots         int            `json:"keySlots"`
 	KeyScan          *keyscanResult `json:"keyScan,omitempty"`

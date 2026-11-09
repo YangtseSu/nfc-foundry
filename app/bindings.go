@@ -175,6 +175,62 @@ func (b *Bindings) StartKeyScan(discardDirty bool) (TaskDTO, error) {
 	return b.service.StartKeyScan(discardDirty)
 }
 
+func (b *Bindings) PreviewValueBlock(request ValueBlockPreviewRequestDTO) (ValueBlockPreviewDTO, error) {
+	return b.service.PreviewValueBlock(request)
+}
+
+func (b *Bindings) PreviewTrailer(request TrailerPreviewRequestDTO) (TrailerPreviewDTO, error) {
+	return b.service.PreviewTrailer(request)
+}
+
+func (b *Bindings) OpenComparisonDump() (DumpDiffDTO, error) {
+	return b.service.OpenComparisonDump()
+}
+
+func (b *Bindings) LoadComparisonDumpFile(path string) (DumpDiffDTO, error) {
+	return b.service.LoadComparisonDumpFile(path)
+}
+
+func (b *Bindings) ComparisonDiff() (DumpDiffDTO, error) {
+	return b.service.ComparisonDiff()
+}
+
+func (b *Bindings) ComparisonPath() string { return b.service.ComparisonPath() }
+
+func (b *Bindings) ClearComparisonDump() { b.service.ClearComparisonDump() }
+
+func (b *Bindings) PreflightClone() (ClonePreflightDTO, error) {
+	return b.service.PreflightClone()
+}
+
+func (b *Bindings) StartClone(request CloneStartRequestDTO) (TaskDTO, error) {
+	return b.service.StartClone(request)
+}
+
+func (b *Bindings) PreflightFactoryFormat(keepData bool) (FactoryPreflightDTO, error) {
+	return b.service.PreflightFactoryFormat(keepData)
+}
+
+func (b *Bindings) StartFactoryFormat(request FactoryStartRequestDTO) (TaskDTO, error) {
+	return b.service.StartFactoryFormat(request)
+}
+
+func (b *Bindings) PreviewKeyFile(content string) KeyFilePreviewDTO {
+	return b.service.PreviewKeyFile(content)
+}
+
+func (b *Bindings) OpenKeyFileEditor() (KeyFileContentDTO, error) {
+	return b.service.OpenKeyFileEditor()
+}
+
+func (b *Bindings) SaveKeyFileEditor(content string) (ExportResultDTO, error) {
+	return b.service.SaveKeyFileEditor(content)
+}
+
+func (b *Bindings) ImportKeyTextWithSet(content, setName string) (ImportReportDTO, error) {
+	return b.service.ImportKeyTextWithSet(content, setName)
+}
+
 // Recovery engine availability for the GUI recovery panel.
 func (b *Bindings) MFoCStatus() ExternalEngineStatusDTO { return b.service.MFoCStatus() }
 

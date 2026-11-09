@@ -36,6 +36,27 @@ func (r *Runner) cmdClassic(ctx context.Context, args []string) error {
 	case "keyscan":
 		r.command = "classic.keyscan"
 		return r.classicKeyscan(ctx, args[1:])
+	case "diff":
+		r.command = "classic.diff"
+		return r.classicDiff(ctx, args[1:])
+	case "value":
+		if len(args) > 1 && args[1] == "set" {
+			r.command = "classic.value.set"
+			return r.classicValue(ctx, args[1:])
+		}
+		return usagef("usage: nfctl classic value set <file> --block N --value V")
+	case "trailer":
+		if len(args) > 1 && args[1] == "set" {
+			r.command = "classic.trailer.set"
+			return r.classicTrailer(ctx, args[1:])
+		}
+		return usagef("usage: nfctl classic trailer set <file> --block N ...")
+	case "clone":
+		r.command = "classic.clone"
+		return r.classicClone(ctx, args[1:])
+	case "format":
+		r.command = "classic.format"
+		return r.classicFormat(ctx, args[1:])
 	default:
 		return usagef("unknown classic command %q", args[0])
 	}
@@ -250,6 +271,9 @@ func (r *Runner) buildDumpResult(path string, saved app.SaveResultDTO, keyScan *
 	dashboard := r.service.Dashboard()
 	result := dumpResult{
 		Path: path, Format: saved.Format, Layout: workbench.Layout, Complete: workbench.Complete, Blocks: len(workbench.Blocks),
+		ReadableBlocks: workbench.ReadableBlocks, TotalBlocks: workbench.TotalBlocks,
+		ReadableSectors: workbench.ReadableSectors, TotalSectors: workbench.TotalSectors,
+		SkippedSectors:   append([]int(nil), workbench.SkippedSectors...),
 		VerifiedKeySlots: countVerifiedSlots(dashboard.Keys), KeySlots: len(dashboard.Keys) * 2, KeyScan: keyScan,
 	}
 	if saved.Format == string(app.DumpFormatSidecar) {
@@ -460,7 +484,8 @@ func dumpWarnings(result dumpResult) []string {
 	}
 	warnings := make([]string, 0, 2)
 	if !result.Complete {
-		warnings = append(warnings, "the dump is incomplete; run classic keyscan or recover to fill unknown blocks")
+		warnings = append(warnings, fmt.Sprintf("the dump is partial: %d of %d blocks readable, %d sectors skipped; run classic keyscan or recover to fill unknown blocks",
+			result.ReadableBlocks, result.TotalBlocks, len(result.SkippedSectors)))
 	}
 	if result.VerifiedKeySlots < result.KeySlots {
 		warnings = append(warnings, fmt.Sprintf("%d of %d key slots are verified; some sectors may be unreadable", result.VerifiedKeySlots, result.KeySlots))

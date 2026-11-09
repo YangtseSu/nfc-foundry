@@ -140,6 +140,14 @@ Commands:
   classic export FILE --format F    Read the card into an explicit dump format
   classic restore FILE [--scan]     Restore a complete dump (requires --yes)
   classic keyscan                   Verify known keys on the card
+  classic diff BEFORE AFTER         Compare two dumps without a reader
+  classic value set FILE --block N --value V
+                                     Encode and write a value block (requires --yes)
+  classic trailer set FILE --block N [--key-a H] [--key-b H]
+      [--access G0,G1,G2,G3] [--gpb H] --confirm N
+                                     Edit a sector trailer (requires --yes)
+  classic clone FILE --confirm UID  Clone a complete image (requires --yes)
+  classic format --confirm FORMAT   Reset trailers to factory state (requires --yes)
   type2 info                        Detect the Type 2 product
   type2 read [--page N] [--all]     Read Type 2 pages
   type2 write --page N --data H     Write one user page (requires --yes)

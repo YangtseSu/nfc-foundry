@@ -19,6 +19,34 @@ func TestParseDictionaryNormalizesSpacesCaseAndDuplicates(t *testing.T) {
 	}
 }
 
+func TestAnalyzeDictionaryReportsEachLine(t *testing.T) {
+	analysis, err := AnalyzeDictionary(strings.NewReader("# comment\nffffffffffff\nFF FF FF FF FF FF\nnope\n\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(analysis.Lines) != 5 {
+		t.Fatalf("lines = %d", len(analysis.Lines))
+	}
+	if !analysis.Lines[0].Comment || !analysis.Lines[0].Ignored {
+		t.Fatalf("comment line = %+v", analysis.Lines[0])
+	}
+	if analysis.Lines[1].Key == nil || analysis.Lines[1].Problem != "" {
+		t.Fatalf("valid line = %+v", analysis.Lines[1])
+	}
+	if !analysis.Lines[2].Duplicate || analysis.Lines[2].Key != nil {
+		t.Fatalf("duplicate line = %+v", analysis.Lines[2])
+	}
+	if analysis.Lines[3].Problem != "key must be 12 hexadecimal digits" {
+		t.Fatalf("invalid line = %+v", analysis.Lines[3])
+	}
+	if !analysis.Lines[4].Ignored || analysis.Report.Ignored != 2 {
+		t.Fatalf("blank line/ignored = %+v/%d", analysis.Lines[4], analysis.Report.Ignored)
+	}
+	if analysis.Report.Valid != 1 || analysis.Report.Duplicates != 1 || len(analysis.Report.Issues) != 1 {
+		t.Fatalf("report = %+v", analysis.Report)
+	}
+}
+
 func TestMergeVerifiedDoesNotOverwriteConflict(t *testing.T) {
 	store := NewStore()
 	cardID := "01020304/0400/08"

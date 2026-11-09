@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/YangtseSu/nfc-foundry/internal/mifare"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -75,6 +76,7 @@ func (s *shell) workspace(c *ui.Context, p palette) {
 		if subtitle := s.cardSubtitle(); subtitle != "" {
 			ui.Text(c, subtitle).FontSize(11).TextColor(p.muted).Wrap()
 		}
+		s.partialReadBanner(c, p)
 
 		s.tabs(c, p)
 
@@ -86,6 +88,8 @@ func (s *shell) workspace(c *ui.Context, p palette) {
 				s.keysView(c, p)
 			case tabRecovery:
 				s.recoveryView(c, p)
+			case tabDiff:
+				s.diffView(c, p)
 			case tabAPDU:
 				s.apduView(c, p)
 			case tabDESFire:
@@ -148,6 +152,8 @@ func (s *shell) tabLabel(id tabID) string {
 		return s.locales().TabNDEF()
 	case tabProtection:
 		return s.locales().TabProtection()
+	case tabDiff:
+		return s.locales().TabDiff()
 	case tabRecovery:
 		return s.locales().TabRecovery()
 	case tabAPDU:
@@ -327,9 +333,13 @@ func (s *shell) blockTable(c *ui.Context, p palette) {
 func (s *shell) sectorHeaderCell(c *ui.Context, p palette, sector int) {
 	l := s.locales()
 	blockCount := 0
+	readable := 0
 	for _, block := range s.workbench.Blocks {
 		if block.Sector == sector {
 			blockCount++
+			if block.KnownMask == fmt.Sprintf("%04X", mifare.AllBytesKnown) {
+				readable++
+			}
 		}
 	}
 	verified := 0
@@ -345,6 +355,8 @@ func (s *shell) sectorHeaderCell(c *ui.Context, p palette, sector int) {
 		Background(p.header).Children(func() {
 		ui.Text(c, l.SectorHeader(sector)).FontSize(10).Bold().TextColor(p.muted)
 		ui.Text(c, l.SectorSummary(blockCount, verified)).FontSize(9).TextColor(p.faint)
+		ui.Text(c, l.ClassicSectorCoverage(readable, blockCount)).FontSize(9).
+			TextColor(s.coverageColor(p, readable, blockCount))
 	})
 }
 
@@ -488,6 +500,10 @@ func (s *shell) keyCatalogPanel(c *ui.Context, p palette) {
 			if ui.Button(c, l.CommonExport()).Height(26).FontSize(10).
 				Disabled(s.pendingOps > 0).Clicked() {
 				s.exportKeys()
+			}
+			if ui.Button(c, l.KeysEditorAction()).Height(26).FontSize(10).
+				Disabled(s.pendingOps > 0).Clicked() {
+				s.openKeyFileEditor()
 			}
 		})
 		ui.Row(c).Padding(0, 14, 10).Gap(6).AlignItems(ui.Center).Children(func() {
@@ -654,6 +670,9 @@ func (s *shell) detailsView(c *ui.Context, p palette) {
 				s.factRow(c, p, l.DetailsSourceUID(), s.workbench.SourceUID, true)
 			}
 			s.factRow(c, p, l.DetailsComplete(), s.completenessLabelValue(), false)
+			s.factRow(c, p, l.DetailsReadable(), l.DetailsReadableValue(
+				s.workbench.ReadableBlocks, s.workbench.TotalBlocks,
+				s.workbench.ReadableSectors, s.workbench.TotalSectors), false)
 			s.factRow(c, p, l.DetailsValidation(), s.validationLabel(), false)
 			var messages []string
 			if len(s.workbench.Validation.Errors) > 0 {

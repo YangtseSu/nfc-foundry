@@ -3336,6 +3336,16 @@ func (msgs Messages) CommonCancel() string {
 	return Catalog.Format(msgs.locale, "commonCancel", nil)
 }
 
+// CommonClose says "Close"
+// in the language the app shows.
+func CommonClose() string { return In(i18n.Locale()).CommonClose() }
+
+// CommonClose says "Close"
+// in the language of msgs.
+func (msgs Messages) CommonClose() string {
+	return Catalog.Format(msgs.locale, "commonClose", nil)
+}
+
 // Type2WritePage says "Write page"
 // in the language the app shows.
 func Type2WritePage() string { return In(i18n.Locale()).Type2WritePage() }
@@ -6192,6 +6202,26 @@ func (msgs Messages) ActivityKindUIDWrite() string {
 	return Catalog.Format(msgs.locale, "activityKindUIDWrite", nil)
 }
 
+// ActivityKindClone says "Clone"
+// in the language the app shows.
+func ActivityKindClone() string { return In(i18n.Locale()).ActivityKindClone() }
+
+// ActivityKindClone says "Clone"
+// in the language of msgs.
+func (msgs Messages) ActivityKindClone() string {
+	return Catalog.Format(msgs.locale, "activityKindClone", nil)
+}
+
+// ActivityKindFactory says "Factory format"
+// in the language the app shows.
+func ActivityKindFactory() string { return In(i18n.Locale()).ActivityKindFactory() }
+
+// ActivityKindFactory says "Factory format"
+// in the language of msgs.
+func (msgs Messages) ActivityKindFactory() string {
+	return Catalog.Format(msgs.locale, "activityKindFactory", nil)
+}
+
 // ClassicNDEFPanel says "Classic NDEF"
 // in the language the app shows.
 func ClassicNDEFPanel() string { return In(i18n.Locale()).ClassicNDEFPanel() }
@@ -6972,4 +7002,1126 @@ func KeySetListCount(count int) string { return In(i18n.Locale()).KeySetListCoun
 // in the language of msgs.
 func (msgs Messages) KeySetListCount(count int) string {
 	return Catalog.Format(msgs.locale, "keySetListCount", map[string]any{"count": count})
+}
+
+// TabDiff says "Diff"
+// in the language the app shows.
+func TabDiff() string { return In(i18n.Locale()).TabDiff() }
+
+// TabDiff says "Diff"
+// in the language of msgs.
+func (msgs Messages) TabDiff() string {
+	return Catalog.Format(msgs.locale, "tabDiff", nil)
+}
+
+// DiffTitle says "Dump comparison"
+// in the language the app shows.
+func DiffTitle() string { return In(i18n.Locale()).DiffTitle() }
+
+// DiffTitle says "Dump comparison"
+// in the language of msgs.
+func (msgs Messages) DiffTitle() string {
+	return Catalog.Format(msgs.locale, "diffTitle", nil)
+}
+
+// DiffLoad says "Compare dump…"
+// in the language the app shows.
+func DiffLoad() string { return In(i18n.Locale()).DiffLoad() }
+
+// DiffLoad says "Compare dump…"
+// in the language of msgs.
+func (msgs Messages) DiffLoad() string {
+	return Catalog.Format(msgs.locale, "diffLoad", nil)
+}
+
+// DiffRefresh says "Refresh"
+// in the language the app shows.
+func DiffRefresh() string { return In(i18n.Locale()).DiffRefresh() }
+
+// DiffRefresh says "Refresh"
+// in the language of msgs.
+func (msgs Messages) DiffRefresh() string {
+	return Catalog.Format(msgs.locale, "diffRefresh", nil)
+}
+
+// DiffClear says "Clear"
+// in the language the app shows.
+func DiffClear() string { return In(i18n.Locale()).DiffClear() }
+
+// DiffClear says "Clear"
+// in the language of msgs.
+func (msgs Messages) DiffClear() string {
+	return Catalog.Format(msgs.locale, "diffClear", nil)
+}
+
+// DiffNoComparison says "Load a second dump to compare it with the workbench."
+// in the language the app shows.
+func DiffNoComparison() string { return In(i18n.Locale()).DiffNoComparison() }
+
+// DiffNoComparison says "Load a second dump to compare it with the workbench."
+// in the language of msgs.
+func (msgs Messages) DiffNoComparison() string {
+	return Catalog.Format(msgs.locale, "diffNoComparison", nil)
+}
+
+// DiffChanged says "{count} changed"
+// in the language the app shows.
+func DiffChanged(count int) string { return In(i18n.Locale()).DiffChanged(count) }
+
+// DiffChanged says "{count} changed"
+// in the language of msgs.
+func (msgs Messages) DiffChanged(count int) string {
+	return Catalog.Format(msgs.locale, "diffChanged", map[string]any{"count": count})
+}
+
+// DiffEqual says "{count} equal"
+// in the language the app shows.
+func DiffEqual(count int) string { return In(i18n.Locale()).DiffEqual(count) }
+
+// DiffEqual says "{count} equal"
+// in the language of msgs.
+func (msgs Messages) DiffEqual(count int) string {
+	return Catalog.Format(msgs.locale, "diffEqual", map[string]any{"count": count})
+}
+
+// DiffUnknown says "{count} unknown"
+// in the language the app shows.
+func DiffUnknown(count int) string { return In(i18n.Locale()).DiffUnknown(count) }
+
+// DiffUnknown says "{count} unknown"
+// in the language of msgs.
+func (msgs Messages) DiffUnknown(count int) string {
+	return Catalog.Format(msgs.locale, "diffUnknown", map[string]any{"count": count})
+}
+
+// DiffTrailerChanges says "{count, plural, one {# trailer change} other {# trailer changes}}"
+// in the language the app shows.
+func DiffTrailerChanges(count int) string { return In(i18n.Locale()).DiffTrailerChanges(count) }
+
+// DiffTrailerChanges says "{count, plural, one {# trailer change} other {# trailer changes}}"
+// in the language of msgs.
+func (msgs Messages) DiffTrailerChanges(count int) string {
+	return Catalog.Format(msgs.locale, "diffTrailerChanges", map[string]any{"count": count})
+}
+
+// DiffIdentityChanged says "Card identity differs: before UID {before}, after UID {after}."
+// in the language the app shows.
+func DiffIdentityChanged(before string, after string) string {
+	return In(i18n.Locale()).DiffIdentityChanged(before, after)
+}
+
+// DiffIdentityChanged says "Card identity differs: before UID {before}, after UID {after}."
+// in the language of msgs.
+func (msgs Messages) DiffIdentityChanged(before string, after string) string {
+	return Catalog.Format(msgs.locale, "diffIdentityChanged", map[string]any{"before": before, "after": after})
+}
+
+// DiffChangedOnly says "Changed only"
+// in the language the app shows.
+func DiffChangedOnly() string { return In(i18n.Locale()).DiffChangedOnly() }
+
+// DiffChangedOnly says "Changed only"
+// in the language of msgs.
+func (msgs Messages) DiffChangedOnly() string {
+	return Catalog.Format(msgs.locale, "diffChangedOnly", nil)
+}
+
+// DiffUnknownOnly says "Unknown only"
+// in the language the app shows.
+func DiffUnknownOnly() string { return In(i18n.Locale()).DiffUnknownOnly() }
+
+// DiffUnknownOnly says "Unknown only"
+// in the language of msgs.
+func (msgs Messages) DiffUnknownOnly() string {
+	return Catalog.Format(msgs.locale, "diffUnknownOnly", nil)
+}
+
+// DiffTrailersOnly says "Trailers only"
+// in the language the app shows.
+func DiffTrailersOnly() string { return In(i18n.Locale()).DiffTrailersOnly() }
+
+// DiffTrailersOnly says "Trailers only"
+// in the language of msgs.
+func (msgs Messages) DiffTrailersOnly() string {
+	return Catalog.Format(msgs.locale, "diffTrailersOnly", nil)
+}
+
+// DiffReadOnly says "The diff engine is read-only and never writes a card."
+// in the language the app shows.
+func DiffReadOnly() string { return In(i18n.Locale()).DiffReadOnly() }
+
+// DiffReadOnly says "The diff engine is read-only and never writes a card."
+// in the language of msgs.
+func (msgs Messages) DiffReadOnly() string {
+	return Catalog.Format(msgs.locale, "diffReadOnly", nil)
+}
+
+// DiffEmpty says "No blocks match the current filters."
+// in the language the app shows.
+func DiffEmpty() string { return In(i18n.Locale()).DiffEmpty() }
+
+// DiffEmpty says "No blocks match the current filters."
+// in the language of msgs.
+func (msgs Messages) DiffEmpty() string {
+	return Catalog.Format(msgs.locale, "diffEmpty", nil)
+}
+
+// DiffState says "State"
+// in the language the app shows.
+func DiffState() string { return In(i18n.Locale()).DiffState() }
+
+// DiffState says "State"
+// in the language of msgs.
+func (msgs Messages) DiffState() string {
+	return Catalog.Format(msgs.locale, "diffState", nil)
+}
+
+// DiffBefore says "Before"
+// in the language the app shows.
+func DiffBefore() string { return In(i18n.Locale()).DiffBefore() }
+
+// DiffBefore says "Before"
+// in the language of msgs.
+func (msgs Messages) DiffBefore() string {
+	return Catalog.Format(msgs.locale, "diffBefore", nil)
+}
+
+// DiffAfter says "After"
+// in the language the app shows.
+func DiffAfter() string { return In(i18n.Locale()).DiffAfter() }
+
+// DiffAfter says "After"
+// in the language of msgs.
+func (msgs Messages) DiffAfter() string {
+	return Catalog.Format(msgs.locale, "diffAfter", nil)
+}
+
+// DiffStateChanged says "changed"
+// in the language the app shows.
+func DiffStateChanged() string { return In(i18n.Locale()).DiffStateChanged() }
+
+// DiffStateChanged says "changed"
+// in the language of msgs.
+func (msgs Messages) DiffStateChanged() string {
+	return Catalog.Format(msgs.locale, "diffStateChanged", nil)
+}
+
+// DiffStateUnknown says "unknown"
+// in the language the app shows.
+func DiffStateUnknown() string { return In(i18n.Locale()).DiffStateUnknown() }
+
+// DiffStateUnknown says "unknown"
+// in the language of msgs.
+func (msgs Messages) DiffStateUnknown() string {
+	return Catalog.Format(msgs.locale, "diffStateUnknown", nil)
+}
+
+// DiffStateEqual says "equal"
+// in the language the app shows.
+func DiffStateEqual() string { return In(i18n.Locale()).DiffStateEqual() }
+
+// DiffStateEqual says "equal"
+// in the language of msgs.
+func (msgs Messages) DiffStateEqual() string {
+	return Catalog.Format(msgs.locale, "diffStateEqual", nil)
+}
+
+// DiffLoadFailed says "Could not compare the dumps: {message}"
+// in the language the app shows.
+func DiffLoadFailed(message string) string { return In(i18n.Locale()).DiffLoadFailed(message) }
+
+// DiffLoadFailed says "Could not compare the dumps: {message}"
+// in the language of msgs.
+func (msgs Messages) DiffLoadFailed(message string) string {
+	return Catalog.Format(msgs.locale, "diffLoadFailed", map[string]any{"message": message})
+}
+
+// DetailsReadable says "Readable"
+// in the language the app shows.
+func DetailsReadable() string { return In(i18n.Locale()).DetailsReadable() }
+
+// DetailsReadable says "Readable"
+// in the language of msgs.
+func (msgs Messages) DetailsReadable() string {
+	return Catalog.Format(msgs.locale, "detailsReadable", nil)
+}
+
+// DetailsReadableValue says "{blocks} / {totalBlocks} blocks · {sectors} / {totalSectors} sectors"
+// in the language the app shows.
+func DetailsReadableValue(blocks int, totalBlocks int, sectors int, totalSectors int) string {
+	return In(i18n.Locale()).DetailsReadableValue(blocks, totalBlocks, sectors, totalSectors)
+}
+
+// DetailsReadableValue says "{blocks} / {totalBlocks} blocks · {sectors} / {totalSectors} sectors"
+// in the language of msgs.
+func (msgs Messages) DetailsReadableValue(blocks int, totalBlocks int, sectors int, totalSectors int) string {
+	return Catalog.Format(msgs.locale, "detailsReadableValue", map[string]any{"blocks": blocks, "totalBlocks": totalBlocks, "sectors": sectors, "totalSectors": totalSectors})
+}
+
+// ClassicValueTitle says "Value block"
+// in the language the app shows.
+func ClassicValueTitle() string { return In(i18n.Locale()).ClassicValueTitle() }
+
+// ClassicValueTitle says "Value block"
+// in the language of msgs.
+func (msgs Messages) ClassicValueTitle() string {
+	return Catalog.Format(msgs.locale, "classicValueTitle", nil)
+}
+
+// ClassicValuePlaceholder says "100 or 0x64"
+// in the language the app shows.
+func ClassicValuePlaceholder() string { return In(i18n.Locale()).ClassicValuePlaceholder() }
+
+// ClassicValuePlaceholder says "100 or 0x64"
+// in the language of msgs.
+func (msgs Messages) ClassicValuePlaceholder() string {
+	return Catalog.Format(msgs.locale, "classicValuePlaceholder", nil)
+}
+
+// ClassicValueLabel says "Value"
+// in the language the app shows.
+func ClassicValueLabel() string { return In(i18n.Locale()).ClassicValueLabel() }
+
+// ClassicValueLabel says "Value"
+// in the language of msgs.
+func (msgs Messages) ClassicValueLabel() string {
+	return Catalog.Format(msgs.locale, "classicValueLabel", nil)
+}
+
+// ClassicAddressPlaceholder says "Block number"
+// in the language the app shows.
+func ClassicAddressPlaceholder() string { return In(i18n.Locale()).ClassicAddressPlaceholder() }
+
+// ClassicAddressPlaceholder says "Block number"
+// in the language of msgs.
+func (msgs Messages) ClassicAddressPlaceholder() string {
+	return Catalog.Format(msgs.locale, "classicAddressPlaceholder", nil)
+}
+
+// ClassicAddressLabel says "Address"
+// in the language the app shows.
+func ClassicAddressLabel() string { return In(i18n.Locale()).ClassicAddressLabel() }
+
+// ClassicAddressLabel says "Address"
+// in the language of msgs.
+func (msgs Messages) ClassicAddressLabel() string {
+	return Catalog.Format(msgs.locale, "classicAddressLabel", nil)
+}
+
+// ClassicValuePreview says "Preview value"
+// in the language the app shows.
+func ClassicValuePreview() string { return In(i18n.Locale()).ClassicValuePreview() }
+
+// ClassicValuePreview says "Preview value"
+// in the language of msgs.
+func (msgs Messages) ClassicValuePreview() string {
+	return Catalog.Format(msgs.locale, "classicValuePreview", nil)
+}
+
+// ClassicValueDecoded says "Value {value} · address {address}"
+// in the language the app shows.
+func ClassicValueDecoded(value string, address string) string {
+	return In(i18n.Locale()).ClassicValueDecoded(value, address)
+}
+
+// ClassicValueDecoded says "Value {value} · address {address}"
+// in the language of msgs.
+func (msgs Messages) ClassicValueDecoded(value string, address string) string {
+	return Catalog.Format(msgs.locale, "classicValueDecoded", map[string]any{"value": value, "address": address})
+}
+
+// ClassicValuePreviewHex says "Value block bytes: {hex}"
+// in the language the app shows.
+func ClassicValuePreviewHex(hex string) string { return In(i18n.Locale()).ClassicValuePreviewHex(hex) }
+
+// ClassicValuePreviewHex says "Value block bytes: {hex}"
+// in the language of msgs.
+func (msgs Messages) ClassicValuePreviewHex(hex string) string {
+	return Catalog.Format(msgs.locale, "classicValuePreviewHex", map[string]any{"hex": hex})
+}
+
+// ClassicValueInvalid says "Value block preview failed: {message}"
+// in the language the app shows.
+func ClassicValueInvalid(message string) string {
+	return In(i18n.Locale()).ClassicValueInvalid(message)
+}
+
+// ClassicValueInvalid says "Value block preview failed: {message}"
+// in the language of msgs.
+func (msgs Messages) ClassicValueInvalid(message string) string {
+	return Catalog.Format(msgs.locale, "classicValueInvalid", map[string]any{"message": message})
+}
+
+// ClassicTrailerKeyAPlaceholder says "12 hexadecimal digits"
+// in the language the app shows.
+func ClassicTrailerKeyAPlaceholder() string { return In(i18n.Locale()).ClassicTrailerKeyAPlaceholder() }
+
+// ClassicTrailerKeyAPlaceholder says "12 hexadecimal digits"
+// in the language of msgs.
+func (msgs Messages) ClassicTrailerKeyAPlaceholder() string {
+	return Catalog.Format(msgs.locale, "classicTrailerKeyAPlaceholder", nil)
+}
+
+// ClassicTrailerKeyA says "Key A"
+// in the language the app shows.
+func ClassicTrailerKeyA() string { return In(i18n.Locale()).ClassicTrailerKeyA() }
+
+// ClassicTrailerKeyA says "Key A"
+// in the language of msgs.
+func (msgs Messages) ClassicTrailerKeyA() string {
+	return Catalog.Format(msgs.locale, "classicTrailerKeyA", nil)
+}
+
+// ClassicTrailerKeyBPlaceholder says "12 hexadecimal digits"
+// in the language the app shows.
+func ClassicTrailerKeyBPlaceholder() string { return In(i18n.Locale()).ClassicTrailerKeyBPlaceholder() }
+
+// ClassicTrailerKeyBPlaceholder says "12 hexadecimal digits"
+// in the language of msgs.
+func (msgs Messages) ClassicTrailerKeyBPlaceholder() string {
+	return Catalog.Format(msgs.locale, "classicTrailerKeyBPlaceholder", nil)
+}
+
+// ClassicTrailerKeyB says "Key B"
+// in the language the app shows.
+func ClassicTrailerKeyB() string { return In(i18n.Locale()).ClassicTrailerKeyB() }
+
+// ClassicTrailerKeyB says "Key B"
+// in the language of msgs.
+func (msgs Messages) ClassicTrailerKeyB() string {
+	return Catalog.Format(msgs.locale, "classicTrailerKeyB", nil)
+}
+
+// ClassicTrailerGPBPlaceholder says "69"
+// in the language the app shows.
+func ClassicTrailerGPBPlaceholder() string { return In(i18n.Locale()).ClassicTrailerGPBPlaceholder() }
+
+// ClassicTrailerGPBPlaceholder says "69"
+// in the language of msgs.
+func (msgs Messages) ClassicTrailerGPBPlaceholder() string {
+	return Catalog.Format(msgs.locale, "classicTrailerGPBPlaceholder", nil)
+}
+
+// ClassicTrailerGPB says "GPB"
+// in the language the app shows.
+func ClassicTrailerGPB() string { return In(i18n.Locale()).ClassicTrailerGPB() }
+
+// ClassicTrailerGPB says "GPB"
+// in the language of msgs.
+func (msgs Messages) ClassicTrailerGPB() string {
+	return Catalog.Format(msgs.locale, "classicTrailerGPB", nil)
+}
+
+// ClassicAccessSummary says "read {read} · write {write} · inc {increment} · dec {decrement}"
+// in the language the app shows.
+func ClassicAccessSummary(read string, write string, increment string, decrement string) string {
+	return In(i18n.Locale()).ClassicAccessSummary(read, write, increment, decrement)
+}
+
+// ClassicAccessSummary says "read {read} · write {write} · inc {increment} · dec {decrement}"
+// in the language of msgs.
+func (msgs Messages) ClassicAccessSummary(read string, write string, increment string, decrement string) string {
+	return Catalog.Format(msgs.locale, "classicAccessSummary", map[string]any{"read": read, "write": write, "increment": increment, "decrement": decrement})
+}
+
+// ClassicTrailerPermissions says "Key A write {keyA} · access {access} · Key B write {keyB} · Key B read {readable}"
+// in the language the app shows.
+func ClassicTrailerPermissions(keyA string, access string, keyB string, readable string) string {
+	return In(i18n.Locale()).ClassicTrailerPermissions(keyA, access, keyB, readable)
+}
+
+// ClassicTrailerPermissions says "Key A write {keyA} · access {access} · Key B write {keyB} · Key B read {readable}"
+// in the language of msgs.
+func (msgs Messages) ClassicTrailerPermissions(keyA string, access string, keyB string, readable string) string {
+	return Catalog.Format(msgs.locale, "classicTrailerPermissions", map[string]any{"keyA": keyA, "access": access, "keyB": keyB, "readable": readable})
+}
+
+// ClassicTrailerPreview says "Preview trailer"
+// in the language the app shows.
+func ClassicTrailerPreview() string { return In(i18n.Locale()).ClassicTrailerPreview() }
+
+// ClassicTrailerPreview says "Preview trailer"
+// in the language of msgs.
+func (msgs Messages) ClassicTrailerPreview() string {
+	return Catalog.Format(msgs.locale, "classicTrailerPreview", nil)
+}
+
+// ClassicTrailerPreviewHex says "Trailer bytes: {hex}"
+// in the language the app shows.
+func ClassicTrailerPreviewHex(hex string) string {
+	return In(i18n.Locale()).ClassicTrailerPreviewHex(hex)
+}
+
+// ClassicTrailerPreviewHex says "Trailer bytes: {hex}"
+// in the language of msgs.
+func (msgs Messages) ClassicTrailerPreviewHex(hex string) string {
+	return Catalog.Format(msgs.locale, "classicTrailerPreviewHex", map[string]any{"hex": hex})
+}
+
+// ClassicTrailerInvalid says "Trailer preview failed: {message}"
+// in the language the app shows.
+func ClassicTrailerInvalid(message string) string {
+	return In(i18n.Locale()).ClassicTrailerInvalid(message)
+}
+
+// ClassicTrailerInvalid says "Trailer preview failed: {message}"
+// in the language of msgs.
+func (msgs Messages) ClassicTrailerInvalid(message string) string {
+	return Catalog.Format(msgs.locale, "classicTrailerInvalid", map[string]any{"message": message})
+}
+
+// ClassicTrailerConfirmTitle says "Write sector trailer {block}"
+// in the language the app shows.
+func ClassicTrailerConfirmTitle(block int) string {
+	return In(i18n.Locale()).ClassicTrailerConfirmTitle(block)
+}
+
+// ClassicTrailerConfirmTitle says "Write sector trailer {block}"
+// in the language of msgs.
+func (msgs Messages) ClassicTrailerConfirmTitle(block int) string {
+	return Catalog.Format(msgs.locale, "classicTrailerConfirmTitle", map[string]any{"block": block})
+}
+
+// ClassicTrailerConfirmNew says "New trailer: {hex}"
+// in the language the app shows.
+func ClassicTrailerConfirmNew(hex string) string {
+	return In(i18n.Locale()).ClassicTrailerConfirmNew(hex)
+}
+
+// ClassicTrailerConfirmNew says "New trailer: {hex}"
+// in the language of msgs.
+func (msgs Messages) ClassicTrailerConfirmNew(hex string) string {
+	return Catalog.Format(msgs.locale, "classicTrailerConfirmNew", map[string]any{"hex": hex})
+}
+
+// ClassicTrailerConfirmHint says "Type the trailer block number {block} to confirm."
+// in the language the app shows.
+func ClassicTrailerConfirmHint(block int) string {
+	return In(i18n.Locale()).ClassicTrailerConfirmHint(block)
+}
+
+// ClassicTrailerConfirmHint says "Type the trailer block number {block} to confirm."
+// in the language of msgs.
+func (msgs Messages) ClassicTrailerConfirmHint(block int) string {
+	return Catalog.Format(msgs.locale, "classicTrailerConfirmHint", map[string]any{"block": block})
+}
+
+// ClassicTrailerWrite says "Write trailer"
+// in the language the app shows.
+func ClassicTrailerWrite() string { return In(i18n.Locale()).ClassicTrailerWrite() }
+
+// ClassicTrailerWrite says "Write trailer"
+// in the language of msgs.
+func (msgs Messages) ClassicTrailerWrite() string {
+	return Catalog.Format(msgs.locale, "classicTrailerWrite", nil)
+}
+
+// ClassicBCC says "BCC"
+// in the language the app shows.
+func ClassicBCC() string { return In(i18n.Locale()).ClassicBCC() }
+
+// ClassicBCC says "BCC"
+// in the language of msgs.
+func (msgs Messages) ClassicBCC() string {
+	return Catalog.Format(msgs.locale, "classicBCC", nil)
+}
+
+// ClassicBCCValid says "valid"
+// in the language the app shows.
+func ClassicBCCValid() string { return In(i18n.Locale()).ClassicBCCValid() }
+
+// ClassicBCCValid says "valid"
+// in the language of msgs.
+func (msgs Messages) ClassicBCCValid() string {
+	return Catalog.Format(msgs.locale, "classicBCCValid", nil)
+}
+
+// ClassicBCCInvalid says "invalid"
+// in the language the app shows.
+func ClassicBCCInvalid() string { return In(i18n.Locale()).ClassicBCCInvalid() }
+
+// ClassicBCCInvalid says "invalid"
+// in the language of msgs.
+func (msgs Messages) ClassicBCCInvalid() string {
+	return Catalog.Format(msgs.locale, "classicBCCInvalid", nil)
+}
+
+// ClassicBCCResult says "BCC expected {expected}, stored {actual} ({status})"
+// in the language the app shows.
+func ClassicBCCResult(expected string, actual string, status string) string {
+	return In(i18n.Locale()).ClassicBCCResult(expected, actual, status)
+}
+
+// ClassicBCCResult says "BCC expected {expected}, stored {actual} ({status})"
+// in the language of msgs.
+func (msgs Messages) ClassicBCCResult(expected string, actual string, status string) string {
+	return Catalog.Format(msgs.locale, "classicBCCResult", map[string]any{"expected": expected, "actual": actual, "status": status})
+}
+
+// ClassicReadableSummary says "{readable} of {total} blocks readable · {skipped} sectors skipped"
+// in the language the app shows.
+func ClassicReadableSummary(readable int, total int, skipped int) string {
+	return In(i18n.Locale()).ClassicReadableSummary(readable, total, skipped)
+}
+
+// ClassicReadableSummary says "{readable} of {total} blocks readable · {skipped} sectors skipped"
+// in the language of msgs.
+func (msgs Messages) ClassicReadableSummary(readable int, total int, skipped int) string {
+	return Catalog.Format(msgs.locale, "classicReadableSummary", map[string]any{"readable": readable, "total": total, "skipped": skipped})
+}
+
+// ClassicSkippedSectors says "Skipped sectors: {sectors}"
+// in the language the app shows.
+func ClassicSkippedSectors(sectors string) string {
+	return In(i18n.Locale()).ClassicSkippedSectors(sectors)
+}
+
+// ClassicSkippedSectors says "Skipped sectors: {sectors}"
+// in the language of msgs.
+func (msgs Messages) ClassicSkippedSectors(sectors string) string {
+	return Catalog.Format(msgs.locale, "classicSkippedSectors", map[string]any{"sectors": sectors})
+}
+
+// ClassicSectorCoverage says "{readable}/{total} blocks readable"
+// in the language the app shows.
+func ClassicSectorCoverage(readable int, total int) string {
+	return In(i18n.Locale()).ClassicSectorCoverage(readable, total)
+}
+
+// ClassicSectorCoverage says "{readable}/{total} blocks readable"
+// in the language of msgs.
+func (msgs Messages) ClassicSectorCoverage(readable int, total int) string {
+	return Catalog.Format(msgs.locale, "classicSectorCoverage", map[string]any{"readable": readable, "total": total})
+}
+
+// FactoryTrailerBytes says "Trailer bytes: {hex}"
+// in the language the app shows.
+func FactoryTrailerBytes(hex string) string { return In(i18n.Locale()).FactoryTrailerBytes(hex) }
+
+// FactoryTrailerBytes says "Trailer bytes: {hex}"
+// in the language of msgs.
+func (msgs Messages) FactoryTrailerBytes(hex string) string {
+	return Catalog.Format(msgs.locale, "factoryTrailerBytes", map[string]any{"hex": hex})
+}
+
+// ClassicReadAgain says "Scan keys and read again"
+// in the language the app shows.
+func ClassicReadAgain() string { return In(i18n.Locale()).ClassicReadAgain() }
+
+// ClassicReadAgain says "Scan keys and read again"
+// in the language of msgs.
+func (msgs Messages) ClassicReadAgain() string {
+	return Catalog.Format(msgs.locale, "classicReadAgain", nil)
+}
+
+// ClassicReadAgainTitle says "Read the card again"
+// in the language the app shows.
+func ClassicReadAgainTitle() string { return In(i18n.Locale()).ClassicReadAgainTitle() }
+
+// ClassicReadAgainTitle says "Read the card again"
+// in the language of msgs.
+func (msgs Messages) ClassicReadAgainTitle() string {
+	return Catalog.Format(msgs.locale, "classicReadAgainTitle", nil)
+}
+
+// ClassicReadAgainMessage says "Scanning keys and reading the card replaces the current workbench, including unsaved edits."
+// in the language the app shows.
+func ClassicReadAgainMessage() string { return In(i18n.Locale()).ClassicReadAgainMessage() }
+
+// ClassicReadAgainMessage says "Scanning keys and reading the card replaces the current workbench, including unsaved edits."
+// in the language of msgs.
+func (msgs Messages) ClassicReadAgainMessage() string {
+	return Catalog.Format(msgs.locale, "classicReadAgainMessage", nil)
+}
+
+// ClassicReadAgainConfirm says "Scan and read"
+// in the language the app shows.
+func ClassicReadAgainConfirm() string { return In(i18n.Locale()).ClassicReadAgainConfirm() }
+
+// ClassicReadAgainConfirm says "Scan and read"
+// in the language of msgs.
+func (msgs Messages) ClassicReadAgainConfirm() string {
+	return Catalog.Format(msgs.locale, "classicReadAgainConfirm", nil)
+}
+
+// CloneAction says "Clone card…"
+// in the language the app shows.
+func CloneAction() string { return In(i18n.Locale()).CloneAction() }
+
+// CloneAction says "Clone card…"
+// in the language of msgs.
+func (msgs Messages) CloneAction() string {
+	return Catalog.Format(msgs.locale, "cloneAction", nil)
+}
+
+// CloneTitle says "Clone card"
+// in the language the app shows.
+func CloneTitle() string { return In(i18n.Locale()).CloneTitle() }
+
+// CloneTitle says "Clone card"
+// in the language of msgs.
+func (msgs Messages) CloneTitle() string {
+	return Catalog.Format(msgs.locale, "cloneTitle", nil)
+}
+
+// CloneSource says "Source image UID: {uid}"
+// in the language the app shows.
+func CloneSource(uid string) string { return In(i18n.Locale()).CloneSource(uid) }
+
+// CloneSource says "Source image UID: {uid}"
+// in the language of msgs.
+func (msgs Messages) CloneSource(uid string) string {
+	return Catalog.Format(msgs.locale, "cloneSource", map[string]any{"uid": uid})
+}
+
+// CloneTarget says "Target card UID: {uid}"
+// in the language the app shows.
+func CloneTarget(uid string) string { return In(i18n.Locale()).CloneTarget(uid) }
+
+// CloneTarget says "Target card UID: {uid}"
+// in the language of msgs.
+func (msgs Messages) CloneTarget(uid string) string {
+	return Catalog.Format(msgs.locale, "cloneTarget", map[string]any{"uid": uid})
+}
+
+// CloneBlock0Write says "Block 0 will be written through the supported magic-card path."
+// in the language the app shows.
+func CloneBlock0Write() string { return In(i18n.Locale()).CloneBlock0Write() }
+
+// CloneBlock0Write says "Block 0 will be written through the supported magic-card path."
+// in the language of msgs.
+func (msgs Messages) CloneBlock0Write() string {
+	return Catalog.Format(msgs.locale, "cloneBlock0Write", nil)
+}
+
+// CloneBlock0Match says "Block 0 already matches the source image and will not be written."
+// in the language the app shows.
+func CloneBlock0Match() string { return In(i18n.Locale()).CloneBlock0Match() }
+
+// CloneBlock0Match says "Block 0 already matches the source image and will not be written."
+// in the language of msgs.
+func (msgs Messages) CloneBlock0Match() string {
+	return Catalog.Format(msgs.locale, "cloneBlock0Match", nil)
+}
+
+// ClonePlan says "{blocks} blocks · {trailers} trailers"
+// in the language the app shows.
+func ClonePlan(blocks int, trailers int) string { return In(i18n.Locale()).ClonePlan(blocks, trailers) }
+
+// ClonePlan says "{blocks} blocks · {trailers} trailers"
+// in the language of msgs.
+func (msgs Messages) ClonePlan(blocks int, trailers int) string {
+	return Catalog.Format(msgs.locale, "clonePlan", map[string]any{"blocks": blocks, "trailers": trailers})
+}
+
+// CloneWarning says "A genuine read-only block 0 fails and is never reported as a successful clone. Success requires a verified read-back …"
+// in the language the app shows.
+func CloneWarning() string { return In(i18n.Locale()).CloneWarning() }
+
+// CloneWarning says "A genuine read-only block 0 fails and is never reported as a successful clone. Success requires a verified read-back …"
+// in the language of msgs.
+func (msgs Messages) CloneWarning() string {
+	return Catalog.Format(msgs.locale, "cloneWarning", nil)
+}
+
+// CloneConfirmHint says "Type the source UID {uid} to confirm."
+// in the language the app shows.
+func CloneConfirmHint(uid string) string { return In(i18n.Locale()).CloneConfirmHint(uid) }
+
+// CloneConfirmHint says "Type the source UID {uid} to confirm."
+// in the language of msgs.
+func (msgs Messages) CloneConfirmHint(uid string) string {
+	return Catalog.Format(msgs.locale, "cloneConfirmHint", map[string]any{"uid": uid})
+}
+
+// CloneStarted says "Clone started; the target is verified after the read-back."
+// in the language the app shows.
+func CloneStarted() string { return In(i18n.Locale()).CloneStarted() }
+
+// CloneStarted says "Clone started; the target is verified after the read-back."
+// in the language of msgs.
+func (msgs Messages) CloneStarted() string {
+	return Catalog.Format(msgs.locale, "cloneStarted", nil)
+}
+
+// CloneComplete says "Clone completed and verified."
+// in the language the app shows.
+func CloneComplete() string { return In(i18n.Locale()).CloneComplete() }
+
+// CloneComplete says "Clone completed and verified."
+// in the language of msgs.
+func (msgs Messages) CloneComplete() string {
+	return Catalog.Format(msgs.locale, "cloneComplete", nil)
+}
+
+// CloneConfirmAction says "Clone"
+// in the language the app shows.
+func CloneConfirmAction() string { return In(i18n.Locale()).CloneConfirmAction() }
+
+// CloneConfirmAction says "Clone"
+// in the language of msgs.
+func (msgs Messages) CloneConfirmAction() string {
+	return Catalog.Format(msgs.locale, "cloneConfirmAction", nil)
+}
+
+// ClonePreflightFailed says "Clone preflight failed: {message}"
+// in the language the app shows.
+func ClonePreflightFailed(message string) string {
+	return In(i18n.Locale()).ClonePreflightFailed(message)
+}
+
+// ClonePreflightFailed says "Clone preflight failed: {message}"
+// in the language of msgs.
+func (msgs Messages) ClonePreflightFailed(message string) string {
+	return Catalog.Format(msgs.locale, "clonePreflightFailed", map[string]any{"message": message})
+}
+
+// CloneStartFailed says "Could not start the clone: {message}"
+// in the language the app shows.
+func CloneStartFailed(message string) string { return In(i18n.Locale()).CloneStartFailed(message) }
+
+// CloneStartFailed says "Could not start the clone: {message}"
+// in the language of msgs.
+func (msgs Messages) CloneStartFailed(message string) string {
+	return Catalog.Format(msgs.locale, "cloneStartFailed", map[string]any{"message": message})
+}
+
+// FactoryAction says "Factory format"
+// in the language the app shows.
+func FactoryAction() string { return In(i18n.Locale()).FactoryAction() }
+
+// FactoryAction says "Factory format"
+// in the language of msgs.
+func (msgs Messages) FactoryAction() string {
+	return Catalog.Format(msgs.locale, "factoryAction", nil)
+}
+
+// FactoryTitle says "Factory format"
+// in the language the app shows.
+func FactoryTitle() string { return In(i18n.Locale()).FactoryTitle() }
+
+// FactoryTitle says "Factory format"
+// in the language of msgs.
+func (msgs Messages) FactoryTitle() string {
+	return Catalog.Format(msgs.locale, "factoryTitle", nil)
+}
+
+// FactoryHint says "Sets every sector trailer to Key A/B FFFFFFFFFFFF and access bytes FF 07 80. Block 0 is not written."
+// in the language the app shows.
+func FactoryHint() string { return In(i18n.Locale()).FactoryHint() }
+
+// FactoryHint says "Sets every sector trailer to Key A/B FFFFFFFFFFFF and access bytes FF 07 80. Block 0 is not written."
+// in the language of msgs.
+func (msgs Messages) FactoryHint() string {
+	return Catalog.Format(msgs.locale, "factoryHint", nil)
+}
+
+// FactoryKeepData says "Keep user data blocks"
+// in the language the app shows.
+func FactoryKeepData() string { return In(i18n.Locale()).FactoryKeepData() }
+
+// FactoryKeepData says "Keep user data blocks"
+// in the language of msgs.
+func (msgs Messages) FactoryKeepData() string {
+	return Catalog.Format(msgs.locale, "factoryKeepData", nil)
+}
+
+// FactoryPlan says "{blocks} blocks · {trailers} trailers"
+// in the language the app shows.
+func FactoryPlan(blocks int, trailers int) string {
+	return In(i18n.Locale()).FactoryPlan(blocks, trailers)
+}
+
+// FactoryPlan says "{blocks} blocks · {trailers} trailers"
+// in the language of msgs.
+func (msgs Messages) FactoryPlan(blocks int, trailers int) string {
+	return Catalog.Format(msgs.locale, "factoryPlan", map[string]any{"blocks": blocks, "trailers": trailers})
+}
+
+// FactoryBlocks says "Data blocks {data} · trailer blocks {trailers}"
+// in the language the app shows.
+func FactoryBlocks(data string, trailers string) string {
+	return In(i18n.Locale()).FactoryBlocks(data, trailers)
+}
+
+// FactoryBlocks says "Data blocks {data} · trailer blocks {trailers}"
+// in the language of msgs.
+func (msgs Messages) FactoryBlocks(data string, trailers string) string {
+	return Catalog.Format(msgs.locale, "factoryBlocks", map[string]any{"data": data, "trailers": trailers})
+}
+
+// FactoryConfirmHint says "Type FORMAT to confirm."
+// in the language the app shows.
+func FactoryConfirmHint() string { return In(i18n.Locale()).FactoryConfirmHint() }
+
+// FactoryConfirmHint says "Type FORMAT to confirm."
+// in the language of msgs.
+func (msgs Messages) FactoryConfirmHint() string {
+	return Catalog.Format(msgs.locale, "factoryConfirmHint", nil)
+}
+
+// FactoryUpdatePlan says "Update plan"
+// in the language the app shows.
+func FactoryUpdatePlan() string { return In(i18n.Locale()).FactoryUpdatePlan() }
+
+// FactoryUpdatePlan says "Update plan"
+// in the language of msgs.
+func (msgs Messages) FactoryUpdatePlan() string {
+	return Catalog.Format(msgs.locale, "factoryUpdatePlan", nil)
+}
+
+// FactoryConfirmAction says "Run format"
+// in the language the app shows.
+func FactoryConfirmAction() string { return In(i18n.Locale()).FactoryConfirmAction() }
+
+// FactoryConfirmAction says "Run format"
+// in the language of msgs.
+func (msgs Messages) FactoryConfirmAction() string {
+	return Catalog.Format(msgs.locale, "factoryConfirmAction", nil)
+}
+
+// FactoryStarted says "Factory format started."
+// in the language the app shows.
+func FactoryStarted() string { return In(i18n.Locale()).FactoryStarted() }
+
+// FactoryStarted says "Factory format started."
+// in the language of msgs.
+func (msgs Messages) FactoryStarted() string {
+	return Catalog.Format(msgs.locale, "factoryStarted", nil)
+}
+
+// FactoryComplete says "Factory format completed and verified."
+// in the language the app shows.
+func FactoryComplete() string { return In(i18n.Locale()).FactoryComplete() }
+
+// FactoryComplete says "Factory format completed and verified."
+// in the language of msgs.
+func (msgs Messages) FactoryComplete() string {
+	return Catalog.Format(msgs.locale, "factoryComplete", nil)
+}
+
+// FactoryPreflightFailed says "Factory format preflight failed: {message}"
+// in the language the app shows.
+func FactoryPreflightFailed(message string) string {
+	return In(i18n.Locale()).FactoryPreflightFailed(message)
+}
+
+// FactoryPreflightFailed says "Factory format preflight failed: {message}"
+// in the language of msgs.
+func (msgs Messages) FactoryPreflightFailed(message string) string {
+	return Catalog.Format(msgs.locale, "factoryPreflightFailed", map[string]any{"message": message})
+}
+
+// FactoryStartFailed says "Could not start the factory format: {message}"
+// in the language the app shows.
+func FactoryStartFailed(message string) string { return In(i18n.Locale()).FactoryStartFailed(message) }
+
+// FactoryStartFailed says "Could not start the factory format: {message}"
+// in the language of msgs.
+func (msgs Messages) FactoryStartFailed(message string) string {
+	return Catalog.Format(msgs.locale, "factoryStartFailed", map[string]any{"message": message})
+}
+
+// KeysEditorAction says "Edit key file…"
+// in the language the app shows.
+func KeysEditorAction() string { return In(i18n.Locale()).KeysEditorAction() }
+
+// KeysEditorAction says "Edit key file…"
+// in the language of msgs.
+func (msgs Messages) KeysEditorAction() string {
+	return Catalog.Format(msgs.locale, "keysEditorAction", nil)
+}
+
+// KeysEditorTitle says "Key file editor"
+// in the language the app shows.
+func KeysEditorTitle() string { return In(i18n.Locale()).KeysEditorTitle() }
+
+// KeysEditorTitle says "Key file editor"
+// in the language of msgs.
+func (msgs Messages) KeysEditorTitle() string {
+	return Catalog.Format(msgs.locale, "keysEditorTitle", nil)
+}
+
+// KeysEditorUnsaved says "Unsaved key file"
+// in the language the app shows.
+func KeysEditorUnsaved() string { return In(i18n.Locale()).KeysEditorUnsaved() }
+
+// KeysEditorUnsaved says "Unsaved key file"
+// in the language of msgs.
+func (msgs Messages) KeysEditorUnsaved() string {
+	return Catalog.Format(msgs.locale, "keysEditorUnsaved", nil)
+}
+
+// KeysEditorSummary says "{valid} valid · {duplicates} duplicates · {ignored} ignored"
+// in the language the app shows.
+func KeysEditorSummary(valid int, duplicates int, ignored int) string {
+	return In(i18n.Locale()).KeysEditorSummary(valid, duplicates, ignored)
+}
+
+// KeysEditorSummary says "{valid} valid · {duplicates} duplicates · {ignored} ignored"
+// in the language of msgs.
+func (msgs Messages) KeysEditorSummary(valid int, duplicates int, ignored int) string {
+	return Catalog.Format(msgs.locale, "keysEditorSummary", map[string]any{"valid": valid, "duplicates": duplicates, "ignored": ignored})
+}
+
+// KeysEditorOpen says "Open…"
+// in the language the app shows.
+func KeysEditorOpen() string { return In(i18n.Locale()).KeysEditorOpen() }
+
+// KeysEditorOpen says "Open…"
+// in the language of msgs.
+func (msgs Messages) KeysEditorOpen() string {
+	return Catalog.Format(msgs.locale, "keysEditorOpen", nil)
+}
+
+// KeysEditorSave says "Save as…"
+// in the language the app shows.
+func KeysEditorSave() string { return In(i18n.Locale()).KeysEditorSave() }
+
+// KeysEditorSave says "Save as…"
+// in the language of msgs.
+func (msgs Messages) KeysEditorSave() string {
+	return Catalog.Format(msgs.locale, "keysEditorSave", nil)
+}
+
+// KeysEditorAddLine says "Add line"
+// in the language the app shows.
+func KeysEditorAddLine() string { return In(i18n.Locale()).KeysEditorAddLine() }
+
+// KeysEditorAddLine says "Add line"
+// in the language of msgs.
+func (msgs Messages) KeysEditorAddLine() string {
+	return Catalog.Format(msgs.locale, "keysEditorAddLine", nil)
+}
+
+// KeysEditorEmpty says "Open a key file or type one key per line."
+// in the language the app shows.
+func KeysEditorEmpty() string { return In(i18n.Locale()).KeysEditorEmpty() }
+
+// KeysEditorEmpty says "Open a key file or type one key per line."
+// in the language of msgs.
+func (msgs Messages) KeysEditorEmpty() string {
+	return Catalog.Format(msgs.locale, "keysEditorEmpty", nil)
+}
+
+// KeysEditorLine says "Line"
+// in the language the app shows.
+func KeysEditorLine() string { return In(i18n.Locale()).KeysEditorLine() }
+
+// KeysEditorLine says "Line"
+// in the language of msgs.
+func (msgs Messages) KeysEditorLine() string {
+	return Catalog.Format(msgs.locale, "keysEditorLine", nil)
+}
+
+// KeysEditorKey says "Key"
+// in the language the app shows.
+func KeysEditorKey() string { return In(i18n.Locale()).KeysEditorKey() }
+
+// KeysEditorKey says "Key"
+// in the language of msgs.
+func (msgs Messages) KeysEditorKey() string {
+	return Catalog.Format(msgs.locale, "keysEditorKey", nil)
+}
+
+// KeysEditorState says "State"
+// in the language the app shows.
+func KeysEditorState() string { return In(i18n.Locale()).KeysEditorState() }
+
+// KeysEditorState says "State"
+// in the language of msgs.
+func (msgs Messages) KeysEditorState() string {
+	return Catalog.Format(msgs.locale, "keysEditorState", nil)
+}
+
+// KeysEditorDuplicate says "duplicate"
+// in the language the app shows.
+func KeysEditorDuplicate() string { return In(i18n.Locale()).KeysEditorDuplicate() }
+
+// KeysEditorDuplicate says "duplicate"
+// in the language of msgs.
+func (msgs Messages) KeysEditorDuplicate() string {
+	return Catalog.Format(msgs.locale, "keysEditorDuplicate", nil)
+}
+
+// KeysEditorComment says "comment"
+// in the language the app shows.
+func KeysEditorComment() string { return In(i18n.Locale()).KeysEditorComment() }
+
+// KeysEditorComment says "comment"
+// in the language of msgs.
+func (msgs Messages) KeysEditorComment() string {
+	return Catalog.Format(msgs.locale, "keysEditorComment", nil)
+}
+
+// KeysEditorValid says "valid"
+// in the language the app shows.
+func KeysEditorValid() string { return In(i18n.Locale()).KeysEditorValid() }
+
+// KeysEditorValid says "valid"
+// in the language of msgs.
+func (msgs Messages) KeysEditorValid() string {
+	return Catalog.Format(msgs.locale, "keysEditorValid", nil)
+}
+
+// KeysEditorIgnored says "blank"
+// in the language the app shows.
+func KeysEditorIgnored() string { return In(i18n.Locale()).KeysEditorIgnored() }
+
+// KeysEditorIgnored says "blank"
+// in the language of msgs.
+func (msgs Messages) KeysEditorIgnored() string {
+	return Catalog.Format(msgs.locale, "keysEditorIgnored", nil)
+}
+
+// KeysEditorSetName says "Key set"
+// in the language the app shows.
+func KeysEditorSetName() string { return In(i18n.Locale()).KeysEditorSetName() }
+
+// KeysEditorSetName says "Key set"
+// in the language of msgs.
+func (msgs Messages) KeysEditorSetName() string {
+	return Catalog.Format(msgs.locale, "keysEditorSetName", nil)
+}
+
+// KeysEditorApply says "Add to catalog"
+// in the language the app shows.
+func KeysEditorApply() string { return In(i18n.Locale()).KeysEditorApply() }
+
+// KeysEditorApply says "Add to catalog"
+// in the language of msgs.
+func (msgs Messages) KeysEditorApply() string {
+	return Catalog.Format(msgs.locale, "keysEditorApply", nil)
+}
+
+// KeysEditorFailed says "Key file operation failed: {message}"
+// in the language the app shows.
+func KeysEditorFailed(message string) string { return In(i18n.Locale()).KeysEditorFailed(message) }
+
+// KeysEditorFailed says "Key file operation failed: {message}"
+// in the language of msgs.
+func (msgs Messages) KeysEditorFailed(message string) string {
+	return Catalog.Format(msgs.locale, "keysEditorFailed", map[string]any{"message": message})
+}
+
+// KeysEditorInvalid says "The key file has {count} invalid lines; fix them before saving."
+// in the language the app shows.
+func KeysEditorInvalid(count int) string { return In(i18n.Locale()).KeysEditorInvalid(count) }
+
+// KeysEditorInvalid says "The key file has {count} invalid lines; fix them before saving."
+// in the language of msgs.
+func (msgs Messages) KeysEditorInvalid(count int) string {
+	return Catalog.Format(msgs.locale, "keysEditorInvalid", map[string]any{"count": count})
+}
+
+// KeysEditorSaved says "Saved {path} with {count} keys"
+// in the language the app shows.
+func KeysEditorSaved(path string, count int) string {
+	return In(i18n.Locale()).KeysEditorSaved(path, count)
+}
+
+// KeysEditorSaved says "Saved {path} with {count} keys"
+// in the language of msgs.
+func (msgs Messages) KeysEditorSaved(path string, count int) string {
+	return Catalog.Format(msgs.locale, "keysEditorSaved", map[string]any{"path": path, "count": count})
 }
