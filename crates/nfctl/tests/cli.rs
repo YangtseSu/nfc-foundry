@@ -296,3 +296,26 @@ fn key_file_import_is_visible_to_read_commands() {
     assert_success(&output);
     assert!(stdout(&output).contains("block 4:"));
 }
+
+#[test]
+fn nested_recovery_without_parity_fails_honestly() {
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "--key",
+        "A0A1A2A3A4A5",
+        "recover",
+        "nested",
+        "--known-block",
+        "4",
+        "--target-block",
+        "0",
+    ]);
+    assert!(!output.status.success());
+    let text = stderr(&output);
+    assert!(
+        text.contains("recovery parity") || text.contains("unsupported"),
+        "{text}"
+    );
+}

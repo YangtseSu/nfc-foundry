@@ -8,6 +8,7 @@ pub mod device;
 pub mod event;
 mod fsutil;
 pub mod operation;
+pub mod recovery;
 pub mod service;
 
 pub use classic::{

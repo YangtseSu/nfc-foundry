@@ -10,7 +10,7 @@ Status legend: `done`, `in progress`, `pending`, `optional`.
 | 03 | Classic core: geometry, BCC, access, value, dump, diff | done |
 | 04 | Classic read/write/dump/restore/keyscan CLI + GUI workspace | done |
 | 05 | ACR122U USB/CCID driver and raw bits/parity | done |
-| 06 | Native recovery: Crypto1, darkside, nested, staticnested | pending |
+| 06 | Native recovery: Crypto1, darkside, nested, staticnested | done |
 | 07 | Native hardnested and FM11RF08S/static encrypted | pending |
 | 08 | NDEF core: records, TLV, templates, validation | pending |
 | 09 | Type 2 / NTAG read/write/NDEF + GUI | pending |
@@ -170,6 +170,15 @@ Acceptance:
 - Differential tests against old C engines during development.
 - Cancellation and reader recovery work.
 - No write to card during recovery beyond authentication.
+
+Status: complete. Crypto1/LFSR/PRNG, `mfkey32`/`mfkey32nested`/`mfkey64`/
+`nonce2key`, parity-disabled nonce acquisition on both drivers, software Crypto1
+authentication, nested and static-nested recovery, darkside collection, card
+classification, the recovery engine, and `nfctl recover
+auto|darkside|nested|staticnested` are implemented. PM3 golden vectors pass.
+ACR122U and PN532 UART hardware recovery recovered and verified known test keys
+through nested, static-nested, and auto. Darkside reports no repeated-nonce
+sample on host-driven readers. See `docs/notes/06-recovery-foundation.md`.
 
 ### 07: Hardnested and FM11RF08S
 

@@ -14,6 +14,7 @@ clap.workspace = true
 nfc-app.workspace = true
 nfc-classic.workspace = true
 nfc-core.workspace = true
+nfc-recover.workspace = true
 nfc-drivers.workspace = true
 nfc-transport.workspace = true
 

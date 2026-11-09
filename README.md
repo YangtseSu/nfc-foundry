@@ -22,9 +22,15 @@ GPUI Kit Classic workspace call the same `nfc-app` methods. Every write checks
 access conditions, saves a backup, writes the block, reads it back, and
 rechecks card identity; restore requires confirmation, refuses to change
 manufacturer block 0, writes data blocks before sector trailers, and stops at
-the first failure by default. Recovery algorithms and NDEF codecs arrive in
-later phases; operations that are not ready return an explicit
-`NotImplemented` error.
+the first failure by default. Native recovery now covers Crypto1, the `mfkey`
+solvers, parity-based nonce acquisition, nested and static-nested recovery, and
+darkside collection, with `nfctl recover auto|darkside|nested|staticnested`.
+Both readers are validated for nested and static-nested recovery: the PN532
+UART and ACR122U complete software Crypto1 authentication and recover verified
+keys. Darkside requires reader-scheduled frames and reports no sample on these
+host-driven readers. Hardnested and static encrypted nonce recovery arrive in
+phase 07; operations that are not ready return an explicit `NotImplemented`
+error.
 
 ## Product scope
 
@@ -162,6 +168,20 @@ ACR122U selection is an exact bus/address connstring:
 cargo run -p nfctl -- list
 cargo run -p nfctl -- --device acr122_usb:001:017 scan
 ```
+
+Recovery is read-only and verifies every returned key:
+
+```sh
+cargo run -p nfctl -- \
+  --device acr122_usb:001:017 \
+  --key D3F7D3F7D3F7 \
+  recover nested --known-block 4 --target-block 0 --target-type A
+```
+
+`recover auto` classifies the card first, `recover staticnested` uses the
+static-nonce path, and `recover darkside` reports a no-sample failure when the
+card does not expose eight probes against one tag nonce. Use only cards you
+own.
 
 `pcscd` holds the same CCID interface, so stop it before using the direct USB
 path and restart it afterwards. The ACR122U was validated for firmware

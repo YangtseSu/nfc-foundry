@@ -4547,6 +4547,7 @@ version = "0.1.0"
 dependencies = [
  "nfc-classic",
  "nfc-core",
+ "nfc-drivers",
  "nfc-transport",
 ]
 
@@ -4582,6 +4583,7 @@ dependencies = [
  "nfc-classic",
  "nfc-core",
  "nfc-drivers",
+ "nfc-recover",
  "nfc-transport",
  "tempfile",
 ]

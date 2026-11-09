@@ -5,7 +5,24 @@ pub mod mock;
 
 pub use device::{DeviceInfo, ReaderCapabilities};
 
-use nfc_core::{BLOCK_SIZE, CardInfo, Key, KeyType, Result};
+use nfc_core::{BLOCK_SIZE, CardInfo, Key, KeyType, NfcError, Result};
+
+/// Recovery-specific transport facts. A driver only advertises parity
+/// exchange after the primitive works on hardware.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RecoveryCapabilities {
+    pub parity_exchange: bool,
+}
+
+/// One raw ISO/IEC 14443A frame exchanged with parity handled by the caller.
+/// `parity` has one bit per data byte in the least significant bit; `bits` is
+/// the number of data bits in `data` for a partial frame.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ParityFrame {
+    pub data: Vec<u8>,
+    pub bits: usize,
+    pub parity: Vec<u8>,
+}
 
 /// A reader opened through an exact connstring. One reader is owned by one
 /// operation at a time; `nfc-app` enforces that lease. `Transport::open`
@@ -22,6 +39,42 @@ pub trait Reader: Send {
     fn transceive_bytes(&mut self, tx: &[u8]) -> Result<Vec<u8>>;
     fn transceive_bits(&mut self, tx: &[u8], tx_bits: usize) -> Result<(Vec<u8>, usize)>;
     fn set_raw_mode(&mut self, enabled: bool) -> Result<()>;
+
+    /// Recovery parity exchange is opt-in; readers without it keep the default
+    /// error instead of pretending to support active attacks.
+    fn recovery_capabilities(&self) -> RecoveryCapabilities {
+        RecoveryCapabilities::default()
+    }
+
+    /// Enter or leave the parity-disabled framing mode used by Crypto1 partial
+    /// authentication. Ordinary and raw byte modes are unavailable while this
+    /// is enabled.
+    fn set_recovery_mode(&mut self, _enabled: bool) -> Result<()> {
+        Err(NfcError::Unsupported(
+            "this reader has no recovery parity mode",
+        ))
+    }
+
+    /// Send one complete byte frame with caller-supplied parity and return the
+    /// response data, received bit count, and response parity bits.
+    fn transceive_parity(&mut self, _data: &[u8], _parity: &[u8]) -> Result<ParityFrame> {
+        Err(NfcError::Unsupported(
+            "this reader has no recovery parity exchange",
+        ))
+    }
+
+    /// Parity exchange with a known response frame size. Drivers may skip the
+    /// trailing-bits reset and status read so the next authentication frame is
+    /// transmitted inside the card's response window.
+    fn transceive_parity_expect(
+        &mut self,
+        data: &[u8],
+        parity: &[u8],
+        expected_bits: usize,
+    ) -> Result<ParityFrame> {
+        let _ = expected_bits;
+        self.transceive_parity(data, parity)
+    }
 }
 
 /// A driver factory. Enumeration returns exact connstrings; opening a

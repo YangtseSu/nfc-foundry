@@ -12,3 +12,6 @@ nfc-transport.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+nfc-drivers.workspace = true

@@ -166,6 +166,48 @@ now covered by tests and documented in
 `docs/notes/04-classic-workflows.md`. Trailer writes and a 4K card run remain
 future hardware checks.
 
+
+Recovery hardware checks are read-only and require an owned card:
+
+```sh
+NFCX_HARDWARE=1 NFCX_DEVICE=acr122_usb:001:017 NFCX_HARDWARE_KEY=D3F7D3F7D3F7 cargo test -p nfc-recover --test hardware_recovery -- --ignored --nocapture
+```
+
+The suite checks parity-disabled partial authentication, software Crypto1
+authentication, nested nonce distance, nested recovery of a known target key,
+static-nested recovery, and darkside repeated-nonce collection. Place a
+MIFARE Classic 1K card on the reader. The current test fixture uses block 4 Key
+A `D3F7D3F7D3F7` and target block 0 Key A `A0A1A2A3A4A5`.
+
+Both transports complete full software authentication. The tests need the key
+that actually belongs to the card in the reader: the two test cards share UID
+`FA B9 CF F4` but use different sector keys. Set `NFCX_HARDWARE_KEY` and
+`NFCX_HARDWARE_TARGET_KEY` for the card under test. Darkside collection over
+either host-driven reader normally finds no eight-observation repeated-nonce
+group and must report that result; it does not fabricate a key.
+
+The phase 06 hardware record on 2026-11-10 used two MIFARE Classic 1K cards
+that share UID `FA B9 CF F4` but have different keys.
+
+ACR122U at `acr122_usb:001:017`:
+
+- parity probe `07 04 A6 75`, 32 bits, parity `0 0 1 0`;
+- software authentication `nt=F7159B6A`;
+- nested measured distance `160`, window `156..164`;
+- nested, static-nested, and auto recovered sector 0 Key A
+  `A0A1A2A3A4A5` from block 4 Key A `D3F7D3F7D3F7` and verified it;
+- darkside found no repeated-nonce sample in 200 tight-loop attempts.
+
+PN532 UART at `pn532_uart:/dev/ttyUSB0` with canonical keys
+`FFFFFFFFFFFF`:
+
+- parity probe returned a 32-bit nonce;
+- software authentication completed;
+- nested measured distance `128`, window `124..132`;
+- nested, static-nested, and auto recovered sector 5 Key A
+  `FBBECDF6304E` from block 4 Key A `FFFFFFFFFFFF` and verified it;
+- darkside found no repeated-nonce sample.
+
 ## Hardware failure triage
 
 A silent or malformed reader response is a driver bug until the reference path
@@ -228,7 +270,8 @@ cargo clippy -p nfc-drivers --features hardware --all-targets -- -D warnings
 - Classic dump and codec fixtures: access, value, BCC, trailer, geometry, diff,
   and malformed project/raw/MCT/Proxmark3 inputs.
 - NDEF message/TLV vectors, including malformed and chunked records.
-- Nonce/key fixtures from Proxmark3 tests and captured old-engine runs.
+- PM3 `mfkey32v2`, `mfkey32nested`, `mfkey64`, and `nonce2key` golden
+  vectors, plus captured hardware nonce/key samples from both readers.
 - Mock transport scripts for card selection, auth, read/write, timeout,
   disconnect, and card change.
 - Classic workflow scripts with per-sector key rules, denied sector keys,

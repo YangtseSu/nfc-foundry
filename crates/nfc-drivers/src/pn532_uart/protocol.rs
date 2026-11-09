@@ -6,17 +6,18 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use nfc_core::{BLOCK_SIZE, CardInfo, Key, KeyType, NfcError, Result};
+use nfc_transport::ParityFrame;
 
 use super::frame::{Frame, WAKEUP_PREAMBLE, build_frame, take_frame};
 use super::link::Pn532Link;
 use crate::pn53x::{
     AUTO_ATR_RES_AND_RATS, FirmwareVersion, GET_FIRMWARE_VERSION, IN_COMMUNICATE_THRU,
     IN_DATA_EXCHANGE, IN_LIST_PASSIVE_TARGET, INITIATOR, ISO14443A_106_KBPS, MAX_RAW_PAYLOAD,
-    MIFARE_AUTH_A, MIFARE_AUTH_B, MIFARE_READ, MIFARE_WRITE, READ_REGISTER, REG_CIU_BIT_FRAMING,
-    REG_CIU_CONTROL, REG_CIU_MANUAL_RCV, REG_CIU_RX_MODE, REG_CIU_STATUS2, REG_CIU_TX_MODE,
-    RF_CONFIGURATION, RF_FIELD, RF_RETRY_SELECT, RX_LAST_BITS, SAM_CONFIGURATION, SET_PARAMETERS,
-    TARGET_NUMBER, TX_RX_CRC_ENABLE, WRITE_REGISTER, parse_firmware, parse_passive_target,
-    parse_response, status_error,
+    MIFARE_AUTH_A, MIFARE_AUTH_B, MIFARE_READ, MIFARE_WRITE, PARITY_DISABLE, READ_REGISTER,
+    REG_CIU_BIT_FRAMING, REG_CIU_CONTROL, REG_CIU_MANUAL_RCV, REG_CIU_RX_MODE, REG_CIU_STATUS2,
+    REG_CIU_TX_MODE, RF_CONFIGURATION, RF_FIELD, RF_RETRY_SELECT, RX_LAST_BITS, SAM_CONFIGURATION,
+    SET_PARAMETERS, TARGET_NUMBER, TX_RX_CRC_ENABLE, WRITE_REGISTER, parse_firmware,
+    parse_passive_target, parse_response, status_error, unwrap_parity_frame, wrap_parity_frame,
 };
 
 #[cfg(test)]
@@ -55,6 +56,7 @@ pub(crate) struct Pn532Protocol {
     config: Pn532Config,
     rx: Vec<u8>,
     raw_mode: bool,
+    recovery_mode: bool,
     firmware: FirmwareVersion,
     tx_last_bits: u8,
     selected: Option<CardInfo>,
@@ -67,6 +69,7 @@ impl Pn532Protocol {
             config,
             rx: Vec::new(),
             raw_mode: false,
+            recovery_mode: false,
             firmware: FirmwareVersion::default(),
             tx_last_bits: 0,
             selected: None,
@@ -104,9 +107,86 @@ impl Pn532Protocol {
         Ok(())
     }
 
+    pub(crate) fn set_recovery_mode(&mut self, enabled: bool) -> Result<()> {
+        if self.recovery_mode == enabled {
+            return Ok(());
+        }
+        if enabled {
+            if self.raw_mode {
+                self.set_raw_mode(false)?;
+            }
+            self.set_tx_last_bits(0)?;
+            self.set_parameters(0x00)?;
+            self.write_register(REG_CIU_TX_MODE, 0x00)?;
+            self.write_register(REG_CIU_RX_MODE, 0x00)?;
+            self.write_register(REG_CIU_MANUAL_RCV, PARITY_DISABLE)?;
+            self.write_register(REG_CIU_STATUS2, 0x00)?;
+        } else {
+            self.set_parameters(AUTO_ATR_RES_AND_RATS)?;
+            self.write_register(REG_CIU_TX_MODE, TX_RX_CRC_ENABLE)?;
+            self.write_register(REG_CIU_RX_MODE, TX_RX_CRC_ENABLE)?;
+            self.write_register(REG_CIU_MANUAL_RCV, 0x00)?;
+        }
+        self.recovery_mode = enabled;
+        Ok(())
+    }
+
+    pub(crate) fn transceive_parity(&mut self, data: &[u8], parity: &[u8]) -> Result<ParityFrame> {
+        self.transceive_parity_inner(data, parity, None)
+    }
+
+    pub(crate) fn transceive_parity_expect(
+        &mut self,
+        data: &[u8],
+        parity: &[u8],
+        expected_bits: usize,
+    ) -> Result<ParityFrame> {
+        self.transceive_parity_inner(data, parity, Some(expected_bits))
+    }
+
+    fn transceive_parity_inner(
+        &mut self,
+        data: &[u8],
+        parity: &[u8],
+        expected_bits: Option<usize>,
+    ) -> Result<ParityFrame> {
+        self.require_recovery("recovery parity exchange")?;
+        let (frame, frame_bits) = wrap_parity_frame(data, parity)?;
+        if frame.len() > MAX_RAW_PAYLOAD {
+            return Err(NfcError::InvalidArgument(format!(
+                "parity frame is {} bytes, at most {MAX_RAW_PAYLOAD} are supported",
+                frame.len()
+            )));
+        }
+        self.set_tx_last_bits((frame_bits % 8) as u8)?;
+        let raw = self.in_communicate_thru(&frame)?;
+        if raw.is_empty() {
+            return Ok(ParityFrame::default());
+        }
+        let received_bits = match expected_bits {
+            Some(bits) => bits,
+            None => {
+                self.set_tx_last_bits(0)?;
+                let last_bits = self.read_register(REG_CIU_CONTROL)? & RX_LAST_BITS;
+                if last_bits == 0 {
+                    raw.len() * 8
+                } else {
+                    (raw.len() - 1) * 8 + last_bits as usize
+                }
+            }
+        };
+        let (data, bits, parity) = unwrap_parity_frame(&raw, received_bits)?;
+        Ok(ParityFrame { data, bits, parity })
+    }
+
     pub(crate) fn set_raw_mode(&mut self, enabled: bool) -> Result<()> {
         if self.raw_mode == enabled {
             return Ok(());
+        }
+        if self.recovery_mode {
+            return Err(NfcError::InvalidArgument(
+                "raw mode is unavailable while recovery mode is enabled".to_owned(),
+            ));
         }
         if enabled {
             self.set_parameters(0x00)?;
@@ -302,6 +382,7 @@ impl Pn532Protocol {
         self.write_register(REG_CIU_BIT_FRAMING, 0x00)?;
         self.tx_last_bits = 0;
         self.raw_mode = false;
+        self.recovery_mode = false;
         Ok(())
     }
 
@@ -404,18 +485,27 @@ impl Pn532Protocol {
     }
 
     fn require_ordinary(&self, operation: &'static str) -> Result<()> {
-        if self.raw_mode {
+        if self.raw_mode || self.recovery_mode {
             return Err(NfcError::InvalidArgument(format!(
-                "{operation} is unavailable in raw mode"
+                "{operation} is unavailable in raw or recovery mode"
             )));
         }
         Ok(())
     }
 
     fn require_raw(&self, operation: &'static str) -> Result<()> {
-        if !self.raw_mode {
+        if !self.raw_mode || self.recovery_mode {
             return Err(NfcError::InvalidArgument(format!(
-                "{operation} requires raw mode"
+                "{operation} requires raw mode outside recovery mode"
+            )));
+        }
+        Ok(())
+    }
+
+    fn require_recovery(&self, operation: &'static str) -> Result<()> {
+        if !self.recovery_mode {
+            return Err(NfcError::InvalidArgument(format!(
+                "{operation} requires recovery mode"
             )));
         }
         Ok(())
@@ -716,6 +806,7 @@ mod tests {
             config: config(),
             rx: Vec::new(),
             raw_mode: false,
+            recovery_mode: false,
             firmware: FirmwareVersion {
                 ic: PN532_IC,
                 version: 0x01,
@@ -1025,5 +1116,100 @@ mod tests {
                 vec![WRITE_REGISTER, 0x63, 0x03, TX_RX_CRC_ENABLE],
             ]
         );
+    }
+    #[test]
+    fn recovery_mode_uses_parity_disabled_framing() {
+        let (link, script) = ScriptedLink::scripted();
+        let mut protocol = test_protocol(link);
+
+        script.command_response(SET_PARAMETERS, &[]);
+        for _ in 0..4 {
+            script.command_response(WRITE_REGISTER, &[]);
+        }
+        protocol.set_recovery_mode(true).expect("recovery mode");
+        assert_eq!(
+            script.commands(),
+            vec![
+                vec![SET_PARAMETERS, 0x00],
+                vec![WRITE_REGISTER, 0x63, 0x02, 0x00],
+                vec![WRITE_REGISTER, 0x63, 0x03, 0x00],
+                vec![WRITE_REGISTER, 0x63, 0x0D, PARITY_DISABLE],
+                vec![WRITE_REGISTER, 0x63, 0x38, 0x00],
+            ]
+        );
+        assert!(matches!(
+            protocol.transceive_bytes(&[0x26]),
+            Err(NfcError::InvalidArgument(_))
+        ));
+        assert!(matches!(
+            protocol.select_card(),
+            Err(NfcError::InvalidArgument(_))
+        ));
+
+        let data = [0x60, 0x04, 0xD3, 0xF7];
+        let parity = [1, 0, 1, 1];
+        let (frame, frame_bits) = wrap_parity_frame(&data, &parity).expect("wrap");
+        script.command_response(WRITE_REGISTER, &[]);
+        script.command_response(IN_COMMUNICATE_THRU, &{
+            let mut payload = vec![0x00];
+            payload.extend_from_slice(&frame);
+            payload
+        });
+        script.command_response(WRITE_REGISTER, &[]);
+        script.command_response(READ_REGISTER, &[(frame_bits % 8) as u8]);
+        let response = protocol
+            .transceive_parity(&data, &parity)
+            .expect("parity exchange");
+        assert_eq!(response.data, data);
+        assert_eq!(response.bits, 32);
+        assert_eq!(response.parity, parity);
+
+        script.command_response(SET_PARAMETERS, &[]);
+        for _ in 0..3 {
+            script.command_response(WRITE_REGISTER, &[]);
+        }
+        protocol.set_recovery_mode(false).expect("ordinary mode");
+        let commands = script.commands();
+        assert_eq!(
+            &commands[commands.len() - 4..],
+            &[
+                vec![SET_PARAMETERS, AUTO_ATR_RES_AND_RATS],
+                vec![WRITE_REGISTER, 0x63, 0x02, TX_RX_CRC_ENABLE],
+                vec![WRITE_REGISTER, 0x63, 0x03, TX_RX_CRC_ENABLE],
+                vec![WRITE_REGISTER, 0x63, 0x0D, 0x00],
+            ]
+        );
+    }
+    #[test]
+    fn parity_expect_skips_post_response_register_round_trips() {
+        let (link, script) = ScriptedLink::scripted();
+        let mut protocol = test_protocol(link);
+        script.command_response(SET_PARAMETERS, &[]);
+        for _ in 0..4 {
+            script.command_response(WRITE_REGISTER, &[]);
+        }
+        protocol.set_recovery_mode(true).expect("recovery mode");
+        let setup = script.commands().len();
+
+        let data = [0x60, 0x04, 0xD3, 0xF7];
+        let parity = [1, 0, 1, 1];
+        let (frame, _) = wrap_parity_frame(&data, &parity).expect("wrap");
+        script.command_response(WRITE_REGISTER, &[]);
+        script.command_response(IN_COMMUNICATE_THRU, &{
+            let mut payload = vec![0x00];
+            payload.extend_from_slice(&frame);
+            payload
+        });
+        let response = protocol
+            .transceive_parity_expect(&data, &parity, 36)
+            .expect("parity exchange");
+        assert_eq!(response.data, data);
+        assert_eq!(response.bits, 32);
+        assert_eq!(response.parity, parity);
+
+        let commands = script.commands();
+        assert_eq!(commands.len(), setup + 2);
+        assert_eq!(commands[setup], vec![WRITE_REGISTER, 0x63, 0x3D, 0x04]);
+        assert_eq!(commands[setup + 1][0], IN_COMMUNICATE_THRU);
     }
 }

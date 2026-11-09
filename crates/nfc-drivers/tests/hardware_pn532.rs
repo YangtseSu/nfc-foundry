@@ -225,3 +225,47 @@ fn writes_a_classic_block_with_the_same_value() {
     );
     reader.close().expect("close the PN532");
 }
+
+#[test]
+#[ignore = "requires a reader and a MIFARE Classic card"]
+fn recovery_parity_probe_reads_a_tag_nonce() {
+    let _guard = lock_hardware();
+    let conn_string = device_connstring();
+    let mut reader = open_reader(&conn_string);
+    let card = selected_card(&mut reader);
+    assert!(
+        matches!(
+            card.card_type,
+            CardType::MifareClassic1K | CardType::MifareClassic4K
+        ),
+        "place a MIFARE Classic card on the reader"
+    );
+    assert!(
+        reader.recovery_capabilities().parity_exchange,
+        "the reader did not advertise parity exchange"
+    );
+    reader.set_recovery_mode(true).expect("enter recovery mode");
+    let mut command = vec![0x60, classic_block()];
+    let crc = crc_a(&command);
+    command.extend_from_slice(&crc);
+    let parity: Vec<u8> = command
+        .iter()
+        .map(|byte| !(byte.count_ones() as u8 & 1) & 1)
+        .collect();
+    let response = reader
+        .transceive_parity(&command, &parity)
+        .expect("partial authentication");
+    println!(
+        "parity probe card={} response bits={} data={:02X?} parity={:?}",
+        card.uid_hex(),
+        response.bits,
+        response.data,
+        response.parity
+    );
+    assert_eq!(response.data.len(), 4, "partial auth must return one nonce");
+    assert_eq!(response.bits, 32);
+    reader
+        .set_recovery_mode(false)
+        .expect("leave recovery mode");
+    reader.close().expect("close the reader");
+}

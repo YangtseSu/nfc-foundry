@@ -29,6 +29,7 @@ pub(crate) const REG_CIU_BIT_FRAMING: u16 = 0x633D;
 pub(crate) const TX_RX_CRC_ENABLE: u8 = 0x80;
 pub(crate) const INITIATOR: u8 = 0x10;
 pub(crate) const RX_LAST_BITS: u8 = 0x07;
+pub(crate) const PARITY_DISABLE: u8 = 0x10;
 pub(crate) const AUTO_ATR_RES_AND_RATS: u8 = 0x14;
 pub(crate) const PN532_IC: u8 = 0x32;
 pub(crate) const ISO14443A_SUPPORT: u8 = 0x01;
@@ -135,6 +136,113 @@ pub(crate) fn parse_response(command: u8, data: &[u8], source: &str) -> Result<V
     Ok(data[2..].to_vec())
 }
 
+/// Packs data bytes and caller-supplied parity into the PN53x parity-disabled
+/// FIFO layout. Returns the frame bytes and the exact transmitted bit count.
+pub(crate) fn wrap_parity_frame(data: &[u8], parity: &[u8]) -> Result<(Vec<u8>, usize)> {
+    if data.is_empty() {
+        return Err(NfcError::InvalidArgument(
+            "parity frame has no data".to_owned(),
+        ));
+    }
+    if data.len() != parity.len() {
+        return Err(NfcError::InvalidArgument(
+            "parity frame needs one parity bit per data byte".to_owned(),
+        ));
+    }
+    let data_bits = data.len() * 8;
+    let frame_bits = data_bits + data.len();
+    if data_bits < 9 {
+        return Ok((data.to_vec(), data_bits));
+    }
+
+    let mut frame = vec![0u8; frame_bits.div_ceil(8)];
+    let mut frame_index = 0;
+    let mut data_index = 0;
+    let mut bits_left = data_bits;
+    loop {
+        let mut frame_byte = 0u8;
+        for bit_position in 0..8 {
+            let mirrored = data[data_index].reverse_bits();
+            frame_byte |= mirrored >> bit_position;
+            frame[frame_index] = frame_byte.reverse_bits();
+
+            frame_byte = if bit_position == 0 {
+                0
+            } else {
+                mirrored << (8 - bit_position)
+            };
+            frame_byte |= (parity[data_index] & 1) << (7 - bit_position);
+            frame_index += 1;
+            frame[frame_index] = frame_byte.reverse_bits();
+
+            data_index += 1;
+            if bits_left < 9 {
+                return Ok((frame, frame_bits));
+            }
+            bits_left -= 8;
+        }
+        frame_index += 1;
+    }
+}
+
+/// Reverses [`wrap_parity_frame`]: returns data bits, parity bits, and the
+/// number of data bits in a possibly partial final byte.
+pub(crate) fn unwrap_parity_frame(
+    frame: &[u8],
+    frame_bits: usize,
+) -> Result<(Vec<u8>, usize, Vec<u8>)> {
+    if frame.is_empty() || frame_bits == 0 {
+        return Err(NfcError::InvalidArgument(
+            "parity response has no bits".to_owned(),
+        ));
+    }
+    if frame_bits > frame.len() * 8 {
+        return Err(NfcError::InvalidArgument(format!(
+            "parity response has {frame_bits} bits in {} bytes",
+            frame.len()
+        )));
+    }
+    if frame_bits < 9 {
+        return Ok((frame[..1].to_vec(), frame_bits, Vec::new()));
+    }
+
+    let data_bits = frame_bits - frame_bits / 9;
+    if !data_bits.is_multiple_of(8) {
+        return Err(NfcError::Unsupported(
+            "parity response is not a whole number of data bytes",
+        ));
+    }
+    let data_bytes = data_bits / 8;
+    let mut data = Vec::with_capacity(data_bytes);
+    let mut parity = Vec::with_capacity(data_bytes);
+    let mut frame_base = 0;
+    while data.len() < data_bytes {
+        let output_position = data.len();
+        let bit_position = output_position % 8;
+        let index = frame_base + output_position;
+        let first = frame
+            .get(index)
+            .copied()
+            .ok_or_else(|| NfcError::Io("parity response frame is truncated".to_owned()))?
+            .reverse_bits();
+        let second = frame
+            .get(index + 1)
+            .copied()
+            .ok_or_else(|| NfcError::Io("parity response frame is truncated".to_owned()))?
+            .reverse_bits();
+        let mut value = first << bit_position;
+        if bit_position != 0 {
+            value |= second >> (8 - bit_position);
+        }
+        data.push(value.reverse_bits());
+        parity.push((second >> (7 - bit_position)) & 1);
+        if bit_position == 7 {
+            frame_base += 1;
+        }
+    }
+    Ok((data, data_bits, parity))
+}
+
 pub(crate) fn status_error(status: u8) -> NfcError {
     match status {
         0x01 | 0x0A => NfcError::Timeout("the card did not answer".to_owned()),
@@ -146,5 +254,53 @@ pub(crate) fn status_error(status: u8) -> NfcError {
         0x06 => NfcError::Io("PN532 reported a collision".to_owned()),
         0x13 => NfcError::Io("PN532 rejected the received frame".to_owned()),
         other => NfcError::Io(format!("PN532 reported status {other:02X}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parity_frame_round_trips_four_bytes() {
+        let data = [0x60, 0x04, 0xD3, 0xF7];
+        let parity = [1, 0, 1, 1];
+        let (frame, frame_bits) = wrap_parity_frame(&data, &parity).expect("wrap");
+        assert_eq!(frame_bits, 36);
+        assert_eq!(frame.len(), 5);
+        let (decoded, bits, decoded_parity) =
+            unwrap_parity_frame(&frame, frame_bits).expect("unwrap");
+        assert_eq!(decoded, data);
+        assert_eq!(bits, 32);
+        assert_eq!(decoded_parity, parity);
+    }
+
+    #[test]
+    fn parity_frame_round_trips_eight_bytes() {
+        let data = [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF];
+        let parity = [0, 1, 0, 1, 1, 0, 0, 1];
+        let (frame, frame_bits) = wrap_parity_frame(&data, &parity).expect("wrap");
+        assert_eq!(frame_bits, 72);
+        assert_eq!(frame.len(), 9);
+        let (decoded, bits, decoded_parity) =
+            unwrap_parity_frame(&frame, frame_bits).expect("unwrap");
+        assert_eq!(decoded, data);
+        assert_eq!(bits, 64);
+        assert_eq!(decoded_parity, parity);
+    }
+
+    #[test]
+    fn parity_frame_rejects_mismatched_parity() {
+        assert!(wrap_parity_frame(&[1, 2], &[1]).is_err());
+        assert!(wrap_parity_frame(&[], &[]).is_err());
+        assert!(unwrap_parity_frame(&[], 0).is_err());
+    }
+
+    #[test]
+    fn partial_frame_without_parity_is_returned_verbatim() {
+        let (data, bits, parity) = unwrap_parity_frame(&[0x05], 4).expect("unwrap");
+        assert_eq!(data, vec![0x05]);
+        assert_eq!(bits, 4);
+        assert!(parity.is_empty());
     }
 }

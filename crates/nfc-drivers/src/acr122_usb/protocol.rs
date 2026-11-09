@@ -13,16 +13,17 @@ use std::thread;
 use std::time::Duration;
 
 use nfc_core::{BLOCK_SIZE, CardInfo, CardType, Key, KeyType, NfcError, Result};
+use nfc_transport::ParityFrame;
 
 use super::ccid::AcrLink;
 use crate::pn53x::{
     AUTO_ATR_RES_AND_RATS, FirmwareVersion, GET_FIRMWARE_VERSION, IN_COMMUNICATE_THRU,
     IN_DATA_EXCHANGE, IN_LIST_PASSIVE_TARGET, IN_RELEASE, INITIATOR, ISO14443A_106_KBPS,
-    MIFARE_AUTH_A, MIFARE_AUTH_B, MIFARE_READ, MIFARE_WRITE, READ_REGISTER, REG_CIU_BIT_FRAMING,
-    REG_CIU_CONTROL, REG_CIU_MANUAL_RCV, REG_CIU_RX_MODE, REG_CIU_STATUS2, REG_CIU_TX_MODE,
-    RF_CONFIGURATION, RF_FIELD, RF_RETRY_SELECT, RX_LAST_BITS, SET_PARAMETERS, TARGET_NUMBER,
-    TX_RX_CRC_ENABLE, WRITE_REGISTER, parse_firmware, parse_passive_target, parse_response,
-    status_error,
+    MIFARE_AUTH_A, MIFARE_AUTH_B, MIFARE_READ, MIFARE_WRITE, PARITY_DISABLE, READ_REGISTER,
+    REG_CIU_BIT_FRAMING, REG_CIU_CONTROL, REG_CIU_MANUAL_RCV, REG_CIU_RX_MODE, REG_CIU_STATUS2,
+    REG_CIU_TX_MODE, RF_CONFIGURATION, RF_FIELD, RF_RETRY_SELECT, RX_LAST_BITS, SET_PARAMETERS,
+    TARGET_NUMBER, TX_RX_CRC_ENABLE, WRITE_REGISTER, parse_firmware, parse_passive_target,
+    parse_response, status_error, unwrap_parity_frame, wrap_parity_frame,
 };
 
 const ACR_PSEUDO_APDU: [u8; 4] = [0xFF, 0x00, 0x00, 0x00];
@@ -66,6 +67,7 @@ pub(crate) struct Acr122Protocol {
     link: Box<dyn AcrLink>,
     config: Acr122Config,
     raw_mode: bool,
+    recovery_mode: bool,
     firmware: FirmwareVersion,
     tx_last_bits: u8,
     selected: Option<CardInfo>,
@@ -77,6 +79,7 @@ impl Acr122Protocol {
             link,
             config,
             raw_mode: false,
+            recovery_mode: false,
             firmware: FirmwareVersion::default(),
             tx_last_bits: 0,
             selected: None,
@@ -146,9 +149,86 @@ impl Acr122Protocol {
         Ok(())
     }
 
+    pub(crate) fn set_recovery_mode(&mut self, enabled: bool) -> Result<()> {
+        if self.recovery_mode == enabled {
+            return Ok(());
+        }
+        self.set_tx_last_bits(0)?;
+        if enabled {
+            if self.raw_mode {
+                self.set_raw_mode(false)?;
+            }
+            self.set_parameters(0x00)?;
+            self.write_register(REG_CIU_TX_MODE, 0x00)?;
+            self.write_register(REG_CIU_RX_MODE, 0x00)?;
+            self.write_register(REG_CIU_MANUAL_RCV, PARITY_DISABLE)?;
+            self.write_register(REG_CIU_STATUS2, 0x00)?;
+        } else {
+            self.set_parameters(AUTO_ATR_RES_AND_RATS)?;
+            self.write_register(REG_CIU_TX_MODE, TX_RX_CRC_ENABLE)?;
+            self.write_register(REG_CIU_RX_MODE, TX_RX_CRC_ENABLE)?;
+            self.write_register(REG_CIU_MANUAL_RCV, 0x00)?;
+        }
+        self.recovery_mode = enabled;
+        Ok(())
+    }
+
+    pub(crate) fn transceive_parity(&mut self, data: &[u8], parity: &[u8]) -> Result<ParityFrame> {
+        self.transceive_parity_inner(data, parity, None)
+    }
+
+    pub(crate) fn transceive_parity_expect(
+        &mut self,
+        data: &[u8],
+        parity: &[u8],
+        expected_bits: usize,
+    ) -> Result<ParityFrame> {
+        self.transceive_parity_inner(data, parity, Some(expected_bits))
+    }
+
+    fn transceive_parity_inner(
+        &mut self,
+        data: &[u8],
+        parity: &[u8],
+        expected_bits: Option<usize>,
+    ) -> Result<ParityFrame> {
+        self.require_recovery("recovery parity exchange")?;
+        let (frame, frame_bits) = wrap_parity_frame(data, parity)?;
+        if frame.len() > MAX_ACR_RAW_PAYLOAD {
+            return Err(NfcError::InvalidArgument(format!(
+                "parity frame is {} bytes, at most {MAX_ACR_RAW_PAYLOAD} are supported",
+                frame.len()
+            )));
+        }
+        self.set_tx_last_bits((frame_bits % 8) as u8)?;
+        let raw = self.in_communicate_thru(&frame)?;
+        if raw.is_empty() {
+            return Ok(ParityFrame::default());
+        }
+        let received_bits = match expected_bits {
+            Some(bits) => bits,
+            None => {
+                self.set_tx_last_bits(0)?;
+                let last_bits = self.read_register(REG_CIU_CONTROL)? & RX_LAST_BITS;
+                if last_bits == 0 {
+                    raw.len() * 8
+                } else {
+                    (raw.len() - 1) * 8 + last_bits as usize
+                }
+            }
+        };
+        let (data, bits, parity) = unwrap_parity_frame(&raw, received_bits)?;
+        Ok(ParityFrame { data, bits, parity })
+    }
+
     pub(crate) fn set_raw_mode(&mut self, enabled: bool) -> Result<()> {
         if self.raw_mode == enabled {
             return Ok(());
+        }
+        if self.recovery_mode {
+            return Err(NfcError::InvalidArgument(
+                "raw mode is unavailable while recovery mode is enabled".to_owned(),
+            ));
         }
         self.set_tx_last_bits(0)?;
         if enabled {
@@ -378,6 +458,7 @@ impl Acr122Protocol {
         )?;
         self.tx_last_bits = 0;
         self.raw_mode = false;
+        self.recovery_mode = false;
         Ok(())
     }
 
@@ -543,8 +624,17 @@ impl Acr122Protocol {
         ))
     }
 
+    fn require_recovery(&self, operation: &'static str) -> Result<()> {
+        if !self.recovery_mode {
+            return Err(NfcError::InvalidArgument(format!(
+                "{operation} requires recovery mode"
+            )));
+        }
+        Ok(())
+    }
+
     fn require_ordinary(&self, operation: &'static str) -> Result<()> {
-        if self.raw_mode {
+        if self.raw_mode || self.recovery_mode {
             return Err(NfcError::InvalidArgument(format!(
                 "{operation} is unavailable in raw mode"
             )));
@@ -553,7 +643,7 @@ impl Acr122Protocol {
     }
 
     fn require_raw(&self, operation: &'static str) -> Result<()> {
-        if !self.raw_mode {
+        if !self.raw_mode || self.recovery_mode {
             return Err(NfcError::InvalidArgument(format!(
                 "{operation} requires raw mode"
             )));
@@ -769,6 +859,7 @@ mod tests {
             link,
             config: config(),
             raw_mode: false,
+            recovery_mode: false,
             firmware: FirmwareVersion {
                 ic: PN532_IC,
                 version: 0x01,
@@ -1333,5 +1424,58 @@ mod tests {
                 0xB1
             ]
         );
+    }
+    #[test]
+    fn recovery_mode_uses_parity_disabled_framing() {
+        let (link, steps, _log) = ScriptedLink::scripted();
+        let mut protocol = test_protocol(link);
+
+        push(&steps, LinkStep::Apdu(response(SET_PARAMETERS, &[])));
+        for _ in 0..4 {
+            push(&steps, LinkStep::Apdu(response(WRITE_REGISTER, &[])));
+        }
+        protocol.set_recovery_mode(true).expect("recovery mode");
+        assert!(matches!(
+            protocol.transceive_bytes(&[0x26]),
+            Err(NfcError::InvalidArgument(_))
+        ));
+        assert!(matches!(
+            protocol.select_card(),
+            Err(NfcError::InvalidArgument(_))
+        ));
+
+        let data = [0x60, 0x04, 0xD3, 0xF7];
+        let parity = [1, 0, 1, 1];
+        let (frame, frame_bits) = wrap_parity_frame(&data, &parity).expect("wrap");
+        push(&steps, LinkStep::Apdu(response(WRITE_REGISTER, &[])));
+        push(
+            &steps,
+            LinkStep::Apdu(response(IN_COMMUNICATE_THRU, &{
+                let mut payload = vec![0x00];
+                payload.extend_from_slice(&frame);
+                payload
+            })),
+        );
+        push(&steps, LinkStep::Apdu(response(WRITE_REGISTER, &[])));
+        push(
+            &steps,
+            LinkStep::Apdu(response(READ_REGISTER, &[(frame_bits % 8) as u8])),
+        );
+        let parity_response = protocol
+            .transceive_parity(&data, &parity)
+            .expect("parity exchange");
+        assert_eq!(parity_response.data, data);
+        assert_eq!(parity_response.bits, 32);
+        assert_eq!(parity_response.parity, parity);
+
+        push(&steps, LinkStep::Apdu(response(SET_PARAMETERS, &[])));
+        for _ in 0..3 {
+            push(&steps, LinkStep::Apdu(response(WRITE_REGISTER, &[])));
+        }
+        protocol.set_recovery_mode(false).expect("ordinary mode");
+        assert!(matches!(
+            protocol.transceive_parity(&data, &parity),
+            Err(NfcError::InvalidArgument(_))
+        ));
     }
 }

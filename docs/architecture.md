@@ -230,14 +230,27 @@ from becoming the NDEF implementation.
 
 `nfc-recover` is a library, not a process wrapper. It owns:
 
-- Crypto1/LFSR/PRNG primitives ported from the current Proxmark3 tree;
-- attack implementations and the `auto` strategy;
-- nonce acquisition through `nfc-transport`;
-- progress and cancellation callbacks;
-- key/dump result types.
+- Crypto1/LFSR/PRNG, CRC-A, common-prefix recovery, and the `mfkey` solvers
+  ported from the current Proxmark3 tree;
+- software Crypto1 authentication and nested nonce acquisition;
+- darkside, nested, static-nested, and `auto` execution;
+- progress, cancellation, and result types.
 
 The attack engine receives an exclusive reader lease from `nfc-app`, not a raw
 device handle. It must reselect and verify the card before returning success.
+
+Nonce acquisition needs caller-supplied parity, so `nfc-transport::Reader`
+exposes `set_recovery_mode` and `transceive_parity` as opt-in capabilities.
+The PN532 UART and ACR122U drivers implement parity-disabled framing through
+`CIU_ManualRCV` and 9-bit frame packing. Recovery mode is mutually exclusive
+with ordinary and raw byte modes. No PM3 firmware command is ported.
+
+Both transports complete software Crypto1 authentication and nested recovery.
+A known response size skips the post-response trailing-bits reset and status
+read, removing two UART round trips from the authentication window. Darkside
+needs PRNG-scheduled frames that neither host-driven reader can produce, so it
+reports an honest no-sample failure while the solver remains covered by the PM3
+golden vector.
 
 ## GUI
 

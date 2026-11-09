@@ -20,9 +20,18 @@ Transitive dependencies and their exact versions are recorded in
 `Cargo.lock`. Before a release, generate and review the full notice bundle with
 the selected dependency-license tooling.
 
-Proxmark3-derived recovery code and tables retain their GPL-3.0-or-later
-notices. The old mfoc/mfcuk/mfoc-hardnested implementations are not shipped;
-they may appear only in development notes as test oracles.
+Proxmark3-derived recovery code retains its GPL-3.0-or-later notices:
+
+- `crates/nfc-recover/src/crypto1.rs` derives from
+  `common/crapto1/crapto1.c` and `crypto1.c` (bla, Proxmark3 contributors).
+- `crates/nfc-recover/src/mfkey.rs` derives from
+  `client/src/mifare/mfkey.c` (Roel Verdult, Proxmark3 contributors).
+- `crates/nfc-recover/src/acquire.rs`, `classify.rs`, `darkside.rs`,
+  `nested.rs`, and `attack.rs` implement behavior from
+  `client/src/mifare/mifarehost.c` and `armsrc/mifarecmd.c`.
+
+The old mfoc/mfcuk/mfoc-hardnested implementations are not shipped; they may
+appear only in development notes as test oracles.
 
 The Gen1A unlock and manufacturer-block write sequence in
 `crates/nfc-drivers/src/acr122_usb/protocol.rs` is derived from the libnfc

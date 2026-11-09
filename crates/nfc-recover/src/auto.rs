@@ -20,6 +20,7 @@ pub struct CardProfile {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RecoveryStrategy {
+    Auto,
     Dictionary,
     DarkSide,
     Nested,
@@ -52,7 +53,7 @@ pub fn plan(profile: &CardProfile) -> Vec<RecoveryStrategy> {
 
 pub fn attack_kind(strategy: RecoveryStrategy) -> Option<AttackKind> {
     match strategy {
-        RecoveryStrategy::Dictionary => None,
+        RecoveryStrategy::Auto | RecoveryStrategy::Dictionary => None,
         RecoveryStrategy::DarkSide => Some(AttackKind::DarkSide),
         RecoveryStrategy::Nested => Some(AttackKind::Nested),
         RecoveryStrategy::StaticNested => Some(AttackKind::StaticNested),

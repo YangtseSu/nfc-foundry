@@ -4,9 +4,14 @@
 //! PM3 firmware commands are not ported; nonce acquisition is implemented over
 //! `nfc-transport`.
 
+pub mod acquire;
 pub mod attack;
 pub mod auto;
+pub mod classify;
 pub mod crypto1;
+pub mod darkside;
+pub mod mfkey;
+pub mod nested;
 
-pub use attack::{Attack, AttackKind, RecoveryRequest, RecoveryResult};
+pub use attack::{AttackKind, RecoveryRequest, RecoveryResult, recover};
 pub use auto::{CardProfile, PrngProfile, RecoveryStrategy};

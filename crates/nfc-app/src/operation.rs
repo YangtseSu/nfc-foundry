@@ -52,6 +52,12 @@ impl<'a> Operation<'a> {
         &self.cancel
     }
 
+    /// Reader access for recovery acquisition. Only `nfc-app` workflows use
+    /// this; the GUI and CLI still call service methods.
+    pub(crate) fn reader_mut(&mut self) -> &mut dyn Reader {
+        self.reader
+    }
+
     /// Reselect the card and reject any UID, ATQA, or SAK change.
     pub fn check_card(&mut self) -> Result<()> {
         let current = self.reader.card_info()?;

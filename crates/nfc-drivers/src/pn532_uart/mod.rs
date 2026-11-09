@@ -13,7 +13,7 @@ mod protocol;
 use std::time::Duration;
 
 use nfc_core::{BLOCK_SIZE, CardInfo, Key, KeyType, NfcError, Result};
-use nfc_transport::{DeviceInfo, Reader, TrailerWriter};
+use nfc_transport::{DeviceInfo, ParityFrame, Reader, RecoveryCapabilities, TrailerWriter};
 
 use crate::PN532_UART_PREFIX;
 use link::SerialLink;
@@ -142,6 +142,30 @@ impl Reader for Pn532Uart {
 
     fn set_raw_mode(&mut self, enabled: bool) -> Result<()> {
         self.protocol()?.set_raw_mode(enabled)
+    }
+
+    fn recovery_capabilities(&self) -> RecoveryCapabilities {
+        RecoveryCapabilities {
+            parity_exchange: self.protocol.is_some(),
+        }
+    }
+
+    fn set_recovery_mode(&mut self, enabled: bool) -> Result<()> {
+        self.protocol()?.set_recovery_mode(enabled)
+    }
+
+    fn transceive_parity(&mut self, data: &[u8], parity: &[u8]) -> Result<ParityFrame> {
+        self.protocol()?.transceive_parity(data, parity)
+    }
+
+    fn transceive_parity_expect(
+        &mut self,
+        data: &[u8],
+        parity: &[u8],
+        expected_bits: usize,
+    ) -> Result<ParityFrame> {
+        self.protocol()?
+            .transceive_parity_expect(data, parity, expected_bits)
     }
 }
 

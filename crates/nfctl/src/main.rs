@@ -8,11 +8,13 @@ use clap::{Parser, Subcommand};
 use nfc_app::Service;
 use nfc_app::classic::{
     BackupStore, ClassicBlockWrite, ClassicKeyscan, ClassicRead, ClassicRestore, KeyEntry, KeyKind,
-    KeySource, KeyStore, KeyTypes,
+    KeySource, KeyStore, KeyTypes, common_keys,
 };
 use nfc_classic::{DumpFormat, Layout, bcc_for_uid, diff, exchange};
-use nfc_core::{BLOCK_SIZE, CancelToken, CardInfo, CardType, Key, NfcError, Result};
+use nfc_core::{BLOCK_SIZE, CancelToken, CardInfo, CardType, Key, KeyType, NfcError, Result};
 use nfc_drivers::DriverRegistry;
+use nfc_recover::RecoveryRequest;
+use nfc_recover::auto::RecoveryStrategy;
 use nfc_transport::DeviceInfo;
 use nfc_transport::mock::MockTransport;
 
@@ -196,10 +198,42 @@ enum NdefCommand {
 
 #[derive(Clone, Debug, Subcommand)]
 enum RecoveryCommand {
-    Auto,
-    Darkside,
-    Nested,
-    StaticNested,
+    /// Classify the card and try dictionary, nested, or darkside recovery.
+    Auto {
+        #[arg(long, default_value = "4", value_name = "BLOCK")]
+        known_block: usize,
+        #[arg(long, default_value = "0", value_name = "BLOCK")]
+        target_block: usize,
+        #[arg(long, default_value = "A", value_name = "A|B")]
+        target_type: String,
+    },
+    /// Card-only darkside recovery.
+    Darkside {
+        #[arg(long, default_value = "0", value_name = "BLOCK")]
+        target_block: usize,
+        #[arg(long, default_value = "A", value_name = "A|B")]
+        target_type: String,
+    },
+    /// Nested recovery using a known key from --key, --key-file, or --key-store.
+    Nested {
+        #[arg(long, default_value = "4", value_name = "BLOCK")]
+        known_block: usize,
+        #[arg(long, default_value = "0", value_name = "BLOCK")]
+        target_block: usize,
+        #[arg(long, default_value = "A", value_name = "A|B")]
+        target_type: String,
+    },
+    /// Static-nested recovery using a known key.
+    #[command(alias = "staticnested")]
+    StaticNested {
+        #[arg(long, default_value = "4", value_name = "BLOCK")]
+        known_block: usize,
+        #[arg(long, default_value = "0", value_name = "BLOCK")]
+        target_block: usize,
+        #[arg(long, default_value = "A", value_name = "A|B")]
+        target_type: String,
+    },
+    #[command(alias = "hardnested")]
     HardNested,
     Fm11rf08s,
 }
@@ -251,23 +285,121 @@ fn run(cli: Cli) -> Result<()> {
             NdefCommand::Write => Err(NfcError::NotImplemented("nfctl ndef write")),
             NdefCommand::Format => Err(NfcError::NotImplemented("nfctl ndef format")),
         },
-        Command::Recover { command } => match command {
-            RecoveryCommand::Auto => Err(NfcError::NotImplemented("nfctl recover auto")),
-            RecoveryCommand::Darkside => Err(NfcError::NotImplemented("nfctl recover darkside")),
-            RecoveryCommand::Nested => Err(NfcError::NotImplemented("nfctl recover nested")),
-            RecoveryCommand::StaticNested => {
-                Err(NfcError::NotImplemented("nfctl recover staticnested"))
-            }
-            RecoveryCommand::HardNested => {
-                Err(NfcError::NotImplemented("nfctl recover hardnested"))
-            }
-            RecoveryCommand::Fm11rf08s => Err(NfcError::NotImplemented("nfctl recover fm11rf08s")),
-        },
+        Command::Recover { command } => recovery(&cli, &mut service, command),
         Command::Diag => {
             println!("nfctl {} (skeleton)", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
     }
+}
+
+fn recovery(cli: &Cli, service: &mut Service, command: RecoveryCommand) -> Result<()> {
+    let (strategy, known_block, target_block, target_type) = match command {
+        RecoveryCommand::Auto {
+            known_block,
+            target_block,
+            target_type,
+        } => (
+            RecoveryStrategy::Auto,
+            known_block,
+            target_block,
+            target_type,
+        ),
+        RecoveryCommand::Darkside {
+            target_block,
+            target_type,
+        } => (RecoveryStrategy::DarkSide, 4, target_block, target_type),
+        RecoveryCommand::Nested {
+            known_block,
+            target_block,
+            target_type,
+        } => (
+            RecoveryStrategy::Nested,
+            known_block,
+            target_block,
+            target_type,
+        ),
+        RecoveryCommand::StaticNested {
+            known_block,
+            target_block,
+            target_type,
+        } => (
+            RecoveryStrategy::StaticNested,
+            known_block,
+            target_block,
+            target_type,
+        ),
+        RecoveryCommand::HardNested => {
+            return Err(NfcError::NotImplemented("nfctl recover hardnested"));
+        }
+        RecoveryCommand::Fm11rf08s => {
+            return Err(NfcError::NotImplemented("nfctl recover fm11rf08s"));
+        }
+    };
+    prepare(service, cli.device.as_deref())?;
+    let candidates = recovery_candidates(cli)?;
+    if candidates.is_empty() {
+        eprintln!("warning: no candidate keys; nested recovery needs a known key");
+    }
+    let request = RecoveryRequest {
+        known_block: u8::try_from(known_block).map_err(|_| {
+            NfcError::InvalidArgument(format!("known block {known_block} is outside 0..=255"))
+        })?,
+        target_block: u8::try_from(target_block).map_err(|_| {
+            NfcError::InvalidArgument(format!("target block {target_block} is outside 0..=255"))
+        })?,
+        target_key_type: parse_key_type(&target_type)?,
+        known_key_type: KeyType::A,
+        candidates,
+        cancel: CancelToken::new(),
+    };
+    let result = service.recover(strategy, request)?;
+    if let Some(profile) = &result.profile {
+        println!(
+            "profile: prng={:?} known_key={}",
+            profile.prng, profile.has_known_key
+        );
+    }
+    for (key_type, key) in &result.keys {
+        println!("verified key {}: {}", key_type.label(), key.to_hex());
+    }
+    println!("strategy: {:?}", result.attempts);
+    if !result.note.is_empty() {
+        println!("{}", result.note);
+    }
+    Ok(())
+}
+
+fn parse_key_type(value: &str) -> Result<KeyType> {
+    match value.trim().to_ascii_uppercase().as_str() {
+        "A" => Ok(KeyType::A),
+        "B" => Ok(KeyType::B),
+        other => Err(NfcError::InvalidArgument(format!(
+            "unknown key type {other:?}; use A or B"
+        ))),
+    }
+}
+
+fn recovery_candidates(cli: &Cli) -> Result<Vec<(KeyType, Key)>> {
+    let store = load_key_store(cli)?;
+    let mut candidates = Vec::new();
+    for entry in store.entries() {
+        for key_type in [KeyType::A, KeyType::B] {
+            if entry.kind.includes(key_type) {
+                candidates.push((key_type, entry.key));
+            }
+        }
+    }
+    if !cli.no_common_keys {
+        for key in common_keys() {
+            for key_type in [KeyType::A, KeyType::B] {
+                candidates.push((key_type, key));
+            }
+        }
+    }
+    candidates.sort_by_key(|(key_type, key)| (key_type.label(), key.to_hex()));
+    candidates.dedup();
+    Ok(candidates)
 }
 
 fn classic(cli: &Cli, service: &mut Service, command: ClassicCommand) -> Result<()> {

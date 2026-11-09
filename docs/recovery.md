@@ -39,19 +39,35 @@ Classify before choosing an attack:
 
 ## Attack sequence
 
-The `auto` strategy mirrors PM3 `autopwn` rather than a fixed linear list:
+Phase 06 implements the read-only foundation. The `auto` strategy currently:
 
-1. Read card identity and capabilities.
-2. Run dictionary/known-key authentication.
-3. If no known key and the card is darkside-vulnerable, run darkside.
-4. With a known key:
-   - weak PRNG -> nested;
-   - static nonce -> staticnested;
-   - hard PRNG -> hardnested;
-   - static encrypted/FM11RF08S -> specialized path.
-5. Verify every recovered key with a fresh authentication.
-6. Re-read the card; validate dump geometry, BCC, and trailers.
-7. Return keys, dump, attempt log, and failure stage.
+1. Classifies the card with three partial authentications.
+2. Tries the supplied key store, `--key`, `--key-file`, and common candidates
+   against the known block.
+3. With a known key, runs nested or static-nested recovery depending on the
+   classifier.
+4. Without a known key, runs darkside only when the card reports usable
+   authentication and nonce behaviour.
+5. Verifies every recovered key with a fresh authentication before returning
+   it.
+
+Hardnested, static encrypted nonce, FM11RF08S, EV1 signature, and full autopwn
+sequencing are phase 07. The engine returns `NotImplemented` for those
+strategies.
+
+## Reader behavior
+
+Nonce acquisition uses caller-supplied parity over the PN53x
+parity-disabled frame path. Both the PN532 UART and ACR122U complete software
+Crypto1 authentication and nested recovery. A known response size skips the
+post-response trailing-bits reset and status read, removing two round trips
+between the tag nonce and the reader response.
+
+Darkside needs eight parity probes against one tag nonce. PM3 produces them
+with FPGA-scheduled authentication frames. PN532/ACR122U host commands cannot
+schedule frames at the PRNG boundary, so the collector returns no sample and
+`nfctl recover darkside` reports the limitation. This is a transport limit, not
+a missing solver; the PM3 `nonce2key` vector is covered by a golden test.
 
 ## Implementation boundaries
 
@@ -78,13 +94,13 @@ opens a device itself and never spawns an external attack process.
 
 ## Performance
 
-- Nested/staticnested: `rayon` worker threads for state recovery.
-- Hardnested: bit-sliced kernels, `std::arch` SIMD, AVX2/AVX-512/NEON only
-  behind runtime feature detection.
-- Tables: LZ4-compressed PM3 tables, loaded on demand; verify integrity and
-  report missing data.
-- Cancellation: atomic token checked between nonce batches and solver chunks.
-- Memory: bounded nonce storage; avoid retaining unbounded per-attempt state.
+- Nested/static-nested recovery is single-process and single-threaded in phase
+  06. A two-sample run takes a few seconds on the validated test card.
+- Cancellation is an atomic token checked before every nonce attempt, sample,
+  and key verification.
+- Nonce storage is bounded per attack. Darkside keeps at most 64 candidate
+  nonce groups and eight observations per group.
+- Hardnested bit-sliced kernels, PM3 tables, and SIMD runtimes remain phase 07.
 
 ## Licensing
 
@@ -94,7 +110,9 @@ oracle code is copied, the combined work remains GPL-3.0-or-later.
 
 ## Test oracles
 
-- PM3 test vectors and `tools/pm3_tests.sh` fixtures.
-- Golden nonce/key sets captured from the old C engines.
-- Differential runs on the same card and nonce data during development.
-- Hardware tests on PN532 UART and ACR122U, gated by environment variables.
+- PM3 `tools/pm3_tests.sh` vectors for `mfkey32v2`, `mfkey32nested`,
+  `mfkey64`, and `nonce2key`; each is a golden Rust test.
+- The PM3 C tools were run as development oracles for common-prefix state
+  counts and the nested state input.
+- Hardware tests on PN532 UART and ACR122U, gated by `NFCX_HARDWARE=1` and
+  `NFCX_DEVICE`. `cargo test --workspace` never touches hardware.
