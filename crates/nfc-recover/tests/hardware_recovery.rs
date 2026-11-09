@@ -95,12 +95,12 @@ fn software_authentication_matches_the_card() {
         session.uid, session.tag_nonce, session.state.odd, session.state.even
     );
 
-    let nested = session.nested_nonce(block, classic_key_type());
+    let nested = session.nested_nonce(&mut *reader, block, classic_key_type());
     match nested {
         Ok(nonce) => println!("nested nonce {nonce:?}"),
         Err(error) => println!("nested nonce unavailable: {error}"),
     }
-    drop(session);
+    session.leave(&mut *reader).expect("leave recovery mode");
     reader.close().expect("close reader");
 }
 
@@ -119,18 +119,18 @@ fn nested_calibration_reports_distance() {
         let mut session = acquire::Session::authenticate(&mut *reader, block, key_type, key, None)
             .expect("first authentication");
         let first = session
-            .nested_nonce(block, key_type)
+            .nested_nonce(&mut *reader, block, key_type)
             .expect("first nested authentication");
         let first_plain =
             acquire::decrypt_nested_nonce(session.uid, first.tag_nonce_encrypted, key);
         let first_distance = nfc_recover::crypto1::nonce_distance(session.tag_nonce, first_plain);
         let first_tag_nonce = session.tag_nonce;
-        drop(session);
+        session.leave(&mut *reader).expect("leave recovery mode");
         let mut delayed = acquire::Session::authenticate(&mut *reader, block, key_type, key, None)
             .expect("delayed authentication");
         std::thread::sleep(std::time::Duration::from_millis(20));
         let second = delayed
-            .nested_nonce(block, key_type)
+            .nested_nonce(&mut *reader, block, key_type)
             .expect("delayed nested authentication");
         let second_plain =
             acquire::decrypt_nested_nonce(delayed.uid, second.tag_nonce_encrypted, key);
@@ -144,6 +144,7 @@ fn nested_calibration_reports_distance() {
             first_plain,
             second_plain
         );
+        delayed.leave(&mut *reader).expect("leave recovery mode");
     }
     reader.close().expect("close reader");
 }
@@ -200,6 +201,60 @@ fn nested_recovers_a_known_test_key() {
 
 #[test]
 #[ignore = "requires a reader and a MIFARE Classic card"]
+fn hardnested_recovers_a_known_test_key() {
+    let _guard = lock_hardware();
+    use nfc_core::CancelToken;
+    use nfc_recover::hardnested::{HardnestedRequest, recover};
+    use nfc_recover::nested::verify_key;
+
+    let mut reader = open_reader();
+    let request = HardnestedRequest {
+        known_block: env::var("NFCX_HARDWARE_BLOCK")
+            .ok()
+            .and_then(|value| value.parse::<u8>().ok())
+            .unwrap_or(4),
+        known_key_type: classic_key_type(),
+        known_key: classic_key(),
+        target_block: target_block(),
+        target_key_type: classic_key_type(),
+        tables_dir: env::var_os("NFCX_HARDNESTED_TABLES").map(std::path::PathBuf::from),
+        max_nonces: env::var("NFCX_HARDNESTED_MAX_NONCES")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(4000),
+    };
+    let outcome = recover(&mut *reader, &request, &CancelToken::new(), &mut |_| {})
+        .expect("hardnested recovery");
+    println!(
+        "hardnested nonces={} tested={} keys={:?}",
+        outcome.nonces,
+        outcome.tested_states,
+        outcome
+            .keys
+            .iter()
+            .map(|key| key.to_hex())
+            .collect::<Vec<_>>()
+    );
+    assert!(!outcome.keys.is_empty(), "no key recovered");
+    let verified = outcome.keys.iter().find(|key| {
+        verify_key(
+            &mut *reader,
+            request.target_block,
+            request.target_key_type,
+            **key,
+        )
+        .is_ok()
+    });
+    assert!(verified.is_some(), "no candidate authenticated");
+    println!(
+        "verified key {}",
+        verified.map(|key| key.to_hex()).unwrap_or_default()
+    );
+    reader.close().expect("close reader");
+}
+
+#[test]
+#[ignore = "requires a reader and a MIFARE Classic card"]
 fn nested_target_distance_probe() {
     let _guard = lock_hardware();
     let mut reader = open_reader();
@@ -219,7 +274,7 @@ fn nested_target_distance_probe() {
         )
         .expect("known auth");
         let nested = session
-            .nested_nonce(target_block(), classic_key_type())
+            .nested_nonce(&mut *reader, target_block(), classic_key_type())
             .expect("nested target");
         let plain =
             acquire::decrypt_nested_nonce(session.uid, nested.tag_nonce_encrypted, target_key);
@@ -232,7 +287,7 @@ fn nested_target_distance_probe() {
             nested.parity,
             nfc_recover::nested::parity_matches(plain, nested.tag_nonce_encrypted, nested.parity)
         );
-        drop(session);
+        session.leave(&mut *reader).expect("leave recovery mode");
     }
     reader.close().expect("close reader");
 }

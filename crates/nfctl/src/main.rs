@@ -13,8 +13,8 @@ use nfc_app::classic::{
 use nfc_classic::{DumpFormat, Layout, bcc_for_uid, diff, exchange};
 use nfc_core::{BLOCK_SIZE, CancelToken, CardInfo, CardType, Key, KeyType, NfcError, Result};
 use nfc_drivers::DriverRegistry;
-use nfc_recover::RecoveryRequest;
 use nfc_recover::auto::RecoveryStrategy;
+use nfc_recover::{RecoveryProgress, RecoveryRequest};
 use nfc_transport::DeviceInfo;
 use nfc_transport::mock::MockTransport;
 
@@ -47,6 +47,12 @@ struct Cli {
     /// Do not try the built-in common keys.
     #[arg(long, global = true)]
     no_common_keys: bool,
+    /// Hardnested table directory. Defaults to the installed resource path.
+    #[arg(long, global = true, value_name = "DIR")]
+    hardnested_tables: Option<PathBuf>,
+    /// Hardnested acquisition cap; zero uses the engine default.
+    #[arg(long, global = true, value_name = "N", default_value_t = 0)]
+    max_nonces: usize,
     #[command(subcommand)]
     command: Command,
 }
@@ -233,9 +239,23 @@ enum RecoveryCommand {
         #[arg(long, default_value = "A", value_name = "A|B")]
         target_type: String,
     },
+    /// Hardnested recovery using a known key.
     #[command(alias = "hardnested")]
-    HardNested,
-    Fm11rf08s,
+    HardNested {
+        #[arg(long, default_value = "4", value_name = "BLOCK")]
+        known_block: usize,
+        #[arg(long, default_value = "0", value_name = "BLOCK")]
+        target_block: usize,
+        #[arg(long, default_value = "A", value_name = "A|B")]
+        target_type: String,
+    },
+    /// Detect the FM11RF08S static encrypted nonce profile.
+    Fm11rf08s {
+        #[arg(long, default_value = "4", value_name = "BLOCK")]
+        known_block: usize,
+        #[arg(long, default_value = "A", value_name = "A|B")]
+        target_type: String,
+    },
 }
 
 fn main() -> ExitCode {
@@ -329,18 +349,28 @@ fn recovery(cli: &Cli, service: &mut Service, command: RecoveryCommand) -> Resul
             target_block,
             target_type,
         ),
-        RecoveryCommand::HardNested => {
-            return Err(NfcError::NotImplemented("nfctl recover hardnested"));
-        }
-        RecoveryCommand::Fm11rf08s => {
-            return Err(NfcError::NotImplemented("nfctl recover fm11rf08s"));
-        }
+        RecoveryCommand::HardNested {
+            known_block,
+            target_block,
+            target_type,
+        } => (
+            RecoveryStrategy::HardNested,
+            known_block,
+            target_block,
+            target_type,
+        ),
+        RecoveryCommand::Fm11rf08s {
+            known_block,
+            target_type,
+        } => (RecoveryStrategy::Fm11rf08s, known_block, 0, target_type),
     };
     prepare(service, cli.device.as_deref())?;
     let candidates = recovery_candidates(cli)?;
     if candidates.is_empty() {
-        eprintln!("warning: no candidate keys; nested recovery needs a known key");
+        eprintln!("warning: no candidate keys; nested and hardnested recovery need a known key");
     }
+    let printer = Arc::new(CliProgress::default());
+    let sink = Arc::clone(&printer);
     let request = RecoveryRequest {
         known_block: u8::try_from(known_block).map_err(|_| {
             NfcError::InvalidArgument(format!("known block {known_block} is outside 0..=255"))
@@ -352,6 +382,9 @@ fn recovery(cli: &Cli, service: &mut Service, command: RecoveryCommand) -> Resul
         known_key_type: KeyType::A,
         candidates,
         cancel: CancelToken::new(),
+        progress: Some(Arc::new(move |event| sink.report(event))),
+        tables_dir: cli.hardnested_tables.clone(),
+        max_nonces: cli.max_nonces,
     };
     let result = service.recover(strategy, request)?;
     if let Some(profile) = &result.profile {
@@ -368,6 +401,81 @@ fn recovery(cli: &Cli, service: &mut Service, command: RecoveryCommand) -> Resul
         println!("{}", result.note);
     }
     Ok(())
+}
+
+#[derive(Default)]
+struct CliProgress {
+    state: std::sync::Mutex<ProgressState>,
+}
+
+#[derive(Default)]
+struct ProgressState {
+    last: Option<std::time::Instant>,
+    last_stage: u8,
+    last_percent: i64,
+    last_received: usize,
+}
+
+impl CliProgress {
+    fn report(&self, event: RecoveryProgress) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        let now = std::time::Instant::now();
+        let stage = match event {
+            RecoveryProgress::Acquiring { .. } => 1,
+            RecoveryProgress::Filtering { .. } => 2,
+            RecoveryProgress::BruteForce { .. } => 3,
+        };
+        let elapsed = state
+            .last
+            .is_none_or(|last| now.duration_since(last).as_secs() >= 2);
+        match event {
+            RecoveryProgress::Acquiring {
+                received,
+                distinct_nonces,
+                first_bytes,
+                expected_states,
+            } => {
+                if state.last_stage != stage
+                    || elapsed
+                    || received.saturating_sub(state.last_received) >= 64
+                {
+                    eprintln!(
+                        "acquire: {received} frames, {distinct_nonces} nonces, {first_bytes}/256 first bytes, estimated {expected_states:.3e} states"
+                    );
+                    state.last = Some(now);
+                    state.last_received = received;
+                }
+            }
+            RecoveryProgress::Filtering { expected_states } => {
+                if state.last_stage != stage {
+                    eprintln!("filter: estimated {expected_states:.3e} states");
+                }
+            }
+            RecoveryProgress::BruteForce {
+                tested_states,
+                total_states,
+                expected_states,
+            } => {
+                let percent = tested_states
+                    .saturating_mul(100)
+                    .checked_div(total_states)
+                    .unwrap_or(0) as i64;
+                if state.last_stage != stage
+                    || percent >= state.last_percent + 10
+                    || (elapsed && percent != state.last_percent)
+                {
+                    eprintln!(
+                        "brute force: {percent}% ({tested_states}/{total_states}), expected {expected_states:.3e} states"
+                    );
+                    state.last_percent = percent;
+                    state.last = Some(now);
+                }
+            }
+        }
+        state.last_stage = stage;
+    }
 }
 
 fn parse_key_type(value: &str) -> Result<KeyType> {

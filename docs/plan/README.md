@@ -11,7 +11,7 @@ Status legend: `done`, `in progress`, `pending`, `optional`.
 | 04 | Classic read/write/dump/restore/keyscan CLI + GUI workspace | done |
 | 05 | ACR122U USB/CCID driver and raw bits/parity | done |
 | 06 | Native recovery: Crypto1, darkside, nested, staticnested | done |
-| 07 | Native hardnested and FM11RF08S/static encrypted | pending |
+| 07 | Native hardnested and FM11RF08S/static encrypted | done |
 | 08 | NDEF core: records, TLV, templates, validation | pending |
 | 09 | Type 2 / NTAG read/write/NDEF + GUI | pending |
 | 10 | Classic NDEF: MAD/CC/format + GUI | pending |
@@ -195,6 +195,20 @@ Acceptance:
 - Unsupported/static encrypted cards fail with actionable messages.
 - Memory and CPU use bounded; progress and cancellation visible.
 - Keys are verified in-process after recovery.
+
+Status: complete. PM3 table loading, sum/bitflip filtering, the 64-lane
+bit-sliced solver, fast-select nonce acquisition, EV1/QL88 signature detection,
+static encrypted nonce detection, and FM11RF08S profile reporting are
+implemented. `nfctl recover hardnested` and `recover fm11rf08s` are available.
+Simulated fixtures and the full filtering/solver fixture recover the known key.
+Hardware on 2026-11-10: ACR122U collected 1840 frames and recovered sector 0
+Key A `A0A1A2A3A4A5` in 4m3s; PN532 UART collected 1816 frames and recovered
+sector 5 Key A `FBBECDF6304E` in 5m29s. Both keys were verified with fresh
+authentication. FM11RF08S key recovery remains detection-only because the
+PN532 UART and ACR122U transports do not expose the reader-scheduled
+acquisition; the strategy reports that limitation. A hard-PRNG card, an
+FM11RF08S card, and a 4K EV1 card were not available. See
+`docs/notes/07-hardnested.md`.
 
 ### 08: NDEF core
 

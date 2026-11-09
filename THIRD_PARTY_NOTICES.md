@@ -15,6 +15,7 @@ include the complete dependency license texts and any required notices.
 | `serde_json` | 1.x | MIT OR Apache-2.0 |
 | `proptest` | 1.12.x | MIT OR Apache-2.0 |
 | `tempfile` | 3.27.x | MIT OR Apache-2.0 |
+| `lz4_flex` | 0.14.x | MIT |
 
 Transitive dependencies and their exact versions are recorded in
 `Cargo.lock`. Before a release, generate and review the full notice bundle with
@@ -29,6 +30,39 @@ Proxmark3-derived recovery code retains its GPL-3.0-or-later notices:
 - `crates/nfc-recover/src/acquire.rs`, `classify.rs`, `darkside.rs`,
   `nested.rs`, and `attack.rs` implement behavior from
   `client/src/mifare/mifarehost.c` and `armsrc/mifarecmd.c`.
+- `crates/nfc-recover/src/hardnested/` derives from
+  `client/src/cmdhfmfhard.c`, `client/deps/hardnested/` (piwi, Proxmark3
+  contributors), and the state tables in `client/resources/hardnested_tables/`
+  (piwi). The bitsliced kernel builds on aczid's MIT-licensed `crypto1_bs`
+  (Copyright (c) 2015-2016 Aram Verstegen); the MIT notice is reproduced below.
+
+The hardnested state tables are a direct copy of PM3's
+`client/resources/hardnested_tables/` and are distributed under
+GPL-3.0-or-later. They are required attack data, not generated at install
+time.
+
+```text
+Bit-sliced Crypto-1 brute-forcing implementation
+Copyright (c) 2015-2016 Aram Verstegen
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
 
 The old mfoc/mfcuk/mfoc-hardnested implementations are not shipped; they may
 appear only in development notes as test oracles.

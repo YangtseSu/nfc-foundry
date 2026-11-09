@@ -10,8 +10,11 @@ pub mod auto;
 pub mod classify;
 pub mod crypto1;
 pub mod darkside;
+pub mod hardnested;
 pub mod mfkey;
 pub mod nested;
 
-pub use attack::{AttackKind, RecoveryRequest, RecoveryResult, recover};
+pub use attack::{
+    AttackKind, ProgressSink, RecoveryProgress, RecoveryRequest, RecoveryResult, recover,
+};
 pub use auto::{CardProfile, PrngProfile, RecoveryStrategy};

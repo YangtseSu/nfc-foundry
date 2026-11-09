@@ -39,21 +39,30 @@ Classify before choosing an attack:
 
 ## Attack sequence
 
-Phase 06 implements the read-only foundation. The `auto` strategy currently:
+The `auto` strategy follows PM3 autopwn ordering:
 
 1. Classifies the card with three partial authentications.
-2. Tries the supplied key store, `--key`, `--key-file`, and common candidates
+2. Checks for the EV1/QL88 originality signature and uses the signature key as
+   a known key when no supplied candidate works.
+3. Tries the supplied key store, `--key`, `--key-file`, and common candidates
    against the known block.
-3. With a known key, runs nested or static-nested recovery depending on the
-   classifier.
-4. Without a known key, runs darkside only when the card reports usable
-   authentication and nonce behaviour.
-5. Verifies every recovered key with a fresh authentication before returning
+4. With a known key, checks for a static encrypted nonce. A static encrypted
+   card reports the FM11RF08S profile and the transport limitation instead of
+   running an attack that cannot work.
+5. With a known key and a normal or hard PRNG, runs nested first. A nested
+   failure falls back to hardnested.
+6. Without a known key, runs darkside only when the card reports weak PRNG and
+   usable authentication. If darkside finds no repeatable sample, the error
+   says that hardnested needs one known key.
+7. Verifies every recovered key with a fresh authentication before returning
    it.
 
-Hardnested, static encrypted nonce, FM11RF08S, EV1 signature, and full autopwn
-sequencing are phase 07. The engine returns `NotImplemented` for those
-strategies.
+`recover hardnested` loads the PM3 tables, collects encrypted nonces with fast
+select, filters the state space, and runs the bit-sliced solver. It needs a
+candidate key that authenticates the known block. `recover fm11rf08s` reports
+whether the static encrypted nonce profile is present; the FM11RF08S recovery
+sequence itself needs reader-scheduled acquisition that the PN532 UART and
+ACR122U transports do not expose.
 
 ## Reader behavior
 
@@ -74,33 +83,46 @@ a missing solver; the PM3 `nonce2key` vector is covered by a golden test.
 ```text
 nfc-recover/
   crypto1.rs       # Crypto1/LFSR primitives
-  prng.rs          # nonce progression/distance
+  acquire.rs       # Crypto1 session, parity auth, fast select
   darkside.rs
-  nested.rs
-  staticnested.rs
+  nested.rs        # nested and static-nested
   hardnested/
-    acquire.rs
-    filter.rs
-    solver.rs
-    tables.rs
-  fm11rf08s.rs
+    acquire.rs     # fast-selected nonce acquisition
+    bitset.rs      # PM3 state bitsets
+    bitslice.rs    # 64-lane brute-force kernel
+    filter.rs      # sum/bitflip filtering, candidate lists
+    nonces.rs      # nonce storage and sum-probability model
+    solver.rs      # Sum(a8) guesses and key selection
+    tables.rs      # PM3 table loading
   mfkey.rs
   auto.rs
-  attack.rs        # Attack trait, request/result, progress
+  attack.rs        # strategy execution, progress, verification
 ```
+
+Static encrypted detection and EV1 signature detection live in `classify.rs`.
+FM11RF08S recovery beyond detection is not implemented; the strategy returns an
+actionable transport limitation.
 
 `nfc-recover` receives an exclusive `Reader` lease from `nfc-app`. It never
 opens a device itself and never spawns an external attack process.
 
 ## Performance
 
-- Nested/static-nested recovery is single-process and single-threaded in phase
-  06. A two-sample run takes a few seconds on the validated test card.
-- Cancellation is an atomic token checked before every nonce attempt, sample,
-  and key verification.
+- Nested/static-nested recovery is single-process and single-threaded. A
+  two-sample run takes a few seconds on the validated test card.
+- Hardnested acquisition needs all 256 encrypted first-byte values. On the
+  ACR122U this is roughly 1500-2500 frames at host round-trip speed; the
+  collector reports frame, nonce, first-byte, and estimated-state progress.
+- Hardnested filtering keeps 24-bit state bitsets and the PM3 effective tables
+  in memory. Peak memory is bounded by the table set, per-first-byte bitsets,
+  and candidate state lists; the solver reports tested and total state pairs.
+- Cancellation is an atomic token checked during acquisition, filtering,
+  candidate generation, and brute force.
 - Nonce storage is bounded per attack. Darkside keeps at most 64 candidate
-  nonce groups and eight observations per group.
-- Hardnested bit-sliced kernels, PM3 tables, and SIMD runtimes remain phase 07.
+  nonce groups and eight observations per group; hardnested stops at the PM3
+  reduction criterion or the configured `--max-nonces` cap.
+- The 64-lane kernel is portable Rust. No SIMD runtime dispatch is required;
+  release builds are used for real acquisitions.
 
 ## Licensing
 

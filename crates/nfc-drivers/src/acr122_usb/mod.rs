@@ -179,6 +179,16 @@ impl Reader for Acr122Usb {
         self.protocol()?.transceive_parity(data, parity)
     }
 
+    fn transceive_parity_bits(
+        &mut self,
+        data: &[u8],
+        data_bits: usize,
+        parity: &[u8],
+    ) -> Result<ParityFrame> {
+        self.protocol()?
+            .transceive_parity_bits(data, data_bits, parity)
+    }
+
     fn transceive_parity_expect(
         &mut self,
         data: &[u8],

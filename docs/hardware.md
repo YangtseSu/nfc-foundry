@@ -4,8 +4,8 @@
 
 | Target | Connstring | Backend | First-release scope |
 |---|---|---|---|
-| PN532 UART | `pn532_uart:/dev/ttyUSB0` | `serialport` + PN532 framing | Classic + Type 2 + raw bits/parity; nested/static-nested recovery |
-| ACR122U | `acr122_usb:...` | `nusb` + CCID + ACR122 pseudo-APDU | Classic + Type 2 + raw bits/parity + Gen1A; nested/static-nested recovery |
+| PN532 UART | `pn532_uart:/dev/ttyUSB0` | `serialport` + PN532 framing | Classic + Type 2 + raw bits/parity; nested/static-nested/hardnested recovery |
+| ACR122U | `acr122_usb:...` | `nusb` + CCID + ACR122 pseudo-APDU | Classic + Type 2 + raw bits/parity + Gen1A; nested/static-nested/hardnested recovery |
 
 No other reader is advertised in the first release.
 
@@ -26,6 +26,8 @@ Implement:
 - `InCommunicateThru` for raw ISO/IEC 14443A bytes and partial-bit frames;
 - raw mode that disables hardware CRC, rejects ordinary MIFARE operations, and
   leaves parity to the PN532;
+- recovery parity framing for caller-supplied parity, 7-bit short frames such
+  as WUPA, and fast SELECT between hardnested nonce acquisitions;
 - explicit rejection of non-PN532 firmware, missing cards, timeouts, and serial
   disconnects.
 
@@ -105,7 +107,8 @@ card to IDLE; `InRelease` alone did not produce a REQA response on this reader.
 Recovery parity framing is validated on both readers: the PN532 and ACR122U
 return a 32-bit tag nonce from a parity-disabled partial authentication and
 complete full software Crypto1 authentication. Nested and static-nested
-recovery are validated on both transports. A known response size avoids the
+recovery, hardnested fast-select acquisition with 7-bit WUPA, and hardnested
+key recovery are validated on both transports. A known response size avoids the
 post-response trailing-bits reset and status read so the reader response is
 transmitted inside the card's authentication window. Darkside requires
 PRNG-scheduled authentication frames that neither host-driven reader can

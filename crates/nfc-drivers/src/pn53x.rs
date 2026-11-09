@@ -138,18 +138,34 @@ pub(crate) fn parse_response(command: u8, data: &[u8], source: &str) -> Result<V
 
 /// Packs data bytes and caller-supplied parity into the PN53x parity-disabled
 /// FIFO layout. Returns the frame bytes and the exact transmitted bit count.
+#[cfg(test)]
 pub(crate) fn wrap_parity_frame(data: &[u8], parity: &[u8]) -> Result<(Vec<u8>, usize)> {
+    wrap_parity_frame_bits(data, data.len() * 8, parity)
+}
+
+/// Wraps a frame with caller parity. `data_bits` may be smaller than
+/// `data.len() * 8` for 7-bit ISO/IEC 14443A short frames such as WUPA.
+pub(crate) fn wrap_parity_frame_bits(
+    data: &[u8],
+    data_bits: usize,
+    parity: &[u8],
+) -> Result<(Vec<u8>, usize)> {
     if data.is_empty() {
         return Err(NfcError::InvalidArgument(
             "parity frame has no data".to_owned(),
         ));
+    }
+    if data_bits == 0 || data_bits > data.len() * 8 {
+        return Err(NfcError::InvalidArgument(format!(
+            "parity frame has {data_bits} bits in {} bytes",
+            data.len()
+        )));
     }
     if data.len() != parity.len() {
         return Err(NfcError::InvalidArgument(
             "parity frame needs one parity bit per data byte".to_owned(),
         ));
     }
-    let data_bits = data.len() * 8;
     let frame_bits = data_bits + data.len();
     if data_bits < 9 {
         return Ok((data.to_vec(), data_bits));
@@ -294,6 +310,13 @@ mod tests {
         assert!(wrap_parity_frame(&[1, 2], &[1]).is_err());
         assert!(wrap_parity_frame(&[], &[]).is_err());
         assert!(unwrap_parity_frame(&[], 0).is_err());
+    }
+
+    #[test]
+    fn short_wupa_frame_keeps_seven_bits() {
+        let (frame, bits) = wrap_parity_frame_bits(&[0x52], 7, &[0]).expect("wrap");
+        assert_eq!(frame, vec![0x52]);
+        assert_eq!(bits, 7);
     }
 
     #[test]

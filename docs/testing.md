@@ -175,7 +175,11 @@ NFCX_HARDWARE=1 NFCX_DEVICE=acr122_usb:001:017 NFCX_HARDWARE_KEY=D3F7D3F7D3F7 ca
 
 The suite checks parity-disabled partial authentication, software Crypto1
 authentication, nested nonce distance, nested recovery of a known target key,
-static-nested recovery, and darkside repeated-nonce collection. Place a
+static-nested recovery, hardnested acquisition and key recovery, and darkside
+repeated-nonce collection. The hardnested case is the long one: it loads the
+PM3 tables, collects until all 256 first nonce bytes are present, and runs the
+bit-sliced solver. `NFCX_HARDNESTED_MAX_NONCES` caps the acquisition (default
+4000) and `NFCX_HARDNESTED_TABLES` selects a table directory. Place a
 MIFARE Classic 1K card on the reader. The current test fixture uses block 4 Key
 A `D3F7D3F7D3F7` and target block 0 Key A `A0A1A2A3A4A5`.
 
@@ -196,6 +200,9 @@ ACR122U at `acr122_usb:001:017`:
 - nested measured distance `160`, window `156..164`;
 - nested, static-nested, and auto recovered sector 0 Key A
   `A0A1A2A3A4A5` from block 4 Key A `D3F7D3F7D3F7` and verified it;
+- hardnested collected 1840 frames / 1805 distinct nonces, reached 256/256
+  first bytes, estimated 2.309e8 states, tested 729232 state pairs, recovered
+  the sector 0 Key A target, and verified it with a fresh authentication;
 - darkside found no repeated-nonce sample in 200 tight-loop attempts.
 
 PN532 UART at `pn532_uart:/dev/ttyUSB0` with canonical keys
@@ -206,6 +213,9 @@ PN532 UART at `pn532_uart:/dev/ttyUSB0` with canonical keys
 - nested measured distance `128`, window `124..132`;
 - nested, static-nested, and auto recovered sector 5 Key A
   `FBBECDF6304E` from block 4 Key A `FFFFFFFFFFFF` and verified it;
+- hardnested collected 1816 frames / 1795 distinct nonces, reached 256/256
+  first bytes, tested 2152066416 state pairs through the all-bitflip path,
+  recovered the same target key, and verified it with a fresh authentication;
 - darkside found no repeated-nonce sample.
 
 ## Hardware failure triage

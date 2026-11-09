@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+lz4_flex.workspace = true
 nfc-classic.workspace = true
 nfc-core.workspace = true
 nfc-transport.workspace = true

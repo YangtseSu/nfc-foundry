@@ -82,18 +82,23 @@ fn calibrate(
     let mut distances = Vec::with_capacity(rounds);
     for _ in 0..rounds {
         cancel.check()?;
-        let mut session = Session::authenticate(
+        let distance = Session::with_authentication(
             &mut *reader,
             request.known_block,
             request.known_key_type,
             request.known_key,
             None,
+            |session, reader| {
+                let nested =
+                    session.nested_nonce(reader, request.known_block, request.known_key_type)?;
+                let plain = decrypt_nested_nonce(
+                    session.uid,
+                    nested.tag_nonce_encrypted,
+                    request.known_key,
+                );
+                Ok(nonce_distance(session.tag_nonce, plain))
+            },
         )?;
-        let nested = session.nested_nonce(request.known_block, request.known_key_type)?;
-        let plain =
-            decrypt_nested_nonce(session.uid, nested.tag_nonce_encrypted, request.known_key);
-        let distance = nonce_distance(session.tag_nonce, plain);
-        session.leave()?;
         distances.push(distance);
     }
     let min = *distances.iter().min().unwrap_or(&0);
@@ -111,17 +116,18 @@ fn collect_sample(
     cancel: &CancelToken,
 ) -> Result<SampleSet> {
     cancel.check()?;
-    let mut session = Session::authenticate(
+    let (nested, uid, tag_nonce) = Session::with_authentication(
         &mut *reader,
         request.known_block,
         request.known_key_type,
         request.known_key,
         None,
+        |session, reader| {
+            let nested =
+                session.nested_nonce(reader, request.target_block, request.target_key_type)?;
+            Ok((nested, session.uid, session.tag_nonce))
+        },
     )?;
-    let nested = session.nested_nonce(request.target_block, request.target_key_type)?;
-    let uid = session.uid;
-    let tag_nonce = session.tag_nonce;
-    session.leave()?;
 
     let mut predicted = Vec::new();
     let mut next = prng_successor(tag_nonce, u32::from(measured.min.saturating_sub(1)));

@@ -38,8 +38,12 @@ pub fn plan(profile: &CardProfile) -> Vec<RecoveryStrategy> {
         PrngProfile::Weak if !profile.has_known_key && profile.darkside_vulnerable => {
             plan.push(RecoveryStrategy::DarkSide);
             plan.push(RecoveryStrategy::Nested);
+            plan.push(RecoveryStrategy::HardNested);
         }
-        PrngProfile::Weak => plan.push(RecoveryStrategy::Nested),
+        PrngProfile::Weak => {
+            plan.push(RecoveryStrategy::Nested);
+            plan.push(RecoveryStrategy::HardNested);
+        }
         PrngProfile::Hard => {
             if profile.ev1_signature || profile.has_known_key {
                 plan.push(RecoveryStrategy::HardNested);
@@ -78,7 +82,8 @@ mod tests {
             vec![
                 RecoveryStrategy::Dictionary,
                 RecoveryStrategy::DarkSide,
-                RecoveryStrategy::Nested
+                RecoveryStrategy::Nested,
+                RecoveryStrategy::HardNested
             ]
         );
     }

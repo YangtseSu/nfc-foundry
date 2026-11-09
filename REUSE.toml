@@ -7,6 +7,12 @@ SPDX-FileCopyrightText = "2026 NFC Foundry contributors"
 SPDX-License-Identifier = "GPL-3.0-or-later"
 
 [[annotations]]
+path = ["resources/hardnested_tables/**"]
+precedence = "closest"
+SPDX-FileCopyrightText = ["2015, 2016 piwi", "Proxmark3 contributors"]
+SPDX-License-Identifier = "GPL-3.0-or-later"
+
+[[annotations]]
 path = ["LICENSES/**", "LICENSE"]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "Free Software Foundation, Inc."

@@ -63,6 +63,19 @@ pub trait Reader: Send {
         ))
     }
 
+    /// Parity exchange for a frame shorter than a whole byte, such as the
+    /// 7-bit WUPA used before a fast SELECT.
+    fn transceive_parity_bits(
+        &mut self,
+        _data: &[u8],
+        _data_bits: usize,
+        _parity: &[u8],
+    ) -> Result<ParityFrame> {
+        Err(NfcError::Unsupported(
+            "this reader has no recovery parity bit exchange",
+        ))
+    }
+
     /// Parity exchange with a known response frame size. Drivers may skip the
     /// trailing-bits reset and status read so the next authentication frame is
     /// transmitted inside the card's response window.

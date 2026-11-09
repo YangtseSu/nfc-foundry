@@ -30,10 +30,9 @@ pub struct AuthSession {
 }
 
 /// A selected card kept in an authenticated session. Recovery mode stays
-/// enabled until the session ends so nested authentication does not reset the
+/// enabled until `leave` is called so nested authentication does not reset the
 /// reader between frames.
-pub struct Session<'a> {
-    reader: &'a mut dyn Reader,
+pub struct Session {
     recovery: bool,
     pub uid: u32,
     pub tag_nonce: u32,
@@ -139,11 +138,11 @@ fn parse_nonce(response: &ParityFrame) -> Result<u32> {
     ]))
 }
 
-impl<'a> Session<'a> {
+impl Session {
     /// Selects the card, enters recovery mode, and completes Crypto1
     /// authentication with the given key.
     pub fn authenticate(
-        reader: &'a mut dyn Reader,
+        reader: &mut dyn Reader,
         block: u8,
         key_type: KeyType,
         key: Key,
@@ -152,32 +151,119 @@ impl<'a> Session<'a> {
         let (_, uid) = select_card(reader)?;
         reader.set_recovery_mode(true)?;
         let mut session = Self {
-            reader,
             recovery: true,
             uid,
             tag_nonce: 0,
             state: Crypto1State::default(),
         };
-        match session.authenticate_selected(block, key_type, key, reader_nonce) {
+        match session.authenticate_selected(reader, block, key_type, key, reader_nonce) {
             Ok(()) => Ok(session),
             Err(error) => {
-                let _ = session.leave();
+                let _ = session.leave(reader);
                 Err(error)
             }
         }
     }
 
+    /// Runs `action` with a fresh authentication and always leaves recovery
+    /// mode, including when the action fails.
+    pub fn with_authentication<T>(
+        reader: &mut dyn Reader,
+        block: u8,
+        key_type: KeyType,
+        key: Key,
+        reader_nonce: Option<u32>,
+        action: impl FnOnce(&mut Self, &mut dyn Reader) -> Result<T>,
+    ) -> Result<T> {
+        let mut session = Self::authenticate(reader, block, key_type, key, reader_nonce)?;
+        let result = action(&mut session, reader);
+        let leave = session.leave(reader);
+        match (result, leave) {
+            (Ok(value), Ok(())) => Ok(value),
+            (Err(error), _) => Err(error),
+            (Ok(_), Err(error)) => Err(error),
+        }
+    }
+
+    /// Starts a recovery session on the currently selected card.
+    pub(crate) fn begin(reader: &mut dyn Reader) -> Result<(Self, CardInfo)> {
+        let (card, uid) = select_card(reader)?;
+        reader.set_recovery_mode(true)?;
+        Ok((
+            Self {
+                recovery: true,
+                uid,
+                tag_nonce: 0,
+                state: Crypto1State::default(),
+            },
+            card,
+        ))
+    }
+
+    /// Selects the card again with an ISO/IEC 14443A SELECT frame, without
+    /// releasing it or cycling the field. This is the PM3 fast-select path used
+    /// between hardnested nonce acquisitions; it preserves the card PRNG.
+    pub(crate) fn fast_select(&mut self, reader: &mut dyn Reader, card: &CardInfo) -> Result<()> {
+        let uid = &card.uid;
+        if uid.is_empty() || uid.len() > 10 {
+            return Err(NfcError::Unsupported(
+                "fast select supports 4-, 7-, and 10-byte UIDs",
+            ));
+        }
+        // Wake the card from HALT/authentication wait before SELECT, matching
+        // PM3's `GetATQA` call inside `iso14443a_fast_select_card`.
+        let wupa = reader.transceive_parity_bits(&[0x52], 7, &[0])?;
+        if wupa.data.is_empty() {
+            return Err(NfcError::Timeout(
+                "the card did not answer WUPA during fast select".to_owned(),
+            ));
+        }
+        let mut offset = 0usize;
+        let mut level = 0usize;
+        while offset < uid.len() {
+            let remaining = uid.len() - offset;
+            let chunk = remaining.min(4);
+            let mut frame = vec![0x93 + (level as u8) * 2, 0x70];
+            if remaining > 4 {
+                frame.push(0x88);
+            }
+            frame.extend_from_slice(&uid[offset..offset + chunk]);
+            let bcc = frame[2..].iter().fold(0u8, |value, byte| value ^ byte);
+            frame.push(bcc);
+            let crc = crc_a(&frame);
+            frame.extend_from_slice(&crc);
+            let parity = odd_parity(&frame);
+            let response = reader.transceive_parity_expect(&frame, &parity, 27)?;
+            if response.data.len() != 3 || response.bits != 24 {
+                return Err(NfcError::AuthenticationFailed);
+            }
+            offset += chunk;
+            level += 1;
+        }
+        Ok(())
+    }
+
+    /// Authenticates the known block while keeping recovery mode active.
+    pub(crate) fn authenticate_known(
+        &mut self,
+        reader: &mut dyn Reader,
+        block: u8,
+        key_type: KeyType,
+        key: Key,
+    ) -> Result<()> {
+        self.authenticate_selected(reader, block, key_type, key, None)
+    }
+
     fn authenticate_selected(
         &mut self,
+        reader: &mut dyn Reader,
         block: u8,
         key_type: KeyType,
         key: Key,
         reader_nonce: Option<u32>,
     ) -> Result<()> {
         let (command, parity) = auth_command(block, key_type);
-        let response = self
-            .reader
-            .transceive_parity_expect(&command, &parity, 36)?;
+        let response = reader.transceive_parity_expect(&command, &parity, 36)?;
         let tag_nonce = parse_nonce(&response)?;
         let reader_nonce = reader_nonce.unwrap_or_else(next_reader_nonce);
         let mut state = Crypto1State::from_key(key_to_u64(&key));
@@ -199,9 +285,7 @@ impl<'a> Session<'a> {
             parity[index] = (filter(state.odd) ^ odd_parity8(byte)) & 1;
         }
 
-        let answer = self
-            .reader
-            .transceive_parity_expect(&response, &parity, 36)?;
+        let answer = reader.transceive_parity_expect(&response, &parity, 36)?;
         if answer.data.len() != 4 || answer.bits != 32 {
             return Err(NfcError::AuthenticationFailed);
         }
@@ -221,9 +305,24 @@ impl<'a> Session<'a> {
         Ok(())
     }
 
+    /// Aborts a pending nested authentication. PM3 sends a one-byte dummy
+    /// response so the card leaves the authentication wait state, then waits
+    /// for its authentication timeout before the next fast select.
+    pub(crate) fn abort_nested(&mut self, reader: &mut dyn Reader) {
+        let dummy = [0x00u8];
+        let parity = odd_parity(&dummy);
+        let _ = reader.transceive_parity(&dummy, &parity);
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+
     /// Sends a nested authentication command under the active session and
     /// returns the encrypted tag nonce.
-    pub fn nested_nonce(&mut self, block: u8, key_type: KeyType) -> Result<NestedNonce> {
+    pub fn nested_nonce(
+        &mut self,
+        reader: &mut dyn Reader,
+        block: u8,
+        key_type: KeyType,
+    ) -> Result<NestedNonce> {
         let (plain, _) = command_with_crc(
             match key_type {
                 KeyType::A => MIFARE_AUTH_A,
@@ -237,9 +336,7 @@ impl<'a> Session<'a> {
             encrypted[index] = self.state.byte(0, false) ^ *byte;
             parity[index] = (filter(self.state.odd) ^ odd_parity8(*byte)) & 1;
         }
-        let response = self
-            .reader
-            .transceive_parity_expect(&encrypted, &parity, 36)?;
+        let response = reader.transceive_parity_expect(&encrypted, &parity, 36)?;
         if response.data.len() != 4 || response.bits != 32 {
             return Err(NfcError::AuthenticationFailed);
         }
@@ -258,20 +355,76 @@ impl<'a> Session<'a> {
         })
     }
 
-    pub fn leave(&mut self) -> Result<()> {
+    pub fn leave(&mut self, reader: &mut dyn Reader) -> Result<()> {
         if self.recovery {
             self.recovery = false;
-            self.reader.set_recovery_mode(false)?;
+            reader.set_recovery_mode(false)?;
         }
         Ok(())
     }
 }
 
-impl Drop for Session<'_> {
-    fn drop(&mut self) {
-        if self.recovery {
-            let _ = self.reader.set_recovery_mode(false);
+/// A selected card kept in recovery mode across many nested authentication
+/// attempts. `fast_select` resets the card to ACTIVE without a field cycle.
+pub(crate) struct Collector {
+    session: Session,
+    card: CardInfo,
+    started: bool,
+    known_block: u8,
+    known_key_type: KeyType,
+    known_key: Key,
+    target_block: u8,
+    target_key_type: KeyType,
+}
+
+impl Collector {
+    pub(crate) fn begin(
+        reader: &mut dyn Reader,
+        known_block: u8,
+        known_key_type: KeyType,
+        known_key: Key,
+        target_block: u8,
+        target_key_type: KeyType,
+    ) -> Result<Self> {
+        let (session, card) = Session::begin(reader)?;
+        Ok(Self {
+            session,
+            card,
+            started: false,
+            known_block,
+            known_key_type,
+            known_key,
+            target_block,
+            target_key_type,
+        })
+    }
+
+    pub(crate) fn next_nonce(&mut self, reader: &mut dyn Reader) -> Result<NestedNonce> {
+        if self.started {
+            self.session.fast_select(reader, &self.card)?;
+        } else {
+            self.started = true;
         }
+        std::thread::sleep(std::time::Duration::from_micros(500));
+        self.session.authenticate_known(
+            reader,
+            self.known_block,
+            self.known_key_type,
+            self.known_key,
+        )?;
+        let nonce = self
+            .session
+            .nested_nonce(reader, self.target_block, self.target_key_type)?;
+        self.session.abort_nested(reader);
+        Ok(nonce)
+    }
+
+    pub(crate) fn uid(&self) -> u32 {
+        self.session.uid
+    }
+
+    pub(crate) fn leave(&mut self, reader: &mut dyn Reader) -> Result<()> {
+        self.session.leave(reader)
     }
 }
 
@@ -353,7 +506,7 @@ pub fn authenticate_with_nonce(
         tag_nonce: session.tag_nonce,
         state: session.state,
     };
-    session.leave()?;
+    session.leave(reader)?;
     Ok(result)
 }
 
@@ -388,5 +541,26 @@ mod tests {
     fn key_to_u64_is_big_endian() {
         let key = Key::from_hex("A0A1A2A3A4A5").expect("key");
         assert_eq!(key_to_u64(&key), 0xA0A1_A2A3_A4A5);
+    }
+
+    #[test]
+    fn select_frame_has_crc_and_parity_for_short_uids() {
+        let card = CardInfo::new(
+            vec![0x04, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66],
+            [0x00, 0x44],
+            0x08,
+            nfc_core::CardType::MifareClassic4K,
+        );
+        // Building the same frame as `fast_select` for a 7-byte UID: the
+        // first cascade carries CT + three UID bytes, the second the rest.
+        let uid = &card.uid;
+        let mut frame = vec![0x93, 0x70, 0x88];
+        frame.extend_from_slice(&uid[..3]);
+        let bcc = frame[2..].iter().fold(0u8, |value, byte| value ^ byte);
+        frame.push(bcc);
+        assert_eq!(frame.len(), 7);
+        assert_eq!(frame[6], 0x88 ^ 0x04 ^ 0x11 ^ 0x22);
+        let crc = crc_a(&frame);
+        assert_ne!(crc, [0, 0]);
     }
 }

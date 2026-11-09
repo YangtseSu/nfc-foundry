@@ -33,7 +33,9 @@ cargo install --path crates/gui/nfc-foundry --locked
 
 - Use vendored dependencies or an offline `Cargo.lock` strategy consistent with
   AUR `cargo` packaging.
-- Install `nfc-foundry`, `nfctl`, udev rules, license, and notices.
+- Install `nfc-foundry`, `nfctl`, udev rules, license, notices, and
+  `resources/hardnested_tables` under
+  `/usr/share/nfc-foundry/hardnested_tables`.
 - Do not install `mfoc`, `mfcuk`, or `mfoc-hardnested`.
 - Install no `nfc-*` utilities from libnfc.
 
@@ -60,6 +62,7 @@ a card.
 - `LICENSE`, `LICENSES/`, `NOTICE`
 - `THIRD_PARTY_NOTICES.md`
 - documentation and plan status
+- `resources/hardnested_tables`
 - `Cargo.lock`
 - source archive for GPL compliance
 

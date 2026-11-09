@@ -24,13 +24,15 @@ rechecks card identity; restore requires confirmation, refuses to change
 manufacturer block 0, writes data blocks before sector trailers, and stops at
 the first failure by default. Native recovery now covers Crypto1, the `mfkey`
 solvers, parity-based nonce acquisition, nested and static-nested recovery, and
-darkside collection, with `nfctl recover auto|darkside|nested|staticnested`.
-Both readers are validated for nested and static-nested recovery: the PN532
-UART and ACR122U complete software Crypto1 authentication and recover verified
-keys. Darkside requires reader-scheduled frames and reports no sample on these
-host-driven readers. Hardnested and static encrypted nonce recovery arrive in
-phase 07; operations that are not ready return an explicit `NotImplemented`
-error.
+darkside collection, and hardnested with the PM3 state tables and 64-lane
+bit-sliced solver, exposed as
+`nfctl recover auto|darkside|nested|staticnested|hardnested`. Both readers
+complete software Crypto1 authentication, collect hardnested encrypted nonces
+with fast select, and verify recovered keys. Darkside requires
+reader-scheduled frames and reports no sample on these host-driven readers.
+Static encrypted nonce cards are detected and report the FM11RF08S profile and
+the transport limitation instead of a key. EV1/QL88 signature detection uses
+the originality-signature block as a known key when no supplied key works.
 
 ## Product scope
 
@@ -179,9 +181,14 @@ cargo run -p nfctl -- \
 ```
 
 `recover auto` classifies the card first, `recover staticnested` uses the
-static-nonce path, and `recover darkside` reports a no-sample failure when the
-card does not expose eight probes against one tag nonce. Use only cards you
-own.
+static-nonce path, `recover hardnested` loads the PM3 tables and runs the
+bit-sliced solver with `--max-nonces` and throttled progress, and `recover
+darkside` reports a no-sample failure when the card does not expose eight
+probes against one tag nonce. Use only cards you own.
+
+Hardnested tables are read from `/usr/share/nfc-foundry/hardnested_tables`, the
+checkout's `resources/hardnested_tables`, or `NFCX_HARDNESTED_TABLES` (also
+`--hardnested-tables`).
 
 `pcscd` holds the same CCID interface, so stop it before using the direct USB
 path and restart it afterwards. The ACR122U was validated for firmware

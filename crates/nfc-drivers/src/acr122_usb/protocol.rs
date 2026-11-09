@@ -23,8 +23,11 @@ use crate::pn53x::{
     REG_CIU_BIT_FRAMING, REG_CIU_CONTROL, REG_CIU_MANUAL_RCV, REG_CIU_RX_MODE, REG_CIU_STATUS2,
     REG_CIU_TX_MODE, RF_CONFIGURATION, RF_FIELD, RF_RETRY_SELECT, RX_LAST_BITS, SET_PARAMETERS,
     TARGET_NUMBER, TX_RX_CRC_ENABLE, WRITE_REGISTER, parse_firmware, parse_passive_target,
-    parse_response, status_error, unwrap_parity_frame, wrap_parity_frame,
+    parse_response, status_error, unwrap_parity_frame, wrap_parity_frame_bits,
 };
+
+#[cfg(test)]
+use crate::pn53x::wrap_parity_frame;
 
 const ACR_PSEUDO_APDU: [u8; 4] = [0xFF, 0x00, 0x00, 0x00];
 const PICC_OPERATING_PARAMETERS: [u8; 5] = [0xFF, 0x00, 0x51, 0x00, 0x00];
@@ -177,6 +180,15 @@ impl Acr122Protocol {
         self.transceive_parity_inner(data, parity, None)
     }
 
+    pub(crate) fn transceive_parity_bits(
+        &mut self,
+        data: &[u8],
+        data_bits: usize,
+        parity: &[u8],
+    ) -> Result<ParityFrame> {
+        self.transceive_parity_bits_inner(data, data_bits, parity, None)
+    }
+
     pub(crate) fn transceive_parity_expect(
         &mut self,
         data: &[u8],
@@ -192,8 +204,18 @@ impl Acr122Protocol {
         parity: &[u8],
         expected_bits: Option<usize>,
     ) -> Result<ParityFrame> {
+        self.transceive_parity_bits_inner(data, data.len() * 8, parity, expected_bits)
+    }
+
+    fn transceive_parity_bits_inner(
+        &mut self,
+        data: &[u8],
+        data_bits: usize,
+        parity: &[u8],
+        expected_bits: Option<usize>,
+    ) -> Result<ParityFrame> {
         self.require_recovery("recovery parity exchange")?;
-        let (frame, frame_bits) = wrap_parity_frame(data, parity)?;
+        let (frame, frame_bits) = wrap_parity_frame_bits(data, data_bits, parity)?;
         if frame.len() > MAX_ACR_RAW_PAYLOAD {
             return Err(NfcError::InvalidArgument(format!(
                 "parity frame is {} bytes, at most {MAX_ACR_RAW_PAYLOAD} are supported",
@@ -217,6 +239,15 @@ impl Acr122Protocol {
                 }
             }
         };
+        if data_bits < 9 {
+            // Short frames (for example WUPA) return the raw ATQA response;
+            // the caller only needs to know that the card answered.
+            return Ok(ParityFrame {
+                data: raw,
+                bits: received_bits,
+                parity: Vec::new(),
+            });
+        }
         let (data, bits, parity) = unwrap_parity_frame(&raw, received_bits)?;
         Ok(ParityFrame { data, bits, parity })
     }
