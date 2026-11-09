@@ -69,6 +69,33 @@ missing-card errors were checked on hardware. The same-value write needs
 explicit authorization and was not run. `cargo test --workspace` uses only the
 scripted link and never touches hardware.
 
+## Hardware failure triage
+
+A silent or malformed reader response is a driver bug until the reference path
+proves otherwise. Before reporting a hardware blocker:
+
+1. Verify the same exact port with the known-good stack:
+
+   ```sh
+   LIBNFC_DEVICE=pn532_uart:/dev/ttyUSB0 nfc-list -v
+   ```
+
+2. Capture the reference exchange:
+
+   ```sh
+   LIBNFC_DEVICE=pn532_uart:/dev/ttyUSB0 \
+   LIBNFC_LOG_LEVEL=3 nfc-list
+   ```
+
+3. Compare the reference host frames with the Rust driver byte-for-byte. Check
+   the wake-up preamble, command item values, authentication payload, and card
+   state transitions.
+4. Check the validated Python scripts and the previous Go shim for the
+   workflow-level sequence before concluding the adapter is unsupported.
+
+If the reference fails too, record the exact error and the gates used. If the
+reference works, fix the Rust driver and add a regression test.
+
 ## Required checks
 
 ```sh

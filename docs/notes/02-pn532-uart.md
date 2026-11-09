@@ -120,6 +120,12 @@ Date: 2026-11-09
   REQA; REQA only works from IDLE. `cycle_rf_field` now powers the RF field off
   and on and clears the selected-card record, returning the card to IDLE before
   raw frames. The hardware test uses it before the 7-bit REQA.
+- The initial hardware run was misdiagnosed as an adapter limitation after a
+  minimal probe returned no bytes. Running `nfc-list` on the same port proved
+  the PN532 path worked; the validated scripts and the previous shim then
+  supplied the missing wake-prefix, `RFConfiguration` item, and UID-suffix
+  details. The rule to verify the reference path before reporting a hardware
+  blocker is now in `AGENTS.md` and `docs/testing.md`.
 - `serialport::available_ports` cannot distinguish a PN532 from another UART
   device without opening it. The driver lists every serial port as a candidate
   and validates the firmware only after exact selection.

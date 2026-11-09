@@ -74,6 +74,35 @@ be used only as differential test oracles.
 All PM3-derived code is GPL-3.0-or-later. Keep upstream notices and do not
 relicense the derived work.
 
+## Driver reference policy
+
+`libnfc-ng` and the previous `nfc-foundry` implementation are behavioral
+references for reader protocol work, not runtime dependencies. Use them for
+PN532 UART and ACR122U framing, command parameters, register setup, and error
+codes:
+
+- `libnfc-ng`: `libnfc/drivers/` and `libnfc/chips/` for serial framing, PN532
+  commands, register values, and bit/parity handling.
+- previous `nfc-foundry`: `internal/nfc/libnfc/shim.c` and the validated
+  Python scripts for the command sequences that worked on real hardware,
+  including authentication and card-state handling.
+- `nfc-research`: Proxmark3, mfoc/mfcuk, and card-family references for recovery
+  and attack behavior; it is not a reader UART protocol source.
+
+When hardware does not answer:
+
+1. Run the known-good reference against the same exact port first
+   (`LIBNFC_DEVICE=<connstring> nfc-list -v`, or the matching validated
+   script).
+2. Capture the reference host frames and compare them byte-for-byte with the
+   Rust driver; check `LIBNFC_LOG_LEVEL=3` traces when available.
+3. Only after the reference path works on that port, classify the Rust failure
+   as a protocol, timing, or state bug.
+
+Never report a reader as unsupported, missing, or blocked before the reference
+path has been verified on that port. Record the reference trace and the Rust
+trace in the phase note.
+
 ## Layer rules
 
 1. GUI and CLI call `nfc-app` services. They never touch USB, serial, native
