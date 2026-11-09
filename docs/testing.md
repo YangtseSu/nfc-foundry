@@ -29,12 +29,42 @@ Required gates:
 
 - `NFCX_HARDWARE=1`: enable hardware tests.
 - `NFCX_DEVICE`: exact connstring.
-- `NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD`: allow any write.
+- `NFCX_HARDWARE_KEY`: 12-hex MIFARE Classic key; defaults to
+  `FFFFFFFFFFFF`.
+- `NFCX_HARDWARE_KEY_TYPE`: `A` or `B`; defaults to `A`.
+- `NFCX_HARDWARE_BLOCK`: Classic block for read/write tests; defaults to `4`.
+- `NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD`: allow any write. The phase 02 test
+  writes the original value back and refuses block 0 and sector trailers.
 - `NFCX_HARDWARE_RECOVERY=I_OWN_THIS_CARD`: allow active recovery testing.
 - `NFCX_HARDWARE_BACKUP_DIR`: preserve backups.
 
-Never write a card by default. A test that cannot run must report the missing
-gate, not skip silently in release validation.
+The PN532 read test is ignored unless selected:
+
+```sh
+NFCX_HARDWARE=1 \
+NFCX_DEVICE=pn532_uart:/dev/ttyUSB0 \
+cargo test -p nfc-drivers --features hardware -- --ignored
+```
+
+Run it once with a MIFARE Classic card and once with a Type 2 tag; it reads the
+selected card and reports the block or pages. The same-value write test is
+compiled only with the additional `hardware-write` feature and requires
+`NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD`:
+
+```sh
+NFCX_HARDWARE=1 \
+NFCX_DEVICE=pn532_uart:/dev/ttyUSB0 \
+NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD \
+cargo test -p nfc-drivers --features hardware-write -- --ignored
+```
+
+A missing card fails with an instruction to place one; it is not skipped. Never
+write a card by default. A test that cannot run must report the missing gate,
+not skip silently in release validation.
+
+The phase 02 hardware record is currently open: the attached CH340 adapter did
+not answer the PN532 wake-up and firmware commands. This does not affect
+`cargo test --workspace`, which uses only the scripted link.
 
 ## Required checks
 
@@ -48,6 +78,12 @@ reuse lint
 
 For changed GUI screens, add GPUI Kit UI integration tests and a manual window
 check for keyboard, focus, theme, zoom, and Chinese input.
+
+For changed driver hardware tests, also run:
+
+```sh
+cargo clippy -p nfc-drivers --features hardware --all-targets -- -D warnings
+```
 
 ## Fixtures
 

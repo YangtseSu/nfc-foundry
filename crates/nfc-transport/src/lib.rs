@@ -8,7 +8,9 @@ pub use device::{DeviceInfo, ReaderCapabilities};
 use nfc_core::{BLOCK_SIZE, CardInfo, Key, KeyType, Result};
 
 /// A reader opened through an exact connstring. One reader is owned by one
-/// operation at a time; `nfc-app` enforces that lease.
+/// operation at a time; `nfc-app` enforces that lease. `Transport::open`
+/// constructs the reader and `Reader::open` performs the device I/O, so a
+/// transport factory never touches hardware by itself.
 pub trait Reader: Send {
     fn device(&self) -> &DeviceInfo;
     fn open(&mut self, conn_string: &str) -> Result<()>;
@@ -23,7 +25,8 @@ pub trait Reader: Send {
 }
 
 /// A driver factory. Enumeration returns exact connstrings; opening a
-/// connstring yields a reader of that device only.
+/// connstring yields a reader of that device only. The returned reader is not
+/// connected until `Reader::open` succeeds.
 pub trait Transport: Send + Sync {
     fn enumerate(&self) -> Result<Vec<DeviceInfo>>;
     fn open(&self, conn_string: &str) -> Result<Box<dyn Reader>>;

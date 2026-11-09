@@ -45,6 +45,9 @@ struct MockState {
     card: Option<CardInfo>,
     blocks: HashMap<u8, [u8; BLOCK_SIZE]>,
     raw_mode: bool,
+    open: bool,
+    open_count: usize,
+    close_count: usize,
     faults: Vec<(MockCall, MockFault)>,
 }
 
@@ -100,6 +103,18 @@ impl MockHandle {
     pub fn is_raw_mode(&self) -> bool {
         self.lock().raw_mode
     }
+
+    pub fn is_open(&self) -> bool {
+        self.lock().open
+    }
+
+    pub fn open_count(&self) -> usize {
+        self.lock().open_count
+    }
+
+    pub fn close_count(&self) -> usize {
+        self.lock().close_count
+    }
 }
 
 #[derive(Debug)]
@@ -143,10 +158,16 @@ impl Reader for MockReader {
 
     fn open(&mut self, conn_string: &str) -> Result<()> {
         self.info.conn_string = conn_string.to_owned();
+        let mut state = self.state.lock();
+        state.open = true;
+        state.open_count += 1;
         Ok(())
     }
 
     fn close(&mut self) -> Result<()> {
+        let mut state = self.state.lock();
+        state.open = false;
+        state.close_count += 1;
         Ok(())
     }
 

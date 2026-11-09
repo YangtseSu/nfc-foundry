@@ -11,21 +11,35 @@ No other reader is advertised in the first release.
 
 ## PN532 UART
 
+The connstring is `pn532_uart:<serial-port>`. `nfctl list` reports every serial
+port as a candidate; opening the exact connstring sends the HSU wake-up
+preamble, enters SAM normal mode, and verifies `GetFirmwareVersion` before any
+card operation.
+
 Implement:
 
-- serial open/close, baud rate, read/write timeouts;
-- PN532 frame length/checksum and ACK handling;
-- `InListPassiveTarget` / card selection;
-- `InCommunicateThru` for ISO/IEC 14443A bytes;
-- raw bit transmission with parity/last-bit control;
-- retries only with bounded counts and cancellation.
+- serial open/close at 115200 8N1, read timeouts, and bounded retries;
+- PN532 normal/extended framing, ACK/NACK/error frames, and checksums;
+- `InListPassiveTarget` / ISO/IEC 14443A card selection;
+- `InDataExchange` for MIFARE Classic authentication and 16-byte block
+  read/write;
+- `InCommunicateThru` for raw ISO/IEC 14443A bytes and partial-bit frames;
+- raw mode that disables hardware CRC, rejects ordinary MIFARE operations, and
+  leaves parity to the PN532;
+- explicit rejection of non-PN532 firmware, missing cards, timeouts, and serial
+  disconnects.
 
 Hardware tests:
 
 - list/select a Classic 1K and an NTAG215;
 - read one Classic block with a known key;
 - read Type 2 pages;
+- same-value Classic write with explicit confirmation and read-back;
 - raw transceive after driver stabilization.
+
+Current status: implemented and scripted-tested. The attached CH340 adapter did
+not answer the PN532 wake-up and firmware commands, so the hardware items above
+are not yet validated.
 
 ## ACR122U
 

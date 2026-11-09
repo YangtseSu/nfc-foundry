@@ -215,7 +215,7 @@ fn mock_service() -> Service {
         DeviceInfo::new("Mock NTAG215", "mock:ntag215"),
         Some(CardInfo::new(
             vec![0x04, 0x5B, 0x1C, 0x2A, 0x3B, 0x4C, 0x80],
-            [0x44, 0x00],
+            [0x00, 0x44],
             0x00,
             CardType::Type2,
         )),

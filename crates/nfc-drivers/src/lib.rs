@@ -7,7 +7,7 @@ use nfc_core::{NfcError, Result};
 use nfc_transport::{DeviceInfo, Reader, Transport};
 
 use crate::acr122_usb::Acr122Usb;
-use crate::pn532_uart::Pn532Uart;
+use crate::pn532_uart::{Pn532Uart, READER_NAME};
 
 pub const PN532_UART_PREFIX: &str = "pn532_uart:";
 pub const ACR122_USB_PREFIX: &str = "acr122_usb:";
@@ -23,7 +23,7 @@ impl DriverRegistry {
 
     fn classify(conn_string: &str) -> Result<&'static str> {
         for (name, prefix) in [
-            ("PN532 UART", PN532_UART_PREFIX),
+            (READER_NAME, PN532_UART_PREFIX),
             ("ACR122U USB", ACR122_USB_PREFIX),
         ] {
             if let Some(target) = conn_string.strip_prefix(prefix) {
@@ -77,14 +77,13 @@ mod tests {
     #[test]
     fn registry_opens_known_connstrings_only() {
         let registry = DriverRegistry;
-        assert!(registry.enumerate().expect("enumerate").is_empty());
         assert_eq!(
             registry
                 .open("pn532_uart:/dev/ttyUSB0")
                 .expect("pn532 reader")
                 .device()
                 .name,
-            "PN532 UART"
+            READER_NAME
         );
         assert_eq!(
             registry
@@ -101,6 +100,19 @@ mod tests {
         assert!(matches!(
             registry.open("pcsc:0"),
             Err(NfcError::Unsupported(_))
+        ));
+    }
+
+    #[test]
+    fn unfinished_drivers_are_skipped_but_real_errors_surface() {
+        let mut devices = Vec::new();
+        collect_available(&mut devices, Err(NfcError::NotImplemented("test driver")))
+            .expect("not implemented is skipped");
+        assert!(devices.is_empty());
+
+        assert!(matches!(
+            collect_available(&mut devices, Err(NfcError::Io("broken".to_owned()))),
+            Err(NfcError::Io(_))
         ));
     }
 }

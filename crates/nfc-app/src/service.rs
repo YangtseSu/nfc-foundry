@@ -86,6 +86,22 @@ mod tests {
     }
 
     #[test]
+    fn reader_is_opened_once_and_reopened_after_release() {
+        let (mut service, handle) = service_with_card(card(1));
+        service.scan().expect("scan");
+        service.scan().expect("scan");
+        assert_eq!(handle.open_count(), 1);
+        assert!(handle.is_open());
+
+        service.release_reader().expect("release");
+        assert!(!handle.is_open());
+        assert_eq!(handle.close_count(), 1);
+
+        service.scan().expect("scan after release");
+        assert_eq!(handle.open_count(), 2);
+    }
+
+    #[test]
     fn operation_detects_card_change() {
         let (mut service, handle) = service_with_card(card(1));
         let mut operation = service

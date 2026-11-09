@@ -90,7 +90,8 @@ impl DeviceManager {
         cancel.check()?;
         let selected = self.selected.clone().ok_or(NfcError::NoReader)?;
         if self.reader.is_none() {
-            let reader = self.transport.open(&selected)?;
+            let mut reader = self.transport.open(&selected)?;
+            reader.open(&selected)?;
             self.reader = Some(reader);
         }
         let reader = self.reader.as_mut().ok_or(NfcError::NoReader)?;

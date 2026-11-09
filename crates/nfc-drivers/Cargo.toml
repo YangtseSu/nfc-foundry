@@ -11,5 +11,9 @@ nfc-transport.workspace = true
 nusb.workspace = true
 serialport.workspace = true
 
+[features]
+hardware = []
+hardware-write = ["hardware"]
+
 [lints]
 workspace = true

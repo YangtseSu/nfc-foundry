@@ -77,6 +77,32 @@ trait Transport: Send + Sync {
 `nfc-app` receives an `Arc<dyn Transport>` and never names a driver type.
 Trait objects are also what keeps the boundary object-safe and testable.
 
+`Transport::open` only constructs a reader. `DeviceManager` then calls
+`Reader::open` with the same exact connstring; that step performs the hardware
+I/O and can fail with `Unsupported`, `Io`, or `Timeout`. The reader stays open
+across operations and is closed on release or when a selected device
+disappears.
+
+### PN532 UART
+
+`pn532_uart` is split into four layers:
+
+- `frame`: normal and extended PN532 frames, ACK/NACK/error frames, length and
+  data checksums, and resynchronization after junk.
+- `link`: a small byte-transport trait, with `serialport` at 115200 8N1 for
+  hardware and a scripted link for tests.
+- `protocol`: wake-up, firmware validation, register setup, card selection,
+  MIFARE authentication and block access through `InDataExchange`, and raw
+  byte/bit exchange through `InCommunicateThru`.
+- reader: exact-connstring open/close and the `Reader`/`TrailerWriter`
+  implementations.
+
+Raw mode disables hardware CRC and rejects ordinary MIFARE operations; ordinary
+mode rejects raw transceive. The PN532 still generates and checks parity for raw
+bit frames, so the transport trait carries bits and a received bit count rather
+than caller-supplied parity. Enumeration lists serial ports without opening
+them; only an exact open validates that the device is a PN532.
+
 ## Device ownership
 
 One reader is held by one operation at a time. `nfc-app` owns:

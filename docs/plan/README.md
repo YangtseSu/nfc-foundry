@@ -6,7 +6,7 @@ Status legend: `done`, `in progress`, `pending`, `optional`.
 |---|---|---|
 | 00 | Rust workspace, crate boundaries, docs, CI, REUSE | done |
 | 01 | Core model, transport traits, mock reader, CLI skeleton | done |
-| 02 | PN532 UART driver and reader lifecycle | pending |
+| 02 | PN532 UART driver and reader lifecycle | in progress |
 | 03 | Classic core: geometry, BCC, access, value, dump, diff | pending |
 | 04 | Classic read/write/dump/restore/keyscan CLI + GUI workspace | pending |
 | 05 | ACR122U USB/CCID driver and raw bits/parity | pending |
@@ -81,6 +81,10 @@ Acceptance:
 - Hardware test reads a Classic card and a Type 2 tag.
 - Wrong reader, missing card, timeout, and disconnect report stable errors.
 - No write test without explicit environment confirmation.
+
+Status: implementation and scripted tests complete. Hardware acceptance is open:
+the attached CH340 adapter did not answer the PN532 wake-up and firmware
+commands, so no card was selected. See `docs/notes/02-pn532-uart.md`.
 
 ### 03: Classic core
 

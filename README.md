@@ -9,11 +9,13 @@ dependency of this project.
 
 ## Status
 
-**Phase 01 complete.** The workspace, transport boundary, scripted mock reader,
-device manager, exclusive operation lease, and mock-backed `nfctl list`, `scan`,
-and `card info` exist. Hardware drivers, Classic workflows, recovery algorithms,
-and NDEF codecs arrive in later phases; operations that are not ready return an
-explicit `NotImplemented` error.
+**Phase 02 implemented; hardware validation pending.** The PN532 UART framing,
+initialization, ISO/IEC 14443A selection, MIFARE Classic authentication and
+block read/write, raw byte/bit exchange, and reader lifecycle are implemented
+and covered by scripted tests. The attached serial adapter did not respond as a
+PN532, so hardware support is not claimed yet. Classic workflows, recovery
+algorithms, and NDEF codecs arrive in later phases; operations that are not
+ready return an explicit `NotImplemented` error.
 
 ## Product scope
 
@@ -101,8 +103,21 @@ cargo run -p nfctl -- --mock --device mock:classic-1k scan
 cargo run -p nfctl -- --mock --device mock:ntag215 card info
 ```
 
-Device selection is always an exact connstring. Hardware commands use the same
-`--device` flag once a driver is implemented.
+## Hardware reader
+
+Device selection is always an exact connstring. `nfctl list` reports every
+serial port as a `pn532_uart:` candidate because a UART adapter cannot be
+identified without opening it. Opening validates the PN532 firmware:
+
+```sh
+cargo run -p nfctl -- list
+cargo run -p nfctl -- --device pn532_uart:/dev/ttyUSB0 scan
+```
+
+The PN532 path is implemented but not yet hardware-validated; see
+[Testing](docs/testing.md) for the gated hardware checks and
+[the phase 02 note](docs/notes/02-pn532-uart.md) for the current validation
+record.
 
 ## Documentation
 
