@@ -12,6 +12,8 @@ path = "src/main.rs"
 [dependencies]
 gpui-kit.workspace = true
 nfc-app.workspace = true
+nfc-classic-gui.workspace = true
+nfc-drivers.workspace = true
 
 [lints]
 workspace = true

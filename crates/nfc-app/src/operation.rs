@@ -7,6 +7,7 @@ pub enum OperationKind {
     CardInfo,
     Read,
     Write,
+    KeyScan,
     Recovery,
 }
 

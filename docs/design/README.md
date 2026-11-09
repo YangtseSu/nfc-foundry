@@ -13,13 +13,14 @@ Guides.
 
 ## Classic
 
-- Blocks table with sector headers, readability, dirty state, and trailer
-  markers.
-- Inspector for block bytes, value block, access conditions, BCC.
-- Keys: catalog, sets, verification status.
-- Recovery: card profile, attack plan, progress, results, review/save.
-- Diff: before/after table with changed/unknown/trailer filters.
-- Clone/factory/UID/trailer actions are Advanced and typed-confirmed.
+The implemented screen contract is [classic-workspace.md](classic-workspace.md).
+
+- Blocks table with sector, type, status, known-byte count, and data.
+- Inspector for block bytes, ASCII, value block, access conditions, and BCC.
+- Keys: persisted key store with sector, type, and provenance.
+- Diff: before/after table with changed/unknown blocks and trailer detail.
+- Restore and trailer writes are confirmed; block 0 remains read-only in this
+  phase. Clone/factory/UID actions are later Advanced work.
 
 ## NDEF
 
@@ -38,5 +39,7 @@ Follow the GPUI Kit Design Guides:
 - Theme tokens; no raw colors or spacing literals in application code.
 - Visible focus, hover, selected, disabled, loading, validation, danger.
 - `AlertDialog` for consequential actions; Escape dismisses topmost overlay.
-- Data-heavy views use `DataTable`/`VirtualList` with stable domain IDs.
-- English source copy and complete Simplified Chinese translation.
+- Bounded 1K/4K block tables use the small Table with stable domain IDs; move
+  to a virtualized table when a view can grow beyond a card image.
+- Interface copy is English in this phase. The application-wide localization
+  pass is a release requirement.

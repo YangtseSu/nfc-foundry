@@ -9,16 +9,17 @@ dependency of this project.
 
 ## Status
 
-**Phase 03 complete.** The PN532 UART framing, initialization, ISO/IEC 14443A
-selection, MIFARE Classic authentication and block read/write, raw byte/bit
-exchange, and reader lifecycle are implemented. Firmware identification,
-Classic 1K selection/authentication/read, Type 2 selection/read, raw REQA, and
-missing-card/wrong-reader errors are validated on a PN532 over UART; the
-same-value write test remains behind explicit authorization and was not run.
-The hardware-free Classic core now covers 1K/4K geometry, BCC, access and
-trailer permissions, value blocks, partial dumps with per-byte certainty,
-readability, block diff, and project/raw/MCT/Proxmark3 exchange. Classic
-workflows, recovery algorithms, and NDEF codecs arrive in later phases;
+**Phase 04 complete.** The PN532 UART driver and the hardware-free Classic core
+are implemented. The Classic workflow layer covers key stores, common-key
+authentication, partial dumps, single-block reads and writes, restores, key
+scans, and atomic project-format backups. `nfctl` and the GPUI Kit Classic
+workspace call the same `nfc-app` methods. Every write checks access
+conditions, saves a backup, writes the block, reads it back, and rechecks card
+identity; restore requires confirmation, refuses to change manufacturer block
+0, writes data blocks before sector trailers, and stops at the first failure by
+default. PN532 hardware validation covered a 64/64-block dump, a 16-sector key
+scan, a temporary data-block write with backups and read-back, and restore of
+that block. Recovery algorithms and NDEF codecs arrive in later phases;
 operations that are not ready return an explicit `NotImplemented` error.
 
 ## Product scope
@@ -107,6 +108,23 @@ cargo run -p nfctl -- --mock --device mock:classic-1k scan
 cargo run -p nfctl -- --mock --device mock:ntag215 card info
 ```
 
+The mock Classic 1K carries a complete BCC-valid image, so the workflow
+commands can be exercised without a card:
+
+```sh
+cargo run -p nfctl -- --mock --device mock:classic-1k classic dump \
+  --output /tmp/card.json
+cargo run -p nfctl -- --mock --device mock:classic-1k classic read --block 4
+cargo run -p nfctl -- --mock --device mock:classic-1k \
+  --backup-dir /tmp/nfc-backups classic write --block 4 \
+  --data 000102030405060708090A0B0C0D0E0F
+cargo run -p nfctl -- --mock --device mock:classic-1k classic keyscan
+```
+
+`nfctl classic keys list|import|add` manages the JSON key store. Pass
+`--key-store <path>` to choose it explicitly; otherwise the default is
+`$XDG_CONFIG_HOME/nfc-foundry/classic-keys.json`.
+
 ## Hardware reader
 
 Device selection is always an exact connstring. `nfctl list` reports every
@@ -118,11 +136,34 @@ cargo run -p nfctl -- list
 cargo run -p nfctl -- --device pn532_uart:/dev/ttyUSB0 scan
 ```
 
+Card workflow example:
+
+```sh
+cargo run -p nfctl -- --device pn532_uart:/dev/ttyUSB0 \
+  --key FFFFFFFFFFFF classic dump --output card.json
+cargo run -p nfctl -- --device pn532_uart:/dev/ttyUSB0 \
+  --key FFFFFFFFFFFF classic restore --input card.json --confirm
+```
+
 PN532 UART firmware identification, Classic 1K selection/authentication/read,
-Type 2 selection/read, and raw 7-bit REQA are hardware-validated. The
-same-value write remains gated by `NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD`; see
-[Testing](docs/testing.md) for the gated checks and
-[the phase 02 note](docs/notes/02-pn532-uart.md) for the validation record.
+Type 2 selection/read, raw 7-bit REQA, Classic dump, key scan, temporary block
+write, and restore are hardware-validated. Writes remain gated by
+`NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD`; see [Testing](docs/testing.md), the
+[phase 02 note](docs/notes/02-pn532-uart.md), and the
+[phase 04 note](docs/notes/04-classic-workflows.md) for the records.
+
+## GUI
+
+The GPUI Kit Classic workspace is the first feature screen:
+
+```sh
+cargo run -p nfc-foundry
+```
+
+It provides reader selection, card read, dump save/load, restore with
+confirmation, block write with trailer confirmation, key scan, key store
+management, a block inspector, and a two-dump diff. All operations use the same
+`nfc-app` services and safety policy as `nfctl`.
 
 ## Documentation
 

@@ -14,6 +14,7 @@ include the complete dependency license texts and any required notices.
 | `serde` | 1.x | MIT OR Apache-2.0 |
 | `serde_json` | 1.x | MIT OR Apache-2.0 |
 | `proptest` | 1.12.x | MIT OR Apache-2.0 |
+| `tempfile` | 3.27.x | MIT OR Apache-2.0 |
 
 Transitive dependencies and their exact versions are recorded in
 `Cargo.lock`. Before a release, generate and review the full notice bundle with

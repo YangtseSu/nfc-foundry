@@ -35,12 +35,16 @@ Hardware tests:
 - read one Classic block with a known key;
 - read Type 2 pages;
 - same-value Classic write with explicit confirmation and read-back;
-- raw transceive after driver stabilization.
+- raw transceive after driver stabilization;
+- full Classic dump and per-sector key scan;
+- temporary data-block write and restore with backups.
 
 Current status: firmware identification, Classic 1K selection/authentication/
-read, Type 2 selection/read, and a raw 7-bit REQA (16-bit ATQA response) are
-validated on a PN532 (CH340 UART adapter, firmware 1.6). The same-value write
-is implemented and gated but was not run without explicit authorization.
+read, Type 2 selection/read, raw 7-bit REQA (16-bit ATQA response), full Classic
+dump, key scan, temporary data-block write with backup and read-back, and
+restore are validated on a PN532 (CH340 UART adapter, firmware 1.6). Trailer
+writes and a 4K card run remain future hardware checks. See
+`docs/notes/04-classic-workflows.md`.
 
 ## ACR122U
 

@@ -8,7 +8,7 @@ Status legend: `done`, `in progress`, `pending`, `optional`.
 | 01 | Core model, transport traits, mock reader, CLI skeleton | done |
 | 02 | PN532 UART driver and reader lifecycle | done |
 | 03 | Classic core: geometry, BCC, access, value, dump, diff | done |
-| 04 | Classic read/write/dump/restore/keyscan CLI + GUI workspace | pending |
+| 04 | Classic read/write/dump/restore/keyscan CLI + GUI workspace | done |
 | 05 | ACR122U USB/CCID driver and raw bits/parity | pending |
 | 06 | Native recovery: Crypto1, darkside, nested, staticnested | pending |
 | 07 | Native hardnested and FM11RF08S/static encrypted | pending |
@@ -122,6 +122,14 @@ Acceptance:
 - Restore stops at first failure; backup before mutation.
 - GUI and CLI share the same services and safety preconditions.
 - Hardware test on PN532 UART.
+
+Status: complete. `nfc-app` owns dump, read, write, restore, key scan, key
+store, and backup workflows; `nfctl` and the GPUI Classic workspace call the
+same service methods. Scripted workflow, CLI, and GPUI UI tests pass. PN532
+UART hardware validation on 2026-11-10 covered a 64/64-block dump, a 16-sector
+key scan, a temporary data-block write with backups and read-back, and restore
+of that block. Trailer writes and a 4K card run remain future hardware checks.
+See `docs/notes/04-classic-workflows.md`.
 
 ### 05: ACR122U USB
 

@@ -1,8 +1,13 @@
 use std::sync::Arc;
 
-use nfc_core::{CancelToken, CardInfo, Result};
+use nfc_core::{BLOCK_SIZE, CancelToken, CardInfo, Result};
 use nfc_transport::{DeviceInfo, Transport};
 
+use crate::classic::{
+    BackupRecord, BackupStore, ClassicBlockWrite, ClassicKeyscan, ClassicKeyscanResult,
+    ClassicRead, ClassicReadResult, ClassicRestore, ClassicRestoreResult, ClassicWriteResult,
+    KeyStore,
+};
 use crate::device::DeviceManager;
 use crate::operation::{Operation, OperationKind};
 
@@ -47,6 +52,71 @@ impl Service {
     pub fn card_info(&mut self) -> Result<CardInfo> {
         let operation = self.begin_operation(OperationKind::CardInfo, CancelToken::new())?;
         Ok(operation.card().clone())
+    }
+
+    /// Reads the whole card with candidate keys. Authentication failures
+    /// produce a partial dump with explicit warnings.
+    pub fn classic_read(&mut self, request: ClassicRead<'_>) -> Result<ClassicReadResult> {
+        let ClassicRead {
+            keys,
+            include_common_keys,
+            cancel,
+        } = request;
+        let mut operation = self.begin_operation(OperationKind::Read, cancel)?;
+        crate::classic::read::read_dump(&mut operation, keys, include_common_keys)
+    }
+
+    /// Reads one block. Block 0 needs no key; other blocks authenticate their
+    /// sector with the first candidate key the card accepts.
+    pub fn classic_read_block(
+        &mut self,
+        block: usize,
+        keys: &KeyStore,
+        include_common_keys: bool,
+        cancel: CancelToken,
+    ) -> Result<[u8; BLOCK_SIZE]> {
+        let mut operation = self.begin_operation(OperationKind::Read, cancel)?;
+        crate::classic::read::read_block(&mut operation, block, keys, include_common_keys)
+    }
+
+    /// Writes one block with a pre-write backup and read-back verification.
+    pub fn classic_write_block(
+        &mut self,
+        request: ClassicBlockWrite<'_>,
+    ) -> Result<ClassicWriteResult> {
+        let cancel = request.cancel.clone();
+        let mut operation = self.begin_operation(OperationKind::Write, cancel)?;
+        crate::classic::write::write_block(&mut operation, request)
+    }
+
+    /// Restores a dump with a pre-write backup and the request's stop policy.
+    pub fn classic_restore(&mut self, request: ClassicRestore<'_>) -> Result<ClassicRestoreResult> {
+        let cancel = request.cancel.clone();
+        let mut operation = self.begin_operation(OperationKind::Write, cancel)?;
+        crate::classic::restore::restore(&mut operation, request)
+    }
+
+    /// Scans candidate keys per sector. Authentication and trailer reads are
+    /// the only card operations.
+    pub fn classic_keyscan(&mut self, request: ClassicKeyscan<'_>) -> Result<ClassicKeyscanResult> {
+        let cancel = request.cancel.clone();
+        let mut operation = self.begin_operation(OperationKind::KeyScan, cancel)?;
+        crate::classic::keyscan::keyscan(&mut operation, request)
+    }
+
+    /// Reads the card and writes a project-format backup without mutating it.
+    pub fn classic_backup(
+        &mut self,
+        keys: &KeyStore,
+        include_common_keys: bool,
+        backup: &BackupStore,
+    ) -> Result<BackupRecord> {
+        let mut operation = self.begin_operation(OperationKind::Read, CancelToken::new())?;
+        let dump = crate::classic::read::read_dump(&mut operation, keys, include_common_keys)?.dump;
+        backup.save(
+            &dump,
+            &crate::classic::write::backup_label(&dump, dump.layout, "backup"),
+        )
     }
 
     pub fn begin_operation(

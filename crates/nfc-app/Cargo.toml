@@ -14,6 +14,11 @@ nfc-recover.workspace = true
 nfc-transport.workspace = true
 nfc-type2.workspace = true
 nfc-type4.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
 
 [lints]
 workspace = true

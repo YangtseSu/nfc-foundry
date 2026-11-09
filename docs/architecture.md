@@ -37,9 +37,10 @@ application shell, or a sibling feature.
 | `nfc-type2` | Type 2 / NTAG pages, CC, lock/config, NDEF TLV adapter | via transport |
 | `nfc-classic-ndef` | MAD1/MAD2, Classic CC, NDEF sectors, format | via transport |
 | `nfc-type4` | ISO-DEP/APDU NDEF adapter (later) | via transport |
-| `nfc-app` | Device manager, exclusive operations, services, events, backups | via transport |
+| `nfc-app` | Device manager, exclusive operations, Classic workflows, key store, backups | via transport |
 | `nfctl` | English-only CLI and JSON contract | via `nfc-app` |
-| `gui/nfc-foundry` | GPUI Kit shell and feature views | via `nfc-app` |
+| `gui/nfc-foundry` | GPUI Kit shell | via `nfc-app` |
+| `gui/classic` | GPUI Kit Classic workspace (view, actions, UI tests) | via `nfc-app` |
 
 ## Transport
 
@@ -107,8 +108,10 @@ IDLE card.
 Raw mode disables hardware CRC and rejects ordinary MIFARE operations; ordinary
 mode rejects raw transceive. The PN532 still generates and checks parity for raw
 bit frames, so the transport trait carries bits and a received bit count rather
-than caller-supplied parity. Enumeration lists serial ports without opening
-them; only an exact open validates that the device is a PN532.
+than caller-supplied parity. Repeated selection cycles the RF field first: a
+card that is already ACTIVE does not answer a second `InListPassiveTarget`.
+Enumeration lists serial ports without opening them; only an exact open
+validates that the device is a PN532.
 
 ## Device ownership
 
@@ -129,8 +132,10 @@ operation boundaries rather than between an authentication and its write. The
 GUI, CLI, card polling, and recovery use the same manager. Recovery does not
 hand the reader to another process.
 
-Cross-process locking and physical-reader identity are added with the Classic
-workflow phase; the in-process lease is already exclusive by borrow.
+Classic workflows add key selection, pre-mutation backups, access checks, and
+read-back verification on top of the same lease. Cross-process locking and
+physical-reader identity remain future work; the in-process lease is exclusive
+by borrow and is the current boundary.
 
 ## Classic core
 
@@ -155,6 +160,26 @@ known. Imports reject duplicate JSON keys, missing blocks, inconsistent
 addresses, broken trailer complements, and Proxmark3 SectorKeys that disagree
 with trailer bytes. The exchange layer works on bytes; the workflow layer owns
 file paths, sidecars, and backup policy.
+
+`nfc-app::classic` composes the model with the transport:
+
+- `KeyStore` stores sector-specific and wildcard A/B/any keys with provenance,
+  persists JSON, and imports text key files.
+- A full read authenticates each sector with the first accepted candidate and
+  reads block 0 with sector 0. If sector 0 does not authenticate, block 0 stays
+  unknown. Authentication and read failures remain visible per block; unknown
+  bytes are never reported as known.
+- A block write checks the current access bits, selects an allowed key type,
+  saves a project-format backup, writes, reads back, and rechecks card
+  identity. Block 0 is rejected.
+- A restore requires confirmation, verifies layout and known identity, refuses
+  to change block 0, requires every pending block to exist in the backup,
+  writes data blocks before the sector trailer, and stops at the first failure
+  unless the caller explicitly opts into continuing.
+- A key scan authenticates candidates as A and B per sector and verifies each
+  success with a trailer read. It never writes.
+- Backups are written atomically to the XDG data directory (or an injected
+  directory) before the first mutation.
 
 ## Classic and NDEF boundary
 
@@ -191,22 +216,21 @@ GPUI Kit is the only GUI dependency. The application shell composes feature
 crates:
 
 ```text
-gui/app
-  gui/reader
-  gui/classic
-  gui/recovery
-  gui/type2
-  gui/ndef
-  gui/keys
-  gui/settings
+gui/nfc-foundry     shell and reader wiring
+gui/classic         Classic workspace and UI integration tests
 ```
+
+The Classic workspace is one window with a reader header, card/file toolbar,
+Blocks/Diff/Keys tabs, a block table, and a block inspector:
 
 - `RenderOnce` for value-like presentation.
 - `Entity<T>` for input, tables, scrolling, focus, and async state.
 - No domain mutation or hardware I/O in `render`.
+- Card operations run on a background executor through the shared `nfc-app`
+  service; the view updates state through its entity context.
 - Theme tokens only; no raw colors or spacing literals in application code.
-- Every user-visible string is localized; English is the source language and
-  Simplified Chinese must stay complete.
+- English is the current interface language. The application-wide localization
+  pass remains a release requirement.
 
 ## Errors and cancellation
 

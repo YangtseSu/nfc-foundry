@@ -34,7 +34,9 @@ Required gates:
 - `NFCX_HARDWARE_KEY_TYPE`: `A` or `B`; defaults to `A`.
 - `NFCX_HARDWARE_BLOCK`: Classic block for read/write tests; defaults to `4`.
 - `NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD`: allow any write. The phase 02 test
-  writes the original value back and refuses block 0 and sector trailers.
+  writes the original value back and refuses block 0 and sector trailers. The
+  phase 04 workflow test changes one ordinary data block temporarily and writes
+  the original back.
 - `NFCX_HARDWARE_RECOVERY=I_OWN_THIS_CARD`: allow active recovery testing.
 - `NFCX_HARDWARE_BACKUP_DIR`: preserve backups.
 
@@ -75,6 +77,53 @@ files. Property tests round-trip access and value codecs, walk every block in
 both layouts, and round-trip raw, project, MCT, and Proxmark3 images. Real MCT
 and Proxmark3 client file interoperability remains a release check.
 
+The phase 04 workflow tests are hardware-free. `nfc-app` tests use a scripted
+transport with per-sector key rules, ignored writes, failing writes, and
+cancellation hooks. `nfctl` integration tests run the built binary against the
+mock Classic image. The GPUI Classic workspace has UI integration tests for
+read, block selection, diff, key add/remove, write, key scan, and restore
+confirmation.
+
+Hardware workflow checks:
+
+```sh
+NFCX_HARDWARE=1 \
+NFCX_DEVICE=pn532_uart:/dev/ttyUSB0 \
+cargo test -p nfctl --features hardware -- --ignored
+```
+
+The read-only test dumps the card and scans Key A per sector. The temporary
+write test requires the additional feature and gate:
+
+```sh
+NFCX_HARDWARE=1 \
+NFCX_DEVICE=pn532_uart:/dev/ttyUSB0 \
+NFCX_HARDWARE_KEY=FFFFFFFFFFFF \
+NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD \
+NFCX_HARDWARE_BLOCK=4 \
+cargo test -p nfctl --features hardware-write -- --ignored
+```
+
+It changes one ordinary data block, writes the original value back, and
+verifies the final read-back. It refuses block 0 and sector trailers.
+
+The phase 04 hardware record on 2026-11-10 used a PN532 over
+`/dev/ttyUSB0` and a MIFARE Classic 1K (`FA B9 CF F4`):
+
+- full dump with common candidates: 64/64 blocks and 16/16 sectors readable;
+- key scan: 16/16 sectors, 37 attempts, 32 verified keys;
+- temporary write on block 4 with Key A `D3F7D3F7D3F7`: written, read back,
+  original restored, read back; two `0600` project backups;
+- restore of the full dump after the temporary change: 1 written, 62
+  unchanged, one `0600` pre-write backup;
+- restore of the unchanged dump: 0 written, 63 unchanged.
+
+The same run also exposed two hardware-only issues: repeated PN532 selection
+needed an RF field cycle, and block 0 needs sector 0 authentication. Both are
+now covered by tests and documented in
+`docs/notes/04-classic-workflows.md`. Trailer writes and a 4K card run remain
+future hardware checks.
+
 ## Hardware failure triage
 
 A silent or malformed reader response is a driver bug until the reference path
@@ -113,7 +162,18 @@ reuse lint
 ```
 
 For changed GUI screens, add GPUI Kit UI integration tests and a manual window
-check for keyboard, focus, theme, zoom, and Chinese input.
+check for keyboard, focus, theme, zoom, and Chinese input. The Classic
+workspace tests run headlessly:
+
+```sh
+cargo test -p nfc-classic-gui --test ui
+```
+
+For hardware features:
+
+```sh
+cargo clippy -p nfctl --features hardware-write --all-targets -- -D warnings
+```
 
 For changed driver hardware tests, also run:
 
@@ -129,6 +189,8 @@ cargo clippy -p nfc-drivers --features hardware --all-targets -- -D warnings
 - Nonce/key fixtures from Proxmark3 tests and captured old-engine runs.
 - Mock transport scripts for card selection, auth, read/write, timeout,
   disconnect, and card change.
+- Classic workflow scripts with per-sector key rules, denied sector keys,
+  ignored writes, failing writes, and cancellation after a chosen attempt.
 
 ## What not to test
 

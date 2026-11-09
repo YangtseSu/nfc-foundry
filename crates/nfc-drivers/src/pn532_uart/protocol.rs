@@ -155,6 +155,12 @@ impl Pn532Protocol {
 
     pub(crate) fn select_card(&mut self) -> Result<CardInfo> {
         self.require_ordinary("card selection")?;
+        // A selected card stays ACTIVE and does not answer a second
+        // InListPassiveTarget. Cycle the field so the next selection starts
+        // from IDLE; the first selection after open needs no cycle.
+        if self.selected.is_some() {
+            self.cycle_rf_field()?;
+        }
         self.selected = None;
         self.set_tx_last_bits(0)?;
         let response = self.command(
@@ -836,6 +842,12 @@ mod tests {
         }
     }
 
+    fn unselected_protocol(link: Box<dyn Pn532Link>) -> Pn532Protocol {
+        let mut protocol = test_protocol(link);
+        protocol.selected = None;
+        protocol
+    }
+
     fn classic_card_response() -> Vec<u8> {
         vec![
             0x01,
@@ -916,7 +928,7 @@ mod tests {
     fn selects_classic_and_type2_cards() {
         let (link, script) = ScriptedLink::scripted();
         script.command_response(IN_LIST_PASSIVE_TARGET, &classic_card_response());
-        let mut protocol = test_protocol(link);
+        let mut protocol = unselected_protocol(link);
         let card = protocol.select_card().expect("classic card");
         assert_eq!(card.uid, vec![0xDE, 0xAD, 0xBE, 0xEF]);
         assert_eq!(card.atqa, [0x00, 0x04]);
@@ -935,7 +947,7 @@ mod tests {
         let mut response = vec![0x01, TARGET_NUMBER, 0x00, 0x44, 0x00, 0x07];
         response.extend_from_slice(&[0x04, 0x5B, 0x1C, 0x2A, 0x3B, 0x4C, 0x80]);
         script.command_response(IN_LIST_PASSIVE_TARGET, &response);
-        let mut protocol = test_protocol(link);
+        let mut protocol = unselected_protocol(link);
         let card = protocol.select_card().expect("type 2 card");
         assert_eq!(card.uid.len(), 7);
         assert_eq!(card.card_type, CardType::Type2);
@@ -945,12 +957,12 @@ mod tests {
     fn reports_missing_and_malformed_card_selections() {
         let (link, script) = ScriptedLink::scripted();
         script.command_response(IN_LIST_PASSIVE_TARGET, &[0x00]);
-        let mut protocol = test_protocol(link);
+        let mut protocol = unselected_protocol(link);
         assert!(matches!(protocol.select_card(), Err(NfcError::NoCard)));
 
         let (link, script) = ScriptedLink::scripted();
         script.command_response(IN_LIST_PASSIVE_TARGET, &[0x01, 0x01, 0x00]);
-        let mut protocol = test_protocol(link);
+        let mut protocol = unselected_protocol(link);
         assert!(matches!(protocol.select_card(), Err(NfcError::Io(_))));
     }
 
@@ -1033,7 +1045,7 @@ mod tests {
         let (link, script) = ScriptedLink::scripted();
         script.timeout();
         script.command_response(IN_LIST_PASSIVE_TARGET, &classic_card_response());
-        let mut protocol = test_protocol(link);
+        let mut protocol = unselected_protocol(link);
         protocol.select_card().expect("card after retry");
         assert_eq!(script.host_frames(), 2);
 
@@ -1051,7 +1063,7 @@ mod tests {
     fn reports_disconnects() {
         let (link, script) = ScriptedLink::scripted();
         script.disconnect();
-        let mut protocol = test_protocol(link);
+        let mut protocol = unselected_protocol(link);
         assert!(matches!(protocol.select_card(), Err(NfcError::Io(_))));
     }
 
