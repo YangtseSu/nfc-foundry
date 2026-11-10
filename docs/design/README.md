@@ -1,8 +1,9 @@
 # Design references
 
 The GPUI Kit implementation was removed on `feat/gtk4-ui`. The current GTK4
-screen contract is [workbench.md](workbench.md). This directory also records
-the removed design and the workbench prototype. The Go version remains the
+screen contract is [workbench.md](workbench.md); the CLI/GUI operation matrix
+is [parity.md](parity.md). This directory also records the removed design and
+the workbench prototype. The Go version remains the
 visual reference for the rewrite.
 
 ## Removed GPUI shell (record)
@@ -36,7 +37,8 @@ The implemented screen contract is [classic-workspace.md](classic-workspace.md).
 
 - Blocks table with sector, type, status, known-byte count, and data.
 - Inspector for block bytes, ASCII, value block, access conditions, and BCC.
-- Keys: persisted key store with sector, type, and provenance.
+- Keys and Key scan: persisted key store with sector, type, and provenance;
+  per-sector candidate verification with merge and `.dic` export.
 - Diff: before/after table with changed/unknown blocks and trailer detail.
 - Restore and trailer writes are confirmed; block 0 remains read-only in this
   phase. Clone/factory/UID actions are later Advanced work.

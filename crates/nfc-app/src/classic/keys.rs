@@ -86,6 +86,7 @@ pub enum KeySource {
     Manual,
     KeyFile,
     KeyScan,
+    Recovery,
     Common,
 }
 
@@ -95,6 +96,7 @@ impl KeySource {
             Self::Manual => "manual",
             Self::KeyFile => "key file",
             Self::KeyScan => "scan",
+            Self::Recovery => "recovery",
             Self::Common => "common",
         }
     }
@@ -104,6 +106,7 @@ impl KeySource {
             Self::Manual => "manual",
             Self::KeyFile => "key_file",
             Self::KeyScan => "key_scan",
+            Self::Recovery => "recovery",
             Self::Common => "common",
         }
     }
@@ -377,6 +380,34 @@ impl KeyStore {
         candidates
     }
 
+    /// Candidates for recovery: every stored key tried as both key types,
+    /// followed by the built-in common keys when requested. Duplicates are
+    /// removed and the order is stable by key type and key value.
+    pub fn recovery_candidates(&self, include_common_keys: bool) -> Vec<(KeyType, Key)> {
+        let mut candidates = Vec::new();
+        for entry in &self.entries {
+            for key_type in [KeyType::A, KeyType::B] {
+                let candidate = (key_type, entry.key);
+                if entry.kind.includes(key_type) && !candidates.contains(&candidate) {
+                    candidates.push(candidate);
+                }
+            }
+        }
+        if include_common_keys {
+            for key in common_keys() {
+                for key_type in [KeyType::A, KeyType::B] {
+                    let candidate = (key_type, key);
+                    if !candidates.contains(&candidate) {
+                        candidates.push(candidate);
+                    }
+                }
+            }
+        }
+        candidates.sort_by_key(|(key_type, key)| (key_type.label(), key.to_hex()));
+        candidates.dedup();
+        candidates
+    }
+
     /// Every distinct key stored, in insertion order.
     pub fn all_keys(&self) -> Vec<Key> {
         let mut keys = Vec::new();
@@ -434,6 +465,7 @@ fn parse_source(value: &str) -> Result<KeySource> {
         "" | "manual" => Ok(KeySource::Manual),
         "key_file" => Ok(KeySource::KeyFile),
         "key_scan" | "scan" => Ok(KeySource::KeyScan),
+        "recovery" => Ok(KeySource::Recovery),
         "common" => Ok(KeySource::Common),
         other => Err(NfcError::InvalidArgument(format!(
             "unknown key source {other:?}"
@@ -546,6 +578,37 @@ mod tests {
         assert_eq!(store.find_key(2, KeyType::B), Some(key(3)));
         assert_eq!(store.find_key(3, KeyType::B), Some(key(1)));
         assert_eq!(store.find_key(4, KeyType::B), Some(key(1)));
+    }
+
+    #[test]
+    fn recovery_candidates_expand_both_types_and_add_common_keys() {
+        let mut store = KeyStore::new();
+        store
+            .add(KeyEntry::new(
+                Some(2),
+                KeyKind::Any,
+                key(0x22),
+                KeySource::Recovery,
+            ))
+            .expect("sector key");
+        let candidates = store.recovery_candidates(false);
+        assert_eq!(
+            candidates,
+            vec![(KeyType::A, key(0x22)), (KeyType::B, key(0x22))]
+        );
+
+        let with_common = store.recovery_candidates(true);
+        assert_eq!(with_common.len(), 2 + COMMON_KEYS.len() * 2);
+        assert!(with_common.windows(2).all(|pair| {
+            (pair[0].0.label(), pair[0].1.to_hex()) <= (pair[1].0.label(), pair[1].1.to_hex())
+        }));
+        assert_eq!(
+            with_common
+                .iter()
+                .filter(|(key_type, _)| *key_type == KeyType::A)
+                .count(),
+            1 + COMMON_KEYS.len()
+        );
     }
 
     #[test]

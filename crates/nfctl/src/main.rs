@@ -321,6 +321,8 @@ enum RecoveryCommand {
     Auto {
         #[arg(long, default_value = "4", value_name = "BLOCK")]
         known_block: usize,
+        #[arg(long, default_value = "A", value_name = "A|B")]
+        known_type: String,
         #[arg(long, default_value = "0", value_name = "BLOCK")]
         target_block: usize,
         #[arg(long, default_value = "A", value_name = "A|B")]
@@ -337,6 +339,8 @@ enum RecoveryCommand {
     Nested {
         #[arg(long, default_value = "4", value_name = "BLOCK")]
         known_block: usize,
+        #[arg(long, default_value = "A", value_name = "A|B")]
+        known_type: String,
         #[arg(long, default_value = "0", value_name = "BLOCK")]
         target_block: usize,
         #[arg(long, default_value = "A", value_name = "A|B")]
@@ -347,6 +351,8 @@ enum RecoveryCommand {
     StaticNested {
         #[arg(long, default_value = "4", value_name = "BLOCK")]
         known_block: usize,
+        #[arg(long, default_value = "A", value_name = "A|B")]
+        known_type: String,
         #[arg(long, default_value = "0", value_name = "BLOCK")]
         target_block: usize,
         #[arg(long, default_value = "A", value_name = "A|B")]
@@ -357,6 +363,8 @@ enum RecoveryCommand {
     HardNested {
         #[arg(long, default_value = "4", value_name = "BLOCK")]
         known_block: usize,
+        #[arg(long, default_value = "A", value_name = "A|B")]
+        known_type: String,
         #[arg(long, default_value = "0", value_name = "BLOCK")]
         target_block: usize,
         #[arg(long, default_value = "A", value_name = "A|B")]
@@ -366,6 +374,8 @@ enum RecoveryCommand {
     Fm11rf08s {
         #[arg(long, default_value = "4", value_name = "BLOCK")]
         known_block: usize,
+        #[arg(long, default_value = "A", value_name = "A|B")]
+        known_type: String,
         #[arg(long, default_value = "A", value_name = "A|B")]
         target_type: String,
     },
@@ -405,60 +415,81 @@ fn run(cli: Cli) -> Result<()> {
         Command::Type2 { command } => type2(&cli, &mut service, command),
         Command::Ndef { command } => ndef(&cli, &mut service, command),
         Command::Recover { command } => recovery(&cli, &mut service, command),
-        Command::Diag => diag(),
+        Command::Diag => diag(&cli, &mut service),
     }
 }
 
 fn recovery(cli: &Cli, service: &mut Service, command: RecoveryCommand) -> Result<()> {
-    let (strategy, known_block, target_block, target_type) = match command {
+    let (strategy, known_block, known_type, target_block, target_type) = match command {
         RecoveryCommand::Auto {
             known_block,
+            known_type,
             target_block,
             target_type,
         } => (
             RecoveryStrategy::Auto,
             known_block,
+            known_type,
             target_block,
             target_type,
         ),
         RecoveryCommand::Darkside {
             target_block,
             target_type,
-        } => (RecoveryStrategy::DarkSide, 4, target_block, target_type),
+        } => (
+            RecoveryStrategy::DarkSide,
+            4,
+            "A".to_owned(),
+            target_block,
+            target_type,
+        ),
         RecoveryCommand::Nested {
             known_block,
+            known_type,
             target_block,
             target_type,
         } => (
             RecoveryStrategy::Nested,
             known_block,
+            known_type,
             target_block,
             target_type,
         ),
         RecoveryCommand::StaticNested {
             known_block,
+            known_type,
             target_block,
             target_type,
         } => (
             RecoveryStrategy::StaticNested,
             known_block,
+            known_type,
             target_block,
             target_type,
         ),
         RecoveryCommand::HardNested {
             known_block,
+            known_type,
             target_block,
             target_type,
         } => (
             RecoveryStrategy::HardNested,
             known_block,
+            known_type,
             target_block,
             target_type,
         ),
         RecoveryCommand::Fm11rf08s {
             known_block,
+            known_type,
             target_type,
-        } => (RecoveryStrategy::Fm11rf08s, known_block, 0, target_type),
+        } => (
+            RecoveryStrategy::Fm11rf08s,
+            known_block,
+            known_type,
+            0,
+            target_type,
+        ),
     };
     prepare(service, cli.device.as_deref())?;
     let candidates = recovery_candidates(cli)?;
@@ -475,7 +506,7 @@ fn recovery(cli: &Cli, service: &mut Service, command: RecoveryCommand) -> Resul
             NfcError::InvalidArgument(format!("target block {target_block} is outside 0..=255"))
         })?,
         target_key_type: parse_key_type(&target_type)?,
-        known_key_type: KeyType::A,
+        known_key_type: parse_key_type(&known_type)?,
         candidates,
         cancel: CancelToken::new(),
         progress: Some(Arc::new(move |event| sink.report(event))),
@@ -767,7 +798,7 @@ fn classic_keyscan(
     let keys = load_key_store(cli)?;
     let key_types = parse_key_types(types)?;
     let result = service.classic_keyscan(
-        ClassicKeyscan::new(&keys, Vec::new())
+        ClassicKeyscan::new(&keys, keyscan_candidates(cli)?)
             .include_common_keys(!cli.no_common_keys)
             .key_types(key_types),
     )?;
@@ -801,6 +832,28 @@ fn classic_keyscan(
         println!("pass --save or --key-store to keep discovered keys");
     }
     Ok(())
+}
+
+fn keyscan_candidates(cli: &Cli) -> Result<Vec<Key>> {
+    let mut candidates = Vec::new();
+    for hex in &cli.key {
+        let key = Key::from_hex(hex)?;
+        if !candidates.contains(&key) {
+            candidates.push(key);
+        }
+    }
+    if !cli.key_file.is_empty() {
+        let mut store = KeyStore::new();
+        for path in &cli.key_file {
+            store.import_text(path)?;
+        }
+        for key in store.all_keys() {
+            if !candidates.contains(&key) {
+                candidates.push(key);
+            }
+        }
+    }
+    Ok(candidates)
 }
 
 fn classic_keys(cli: &Cli, command: KeysCommand) -> Result<()> {
@@ -1738,7 +1791,7 @@ fn mock_classic_card() -> (CardInfo, Vec<(u8, [u8; BLOCK_SIZE])>) {
     (card, blocks)
 }
 
-fn diag() -> Result<()> {
+fn diag(cli: &Cli, service: &mut Service) -> Result<()> {
     let version = env!("CARGO_PKG_VERSION");
     println!("NFC Foundry {version}");
     println!("nfctl {version}");
@@ -1747,10 +1800,29 @@ fn diag() -> Result<()> {
         nfc_drivers::PN532_UART_PREFIX,
         nfc_drivers::ACR122_USB_PREFIX
     );
-    match nfc_recover::hardnested::tables::resolve_dir(None) {
+    match service.refresh_devices() {
+        Ok(()) if service.devices().is_empty() => println!("readers: none found"),
+        Ok(()) => {
+            for device in service.devices() {
+                println!("reader: {}\t{}", device.name, device.conn_string);
+            }
+        }
+        Err(error) => println!("readers: unavailable ({error})"),
+    }
+    match nfc_recover::hardnested::tables::resolve_dir(cli.hardnested_tables.as_deref()) {
         Ok(path) => println!("hardnested tables: {}", path.display()),
         Err(error) => println!("hardnested tables: not found ({error})"),
     }
+    println!(
+        "build: {} · {} · {}",
+        if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "release"
+        },
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    );
     Ok(())
 }
 

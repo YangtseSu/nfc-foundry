@@ -4,6 +4,8 @@ use adw::prelude::*;
 
 mod app;
 mod classic;
+mod i18n;
+mod settings;
 mod type2;
 
 fn main() -> glib::ExitCode {

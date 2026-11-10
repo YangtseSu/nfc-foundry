@@ -9,8 +9,9 @@
 - GitHub-generated source archives for the release tag.
 
 No Windows, macOS, Debian/RPM, AppImage, Flatpak, Snap, or container image is
-part of the product. The current package installs the CLI; the desktop entry
-and hicolor icons stay in `resources/` for the GTK4 application.
+part of the product. The package and tarball install both surfaces: the GTK4
+application `nfc-foundry`, the CLI `nfctl`, the desktop entry, and the hicolor
+icon set.
 
 ## Version and tag
 
@@ -44,7 +45,13 @@ Package contents:
 
 ```text
 /usr/bin/nfctl
+/usr/bin/nfc-foundry
 /usr/lib/udev/rules.d/70-nfc-foundry.rules
+/usr/share/applications/nfc-foundry.desktop
+/usr/share/icons/hicolor/128x128/apps/nfc-foundry.png
+/usr/share/icons/hicolor/256x256/apps/nfc-foundry.png
+/usr/share/icons/hicolor/512x512/apps/nfc-foundry.png
+/usr/share/icons/hicolor/scalable/apps/nfc-foundry.svg
 /usr/share/nfc-foundry/hardnested_tables
 /usr/share/licenses/nfc-foundry/LICENSE
 /usr/share/licenses/nfc-foundry/LICENSES/GPL-3.0-or-later.txt
@@ -61,9 +68,13 @@ Do not install:
 - files under `/usr/local` or `/opt`.
 
 Runtime dependencies are the direct NEEDED libraries of the packaged ELF files
-(`glibc`, `libgcc`, `systemd-libs` for libudev). The package currently installs
-the CLI only; the GTK4 rewrite will add `gtk4` and `libadwaita` when it lands.
-Build-only dependencies are `cargo`, `git`, and `rust`.
+plus the icon theme search path: `glibc`, `libgcc`, `systemd-libs` for libudev,
+`gtk4`, `libadwaita`, and `hicolor-icon-theme`. Build-only dependencies are
+`cargo`, `git`, `gtk4`, `libadwaita`, and `rust`.
+
+The package installs desktop and icon files under the shared `share/`
+hierarchy, so pacman triggers update the desktop and icon caches. No private
+MIME type, service, or autostart file is installed.
 
 ## Coexistence
 
@@ -87,7 +98,13 @@ nfc-foundry-<version>-x86_64/
   README.md
   Cargo.lock
   bin/nfctl
+  bin/nfc-foundry
   lib/udev/rules.d/70-nfc-foundry.rules
+  share/applications/nfc-foundry.desktop
+  share/icons/hicolor/128x128/apps/nfc-foundry.png
+  share/icons/hicolor/256x256/apps/nfc-foundry.png
+  share/icons/hicolor/512x512/apps/nfc-foundry.png
+  share/icons/hicolor/scalable/apps/nfc-foundry.svg
   share/nfc-foundry/hardnested_tables/*.lz4
   share/licenses/nfc-foundry/
 ```
@@ -102,10 +119,14 @@ Extract and run without installing:
 ```sh
 tar -xzf nfc-foundry-0.1.0-x86_64.tar.gz
 ./nfc-foundry-0.1.0-x86_64/bin/nfctl diag
+./nfc-foundry-0.1.0-x86_64/bin/nfc-foundry
 ```
 
 For a system-wide unpack, copy `bin/` into `/usr/bin`, the udev rule into
-`/usr/lib/udev/rules.d/`, and the `share/` tree under `/usr/share/`.
+`/usr/lib/udev/rules.d/`, and the `share/` tree under `/usr/share/`. The GUI
+needs `gtk4`, `libadwaita`, and `hicolor-icon-theme` at runtime. The desktop
+entry launches `nfc-foundry` and resolves its `nfc-foundry` icon name from the
+installed hicolor directories.
 
 ## Source archives
 
@@ -190,12 +211,17 @@ pacman -Qlp nfc-foundry-0.1.0-1-x86_64.pkg.tar.zst
 ```
 
 The file list must contain only the documented paths. Start the installed
-`nfctl` and run:
+CLI and GUI:
 
 ```sh
 nfctl --version
 nfctl diag
+gtk-launch nfc-foundry
 ```
+
+`desktop-file-validate` must pass, `Icon=nfc-foundry` must resolve through the
+installed hicolor directories, and the installed desktop entry must launch the
+window on a clean runtime with GTK, libadwaita, and the icon theme installed.
 
 ## udev and permissions
 

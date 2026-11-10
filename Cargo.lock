@@ -905,8 +905,11 @@ dependencies = [
  "nfc-core",
  "nfc-drivers",
  "nfc-ndef",
+ "nfc-recover",
  "nfc-transport",
  "nfc-type2",
+ "serde",
+ "serde_json",
  "tempfile",
 ]
 

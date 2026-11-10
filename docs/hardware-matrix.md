@@ -21,6 +21,11 @@ logged-in user through the `uaccess` udev rule.
 `validated` means the operation completed on that reader with the stated card
 and no unrecoverable error. `not recorded` means no release run exists.
 
+Each row is a reader/card path, not a surface. `nfctl` and the GTK workbench
+call the same `nfc-app` service for every row, so a validated path applies to
+both surfaces. GUI file operations (dump load/save, diff, NDEF message export)
+add no reader path of their own.
+
 | Operation | PN532 UART | ACR122U | Evidence |
 |---|---|---|---|
 | Enumerate, open, firmware check | validated | validated | phase 02, phase 05 |

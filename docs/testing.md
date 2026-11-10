@@ -368,7 +368,7 @@ For changed GTK screens, add GTK4 UI integration tests and a manual window
 check for keyboard, focus, theme, zoom, and CJK input. The GTK app needs
 `gtk4`/`libadwaita` development libraries to build; on a headless host, use a
 private Xvfb display (for example `Xvfb :99 -screen 0 1400x920x24` with
-`GDK_BACKEND=x11`). The phase 19a–19c workbench scenarios use a scripted
+`GDK_BACKEND=x11`). The phase 19a–19d workbench scenarios use a scripted
 transport (Classic and NTAG213) and are gated:
 
 ```sh
@@ -378,7 +378,48 @@ env -u WAYLAND_DISPLAY NFC_FOUNDRY_GUI_TESTS=1 \
 ```
 
 Without `NFC_FOUNDRY_GUI_TESTS=1` the test takes its skip branch so
-`cargo test --workspace` still passes on a machine without a display.
+`cargo test --workspace` still passes on a machine without a display. The same
+gate covers the phase 19e language scenario: it switches to `zh-CN`, asserts
+the immediate relabeling, persistence, and preservation of page/reader/card/
+selection, runs a Classic read and a Type 2 read in Chinese, opens a Chinese
+write dialog (heading, body, responses, close response), and fails if any
+English chrome remains in the visible window or dialog. It then switches back
+to English.
+
+Phase 19e also adds an `i18n` unit test module: every catalog key has a
+non-empty English and Chinese value and the same placeholder count, exact and
+pattern lines translate both ways, multi-line labels keep their breaks, locale
+detection prefers the saved choice, and preference codes round-trip. Settings
+tests cover language persistence and rejection of an unknown code. The parity
+matrix in `docs/design/parity.md` is checked against the `nfctl` command tree
+and the GUI page/control tree; the audit added the GUI NDEF message export.
+
+The navigation scenario visits every shell tab, checks the empty and busy
+states, and verifies that the primary action is focusable and that the focus
+chain advances. Escape/close behavior is asserted through the write dialog's
+`cancel` close response.
+
+For a visual Chinese check, run the built application on a private Xvfb
+display with a temporary config and capture the window:
+
+```sh
+Xvfb :97 -screen 0 1500x1000x24 &
+DISPLAY=:97 XDG_CONFIG_HOME=/tmp/nfc-zh GDK_BACKEND=x11 \
+  target/debug/nfc-foundry &
+DISPLAY=:97 import -window root /tmp/nfc-zh.png
+```
+
+Use `{"language":"zh-CN"}` in `/tmp/nfc-zh/nfc-foundry/ui.json`. Check CJK
+glyphs, tab scrolling, and truncation; the 19e record used this capture.
+
+The 19d scenarios cover keyscan progress, merge, and `.dic` export; the
+recovery limitation surface and verified-key saving; diagnostics without card
+I/O; activity timestamps, redaction, and clear; and settings persistence with
+`0600` permissions plus invalid-path rejection. `nfc-app` adds a per-sector
+keyscan progress assertion and recovery candidate expansion. `nfctl` covers
+explicit `--key-file` keyscan candidates with common keys disabled and the
+reader/build facts in `diag`. Settings unit tests cover missing and malformed
+files, permissions, and path validation.
 
 For hardware features:
 

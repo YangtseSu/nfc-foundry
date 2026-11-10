@@ -1,6 +1,6 @@
 # Spec: phase 19e completion, bilingual UI, parity, packaging
 
-Status: pending. Plan: [19e-completion.md](../plan/19e-completion.md).
+Status: complete 2026-11-11. Plan: [19e-completion.md](../plan/19e-completion.md).
 
 ## Language
 

@@ -619,6 +619,43 @@ fn keyscan_finds_a_and_b_keys_and_counts_attempts() {
 }
 
 #[test]
+fn keyscan_reports_progress_after_each_sector() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    {
+        let mut state = handle.lock();
+        state.accept_only(0, &[(KeyType::A, KEY_A)]);
+        for sector in 1..16 {
+            state.accept_only(sector, &[(KeyType::A, DENIED)]);
+        }
+    }
+    let mut service = service(&handle);
+    let store = KeyStore::new();
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&events);
+    let result = service
+        .classic_keyscan(
+            ClassicKeyscan::new(&store, vec![KEY_A, DENIED])
+                .include_common_keys(false)
+                .progress(Some(Arc::new(move |progress| {
+                    sink.lock().expect("progress lock").push(progress);
+                }))),
+        )
+        .expect("keyscan");
+    let events = events.lock().expect("progress lock");
+    assert_eq!(events.len(), 16);
+    assert_eq!(events[0].sector, 0);
+    assert_eq!(events[0].sector_count, 16);
+    assert_eq!(events[15].sector, 15);
+    assert_eq!(events[15].attempts, result.attempts);
+    assert_eq!(events[15].verified, result.verified);
+    assert!(
+        events
+            .windows(2)
+            .all(|pair| pair[0].attempts <= pair[1].attempts)
+    );
+}
+
+#[test]
 fn keyscan_stops_when_the_token_is_cancelled() {
     let handle = TestHandle::new(TestState::with_card(card()));
     let token = CancelToken::new();

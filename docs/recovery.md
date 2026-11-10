@@ -64,6 +64,27 @@ whether the static encrypted nonce profile is present; the FM11RF08S recovery
 sequence itself needs reader-scheduled acquisition that the PN532 UART and
 ACR122U transports do not expose.
 
+## Workbench and CLI
+
+The GTK Recovery page runs the same `nfc-app` service and `nfc-recover` engine
+as `nfctl`. It exposes Auto, Darkside, Nested, Static nested, Hardnested, and
+FM11RF08S, with known block/type, target block/type, the hardnested table
+directory, an acquisition cap, and key-store/common candidates. Acquisition,
+filtering, and brute-force events update one progress line and an elapsed
+timer. Cancel sets the same `CancelToken` used by the engine, so it stops
+before the next reader exchange.
+
+A recovered key is shown only after the service authenticates it again. Saving
+to the key store is a separate action and records the `recovery` provenance.
+Engine limitations are shown verbatim: darkside no-sample, FM11RF08S
+transport limits, and missing or empty hardnested tables are not collapsed
+into a generic failure.
+
+`nfctl recover` accepts `--known-type A|B` for every strategy that uses a
+known key. The GUI and CLI use the same settings for the default hardnested
+table directory; `nfctl diag` reports the resolved table path and enumerated
+readers.
+
 ## Reader behavior
 
 Nonce acquisition uses caller-supplied parity over the PN53x

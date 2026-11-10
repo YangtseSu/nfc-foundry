@@ -238,6 +238,43 @@ fn destructive_actions_require_confirmation() {
 }
 
 #[test]
+fn keyscan_uses_explicit_key_files_when_common_keys_are_disabled() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let dictionary = directory.path().join("keys.dic");
+    let store = directory.path().join("keys.json");
+    std::fs::write(&dictionary, "A0A1A2A3A4A5\n").expect("dictionary");
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "--no-common-keys",
+        "--key-file",
+        dictionary.to_str().expect("path"),
+        "classic",
+        "keyscan",
+        "--types",
+        "A",
+        "--save",
+        store.to_str().expect("path"),
+    ]);
+    assert_success(&output);
+    assert!(stdout(&output).contains("sector 0"), "{}", stdout(&output));
+
+    let output = nfctl(&[
+        "classic",
+        "keys",
+        "list",
+        "--key-store",
+        store.to_str().expect("path"),
+    ]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("A0A1A2A3A4A5"), "{text}");
+    assert!(!text.contains("FFFFFFFFFFFF"), "{text}");
+}
+
+#[test]
 fn keyscan_persists_discovered_keys_and_keys_commands_read_them() {
     let directory = tempfile::tempdir().expect("temp dir");
     let store = directory.path().join("keys.json");
@@ -417,6 +454,8 @@ fn nested_recovery_without_parity_fails_honestly() {
         "nested",
         "--known-block",
         "4",
+        "--known-type",
+        "B",
         "--target-block",
         "0",
     ]);
@@ -735,5 +774,12 @@ fn version_and_diag_report_the_release_version() {
     assert!(text.contains(&format!("nfctl {version}")), "{text}");
     assert!(text.contains("pn532_uart:"), "{text}");
     assert!(text.contains("acr122_usb:"), "{text}");
+    assert!(text.contains("build:"), "{text}");
     assert!(!text.contains("skeleton"), "{text}");
+
+    let output = nfctl(&["--mock", "diag"]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("reader: Mock Classic 1K"), "{text}");
+    assert!(text.contains("mock:classic-1k"), "{text}");
 }

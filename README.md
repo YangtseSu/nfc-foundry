@@ -56,12 +56,18 @@ the same services. The Classic mapping has no capability-container record; the
 GPB carries the mapping version and access state. The GPUI Kit shell was
 removed on `feat/gtk4-ui`. The GTK4 workbench in `crates/gui` provides the
 shell, real reader selection, Classic read/table/inspector, verified block
-write, dump save/load, Keys, Diff, Restore, a Classic NDEF composer with
-verified write and format, and Type 2 Memory/Protection with user-page and
-Advanced writes, locks, password configuration, project dump/restore, and Type 2
-NDEF write/format. Remaining work is the recovery and system surfaces, the
-Type 4 read surface (hardware-gated), the `zh-CN` catalog, and packaging. The
-application icon and desktop entry are in `resources/`.
+write, dump save/load, Keys, Key scan, Recovery, Diff, Restore, a Classic NDEF
+composer with verified write and format, Type 2 Memory/Protection with
+user-page and Advanced writes, locks, password configuration, project
+dump/restore, and Type 2 NDEF write/format, plus Diagnostics, Activity, and
+persisted Settings. The interface is complete in English and Simplified
+Chinese (`zh-CN`), with an immediate switch that preserves the current page,
+reader, card image, and selection; the choice persists in `ui.json` and the
+system locale is used on first run. Every shipped `nfctl` card and file
+operation has a GUI path with the same gates; see the
+[parity matrix](docs/design/parity.md). The package installs both binaries, the
+hicolor icon set, and the desktop entry. Remaining work is the Type 4 read
+surface (hardware-gated) and phases 13-17.
 
 ## Product scope
 
@@ -146,11 +152,11 @@ tar -xzf nfc-foundry-0.1.0-x86_64.tar.gz
 ./nfc-foundry-0.1.0-x86_64/bin/nfctl diag
 ```
 
-The current package and tarball install `nfctl`, the ACR122U udev rule, the
-hardnested tables, licenses, and notices. The desktop entry and icons stay in
-`resources/` for the GTK application. All paths use the
-`nfc-foundry` namespace, so another NFC reader application can stay installed;
-only one process may own a reader at a time. See [Packaging](docs/packaging.md).
+The package and tarball install `nfc-foundry` and `nfctl`, the ACR122U udev
+rule, the hardnested tables, the hicolor icon set, `nfc-foundry.desktop`,
+licenses, and notices. All paths use the `nfc-foundry` namespace, so another
+NFC reader application can stay installed; only one process may own a reader at
+a time. See [Packaging](docs/packaging.md).
 
 ## Build
 
@@ -168,8 +174,9 @@ cargo run -p nfc-foundry
 ```
 
 It needs GTK 4.10 or newer and libadwaita 1.5 or newer development/runtime
-libraries. On Arch Linux: `gtk4`, `libadwaita`; on Debian/Ubuntu:
-`libgtk-4-dev`, `libadwaita-1-dev`.
+libraries. On Arch Linux: `gtk4`, `libadwaita`, `hicolor-icon-theme`; on
+Debian/Ubuntu: `libgtk-4-dev`, `libadwaita-1-dev`, `hicolor-icon-theme`. The
+language selector is in Settings; `nfctl` stays English under every locale.
 
 Hardware tests never run by default. They require an explicit feature and
 environment variable; see `docs/testing.md`.
@@ -327,15 +334,22 @@ still pending because no ACR122U was connected.
 
 The GTK4 workbench lives in `crates/gui`. It includes the shell, real reader
 selection, Classic read/table/inspector, verified block write, dump save/load
-with format selection, Keys, Diff, Restore, a family-aware NDEF composer with
-verified write and format, and Type 2 Memory/Protection screens. A Type 2 read
-shows page roles, locks, CC, configuration, and NDEF state; user pages and
-Advanced pages use the service write path, and locks/password/restore/format
-require the typed confirmation. Writes, restores, and NDEF mutations pass the
-loaded image's card identity to the service and are refused with `CardChanged`
-before any backup if the live card differs. Type 4 read stays out of the UI
-until a hardware record exists. Recovery and system surfaces, the `zh-CN`
-catalog, and packaging remain in progress. The application icon and desktop
+with format selection, Keys, Key scan, Recovery, Diff, Restore, a family-aware
+NDEF composer with verified write and format, Type 2 Memory/Protection, and
+Diagnostics/Activity/Settings screens. A Type 2 read shows page roles, locks,
+CC, configuration, and NDEF state; user pages and Advanced pages use the
+service write path, and locks/password/restore/format require the typed
+confirmation. Writes, restores, and NDEF mutations pass the loaded image's card
+identity to the service and are refused with `CardChanged` before any backup if
+the live card differs. Key scan authenticates candidates per sector and merges
+only on request. Recovery exposes every native strategy with acquisition,
+filtering, and brute-force progress, elapsed time, cancellation, verified-key
+saving, and the engine limitations verbatim. Activity is a session-only record
+that omits key material and NDEF payloads. Settings persist the key store,
+backup directory, hardnested tables, common-key default, and default dump
+format in `$XDG_CONFIG_HOME/nfc-foundry/ui.json` with atomic `0600` writes.
+Type 4 read stays out of the UI until a hardware record exists. The `zh-CN`
+catalog and packaging remain in progress. The application icon and desktop
 entry are in `resources/` for the packaged application.
 
 ## Documentation

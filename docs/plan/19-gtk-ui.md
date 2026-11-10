@@ -1,7 +1,7 @@
 # Phase 19 plan: GTK4 workbench
 
 Status: in progress. Phase 19 is the GTK4 workbench umbrella. It is executed
-as slices: 19a and 19b are complete; 19c–19e are the remaining work. There is no
+as slices: 19a–19d are complete; 19e is the remaining work. There is no
 separate implementation step called "19" outside those slices.
 
 The GPUI Kit shell was removed on `feat/gtk4-ui`. The product uses one desktop
@@ -55,17 +55,14 @@ would keep GTK's look, not WinUI.
 Phase 19a completed the Classic workbench: PM3 interchange, Keys, Diff,
 Restore, identity-guarded writes, inspector decoding, and the first mock/Xvfb
 UI scenario. Phase 19b completed the Classic NDEF composer, verified write,
-and format.
+and format. Phase 19c completed Type 2 memory/protection and the NDEF flows.
+Phase 19d completed Key scan, Recovery, Diagnostics, Activity, and persisted
+Settings.
 
-1. **19c Type 2 / Type 4**: memory, protection, NDEF, and gated Type 4 read.
-   See [19c-type2-type4.md](19c-type2-type4.md).
-2. **19d Recovery and system surfaces**: keyscan, recovery strategies,
-   progress/cancel, diagnostics, activity, and settings. See
-   [19d-recovery-system.md](19d-recovery-system.md).
-3. **19e Completion**: bilingual catalog and language switch, broader GTK UI
+1. **19e Completion**: bilingual catalog and language switch, broader GTK UI
    tests, CLI/GUI parity audit, and packaging. See
    [19e-completion.md](19e-completion.md).
-4. Windows/macOS assessment after the Linux feature set, if it is still
+2. Windows/macOS assessment after the Linux feature set, if it is still
    wanted.
 
 ## Acceptance for the first slice

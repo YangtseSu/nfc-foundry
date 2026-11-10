@@ -1,7 +1,7 @@
 # Phase 19d plan: recovery and system surfaces
 
-Status: pending. Depends on 19a's Classic workbench and the same worker/test
-harness.
+Status: complete 2026-11-11. Depends on 19a's Classic workbench and the same
+worker/test harness.
 
 Goal: expose the remaining Classic operations and the system surfaces:
 keyscan, native recovery, diagnostics, activity, and settings.

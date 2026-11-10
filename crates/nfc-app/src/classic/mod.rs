@@ -14,7 +14,9 @@ pub(crate) mod write;
 
 pub use backup::{BackupRecord, BackupStore};
 pub use keys::{COMMON_KEYS, KeyEntry, KeyKind, KeySource, KeyStore, common_keys};
-pub use keyscan::{ClassicKeyscan, ClassicKeyscanResult, KeyTypes, SectorKeys};
+pub use keyscan::{
+    ClassicKeyscan, ClassicKeyscanResult, KeyTypes, KeyscanProgress, KeyscanSink, SectorKeys,
+};
 pub use ndef::{
     ClassicNdefFormat, ClassicNdefFormatResult, ClassicNdefRead, ClassicNdefReadResult,
     ClassicNdefWrite, ClassicNdefWriteResult,

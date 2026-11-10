@@ -11,9 +11,11 @@ GPUI rules for new UI work.
 - Left rail (fixed start pane, `GtkPaned`): reader menu with refresh, card
   identity/size/readability, key-store status, selected block, and an
   in-memory task/security log.
-- Content: `Card`, `Type 2`, `NDEF`, `Keys`, `Diff`, and `Restore` tabs; the
-  primary action stays in the header. `Read card` detects the card family and
-  switches to `Card` or `Type 2`.
+- Content: `Card`, `Type 2`, `NDEF`, `Keys`, `Key scan`, `Recovery`, `Diff`,
+  `Restore`, `Diagnostics`, `Activity`, and `Settings` tabs; the primary action
+  stays in the header. `Read card` detects the card family and switches to
+  `Card` or `Type 2`. The tab bar scrolls horizontally when the localized
+  labels exceed the window width.
 - Status bar: operation text, spinner, and layout/card facts.
 
 ## Card
@@ -82,6 +84,66 @@ GPUI rules for new UI work.
   sector as `any`.
 - Reads and writes use the same in-memory store; there is no second key
   source.
+
+## Key scan
+
+- Candidates: the current key store, an optional text/JSON dictionary, and the
+  built-in common keys. Key A, Key B, or both are selectable.
+- Progress reports the completed sector, attempts, and verified trailer reads;
+  the result table lists `Sector`, `Key A`, and `Key B`.
+- `Save discovered keys` merges into the JSON store without duplicates;
+  `Export .dic…` writes only the scanned set. Neither replaces existing
+  entries.
+- Cancel uses the scan token; the reader lease stays exclusive.
+
+## Recovery
+
+- Strategies: Auto, Darkside, Nested, Static nested, Hardnested, FM11RF08S.
+- Inputs: known block/type, target block/type, tables directory, acquisition
+  cap, and key-store/common candidates.
+- One progress line renders acquisition, filtering, or brute force; a
+  one-second timer shows elapsed time. Cancel is available while the engine
+  runs and is checked before the next reader exchange.
+- A verified key appears with its type and key value; saving to the store is a
+  separate action with `recovery` provenance.
+- Engine limitations (darkside no-sample, FM11RF08S transport limits, missing
+  hardnested tables) are shown verbatim in a dedicated warning line.
+
+## Diagnostics
+
+- Version, supported driver prefixes, enumerated readers, resolved hardnested
+  table path, and build profile/OS/architecture.
+- Reader refresh enumerates devices only; diagnostics performs no card I/O and
+  shows no secrets.
+
+## Activity
+
+- `GtkColumnView` with `Time`, `Operation`, `Result`, and `Detail`.
+- Session-only; warnings and backup paths appear in `Detail`. Key material and
+  NDEF payloads are not logged.
+- `Clear activity` empties the list and the rail log.
+
+## Language
+
+- English is the base language and fallback; `zh-CN` is complete.
+- The language selector is in Settings and applies immediately. Relabeling
+  happens in the existing window, preserving the current page, reader, card
+  image, table selection, and open form values.
+- The choice persists in `ui.json`. With no saved choice, `LC_ALL`,
+  `LC_MESSAGES`, and `LANG` select the first language; everything other than a
+  `zh` primary tag resolves to English.
+- Protocol names, hex, UIDs, paths, counts, service diagnostics, and the
+  activity log stay unlocalized. `nfctl` is English-only.
+
+## Settings
+
+- Fields: key store path, backup directory, hardnested table directory,
+  common-key default, default dump format, and language.
+- Preferences live in `$XDG_CONFIG_HOME/nfc-foundry/ui.json`, written
+  atomically with mode `0600`. A malformed file is reported, not ignored.
+- Saving validates paths, then reloads the key store and applies the backup
+  directory and defaults. Advanced mode and recovery cancellation stay
+  session-only.
 
 ## Diff
 

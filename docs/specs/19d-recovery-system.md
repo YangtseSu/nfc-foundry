@@ -1,6 +1,7 @@
 # Spec: phase 19d recovery and system surfaces
 
-Status: pending. Plan: [19d-recovery-system.md](../plan/19d-recovery-system.md).
+Status: complete 2026-11-11. Plan:
+[19d-recovery-system.md](../plan/19d-recovery-system.md).
 
 ## Key scan
 

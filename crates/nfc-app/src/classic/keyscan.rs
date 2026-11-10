@@ -1,5 +1,7 @@
 //! Key scan: authenticate candidate keys per sector without writing.
 
+use std::sync::Arc;
+
 use nfc_core::{CancelToken, Key, KeyType, NfcError, Result};
 
 use crate::operation::Operation;
@@ -48,6 +50,20 @@ impl Default for KeyTypes {
     }
 }
 
+/// Scan progress after each completed sector. `sector` is the sector just
+/// scanned, so the final event reports `sector_count - 1`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct KeyscanProgress {
+    pub sector: usize,
+    pub sector_count: usize,
+    pub attempts: usize,
+    pub verified: usize,
+}
+
+/// Caller-visible progress. The callback runs on the scanning thread.
+pub type KeyscanSink = Arc<dyn Fn(KeyscanProgress) + Send + Sync>;
+
 /// Key scan request. Authentication is the only card operation.
 pub struct ClassicKeyscan<'a> {
     pub keys: &'a KeyStore,
@@ -55,6 +71,7 @@ pub struct ClassicKeyscan<'a> {
     pub include_common_keys: bool,
     pub key_types: KeyTypes,
     pub cancel: CancelToken,
+    pub progress: Option<KeyscanSink>,
 }
 
 impl<'a> ClassicKeyscan<'a> {
@@ -65,6 +82,7 @@ impl<'a> ClassicKeyscan<'a> {
             include_common_keys: true,
             key_types: KeyTypes::ALL,
             cancel: CancelToken::new(),
+            progress: None,
         }
     }
 
@@ -80,6 +98,11 @@ impl<'a> ClassicKeyscan<'a> {
 
     pub fn cancel(mut self, cancel: CancelToken) -> Self {
         self.cancel = cancel;
+        self
+    }
+
+    pub fn progress(mut self, progress: Option<KeyscanSink>) -> Self {
+        self.progress = progress;
         self
     }
 }
@@ -180,6 +203,14 @@ pub fn keyscan(
             }
         }
         sectors.push(found);
+        if let Some(sink) = &request.progress {
+            sink(KeyscanProgress {
+                sector,
+                sector_count: layout.sector_count(),
+                attempts,
+                verified,
+            });
+        }
     }
     Ok(ClassicKeyscanResult {
         sectors,

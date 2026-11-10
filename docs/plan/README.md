@@ -4,9 +4,10 @@ Status legend: `done`, `in progress`, `pending`, `optional`, `blocked`.
 
 GUI note: the GPUI Kit workspaces were removed on `feat/gtk4-ui`. Phase 19
 is the GTK4-rs workbench umbrella in `crates/gui`, executed as slices.
-19a (Classic completion/PM3 interchange) and 19b (NDEF write/format) are done;
-19c–19e are the remaining work packages, in that order. There is no separate
-"19" implementation step outside those slices. Phases 04/09/10/18 describe
+19a (Classic completion/PM3 interchange), 19b (NDEF write/format),
+19c (Type 2 workbench), 19d (recovery/system surfaces), and 19e (bilingual UI,
+parity, packaging) are complete. There is no separate "19" implementation step
+outside those slices. Phases 04/09/10/18 describe
 the removed GPUI surfaces and remain historical for domain and CLI work.
 
 | Phase | Scope | Status |
@@ -30,12 +31,12 @@ the removed GPUI surfaces and remain historical for domain and CLI work.
 | 16 | Chinese resident ID read-only (authorized SAM) | blocked |
 | 17 | Amiibo / NTAG215 read, decrypt, encrypt, write (user keys/data) | optional |
 | 18 | Workbench UI redesign, bilingual UI, icon and desktop entry | done (GPUI; GUI superseded by 19) |
-| 19 | GTK4 workbench: shell, Classic slice, then parity screens | in progress |
+| 19 | GTK4 workbench: shell, Classic slice, then parity screens | done |
 | 19a | Classic completion: PM3 interchange, keys, diff/restore, safety, UI tests | done |
 | 19b | NDEF write/format: composer, Classic NDEF, read-only gates | done |
 | 19c | Type 2 / NTAG workbench and hardware-gated Type 4 read | done |
-| 19d | Recovery, keyscan, diagnostics, activity, settings | pending |
-| 19e | Bilingual UI, parity audit, UI tests, packaging | pending |
+| 19d | Recovery, keyscan, diagnostics, activity, settings | done |
+| 19e | Bilingual UI, parity audit, UI tests, packaging | done |
 
 ## Rules
 
@@ -643,8 +644,9 @@ writes; `cargo fmt`, clippy, workspace tests, and `reuse lint` pass.
 
 Detailed plan: [19-gtk-ui.md](19-gtk-ui.md).
 
-Status: in progress. First Classic slice implemented on 2026-11-11. See
-`docs/specs/19-gtk-ui.md` and `docs/notes/19-gtk-ui.md`.
+Status: complete 2026-11-11. The shell and all parity screens landed through
+19a-19e. See `docs/specs/19-gtk-ui.md`, `docs/notes/19-gtk-ui.md`, and the
+slice notes.
 
 ### 19a: Classic completion and Proxmark3 interchange
 
@@ -704,7 +706,12 @@ Goal: expose keyscan, native recovery with progress/cancel, diagnostics,
 activity, and persisted settings without adding card writes.
 
 Detailed plan: [19d-recovery-system.md](19d-recovery-system.md). Spec:
-[19d-recovery-system.md](../specs/19d-recovery-system.md). Status: pending.
+[19d-recovery-system.md](../specs/19d-recovery-system.md). Status: complete
+2026-11-11. The GUI adds the Key scan and Recovery pages with worker progress,
+elapsed time, cancellation, explicit key saving, and engine limitations shown
+verbatim; Diagnostics, Activity, and persisted Settings; `nfctl` gains keyscan
+dictionary candidates, `--known-type`, and reader/build facts in `diag`. See
+[docs/notes/19d-recovery-system.md](../notes/19d-recovery-system.md).
 
 ### 19e: Completion
 
@@ -713,4 +720,10 @@ expand the Xvfb UI scenarios, and package both binaries with the icon and
 desktop entry.
 
 Detailed plan: [19e-completion.md](19e-completion.md). Spec:
-[19e-completion.md](../specs/19e-completion.md). Status: pending.
+[19e-completion.md](../specs/19e-completion.md). Status: complete 2026-11-11.
+The GUI has the complete English/`zh-CN` catalog with an immediate, persisted
+switch; `docs/design/parity.md` closes the CLI/GUI audit; the Xvfb scenario
+covers every shell page, navigation, focus, dialogs, Chinese reads and
+writes; and the AUR package and release tarball install both binaries, the
+hicolor icons, and the desktop entry. See
+[docs/notes/19e-completion.md](../notes/19e-completion.md).
