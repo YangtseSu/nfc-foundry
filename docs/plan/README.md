@@ -31,6 +31,7 @@ domain and CLI work.
 | 18 | Workbench UI redesign, bilingual UI, icon and desktop entry | done (GPUI; GUI superseded by 19) |
 | 19 | GTK4 workbench: shell, Classic slice, then parity screens | in progress |
 | 19a | Classic completion: PM3 interchange, keys, diff/restore, safety, UI tests | done |
+| 19b | NDEF write/format: composer, Classic NDEF, read-only gates | pending |
 
 ## Rules
 
@@ -660,3 +661,19 @@ Detailed plan: [19a-classic-pm3.md](19a-classic-pm3.md). Spec:
 
 Status: complete 2026-11-11. See `docs/specs/19a-classic-pm3.md` and
 `docs/notes/19a-classic-pm3.md`.
+
+### 19b: NDEF write and format
+
+Goal: close the NDEF write path for MIFARE Classic before Type 2/Type 4
+screens. The existing read-only NDEF tab gains a Text/URI/raw composer, capacity
+and read-only gates, verified write with backup and identity check, and
+formatting with an explicit destructive confirmation. The same draft
+abstraction is reused by Type 2 later.
+
+Non-goals: Type 2/Type 4 screens, full RTD catalog (vCard/Wi-Fi/etc.), i18n,
+and packaging.
+
+Detailed plan: [19b-ndef-write.md](19b-ndef-write.md). Spec:
+[19b-ndef-write.md](../specs/19b-ndef-write.md).
+
+Status: pending.

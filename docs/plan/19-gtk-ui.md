@@ -51,18 +51,20 @@ would keep GTK's look, not WinUI.
 
 ## Remaining
 
-1. Classic screens: keys (import/add/save), diff, recovery, restore, dump
-   formats, and UID/clone/factory actions with their gates.
-2. NDEF mutations: Text/URI composer, raw message write, erase, format, and
-   Classic NDEF writing; use the same schema as the CLI.
-3. Type 2 memory/protection/NDEF screens and Type 4 read.
-4. Bilingual catalog and language switch.
-5. GUI tests for navigation, selection, dialogs, busy/error/partial states,
-   and safety gates.
-6. Packaging: GTK runtime/development dependencies, GUI binary, icon, desktop
-   entry, and release tarball. The GUI is not packaged until it is feature
-   complete.
-7. Windows/macOS assessment after the Linux feature set, if it is still
+Phase 19a completed the Classic workbench: PM3 interchange, Keys, Diff,
+Restore, identity-guarded writes, inspector decoding, and the first mock/Xvfb
+UI scenario.
+
+1. **19b NDEF write/format**: Text/URI/raw message composer, capacity and
+   read-only gates, Classic NDEF write and format, post-write refresh. See
+   [19b-ndef-write.md](19b-ndef-write.md).
+2. **19c Type 2 / Type 4**: memory, protection, NDEF, and Type 4 read.
+3. **19d Recovery and system surfaces**: keyscan, recovery strategies,
+   progress/cancel, diagnostics, activity, and settings.
+4. **19e Completion**: bilingual catalog and language switch, broader GTK UI
+   tests, CLI/GUI parity audit, and packaging (GTK runtime, GUI binary, icon,
+   desktop, release tarball).
+5. Windows/macOS assessment after the Linux feature set, if it is still
    wanted.
 
 ## Acceptance for the first slice
