@@ -1,7 +1,8 @@
 # Phase 19 plan: GTK4 workbench
 
-Status: in progress. The first Classic slice is implemented; the remaining
-screens and NDEF mutations are not.
+Status: in progress. Phase 19 is the GTK4 workbench umbrella. It is executed
+as slices: 19a is complete; 19b–19e are the remaining work. There is no
+separate implementation step called "19" outside those slices.
 
 The GPUI Kit shell was removed on `feat/gtk4-ui`. The product uses one desktop
 frontend: GTK4-rs (`gtk4` + `libadwaita`) in `crates/gui`, binary

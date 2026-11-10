@@ -3,10 +3,11 @@
 Status legend: `done`, `in progress`, `pending`, `optional`, `blocked`.
 
 GUI note: the GPUI Kit workspaces were removed on `feat/gtk4-ui`. Phase 19
-replaces them with the GTK4-rs workbench in `crates/gui`; phase 19a is the
-next Classic completion and Proxmark3-interchange work package. Phases
-04/09/10/18 describe the removed GPUI surfaces and remain historical for
-domain and CLI work.
+is the GTK4-rs workbench umbrella in `crates/gui`, executed as slices.
+19a (Classic completion/PM3 interchange) is done; 19b–19e are the remaining
+work packages, in that order. There is no separate "19" implementation step
+outside those slices. Phases 04/09/10/18 describe the removed GPUI surfaces
+and remain historical for domain and CLI work.
 
 | Phase | Scope | Status |
 |---|---|---|
