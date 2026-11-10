@@ -124,6 +124,7 @@ Kit workspace for memory, NDEF, and protection. The GUI and CLI call the same
   restore, lock, and `ndef write|read|format`.
 - GPUI UI tests cover page selection, NDEF write/format, Advanced confirmation,
   lock typed confirmation, and protection controls.
-- Hardware: NTAG215 read/write/NDEF round trip on ACR122U, recorded in
-  `docs/notes/09-type2-ndef.md` before the Type 2 write path is advertised as
-  hardware-validated.
+- Hardware: NTAG215 read/write/NDEF round trip on PN532 UART and ACR122U,
+  recorded in `docs/notes/09-type2-ndef.md`. The PN532 UART read and authorized
+  NDEF write/read/restore round trip passed on 2026-11-10; the ACR122U record,
+  one-way locks, and password configuration remain pending.

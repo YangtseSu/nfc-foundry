@@ -18,11 +18,16 @@ use std::env;
 use std::sync::{Mutex, MutexGuard};
 
 use nfc_app::Service;
+#[cfg(feature = "hardware-write")]
 use nfc_app::classic::BackupStore;
-use nfc_app::type2::{Type2Format, Type2NdefWrite, Type2Password, Type2ReadResult, Type2Restore};
+use nfc_app::type2::Type2ReadResult;
+#[cfg(feature = "hardware-write")]
+use nfc_app::type2::{Type2Format, Type2NdefWrite, Type2Password, Type2Restore};
 use nfc_core::{CancelToken, CardType};
 use nfc_drivers::DriverRegistry;
+#[cfg(feature = "hardware-write")]
 use nfc_ndef::{NdefMessage, TextRecord};
+#[cfg(feature = "hardware-write")]
 use nfc_type2::{NdefState, RestoreOptions, exchange};
 
 static HARDWARE_LOCK: Mutex<()> = Mutex::new(());

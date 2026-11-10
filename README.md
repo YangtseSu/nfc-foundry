@@ -9,7 +9,7 @@ dependency of this project.
 
 ## Status
 
-**Phase 09 implementation complete; Type 2 hardware write validation pending.**
+**Phase 09 implementation complete; ACR122U Type 2 hardware record pending.**
 Both first-release readers are implemented: PN532 UART
 and ACR122U direct USB/CCID. The ACR122U path claims the CCID interface with
 `nusb`, carries PN532 commands in the ACR122 pseudo-APDU, and supports
@@ -42,9 +42,10 @@ adapter is implemented: CC and product layouts, static/dynamic locks, NTAG
 configuration, project dumps, NDEF TLV preservation, and verified page and
 NDEF writes over both readers. `nfctl type2|ndef` and the GPUI Kit Type 2
 workspace share the `nfc-app` services, with backups, read-back verification,
-and typed confirmations for one-way locks and configuration. Type 2 hardware
-write and NDEF round-trip validation is pending; the read path was validated
-earlier on both readers. Classic NDEF follows in phase 10.
+and typed confirmations for one-way locks and configuration. A PN532 UART
+NTAG215 read plus authorized NDEF write/read/restore round trip is recorded for
+2026-11-10; the ACR122U record and lock/password paths remain pending. The read
+path was validated earlier on both readers. Classic NDEF follows in phase 10.
 
 ## Product scope
 
@@ -232,9 +233,11 @@ cargo run -p nfctl -- --device acr122_usb:001:017 \
   type2 lock --pages 4 --confirm I_OWN_THIS_CARD
 ```
 
-Type 2 reads are hardware-validated. Write, NDEF, lock, and password paths are
-implemented with backups and read-back verification but still need the
-hardware record described in [Testing](docs/testing.md).
+Type 2 reads are hardware-validated on both readers. The PN532 UART path also
+passed an authorized NTAG215 NDEF write/read/restore round trip with backups
+and read-back verification. The ACR122U write record, one-way locks, and
+password configuration still need the hardware record described in
+[Testing](docs/testing.md).
 
 ## GUI
 

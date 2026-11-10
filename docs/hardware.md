@@ -102,13 +102,16 @@ disconnect mapping is covered by scripted transport tests. See
 
 ### Type 2 write and NDEF status
 
-The Type 2 READ path is validated on both readers. The write path uses the same
-raw framing with READ (0x30), WRITE (0xA2), and PWD_AUTH (0x1B) commands,
-CRC-A, read-back verification, and restored raw mode. Driver unit tests cover
-the frames, but no Type 2 write, NDEF round trip, lock, or password action has
-been recorded on hardware yet. Run the gated checks in
-`docs/testing.md` before advertising those operations as hardware-validated.
-The phase 09 note records the pending status.
+The Type 2 READ path is validated on both readers. On 2026-11-10 a PN532 UART
+at `pn532_uart:/dev/ttyUSB0` completed an authorized NTAG215
+(`04 52 F5 67 D3 2A 81`) NDEF round trip: read 135/135 pages, format, write a
+33-byte Text record, verify it, then restore the original user memory from a
+project backup. The original URI NDEF was present after the restore. The write
+path uses READ (0x30), WRITE (0xA2), and PWD_AUTH (0x1B), CRC-A, read-back
+verification, and restored raw mode. ACR122U write/NDEF, one-way locks, and
+password configuration have not been recorded yet. Run the gated checks in
+`docs/testing.md` before advertising those remaining operations as
+hardware-validated. The phase 09 note records the details.
 
 Raw operations after a selected card require an RF field cycle to return the
 card to IDLE; `InRelease` alone did not produce a REQA response on this reader.

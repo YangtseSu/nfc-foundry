@@ -253,15 +253,16 @@ Acceptance:
 - Partial reads are explicit; no fake success.
 - GUI and CLI parity.
 
-Status: implementation complete; hardware validation pending. `nfc-type2` owns
-CC/layout/lock/config parsing, project dumps, NDEF TLV preservation, and
+Status: implementation complete; ACR122U hardware record pending. `nfc-type2`
+owns CC/layout/lock/config parsing, project dumps, NDEF TLV preservation, and
 verified read/write workflows. PN532 UART and ACR122U issue READ, WRITE, and
 PWD_AUTH with CRC-A and restored raw mode. `nfc-app` adds backups,
 confirmations, and identity checks; `nfctl type2|ndef` and the
 `nfc-type2-gui` Memory/NDEF/Protection workspace use those services. Driver,
-model, workflow, CLI, and GPUI tests pass. The gated ACR122U NTAG215 hardware
-round trip has not been run because no reader was connected. See
-`docs/specs/09-type2-ndef.md` and `docs/notes/09-type2-ndef.md`.
+model, workflow, CLI, and GPUI tests pass. A PN532 UART NTAG215 read plus
+authorized NDEF write/read/restore round trip passed on 2026-11-10; the
+ACR122U variant remains to be recorded. See `docs/specs/09-type2-ndef.md` and
+`docs/notes/09-type2-ndef.md`.
 
 ### 10: Classic NDEF
 

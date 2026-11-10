@@ -128,8 +128,9 @@ cargo test -p nfctl --features hardware-write -- --ignored
 ```
 
 The password test additionally requires `NFCX_TYPE2_PASSWORD` (8 hex digits)
-and writes AUTH0/ACCESS/PWD/PACK on an owned tag. No hardware was connected
-during phase 09 implementation, so those records remain pending.
+and writes AUTH0/ACCESS/PWD/PACK on an owned tag. The read and NDEF round-trip
+tests passed on a PN532 UART with an NTAG215 on 2026-11-10; the ACR122U and
+password records remain pending.
 
 Hardware workflow checks:
 

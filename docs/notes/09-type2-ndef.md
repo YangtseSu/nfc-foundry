@@ -78,12 +78,26 @@ Date: 2026-11-10
   protection controls.
 - Driver tests cover the Type 2 READ CRC and raw-mode restoration on both
   transports.
-- No hardware was connected during implementation. The gated tests exist in
-  `nfctl/tests/hardware_type2.rs`:
-  - read-only NTAG read and NDEF state, enabled with `--features hardware`;
-  - NDEF write/read/restore and password configuration, enabled with
-    `--features hardware-write` and `NFCX_HARDWARE_WRITE`.
-  The Phase 09 acceptance hardware record is therefore pending.
+
+Hardware on 2026-11-10, PN532 UART at `pn532_uart:/dev/ttyUSB0` (CH340,
+firmware 1.6), NTAG215 UID `04 52 F5 67 D3 2A 81`:
+
+- read-only check: 135/135 pages, CC `E1 10 3E 00`, 504-byte user memory,
+  496-byte NDEF data area, 491-byte NDEF capacity, no warnings;
+- original NDEF: one URI record, `https://www.m5stack.com`;
+- locks `00 00` / `00 00 00`; AUTH0 `FF`, ACCESS `00`, CFGLCK off, AUTHLIM 0;
+- authorized write round trip with `NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD`:
+  formatted NDEF, wrote a 33-byte Text record, read it back as the expected
+  message, then restored the original user memory from a project backup;
+- post-restore read: the original URI record and page image are back;
+- backups written to
+  `/tmp/nfc-phase09-backups/0452F567D32A81-NTAG215-ndef-format-*.json`,
+  `...-ndef-write-*.json`, `...-restore-*.json`, and `original-type2.json`.
+
+The ACR122U was not attached (`lsusb` had no `072f:2200`), so the Phase 09
+acceptance hardware record still needs an ACR122U run. Lock and password
+hardware paths were not exercised; they need a separate owned-tag
+authorization. The gated tests live in `nfctl/tests/hardware_type2.rs`.
 
 ## Problems and resolutions
 
