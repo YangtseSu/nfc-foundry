@@ -9,7 +9,7 @@ Classic block editor or the Type 2 page editor.
 nfc-ndef            message/record/TLV/templates; no hardware
 nfc-type2           pages, CC, locks, config, NDEF TLV adapter
 nfc-classic-ndef    MAD, GPB mapping/access, NDEF sectors, format
-nfc-type4           ISO-DEP/APDU NDEF adapter (later)
+nfc-type4           ISO-DEP/APDU CC and NDEF file adapter
 nfc-app             read/write/format workflows and safety gates
 ```
 
@@ -117,11 +117,33 @@ Safety:
 
 ## Type 4
 
-Later phase:
+Implemented in `nfc-type4`:
 
-- ISO-DEP/APDU transport.
-- Type 4 CC and NDEF file read/write.
-- Reuse `nfc-ndef`; no Classic page model.
+- ISO 7816-4 APDU helpers for the NDEF Tag Application, SELECT FILE, READ
+  BINARY, and UPDATE BINARY, with status-word mapping.
+- Mapping version 2.0 CC parsing: CCLEN, MLe, MLc, NDEF File Control TLVs,
+  Proprietary File Control TLVs, unknown TLV preservation, and short and
+  three-octet TLV lengths.
+- NDEF file state (empty or decoded message), NLEN capacity checks, MLe-sized
+  reads, and MLc/transport-sized verified writes.
+- Read-back verification after NLEN and message writes; clear writes NLEN zero
+  and verifies it.
+- Project JSON with raw CC and canonical NLEN+message bytes.
+- `nfc-app` workflows with pre-mutation backups, read-only refusal,
+  confirmation for clear, and card identity checks.
+
+Both drivers carry ISO-DEP APDUs: PN532 UART through `InDataExchange` and
+ACR122U through the `D4 40 01` pseudo-APDU. The shared 247-byte command limit
+comes from the ACR122U wrapper. No DESFire key, application, file-creation, or
+format workflow is implemented.
+
+Not implemented yet:
+
+- Mapping version 3.0 and Extended NDEF File Control TLVs.
+- Writing non-mandatory NDEF files or proprietary files.
+- CC modification, read-only transitions, or lock operations.
+- CLI and GUI exposure. The Phase 11 plan delivers the adapter and service
+  only; adding a command requires the same-rule GUI parity work.
 
 ## CLI
 

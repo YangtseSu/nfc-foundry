@@ -3,6 +3,7 @@
 //! host frame carrying it differs.
 
 use nfc_core::{CardInfo, CardType, NfcError, Result};
+use nfc_transport::ApduResponse;
 
 pub(crate) const PN532_TFI: u8 = 0xD5;
 
@@ -47,6 +48,11 @@ pub(crate) const TYPE2_ACK: u8 = 0x0A;
 pub(crate) const TARGET_NUMBER: u8 = 0x01;
 pub(crate) const ISO14443A_106_KBPS: u8 = 0x00;
 pub(crate) const MAX_RAW_PAYLOAD: usize = 252;
+/// Largest complete command APDU carried by one exchange. The ACR122U
+/// pseudo-APDU is limited to 255 bytes, and its `D4 40 01` wrapper leaves 247
+/// bytes for the APDU. The PN532 UART path is capped at the same value so the
+/// Type 4 adapter uses one chunk size on both readers.
+pub(crate) const MAX_ISO_DEP_APDU: usize = 247;
 
 /// Firmware identity returned by `GetFirmwareVersion`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -139,6 +145,19 @@ pub(crate) fn parse_response(command: u8, data: &[u8], source: &str) -> Result<V
         )));
     }
     Ok(data[2..].to_vec())
+}
+
+/// Split a complete ISO 7816-4 response APDU into its response data and status
+/// word. APDUs without a status word are protocol errors, not empty successes.
+pub(crate) fn split_apdu_response(mut data: Vec<u8>, source: &str) -> Result<ApduResponse> {
+    if data.len() < 2 {
+        return Err(NfcError::Io(format!(
+            "{source} returned an APDU response without a status word"
+        )));
+    }
+    let sw = [data[data.len() - 2], data[data.len() - 1]];
+    data.truncate(data.len() - 2);
+    Ok(ApduResponse::new(data, sw))
 }
 
 /// Packs data bytes and caller-supplied parity into the PN53x parity-disabled

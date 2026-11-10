@@ -18,6 +18,7 @@ nfc-core.workspace = true
 nfc-ndef.workspace = true
 nfc-recover.workspace = true
 nfc-type2.workspace = true
+nfc-type4.workspace = true
 nfc-drivers.workspace = true
 nfc-transport.workspace = true
 

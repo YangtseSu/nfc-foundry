@@ -4600,8 +4600,12 @@ dependencies = [
 name = "nfc-type4"
 version = "0.1.0"
 dependencies = [
+ "nfc-core",
  "nfc-ndef",
  "nfc-transport",
+ "proptest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -4618,6 +4622,7 @@ dependencies = [
  "nfc-recover",
  "nfc-transport",
  "nfc-type2",
+ "nfc-type4",
  "tempfile",
 ]
 

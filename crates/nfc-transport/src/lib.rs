@@ -24,6 +24,32 @@ pub struct ParityFrame {
     pub parity: Vec<u8>,
 }
 
+/// ISO-DEP capability facts. `max_command` is the largest complete command
+/// APDU the reader can carry in one exchange, including the CLA/INS/P1/P2
+/// header, Lc, data, and Le.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ApduCapabilities {
+    pub supported: bool,
+    pub max_command: usize,
+}
+
+/// A complete ISO 7816-4 response APDU: response data and status word.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ApduResponse {
+    pub data: Vec<u8>,
+    pub sw: [u8; 2],
+}
+
+impl ApduResponse {
+    pub fn new(data: Vec<u8>, sw: [u8; 2]) -> Self {
+        Self { data, sw }
+    }
+
+    pub fn is_ok(&self) -> bool {
+        self.sw == [0x90, 0x00]
+    }
+}
+
 /// A reader opened through an exact connstring. One reader is owned by one
 /// operation at a time; `nfc-app` enforces that lease. `Transport::open`
 /// constructs the reader and `Reader::open` performs the device I/O, so a
@@ -58,6 +84,21 @@ pub trait Reader: Send {
     fn password_auth(&mut self, _password: [u8; PAGE_SIZE]) -> Result<[u8; 2]> {
         Err(NfcError::Unsupported(
             "this reader has no Type 2 password authentication",
+        ))
+    }
+
+    /// ISO-DEP capability facts. Readers that cannot carry ISO 7816-4 APDUs
+    /// keep the default unsupported value.
+    fn apdu_capabilities(&self) -> ApduCapabilities {
+        ApduCapabilities::default()
+    }
+
+    /// Send one complete command APDU to the selected ISO-DEP card and return
+    /// the response APDU including its status word. Drivers never retry a
+    /// state-changing APDU; the caller decides whether to repeat the workflow.
+    fn transceive_apdu(&mut self, _apdu: &[u8]) -> Result<ApduResponse> {
+        Err(NfcError::Unsupported(
+            "this reader has no ISO-DEP APDU exchange",
         ))
     }
 

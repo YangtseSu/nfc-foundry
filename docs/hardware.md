@@ -9,6 +9,11 @@
 
 No other reader is advertised in the first release.
 
+Both readers have an ISO-DEP/APDU code path for NFC Forum Type 4, but it is
+not part of the advertised scope until a Type 4 read/write record is added to
+`docs/notes/11-type4-ndef.md`. The transport-wide limit is 247 bytes per
+command APDU because the ACR122U pseudo-APDU wrapper leaves that much room.
+
 ## PN532 UART
 
 The connstring is `pn532_uart:<serial-port>`. `nfctl list` reports every serial

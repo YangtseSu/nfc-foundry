@@ -63,7 +63,8 @@ Two first-class domains:
    read/write/dump/restore, keys, diff, clone, factory format, UID safety, and
    native key recovery.
 2. **NDEF**: read, write, format, and protect NDEF data on Type 2 / NTAG and
-   MIFARE Classic; Type 4 NDEF follows the same NDEF core later.
+   MIFARE Classic; a Type 4 / ISO-DEP adapter and application workflows are
+   implemented, with hardware validation still pending.
 
 Supported hardware for the first release:
 
@@ -99,7 +100,7 @@ crates/
   nfc-ndef            # NDEF/TLV/message/record core
   nfc-type2           # Type 2 / NTAG page and NDEF adapter
   nfc-classic-ndef    # MAD / Classic NDEF adapter
-  nfc-type4           # ISO-DEP/APDU NDEF adapter (later)
+  nfc-type4           # ISO-DEP/APDU CC and NDEF file read/write
   nfc-app             # device manager, services, workflows, events
   nfctl               # CLI
   gui/classic         # GPUI Kit Classic workspace

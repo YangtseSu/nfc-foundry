@@ -15,18 +15,19 @@ use std::time::Duration;
 use nfc_core::{
     BLOCK_SIZE, CardInfo, CardType, Key, KeyType, NfcError, PAGE_QUAD_SIZE, PAGE_SIZE, Result,
 };
-use nfc_transport::ParityFrame;
+use nfc_transport::{ApduResponse, ParityFrame};
 
 use super::ccid::AcrLink;
 use crate::pn53x::{
     AUTO_ATR_RES_AND_RATS, FirmwareVersion, GET_FIRMWARE_VERSION, IN_COMMUNICATE_THRU,
     IN_DATA_EXCHANGE, IN_LIST_PASSIVE_TARGET, IN_RELEASE, INITIATOR, ISO14443A_106_KBPS,
-    MIFARE_AUTH_A, MIFARE_AUTH_B, MIFARE_READ, MIFARE_WRITE, PARITY_DISABLE, READ_REGISTER,
-    REG_CIU_BIT_FRAMING, REG_CIU_CONTROL, REG_CIU_MANUAL_RCV, REG_CIU_RX_MODE, REG_CIU_STATUS2,
-    REG_CIU_TX_MODE, RF_CONFIGURATION, RF_FIELD, RF_RETRY_SELECT, RX_LAST_BITS, SET_PARAMETERS,
-    TARGET_NUMBER, TX_RX_CRC_ENABLE, TYPE2_ACK, TYPE2_PWD_AUTH, TYPE2_READ, TYPE2_WRITE,
-    WRITE_REGISTER, parse_firmware, parse_passive_target, parse_response, status_error,
-    type2_command, type2_response, unwrap_parity_frame, wrap_parity_frame_bits,
+    MAX_ISO_DEP_APDU, MIFARE_AUTH_A, MIFARE_AUTH_B, MIFARE_READ, MIFARE_WRITE, PARITY_DISABLE,
+    READ_REGISTER, REG_CIU_BIT_FRAMING, REG_CIU_CONTROL, REG_CIU_MANUAL_RCV, REG_CIU_RX_MODE,
+    REG_CIU_STATUS2, REG_CIU_TX_MODE, RF_CONFIGURATION, RF_FIELD, RF_RETRY_SELECT, RX_LAST_BITS,
+    SET_PARAMETERS, TARGET_NUMBER, TX_RX_CRC_ENABLE, TYPE2_ACK, TYPE2_PWD_AUTH, TYPE2_READ,
+    TYPE2_WRITE, WRITE_REGISTER, parse_firmware, parse_passive_target, parse_response,
+    split_apdu_response, status_error, type2_command, type2_response, unwrap_parity_frame,
+    wrap_parity_frame_bits,
 };
 
 #[cfg(test)]
@@ -391,6 +392,27 @@ impl Acr122Protocol {
         let mut pack = [0u8; 2];
         pack.copy_from_slice(&response);
         Ok(pack)
+    }
+
+    /// Send one complete ISO 7816-4 command APDU to the selected ISO-DEP
+    /// card. The APDU travels inside the ACR122 pseudo-APDU as a PN532
+    /// `InDataExchange`; state-changing APDUs are not retried.
+    pub(crate) fn transceive_apdu(&mut self, apdu: &[u8]) -> Result<ApduResponse> {
+        self.require_ordinary("ISO-DEP APDU exchange")?;
+        let card = self.selected.as_ref().ok_or(NfcError::NoCard)?;
+        if card.card_type != CardType::Iso14443 {
+            return Err(NfcError::Unsupported(
+                "the selected card is not an ISO/IEC 14443-4 card",
+            ));
+        }
+        if apdu.is_empty() || apdu.len() > MAX_ISO_DEP_APDU {
+            return Err(NfcError::InvalidArgument(format!(
+                "the command APDU is {} bytes, expected 1..={MAX_ISO_DEP_APDU}",
+                apdu.len()
+            )));
+        }
+        let data = self.data_exchange(apdu, self.config.command_timeout, Retry::No)?;
+        split_apdu_response(data, "ACR122U")
     }
 
     fn with_raw<T>(&mut self, action: impl FnOnce(&mut Self) -> Result<T>) -> Result<T> {
@@ -1615,6 +1637,92 @@ mod tests {
         assert!(matches!(
             protocol.transceive_parity(&data, &parity),
             Err(NfcError::InvalidArgument(_))
+        ));
+    }
+
+    fn iso_card() -> CardInfo {
+        CardInfo::new(
+            vec![0x04, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66],
+            [0x00, 0x44],
+            0x20,
+            CardType::Iso14443,
+        )
+    }
+
+    fn iso_protocol(link: Box<dyn AcrLink>) -> Acr122Protocol {
+        let mut protocol = test_protocol(link);
+        protocol.selected = Some(iso_card());
+        protocol
+    }
+
+    #[test]
+    fn iso_dep_apdu_is_wrapped_in_the_acr_pseudo_apdu() {
+        let (link, steps, log) = ScriptedLink::scripted();
+        let mut protocol = iso_protocol(link);
+        push(
+            &steps,
+            LinkStep::Apdu(response(IN_DATA_EXCHANGE, &[0x00, 0x01, 0x02, 0x90, 0x00])),
+        );
+
+        let apdu = [0x00, 0xA4, 0x04, 0x00];
+        let response = protocol.transceive_apdu(&apdu).expect("APDU");
+        assert_eq!(response.data, vec![0x01, 0x02]);
+        assert_eq!(response.sw, [0x90, 0x00]);
+        assert_eq!(
+            log.lock().clone(),
+            vec![vec![
+                0xFF,
+                0x00,
+                0x00,
+                0x00,
+                0x07,
+                0xD4,
+                IN_DATA_EXCHANGE,
+                TARGET_NUMBER,
+                0x00,
+                0xA4,
+                0x04,
+                0x00
+            ]]
+        );
+    }
+
+    #[test]
+    fn iso_dep_rejects_non_iso_cards_raw_mode_and_oversized_apdus() {
+        let (link, _steps, _log) = ScriptedLink::scripted();
+        let mut classic = test_protocol(link);
+        assert!(matches!(
+            classic.transceive_apdu(&[0x00, 0xA4, 0x04, 0x00]),
+            Err(NfcError::Unsupported(_))
+        ));
+
+        let (link, _steps, _log) = ScriptedLink::scripted();
+        let mut raw = iso_protocol(link);
+        raw.raw_mode = true;
+        assert!(matches!(
+            raw.transceive_apdu(&[0x00, 0xA4, 0x04, 0x00]),
+            Err(NfcError::InvalidArgument(_))
+        ));
+
+        let (link, _steps, _log) = ScriptedLink::scripted();
+        let mut oversized = iso_protocol(link);
+        assert!(matches!(
+            oversized.transceive_apdu(&vec![0; MAX_ISO_DEP_APDU + 1]),
+            Err(NfcError::InvalidArgument(_))
+        ));
+    }
+
+    #[test]
+    fn iso_dep_requires_a_status_word() {
+        let (link, steps, _log) = ScriptedLink::scripted();
+        let mut protocol = iso_protocol(link);
+        push(
+            &steps,
+            LinkStep::Apdu(response(IN_DATA_EXCHANGE, &[0x00, 0x90])),
+        );
+        assert!(matches!(
+            protocol.transceive_apdu(&[0x00, 0xB0, 0x00, 0x00, 0x02]),
+            Err(NfcError::Io(_))
         ));
     }
 }

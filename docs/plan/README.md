@@ -15,7 +15,7 @@ Status legend: `done`, `in progress`, `pending`, `optional`.
 | 08 | NDEF core: records, TLV, templates, validation | done |
 | 09 | Type 2 / NTAG read/write/NDEF + GUI | in progress |
 | 10 | Classic NDEF: MAD/GPB/format + GUI | done |
-| 11 | Type 4 / ISO-DEP NDEF adapter | optional |
+| 11 | Type 4 / ISO-DEP NDEF adapter | in progress |
 | 12 | Packaging, CI, hardware certification, release | pending |
 
 ## Rules
@@ -304,6 +304,19 @@ Acceptance:
 
 - Hardware validation before advertisement.
 - No DESFire key/format workflow in this phase.
+
+Status: software complete; hardware record pending. `nfc-transport` adds
+`ApduCapabilities`/`ApduResponse` and `Reader::transceive_apdu`; both PN532
+UART and ACR122U carry command APDUs over `InDataExchange` without retrying
+state-changing commands. `nfc-type4` implements the mapping-version 2.0 CC and
+TLV parser, NLEN/message reads with MLe chunking, verified writes with MLc and
+transport chunking, clear, and project JSON. `nfc-app` adds backups,
+read-only refusal, confirmation for clear, read-back verification, and card
+identity checks. Unit, property, driver, and scripted workflow tests pass. The
+gated read/write tests are in `crates/nfctl/tests/hardware_type4.rs`; no reader
+or card record exists yet, so Type 4 is not advertised. No CLI or GUI command
+is added in this phase. See `docs/specs/11-type4-ndef.md` and
+`docs/notes/11-type4-ndef.md`.
 
 ### 12: Release
 

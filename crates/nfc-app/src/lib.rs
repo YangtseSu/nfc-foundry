@@ -11,6 +11,7 @@ pub mod operation;
 pub mod recovery;
 pub mod service;
 pub mod type2;
+pub mod type4;
 
 pub use classic::{
     BackupRecord, BackupStore, ClassicBlockWrite, ClassicKeyscan, ClassicKeyscanResult,
@@ -29,3 +30,4 @@ pub use type2::{
     Type2Format, Type2Lock, Type2LockResult, Type2MutationResult, Type2NdefResult, Type2NdefWrite,
     Type2PageResult, Type2PageWrite, Type2Password, Type2ReadResult, Type2Restore,
 };
+pub use type4::{Type4Clear, Type4MutationResult, Type4NdefWrite, Type4ReadResult};

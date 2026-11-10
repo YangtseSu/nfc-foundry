@@ -13,9 +13,13 @@ mod protocol;
 use std::time::Duration;
 
 use nfc_core::{BLOCK_SIZE, CardInfo, Key, KeyType, NfcError, Result};
-use nfc_transport::{DeviceInfo, ParityFrame, Reader, RecoveryCapabilities, TrailerWriter};
+use nfc_transport::{
+    ApduCapabilities, ApduResponse, DeviceInfo, ParityFrame, Reader, RecoveryCapabilities,
+    TrailerWriter,
+};
 
 use crate::PN532_UART_PREFIX;
+use crate::pn53x::MAX_ISO_DEP_APDU;
 use link::SerialLink;
 use protocol::{Pn532Config, Pn532Protocol};
 
@@ -142,6 +146,17 @@ impl Reader for Pn532Uart {
 
     fn password_auth(&mut self, password: [u8; nfc_core::PAGE_SIZE]) -> Result<[u8; 2]> {
         self.protocol()?.password_auth(password)
+    }
+
+    fn apdu_capabilities(&self) -> ApduCapabilities {
+        ApduCapabilities {
+            supported: true,
+            max_command: MAX_ISO_DEP_APDU,
+        }
+    }
+
+    fn transceive_apdu(&mut self, apdu: &[u8]) -> Result<ApduResponse> {
+        self.protocol()?.transceive_apdu(apdu)
     }
 
     fn transceive_bytes(&mut self, tx: &[u8]) -> Result<Vec<u8>> {

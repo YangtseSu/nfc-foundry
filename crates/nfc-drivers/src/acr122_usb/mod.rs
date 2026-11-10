@@ -14,7 +14,10 @@ use std::thread;
 use std::time::Duration;
 
 use nfc_core::{BLOCK_SIZE, CardInfo, Key, KeyType, NfcError, Result};
-use nfc_transport::{DeviceInfo, ManufacturerWriter, ParityFrame, Reader, RecoveryCapabilities};
+use nfc_transport::{
+    ApduCapabilities, ApduResponse, DeviceInfo, ManufacturerWriter, ParityFrame, Reader,
+    RecoveryCapabilities,
+};
 
 use ccid::{ACR122_READER_NAME, CcidTransport};
 use protocol::{Acr122Config, Acr122Protocol};
@@ -163,6 +166,17 @@ impl Reader for Acr122Usb {
 
     fn password_auth(&mut self, password: [u8; nfc_core::PAGE_SIZE]) -> Result<[u8; 2]> {
         self.protocol()?.password_auth(password)
+    }
+
+    fn apdu_capabilities(&self) -> ApduCapabilities {
+        ApduCapabilities {
+            supported: true,
+            max_command: crate::pn53x::MAX_ISO_DEP_APDU,
+        }
+    }
+
+    fn transceive_apdu(&mut self, apdu: &[u8]) -> Result<ApduResponse> {
+        self.protocol()?.transceive_apdu(apdu)
     }
 
     fn transceive_bytes(&mut self, tx: &[u8]) -> Result<Vec<u8>> {

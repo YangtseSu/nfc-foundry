@@ -118,6 +118,41 @@ read-only refusal, unformatted refusal, and malformed MAD tests. `nfctl`
 exercises `classic ndef info|read|write|format`, and the GPUI Classic workspace
 covers format, NDEF write, and read-only format.
 
+The phase 11 Type 4 tests are hardware-free. `nfc-type4` covers NTAG 424 and
+DESFire capability containers, read-only and proprietary access, malformed
+lengths and versions, unknown TLV preservation, APDU offsets, empty and
+populated NDEF files, MLe and MLc chunk boundaries, ignored writes, and
+cancellation. Property tests feed arbitrary CC and NDEF file bytes and require
+typed results instead of panics. `nfc-app` adds scripted read, write with a
+pre-mutation backup, clear confirmation, read-only refusal without a backup,
+ignored-write detection with a backup, dump, and cancellation. The driver
+tests cover the PN532 UART and ACR122U APDU command shape, status-word split,
+non-ISO rejection, raw-mode rejection, and the shared 247-byte command limit.
+`MockReader` contains a stateful Type 4 tag so the adapter exercises the real
+SELECT/READ/UPDATE sequence.
+
+The gated Type 4 hardware test lives in `nfctl/tests/hardware_type4.rs`. The
+read-only check needs a Type 4 / ISO-DEP tag:
+
+```sh
+NFCX_HARDWARE=1 \
+NFCX_DEVICE=pn532_uart:/dev/ttyUSB0 \
+cargo test -p nfctl --features hardware --test hardware_type4 -- --ignored
+```
+
+The write/read/restore round trip needs the write gate and restores the
+original NDEF message or empty state afterwards:
+
+```sh
+NFCX_HARDWARE=1 \
+NFCX_DEVICE=acr122_usb:001:017 \
+NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD \
+NFCX_HARDWARE_BACKUP_DIR=/tmp/nfc-type4-backups \
+cargo test -p nfctl --features hardware-write --test hardware_type4 -- --ignored
+```
+
+No Type 4 hardware record exists yet; the gate is defined but has not run.
+
 The gated Classic NDEF hardware test lives in
 `nfctl/tests/hardware_classic_ndef.rs`. The read-only check needs a Classic
 card:

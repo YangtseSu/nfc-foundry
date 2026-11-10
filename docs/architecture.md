@@ -36,8 +36,8 @@ application shell, or a sibling feature.
 | `nfc-ndef` | NDEF message/record, TLV, templates, validation | no |
 | `nfc-type2` | Type 2 / NTAG pages, CC, lock/config, NDEF TLV adapter | via transport |
 | `nfc-classic-ndef` | MAD1/MAD2, GPB mapping/access, NDEF sectors, format | no |
-| `nfc-type4` | ISO-DEP/APDU NDEF adapter (later) | via transport |
-| `nfc-app` | Device manager, exclusive operations, Classic and Type 2 workflows, key store, backups | via transport |
+| `nfc-type4` | ISO-DEP/APDU CC and NDEF file read/write | via transport |
+| `nfc-app` | Device manager, exclusive operations, Classic, Type 2, and Type 4 workflows, key store, backups | via transport |
 | `nfctl` | English-only CLI and JSON contract | via `nfc-app` |
 | `gui/nfc-foundry` | GPUI Kit shell | via `nfc-app` |
 | `gui/classic` | GPUI Kit Classic workspace (view, actions, UI tests) | via `nfc-app` |
@@ -64,6 +64,10 @@ trait Reader: Send {
     fn read_page_quad(&mut self, start_page: u8) -> Result<[u8; 16]>;
     fn write_page(&mut self, page: u8, data: [u8; 4]) -> Result<()>;
     fn password_auth(&mut self, password: [u8; 4]) -> Result<[u8; 2]>;
+
+    // ISO-DEP primitives. State-changing APDUs are never retried by a driver.
+    fn apdu_capabilities(&self) -> ApduCapabilities;
+    fn transceive_apdu(&mut self, apdu: &[u8]) -> Result<ApduResponse>;
 }
 ```
 
@@ -287,6 +291,34 @@ enter raw framing, append CRC-A, verify the response CRC when present, and
 restore the previous raw mode. The 16-byte READ always covers four pages;
 `quad_starts` adds an overlapping final read for products whose page count is
 not a multiple of four.
+
+## Type 4 / ISO-DEP
+
+`nfc-type4` owns the NFC Forum Type 4 mapping over ISO 7816-4 APDUs. It has no
+reader mechanics:
+
+- `apdu` builds SELECT by DF name, SELECT FILE, READ BINARY, and UPDATE
+  BINARY, validates short-file offsets and lengths, and maps status words.
+- `cc` parses mapping version 2.0, CCLEN, MLe/MLc, and the TLV list. It
+  requires the first TLV to be an NDEF File Control TLV, preserves unknown and
+  Proprietary File Control TLVs, and exposes read/write access and capacity.
+- `file` decodes NLEN and the NDEF message with a capacity check.
+- `read` selects the NDEF Tag Application, reads the CC in MLe-sized chunks,
+  selects the NDEF file, and reads NLEN and the message.
+- `write` refuses read-only and proprietary access before I/O, writes NLEN
+  zero, writes the message in MLc and transport chunks, writes the final NLEN,
+  and verifies the file by read-back. `clear` writes an empty NDEF file.
+- `exchange` exports raw CC and canonical NLEN+message bytes as project JSON.
+
+Both drivers expose `transceive_apdu`. The PN532 UART path uses
+`InDataExchange` after auto-RATS; the ACR122U path uses the `D4 40 01`
+pseudo-APDU. Each driver advertises a 247-byte command limit, set by the
+ACR122U wrapper, and never retries a state-changing APDU.
+
+`nfc-app::type4` adds a pre-mutation backup, read-only refusal, confirmation
+for clear, read-back verification, and a card identity check. The phase does
+not add a CLI or GUI command; the service is the integration point for a later
+surface.
 
 ## Recovery
 
