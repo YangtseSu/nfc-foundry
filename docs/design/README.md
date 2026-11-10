@@ -8,8 +8,14 @@ Guides.
 
 - One window, persistent left navigation, page content, fixed inspector actions.
 - Top bar: domain switch, card identity, reader menu, language switch, Read,
-  Settings.
+  Settings. The reader menu is an overlay above page content with a capped,
+  scrollable list; USB serial adapters come before platform UARTs.
 - Bottom status: operation, detail, cancel, last backup, version.
+- Window chrome: client-side decorations with an in-app title bar (brand,
+  drag, double-click maximize, minimize/maximize/close). Server-decorated
+  windows keep the compositor title bar instead of drawing a duplicate.
+- Minimum window size 960x640. Page headers, tables, inspectors, and the reader
+  menu flex or scroll within the window instead of overflowing it.
 - Two domain entries, **Classic** and **Type 2 / NDEF**, plus Diagnostics,
   Activity, and Settings.
 - English is the base language; a complete `zh-CN` catalog is available from

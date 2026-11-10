@@ -113,7 +113,7 @@ fn open_shell(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(Bounds::new(
                         Default::default(),
-                        size(px(1440.), px(900.)),
+                        size(px(1280.), px(800.)),
                     ))),
                     ..Default::default()
                 },
@@ -408,4 +408,101 @@ fn settings_reset_restores_defaults(cx: &mut TestAppContext) {
 fn backup_store_defaults_are_available_for_the_shell() {
     let store = BackupStore::default();
     assert!(!store.directory().as_os_str().is_empty());
+}
+
+#[gpui_kit::test]
+fn reader_menu_paints_and_clicks_above_page_content(cx: &mut TestAppContext) {
+    let (transport, _handle) = classic_transport();
+    transport.add(DeviceInfo::new("Mock Second", "mock:second"), None);
+    let harness = open_shell(cx, transport, None);
+    settle(cx, harness.handle);
+
+    click(cx, harness.handle, "reader-menu");
+    let popover_top = cx
+        .update_window(harness.handle, |_, window, _| {
+            let option = window.find(("reader-option", 1usize));
+            assert!(option.visible());
+            option.bounds().origin.y
+        })
+        .expect("popover bounds");
+    assert!(popover_top > px(0.));
+
+    click(cx, harness.handle, ("reader-option", 1usize));
+    cx.update(|cx| {
+        let session = harness.view.read(cx).session().read(cx);
+        assert_eq!(session.selected_device.as_deref(), Some("mock:second"));
+    });
+}
+
+#[gpui_kit::test]
+fn recovery_scope_note_wraps_inside_the_run_card(cx: &mut TestAppContext) {
+    let (transport, _handle) = classic_transport();
+    let harness = open_shell(cx, transport, None);
+    settle(cx, harness.handle);
+
+    click(cx, harness.handle, "nav-recovery");
+    cx.update_window(harness.handle, |_, window, _| {
+        let snapshot = window.find("recovery-scope-note");
+        assert!(snapshot.visible());
+        assert!(
+            snapshot.bounds().size.width <= px(330.),
+            "note width {} exceeds the run card",
+            snapshot.bounds().size.width
+        );
+        assert!(
+            snapshot.bounds().size.height > px(40.),
+            "note did not wrap: {:?}",
+            snapshot.bounds()
+        );
+    })
+    .expect("inspect recovery note");
+}
+
+#[gpui_kit::test]
+fn activity_safety_notes_wrap_inside_the_inspector(cx: &mut TestAppContext) {
+    let (transport, _handle) = classic_transport();
+    let harness = open_shell(cx, transport, None);
+    settle(cx, harness.handle);
+
+    click(cx, harness.handle, "nav-activity");
+    cx.update_window(harness.handle, |_, window, _| {
+        for id in ["safety-backup", "safety-advanced", "safety-block-zero"] {
+            let snapshot = window.find(id);
+            assert!(snapshot.visible());
+            assert!(
+                snapshot.bounds().size.width <= px(290.),
+                "{id} width {} exceeds the safety panel",
+                snapshot.bounds().size.width
+            );
+            assert!(
+                snapshot.bounds().size.height > px(40.),
+                "{id} did not wrap: {:?}",
+                snapshot.bounds()
+            );
+        }
+    })
+    .expect("inspect safety notes");
+}
+
+#[gpui_kit::test]
+fn shell_keeps_the_topbar_and_statusbar_anchored(cx: &mut TestAppContext) {
+    let (transport, _handle) = classic_transport();
+    let harness = open_shell(cx, transport, None);
+    settle(cx, harness.handle);
+
+    cx.update_window(harness.handle, |_, window, _| {
+        let topbar = window.find("reader-menu");
+        assert!(
+            topbar.bounds().origin.y < px(100.),
+            "reader menu drifted from the top: {:?}",
+            topbar.bounds()
+        );
+        let status = window.find("status-summary");
+        assert!(
+            status.bounds().origin.y > px(740.),
+            "status bar drifted from the bottom: {:?}",
+            status.bounds()
+        );
+    })
+    .expect("inspect shell anchors");
 }

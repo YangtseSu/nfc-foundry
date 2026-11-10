@@ -15,8 +15,8 @@ use nfc_app::ClassicNdefState;
 use nfc_classic::{AccessCondition, BlockStatus, KeyMask};
 use nfc_ndef::{NdefRecord, TextRecord, UriRecord};
 use nfc_ui::{
-    Key, StatusKind, ascii, byte_grid, callout, card_head, empty_state, field, hex_bytes,
-    inspector, kv_row, metric, page_header, pill, section_title, text_value,
+    Key, StatusKind, ascii, byte_grid, callout, callout_with_id, card_head, empty_state, field,
+    hex_bytes, inspector, kv_row, metric, page_header, pill, section_title, text_value,
 };
 
 use crate::model::{
@@ -1771,9 +1771,10 @@ impl ClassicWorkspace {
                                     })),
                             ),
                     )
-                    .child(callout(
+                    .child(callout_with_id(
                         cx,
                         StatusKind::Warning,
+                        "recovery-scope-note",
                         translator.text(Key::RecoveryScopeNote),
                     ))
                     .child(result),

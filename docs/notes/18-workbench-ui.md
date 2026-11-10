@@ -85,3 +85,44 @@ Run on 2026-11-10:
 - Screen-capture verification of the rendered window remains a manual desktop
   check because the available Wayland compositor does not expose the capture
   protocol.
+
+## Reader and layout feedback round
+
+Follow-up feedback after the first workbench run:
+
+- Reader discovery no longer floods the menu with legacy `/dev/ttyS*`
+  placeholder nodes. `Pn532Uart::enumerate` skips `ttyS*` entries whose sysfs
+  `type` is 0, sorts USB serial adapters first, and the shell keeps the
+  auto-selection deterministic. `nfctl list` shares the same order and filter.
+- The reader menu is painted with `deferred` so it stays above page content,
+  and its list is capped at 360 px with vertical scrolling.
+- `callout` now lets its text shrink and wrap (`flex_1` + `min_w_0` on the text,
+  non-shrinking icon). The recovery scope note and the Activity safety notes
+  wrap inside their 360 px and 320 px panels instead of overflowing.
+- The window keeps the compositor's default decoration request and renders the
+  GPUI Kit `TitleBar` only when the compositor falls back to client
+  decoration. That gives drag, double-click maximize, and
+  minimize/maximize/close controls on CSD compositors and avoids a duplicate
+  bar under server decorations. The minimum window size is 960x640.
+- The shell root is a column with a full-height content row; the main column
+  keeps `h_full` inside the `items_center` `h_flex`, so the top bar, page, and
+  status bar stay anchored at the top and bottom on resize.
+
+Headless verification on 2026-11-10:
+
+- `cargo test -p nfc-foundry` — 12 UI integration tests passed at 1280x800,
+  including reader-menu click-through above page content, wrapped recovery
+  scope note, wrapped Activity safety notes, topbar/statusbar anchoring, and
+  the existing navigation, dialog, and write-gate flows.
+- `./target/debug/nfctl list` on the development host returns only
+  `pn532_uart:/dev/ttyUSB0`; before the filter it returned 32 `ttyS*`
+  placeholders plus the USB adapter.
+- The app was rendered on a private `Xvfb :99` display with
+  `WAYLAND_DISPLAY` unset. Captures of Blocks, Keys, Recovery, Activity, and
+  the open reader menu confirmed the wrapped callouts, the reader menu above
+  page content, and the anchored shell; no desktop window was opened.
+- The same binary also ran against a private `gnome-shell --headless` Wayland
+  display. That compositor has no server-side decoration, so it exercised the
+  client-decoration branch and the in-app title bar without a crash. GNOME's
+  headless screenshot API denies capture in GDM mode, so the title bar chrome
+  itself was not captured.

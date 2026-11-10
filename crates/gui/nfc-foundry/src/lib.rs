@@ -9,15 +9,15 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use gpui_kit::assets::IconName;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::{
-    ActiveTheme, Icon, Sizable, Theme,
+    ActiveTheme, Icon, Sizable, Theme, TitleBar,
     button::{Button, ButtonVariants as _},
     checkbox::Checkbox,
     input::{Input, InputState},
 };
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    AnyElement, App, ClipboardItem, Context, Entity, FontWeight, IntoElement, Render, Role, Task,
-    TestSupportExt as _, Window, div, px, rgb,
+    AnyElement, App, ClipboardItem, Context, Decorations, Entity, FontWeight, IntoElement, Render,
+    Role, Task, TestSupportExt as _, Window, deferred, div, px, rgb,
 };
 use nfc_app::Service;
 use nfc_app::classic::{BackupStore, KeyStore};
@@ -931,7 +931,7 @@ impl AppShell {
                     })),
             );
         if self.reader_menu_open {
-            topbar = topbar.child(self.render_reader_popover(cx));
+            topbar = topbar.child(deferred(self.render_reader_popover(cx)));
         }
         topbar.into_any_element()
     }
@@ -992,6 +992,7 @@ impl AppShell {
                 );
             }
         }
+        let list = list.id("reader-list").max_h(px(360.)).overflow_y_scroll();
         v_flex()
             .absolute()
             .top(px(56.))
@@ -1364,19 +1365,22 @@ impl AppShell {
         }
         let safety = v_flex()
             .gap_2()
-            .child(nfc_ui::callout(
+            .child(nfc_ui::callout_with_id(
                 cx,
                 StatusKind::Info,
+                "safety-backup",
                 translator.text(Key::SafetyBackup),
             ))
-            .child(nfc_ui::callout(
+            .child(nfc_ui::callout_with_id(
                 cx,
                 StatusKind::Warning,
+                "safety-advanced",
                 translator.text(Key::SafetyAdvanced),
             ))
-            .child(nfc_ui::callout(
+            .child(nfc_ui::callout_with_id(
                 cx,
                 StatusKind::Error,
+                "safety-block-zero",
                 translator.text(Key::SafetyBlockZero),
             ));
         v_flex()
@@ -1566,23 +1570,52 @@ impl AppShell {
 }
 
 impl Render for AppShell {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        h_flex()
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let mut root = v_flex()
             .size_full()
             .min_h_0()
             .bg(cx.theme().background)
-            .text_color(cx.theme().foreground)
-            .child(self.render_sidebar(cx))
-            .child(
-                v_flex()
-                    .flex_1()
-                    .h_full()
-                    .min_w_0()
-                    .min_h_0()
-                    .child(self.render_topbar(cx))
-                    .child(self.render_page(cx))
-                    .child(self.render_statusbar(cx)),
-            )
+            .text_color(cx.theme().foreground);
+        // Client-decorated windows have no title bar from the window manager,
+        // so the application draws and moves its own. Server-decorated windows
+        // already have one.
+        if matches!(window.window_decorations(), Decorations::Client { .. }) {
+            root = root.child(
+                TitleBar::new().child(
+                    h_flex()
+                        .gap_2()
+                        .items_center()
+                        .child(
+                            Icon::new(IconName::Cpu)
+                                .xsmall()
+                                .text_color(cx.theme().muted_foreground),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(format!("NFC Foundry {}", env!("CARGO_PKG_VERSION"))),
+                        ),
+                ),
+            );
+        }
+        root.child(
+            h_flex()
+                .flex_1()
+                .min_w_0()
+                .min_h_0()
+                .child(self.render_sidebar(cx))
+                .child(
+                    v_flex()
+                        .flex_1()
+                        .h_full()
+                        .min_w_0()
+                        .min_h_0()
+                        .child(self.render_topbar(cx))
+                        .child(self.render_page(cx))
+                        .child(self.render_statusbar(cx)),
+                ),
+        )
     }
 }
 

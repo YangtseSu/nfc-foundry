@@ -7,7 +7,9 @@
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _};
 use gpui_kit::prelude::*;
-use gpui_kit::{AnyElement, App, FontWeight, IntoElement, SharedString, div, px};
+use gpui_kit::{
+    AnyElement, App, ElementId, FontWeight, IntoElement, SharedString, TestSupportExt as _, div, px,
+};
 
 use crate::i18n::{Key, Translator};
 use crate::session::StatusKind;
@@ -257,28 +259,53 @@ pub fn pill(cx: &App, kind: StatusKind, text: impl Into<SharedString>) -> AnyEle
 
 /// Inline callout with an icon and a message.
 pub fn callout(cx: &App, kind: StatusKind, text: impl Into<SharedString>) -> AnyElement {
+    callout_inner(cx, kind, None, text.into())
+}
+
+/// Callout with a stable test/observation id.
+pub fn callout_with_id(
+    cx: &App,
+    kind: StatusKind,
+    id: impl Into<ElementId>,
+    text: impl Into<SharedString>,
+) -> AnyElement {
+    callout_inner(cx, kind, Some(id.into()), text.into())
+}
+
+fn callout_inner(
+    cx: &App,
+    kind: StatusKind,
+    id: Option<ElementId>,
+    text: SharedString,
+) -> AnyElement {
     let (color, icon) = match kind {
         StatusKind::Info => (cx.theme().info, IconName::Info),
         StatusKind::Success => (cx.theme().success, IconName::CircleCheck),
         StatusKind::Warning => (cx.theme().warning, IconName::TriangleAlert),
         StatusKind::Error => (cx.theme().danger, IconName::CircleAlert),
     };
-    h_flex()
+    let container = h_flex()
         .items_start()
         .gap_2()
+        .min_w_0()
         .p_2()
         .rounded_md()
         .bg(color.opacity(0.08))
         .border_1()
         .border_color(color.opacity(0.22))
-        .child(Icon::new(icon).xsmall().text_color(color))
+        .child(Icon::new(icon).xsmall().flex_shrink_0().text_color(color))
         .child(
             div()
+                .flex_1()
+                .min_w_0()
                 .text_xs()
                 .text_color(cx.theme().foreground)
-                .child(text.into()),
-        )
-        .into_any_element()
+                .child(text),
+        );
+    match id {
+        Some(id) => container.id(id).test_support().into_any_element(),
+        None => container.into_any_element(),
+    }
 }
 
 /// Centered empty state.

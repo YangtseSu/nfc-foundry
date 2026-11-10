@@ -172,15 +172,18 @@ cargo check -p nfc-foundry
 reuse lint
 ```
 
-A local `nfc-foundry-git` package can be built from a checkout with a
-temporary PKGBUILD whose `source` points at the local repository:
+The local `nfc-foundry-git` package is built from a checkout with
+`packaging/local-git/PKGBUILD`. Set `NFC_FOUNDRY_GIT_SRC` to the absolute path
+of the checkout:
 
 ```sh
-source=("nfc-foundry-git::git+file:///path/to/nfc-foundry-rs")
+cd packaging/local-git
+NFC_FOUNDRY_GIT_SRC=/path/to/nfc-foundry-rs makepkg -f
 ```
 
-It uses the same build, check, and install paths as the AUR package. Do not
-publish a PKGBUILD containing a local absolute path.
+It uses the same build, check, and install paths as the AUR package and
+provides/conflicts with `nfc-foundry`. The placeholder source path is not
+publishable; do not copy this PKGBUILD to the AUR.
 
 AUR-side checks, run outside GitHub CI:
 

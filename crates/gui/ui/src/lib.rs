@@ -11,8 +11,8 @@ mod session;
 mod util;
 
 pub use components::{
-    ascii, byte_grid, callout, card, card_body, card_head, empty_state, field, hex_bytes,
-    inspector, kv_row, metric, page_header, pill, section_title, text_value,
+    ascii, byte_grid, callout, callout_with_id, card, card_body, card_head, empty_state, field,
+    hex_bytes, inspector, kv_row, metric, page_header, pill, section_title, text_value,
 };
 pub use i18n::{Key, Language, Translator, default_language, detect_language, locale_language};
 pub use preferences::{UiPreferences, config_directory, preferences_path};

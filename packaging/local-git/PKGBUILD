@@ -1,0 +1,82 @@
+# Maintainer: Yangtse Su <yangtsesu at gmail dot com>
+# Local checkout build; not for the AUR. Set NFC_FOUNDRY_GIT_SRC to the
+# absolute path of the nfc-foundry-rs checkout before running makepkg.
+
+pkgname=nfc-foundry-git
+pkgver=r23.7c9b224
+pkgrel=1
+pkgdesc='NFC reader workbench for MIFARE Classic and NFC Forum Type 2/NDEF cards'
+arch=('x86_64')
+url='https://github.com/YangtseSu/nfc-foundry-rs'
+license=('GPL-3.0-or-later')
+depends=(
+  glibc
+  hicolor-icon-theme
+  libgcc
+  libglvnd
+  libxcb
+  libxkbcommon
+  libxkbcommon-x11
+  systemd-libs
+  vulkan-icd-loader
+  wayland
+)
+makedepends=(cargo git rust)
+_repo="${NFC_FOUNDRY_GIT_SRC:-/path/to/nfc-foundry-rs}"
+source=("$pkgname::git+file://$_repo")
+sha256sums=('SKIP')
+conflicts=('nfc-foundry')
+provides=('nfc-foundry')
+options=('!debug' '!lto')
+
+pkgver() {
+  cd "$srcdir/$pkgname"
+  printf 'r%s.%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+prepare() {
+  cd "$srcdir/$pkgname"
+  cargo fetch --locked --offline
+}
+
+build() {
+  cd "$srcdir/$pkgname"
+  export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$PWD=/build/nfc-foundry"
+  export RUSTFLAGS="$RUSTFLAGS --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/build/cargo"
+  cargo build --release --locked --offline --workspace
+}
+
+check() {
+  cd "$srcdir/$pkgname"
+  cargo test --workspace --offline
+  cargo check -p nfc-foundry --offline
+}
+
+package() {
+  cd "$srcdir/$pkgname"
+
+  install -Dm755 target/release/nfc-foundry "$pkgdir/usr/bin/nfc-foundry"
+  install -Dm755 target/release/nfctl "$pkgdir/usr/bin/nfctl"
+  install -Dm644 resources/udev/70-nfc-foundry.rules \
+    "$pkgdir/usr/lib/udev/rules.d/70-nfc-foundry.rules"
+  install -Dm644 resources/nfc-foundry.desktop \
+    "$pkgdir/usr/share/applications/nfc-foundry.desktop"
+  install -Dm644 resources/icons/nfc-foundry.svg \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/nfc-foundry.svg"
+  install -Dm644 resources/icons/nfc-foundry-128.png \
+    "$pkgdir/usr/share/icons/hicolor/128x128/apps/nfc-foundry.png"
+  install -Dm644 resources/icons/nfc-foundry-256.png \
+    "$pkgdir/usr/share/icons/hicolor/256x256/apps/nfc-foundry.png"
+  install -Dm644 resources/icons/nfc-foundry-512.png \
+    "$pkgdir/usr/share/icons/hicolor/512x512/apps/nfc-foundry.png"
+
+  install -d "$pkgdir/usr/share/nfc-foundry"
+  cp -a resources/hardnested_tables "$pkgdir/usr/share/nfc-foundry/"
+
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 LICENSES/GPL-3.0-or-later.txt \
+    "$pkgdir/usr/share/licenses/$pkgname/LICENSES/GPL-3.0-or-later.txt"
+  install -Dm644 NOTICE "$pkgdir/usr/share/licenses/$pkgname/NOTICE"
+  install -Dm644 THIRD_PARTY_NOTICES.md \
+    "$pkgdir/usr/share/licenses/$pkgname/THIRD_PARTY_NOTICES.md"
+}
