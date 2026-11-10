@@ -4548,6 +4548,7 @@ name = "nfc-ndef"
 version = "0.1.0"
 dependencies = [
  "nfc-core",
+ "proptest",
 ]
 
 [[package]]

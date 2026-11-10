@@ -10,4 +10,8 @@ pub mod tlv;
 
 pub use message::NdefMessage;
 pub use record::{NdefRecord, Tnf};
-pub use tlv::Tlv;
+pub use template::{
+    BluetoothLeRecord, DppBootstrap, LeAddressType, LeRole, SmartPoster, SmartPosterAction,
+    TextEncoding, TextRecord, UriRecord, VCard, WifiAuthentication, WifiEncryption, WifiRecord,
+};
+pub use tlv::{Tlv, TlvStream, ndef_capacity};

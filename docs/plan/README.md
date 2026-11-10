@@ -12,7 +12,7 @@ Status legend: `done`, `in progress`, `pending`, `optional`.
 | 05 | ACR122U USB/CCID driver and raw bits/parity | done |
 | 06 | Native recovery: Crypto1, darkside, nested, staticnested | done |
 | 07 | Native hardnested and FM11RF08S/static encrypted | done |
-| 08 | NDEF core: records, TLV, templates, validation | pending |
+| 08 | NDEF core: records, TLV, templates, validation | done |
 | 09 | Type 2 / NTAG read/write/NDEF + GUI | pending |
 | 10 | Classic NDEF: MAD/CC/format + GUI | pending |
 | 11 | Type 4 / ISO-DEP NDEF adapter | optional |
@@ -225,6 +225,16 @@ Acceptance:
 - Round-trip and malformed-input property tests.
 - Unknown/proprietary TLVs preserved unless explicitly reformatted.
 - NDEF core has no card or transport dependency.
+
+Status: complete. `nfc-ndef` implements the strict record/message codec with
+short, normal, and chunked layouts; TLV framing with short and three-octet
+lengths, unknown/proprietary preservation, and capacity calculation; and the
+Text, URI, Smart Poster, vCard, Wi-Fi WSC, Bluetooth LE OOB, and DPP
+templates. Record decode reports byte offsets, rejects reserved TNF values and
+URI codes, and validates every length before slicing. NDEF TLV encoding
+requires a valid NDEF message. Deterministic and property tests cover round
+trips, malformed inputs, chunk ordering, unknown TLV preservation, and
+capacity boundaries. See `docs/notes/08-ndef-core.md`.
 
 ### 09: Type 2 / NDEF
 

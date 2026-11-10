@@ -28,6 +28,30 @@ Required types:
 Unknown and proprietary TLVs are preserved unless the user explicitly chooses
 a full format.
 
+## Implemented core
+
+- `Tnf::{Empty,WellKnown,Media,AbsoluteUri,External,Unknown,Unchanged}` with
+  value 0x07 rejected.
+- `NdefRecord` validates the TNF field rules, 255-octet TYPE and ID fields,
+  and the 32-bit payload limit.
+- `NdefMessage::decode` and `decode_prefix` accept short and normal layouts,
+  reassemble initial/middle/terminating chunks, and enforce MB/ME/CF
+  placement. `encode` emits one record per logical record;
+  `encode_chunked(max_chunk)` emits explicit chunks.
+- `Tlv::{Null,LockControl,MemoryControl,Ndef,Proprietary,Unknown,Terminator}`
+  covers short and three-octet lengths, with 0xFF reserved as the long-form
+  marker. `TlvStream` preserves unknown/proprietary TLVs and post-terminator
+  padding byte for byte.
+- `ndef_capacity(user_bytes)` returns the largest NDEF message that fits with
+  the NDEF TLV header and a Terminator.
+- Templates: Text (`T`), URI (`U`), Smart Poster (`Sp`), vCard
+  (`text/vcard`), Wi-Fi WSC (`application/vnd.wfa.wsc`), Bluetooth LE OOB
+  (`application/vnd.bluetooth.le.oob`), and DPP (`U` or
+  `application/vnd.wfa.dpp`).
+- Decode errors include the record index and byte offset. Reserved TNF values,
+  reserved URI identifier codes, bad chunk order, missing MB/ME, and truncated
+  fields are errors; no silent repair is performed.
+
 ## Type 2 / NTAG
 
 Cover:

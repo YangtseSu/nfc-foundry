@@ -9,7 +9,7 @@ dependency of this project.
 
 ## Status
 
-**Phase 05 complete.** Both first-release readers are implemented: PN532 UART
+**Phase 08 complete.** Both first-release readers are implemented: PN532 UART
 and ACR122U direct USB/CCID. The ACR122U path claims the CCID interface with
 `nusb`, carries PN532 commands in the ACR122 pseudo-APDU, and supports
 selection, Classic authentication and block access, raw bytes/bits, and a
@@ -33,6 +33,11 @@ reader-scheduled frames and reports no sample on these host-driven readers.
 Static encrypted nonce cards are detected and report the FM11RF08S profile and
 the transport limitation instead of a key. EV1/QL88 signature detection uses
 the originality-signature block as a known key when no supplied key works.
+The hardware-free NDEF core is complete: a strict message/record codec with
+short, normal, and chunked layouts; Type 2 TLV framing with unknown and
+proprietary preservation; Text, URI, Smart Poster, vCard, Wi-Fi WSC, Bluetooth
+LE OOB, and DPP templates; and message/TLV capacity checks. Type 2 and Classic
+NDEF tag adapters and editors follow in phases 09 and 10.
 
 ## Product scope
 

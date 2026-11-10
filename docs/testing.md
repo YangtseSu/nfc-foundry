@@ -86,6 +86,14 @@ mock Classic image. The GPUI Classic workspace has UI integration tests for
 read, block selection, diff, key add/remove, write, key scan, and restore
 confirmation.
 
+The phase 08 NDEF tests are hardware-free. `nfc-ndef` has deterministic tests
+for the Text RTD example, short/normal/chunked record layouts, all 36 URI
+prefixes, TLV length forms through 65,535 octets, unknown TLV and padding
+preservation, capacity boundaries, vCard/WSC/BLE/DPP payloads, and malformed
+records and TLVs. Property tests cover message and chunked encode/decode round
+trips, arbitrary-byte decode stability, TLV stream round trips, and unknown TLV
+preservation. The crate depends only on `nfc-core`; it never touches hardware.
+
 Hardware workflow checks:
 
 ```sh

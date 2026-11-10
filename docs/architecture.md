@@ -226,6 +226,26 @@ Classic block geometry and NDEF are separate models:
 This keeps NDEF testable without a reader and prevents a Classic page editor
 from becoming the NDEF implementation.
 
+`nfc-ndef` implements that boundary:
+
+- `NdefRecord` and `NdefMessage` enforce TNF field rules, 255-octet TYPE/ID
+  limits, short and normal payload lengths, and the MB/ME/CF/SR/IL flags.
+  Chunked payloads are reassembled into logical records; `encode_chunked`
+  lets the caller choose chunk sizes.
+- `Tlv` and `TlvStream` frame NULL, Lock Control, Memory Control, NDEF Message,
+  Proprietary, reserved unknown, and Terminator TLVs with short and
+  three-octet lengths. Unknown and proprietary values and post-terminator
+  padding survive a parse/encode round trip.
+- `ndef_capacity` computes the largest NDEF message that fits with its TLV
+  header and Terminator.
+- `template` builds and parses Text, URI, Smart Poster, vCard, Wi-Fi WSC,
+  Bluetooth LE OOB, and DPP records. Unknown WSC attributes and BLE AD
+  structures are preserved.
+- Decoding is strict and reports byte offsets. Reserved TNF values, reserved
+  URI identifier codes, bad chunk order, missing MB/ME, and truncated fields
+  are errors rather than silent repairs. No card or transport type enters the
+  crate.
+
 ## Recovery
 
 `nfc-recover` is a library, not a process wrapper. It owns:
