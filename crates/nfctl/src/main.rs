@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::{self, IsTerminal, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -66,6 +67,9 @@ struct Cli {
     /// Hardnested acquisition cap; zero uses the engine default.
     #[arg(long, global = true, value_name = "N", default_value_t = 0)]
     max_nonces: usize,
+    /// Confirm destructive actions without prompting.
+    #[arg(long, global = true)]
+    yes: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -145,9 +149,6 @@ enum ClassicCommand {
         input: PathBuf,
         #[arg(long, value_name = "FORMAT")]
         format: Option<String>,
-        /// Required; restore mutates the card.
-        #[arg(long)]
-        confirm: bool,
         /// Continue after a failed block instead of stopping.
         #[arg(long)]
         continue_on_error: bool,
@@ -202,9 +203,6 @@ enum ClassicNdefCommand {
     },
     /// Format the MAD and every NFC sector after confirmation.
     Format {
-        /// Use I_OWN_THIS_CARD.
-        #[arg(long, value_name = "TOKEN")]
-        confirm: Option<String>,
         /// Write the read-only GPB and access bits.
         #[arg(long)]
         read_only: bool,
@@ -250,9 +248,6 @@ enum Type2Command {
         /// Allow a lock, configuration, password, or capability-container page.
         #[arg(long)]
         advanced: bool,
-        /// Required for Advanced pages; use I_OWN_THIS_CARD.
-        #[arg(long, value_name = "TOKEN")]
-        confirm: Option<String>,
     },
     /// Save a project JSON image.
     Dump {
@@ -263,9 +258,6 @@ enum Type2Command {
     Restore {
         #[arg(long, short, value_name = "PATH")]
         input: PathBuf,
-        /// Use I_OWN_THIS_CARD.
-        #[arg(long, value_name = "TOKEN")]
-        confirm: Option<String>,
         #[arg(long)]
         include_configuration: bool,
         #[arg(long)]
@@ -277,9 +269,6 @@ enum Type2Command {
     Lock {
         #[arg(long, value_name = "PAGES")]
         pages: String,
-        /// Use I_OWN_THIS_CARD.
-        #[arg(long, value_name = "TOKEN")]
-        confirm: Option<String>,
     },
     /// Program PWD/PACK, AUTH0, and ACCESS.
     Password {
@@ -291,9 +280,6 @@ enum Type2Command {
         pwd: String,
         #[arg(long, value_name = "HEX")]
         pack: String,
-        /// Use I_OWN_THIS_CARD.
-        #[arg(long, value_name = "TOKEN")]
-        confirm: Option<String>,
     },
 }
 
@@ -317,11 +303,7 @@ enum NdefCommand {
         language: String,
     },
     /// Format the NDEF data area after confirmation.
-    Format {
-        /// Use I_OWN_THIS_CARD.
-        #[arg(long, value_name = "TOKEN")]
-        confirm: Option<String>,
-    },
+    Format,
 }
 
 #[derive(Clone, Debug, Subcommand)]
@@ -627,16 +609,8 @@ fn classic(cli: &Cli, service: &mut Service, command: ClassicCommand) -> Result<
         ClassicCommand::Restore {
             input,
             format,
-            confirm,
             continue_on_error,
-        } => classic_restore(
-            cli,
-            service,
-            &input,
-            format.as_deref(),
-            confirm,
-            continue_on_error,
-        ),
+        } => classic_restore(cli, service, &input, format.as_deref(), continue_on_error),
         ClassicCommand::Keyscan { save, types } => {
             classic_keyscan(cli, service, save.as_deref(), &types)
         }
@@ -722,9 +696,9 @@ fn classic_restore(
     service: &mut Service,
     input: &Path,
     format: Option<&str>,
-    confirm: bool,
     continue_on_error: bool,
 ) -> Result<()> {
+    require_confirmation(cli.yes, "restoring a Classic dump")?;
     prepare(service, cli.device.as_deref())?;
     let bytes = fs::read(input)
         .map_err(|error| NfcError::Io(format!("could not read {}: {error}", input.display())))?;
@@ -740,7 +714,7 @@ fn classic_restore(
     let result = service.classic_restore(
         ClassicRestore::new(load.dump, &keys, &backup)
             .include_common_keys(!cli.no_common_keys)
-            .confirmed(confirm)
+            .confirmed(true)
             .continue_on_failure(continue_on_error),
     )?;
     println!(
@@ -978,13 +952,9 @@ fn classic_ndef(cli: &Cli, service: &mut Service, command: ClassicNdefCommand) -
             );
             Ok(())
         }
-        ClassicNdefCommand::Format { confirm, read_only } => {
+        ClassicNdefCommand::Format { read_only } => {
+            require_confirmation(cli.yes, "formatting a Classic NDEF area")?;
             prepare(service, cli.device.as_deref())?;
-            if confirm.as_deref() != Some(CONFIRMATION) {
-                return Err(NfcError::InvalidArgument(format!(
-                    "formatting replaces sector keys and access bits; pass --confirm {CONFIRMATION}"
-                )));
-            }
             let keys = load_key_store(cli)?;
             let backup = backup_store(cli);
             let result = service.classic_ndef_format(
@@ -1048,8 +1018,6 @@ fn print_classic_ndef(info: &ClassicNdefInfo) {
     }
 }
 
-const CONFIRMATION: &str = "I_OWN_THIS_CARD";
-
 fn type2(cli: &Cli, service: &mut Service, command: Type2Command) -> Result<()> {
     match command {
         Type2Command::Info => {
@@ -1092,20 +1060,17 @@ fn type2(cli: &Cli, service: &mut Service, command: Type2Command) -> Result<()> 
             page,
             data,
             advanced,
-            confirm,
         } => {
+            if advanced {
+                require_confirmation(cli.yes, "writing an Advanced Type 2 page")?;
+            }
             prepare(service, cli.device.as_deref())?;
             let backup = backup_store(cli);
             let data: [u8; PAGE_SIZE] = parse_hex_array(&data, "page data")?;
-            if advanced && confirm.as_deref() != Some(CONFIRMATION) {
-                return Err(NfcError::InvalidArgument(format!(
-                    "writing an Advanced page needs --confirm {CONFIRMATION}"
-                )));
-            }
             let result = service.type2_write_page(
                 Type2PageWrite::new(page, data, &backup)
                     .advanced(advanced)
-                    .confirm(confirm.as_deref() == Some(CONFIRMATION)),
+                    .confirm(advanced),
             )?;
             if result.changed {
                 println!(
@@ -1141,13 +1106,12 @@ fn type2(cli: &Cli, service: &mut Service, command: Type2Command) -> Result<()> 
         }
         Type2Command::Restore {
             input,
-            confirm,
             include_configuration,
             include_capability_container,
             include_locks,
         } => {
+            require_confirmation(cli.yes, "restoring a Type 2 image")?;
             prepare(service, cli.device.as_deref())?;
-            require_confirmation(confirm.as_deref(), "restoring a Type 2 image")?;
             let source = type2::load(&read_input(&input)?)?;
             let backup = backup_store(cli);
             let result = service.type2_restore(
@@ -1170,9 +1134,9 @@ fn type2(cli: &Cli, service: &mut Service, command: Type2Command) -> Result<()> 
             }
             Ok(())
         }
-        Type2Command::Lock { pages, confirm } => {
+        Type2Command::Lock { pages } => {
+            require_confirmation(cli.yes, "locking Type 2 pages")?;
             prepare(service, cli.device.as_deref())?;
-            require_confirmation(confirm.as_deref(), "locking Type 2 pages")?;
             let pages = parse_page_list(&pages)?;
             let backup = backup_store(cli);
             let result = service.type2_lock(Type2Lock::new(pages, &backup).confirm(true))?;
@@ -1191,10 +1155,9 @@ fn type2(cli: &Cli, service: &mut Service, command: Type2Command) -> Result<()> 
             access,
             pwd,
             pack,
-            confirm,
         } => {
+            require_confirmation(cli.yes, "changing Type 2 password configuration")?;
             prepare(service, cli.device.as_deref())?;
-            require_confirmation(confirm.as_deref(), "changing Type 2 password configuration")?;
             let access: [u8; 1] = parse_hex_array(&access, "ACCESS")?;
             let password: [u8; PAGE_SIZE] = parse_hex_array(&pwd, "PWD")?;
             let pack: [u8; 2] = parse_hex_array(&pack, "PACK")?;
@@ -1254,8 +1217,8 @@ fn ndef(cli: &Cli, service: &mut Service, command: NdefCommand) -> Result<()> {
             println!("backup: {}", result.backup.path.display());
             Ok(())
         }
-        NdefCommand::Format { confirm } => {
-            require_confirmation(confirm.as_deref(), "formatting the NDEF data area")?;
+        NdefCommand::Format => {
+            require_confirmation(cli.yes, "formatting the NDEF data area")?;
             let backup = backup_store(cli);
             let result = service.type2_ndef_format(Type2Format::new(&backup).confirm(true))?;
             println!(
@@ -1381,14 +1344,33 @@ fn build_ndef_message(
     NdefMessage::single(UriRecord::new(uri)?.to_record()?)
 }
 
-fn require_confirmation(token: Option<&str>, action: &str) -> Result<()> {
-    if token == Some(CONFIRMATION) {
+fn require_confirmation(yes: bool, action: &str) -> Result<()> {
+    if yes {
+        return Ok(());
+    }
+    let stdin = io::stdin();
+    if !stdin.is_terminal() {
+        return Err(NfcError::InvalidArgument(format!(
+            "{action} needs confirmation; pass --yes"
+        )));
+    }
+    eprint!("{action}. Continue? [y/N] ");
+    io::stderr()
+        .flush()
+        .map_err(|error| NfcError::Io(error.to_string()))?;
+    let mut answer = String::new();
+    stdin
+        .read_line(&mut answer)
+        .map_err(|error| NfcError::Io(error.to_string()))?;
+    if confirmation_answer(&answer) {
         Ok(())
     } else {
-        Err(NfcError::InvalidArgument(format!(
-            "{action} needs --confirm {CONFIRMATION}"
-        )))
+        Err(NfcError::Cancelled)
     }
+}
+
+fn confirmation_answer(answer: &str) -> bool {
+    matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes")
 }
 
 fn parse_page_list(value: &str) -> Result<Vec<u8>> {
@@ -1790,5 +1772,20 @@ fn card_type_label(card_type: CardType) -> &'static str {
         CardType::MifareClassic4K => "MIFARE Classic 4K",
         CardType::Type2 => "NFC Forum Type 2",
         CardType::Iso14443 => "ISO/IEC 14443A",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::confirmation_answer;
+
+    #[test]
+    fn confirmation_accepts_yes_in_any_case() {
+        for answer in ["y", "Y", "yes", "YES", " Yes ", "yEs"] {
+            assert!(confirmation_answer(answer), "{answer:?}");
+        }
+        for answer in ["", "n", "N", "no", "1", "yeah"] {
+            assert!(!confirmation_answer(answer), "{answer:?}");
+        }
     }
 }

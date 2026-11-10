@@ -820,6 +820,7 @@ impl Type2Workspace {
         let ndef = self.ndef.as_ref();
         Some(CardIdentity {
             card_type: image.layout.product.name().to_owned(),
+            family: nfc_ui::CardFamily::Type2,
             uid: image.uid_hex(),
             atqa: "—".to_owned(),
             sak: "—".to_owned(),

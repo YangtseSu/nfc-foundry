@@ -126,3 +126,49 @@ Headless verification on 2026-11-10:
   client-decoration branch and the in-app title bar without a crash. GNOME's
   headless screenshot API denies capture in GDM mode, so the title bar chrome
   itself was not captured.
+
+## Card-centered shell follow-up (2026-11-10)
+
+Feedback after using the workbench with real cards: the per-domain switch made
+the normal flow fail before the user found the right workspace, actions moved
+between screens, and the dark rail with a white top bar read as two products.
+
+Changes:
+
+- The shell scans card presence in the background and records the detected
+  family. A Classic or Type 2 card replaces the task group in the rail and the
+  Read action routes to the matching workspace. The top-bar domain switch and
+  the duplicate `Read` button are gone.
+- The bottom bar is now a fixed action bar: status, detail, last backup,
+  Cancel during recovery, Scan keys (Classic), and the family-aware Read
+  action. Errors and progress stay in one place on every screen.
+- The rail shows reader state, the card (type, family, UID, blocks/pages), the
+  family tasks, and System. The reader menu is the only reader selector and
+  closes on outside clicks.
+- The workbench palette is the light rail and teal accent from the Go design:
+  soft gray canvas, white panels, teal primary actions. All Lucide icons are
+  bundled instead of only the default subset, so nav icons render.
+- Type 2 empty states no longer reuse MIFARE Classic copy; the NDEF message
+  title is family-neutral.
+- NDEF format is the first right-column card when the card or tag is not
+  NDEF-formatted, so the next action is above the fold.
+- Restore controls appear only on Blocks, and Type 2 restore include options
+  only after a dump is loaded. Keys and Classic NDEF no longer show a second
+  Restore row.
+- Duplicate actions are removed: one Compare action on Diff, one Import keys
+  path, and Scan keys lives in the action bar instead of the Keys toolbar.
+- Block and page writes are disabled while the editor still matches the
+  current bytes, and the write button names the target block or page.
+- Recovery strategies are a radio list instead of five full-width buttons.
+
+Verification on 2026-11-10:
+
+- `cargo test -p nfc-foundry --test ui` — 12 tests pass, including automatic
+  Type 2 routing without a domain click, the trailer typed dialog after an
+  edited trailer, the unchanged-write refusal, block 0 refusal, settings,
+  language, and reader-menu click-through.
+- The GUI was rendered on a private `Xvfb :99` display with the real GNOME
+  session untouched. Captures verified the light rail, all nav icons, the
+  bottom action bar, the teal primary action, the reader menu anchored under
+  its trigger and dismissed by an outside click, the NDEF format card above
+  the fold, and the Chinese catalog without missing glyphs.

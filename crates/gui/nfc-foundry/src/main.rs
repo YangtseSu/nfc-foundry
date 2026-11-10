@@ -11,7 +11,7 @@ use nfc_foundry::{AppShell, install_shell_theme, load_config};
 
 fn main() {
     gpui_kit::application()
-        .with_assets(gpui_kit::assets::Assets)
+        .with_assets(gpui_kit::assets::AllAssets)
         .run(|cx| {
             gpui_kit::init(cx);
             install_shell_theme(cx);

@@ -349,7 +349,10 @@ fn format_requires_confirmation_and_a_complete_read() {
     let error = service
         .classic_ndef_format(ClassicNdefFormat::new(&keys, &backup))
         .expect_err("confirmation");
-    assert!(error.to_string().contains("I_OWN_THIS_CARD"), "{error}");
+    assert!(
+        error.to_string().contains("confirmation is required"),
+        "{error}"
+    );
     assert!(handle.write_log().is_empty());
 
     handle.fail_read(5);

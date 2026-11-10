@@ -300,7 +300,6 @@ fn type2_reads_a_tag_and_selects_a_page(cx: &mut TestAppContext) {
     let harness = open_shell(cx, transport, None);
     settle(cx, harness.handle);
 
-    click(cx, harness.handle, "domain-type2");
     click(cx, harness.handle, "read-active");
     cx.update(|cx| {
         let workspace = harness.view.read(cx).type2().read(cx);
@@ -319,14 +318,31 @@ fn type2_reads_a_tag_and_selects_a_page(cx: &mut TestAppContext) {
             Some("NTAG215")
         );
     });
-    click(cx, harness.handle, ("type2-page", 8usize));
+    cx.update_window(harness.handle, |_, window, _| {
+        assert!(
+            window.try_find("nav-blocks").is_none(),
+            "Classic tasks must be hidden for a Type 2 tag"
+        );
+        assert!(
+            window.try_find("nav-memory").is_some(),
+            "Type 2 tasks must be shown for a Type 2 tag"
+        );
+    })
+    .expect("family navigation");
+    click(cx, harness.handle, ("type2-page", 6usize));
+    cx.update(|cx| {
+        assert_eq!(
+            harness.view.read(cx).type2().read(cx).selected_page(),
+            Some(6)
+        );
+    });
     cx.update_window(harness.handle, |_, window, _| {
         let inspector = window
             .find("type2-inspector")
             .label()
             .unwrap_or_default()
             .to_owned();
-        assert!(inspector.contains("Page 8"), "{inspector}");
+        assert!(inspector.contains("Page 6"), "{inspector}");
         assert!(inspector.contains("User memory"), "{inspector}");
     })
     .expect("inspect");
@@ -340,10 +356,15 @@ fn advanced_writes_require_the_typed_dialog(cx: &mut TestAppContext) {
     let (transport, _handle) = type2_transport();
     let harness = open_shell(cx, transport, None);
     settle(cx, harness.handle);
-    click(cx, harness.handle, "domain-type2");
     click(cx, harness.handle, "read-active");
 
     click(cx, harness.handle, ("type2-page", 3usize));
+    click(cx, harness.handle, "type2-page-data");
+    cx.update_window(harness.handle, |_, window, cx| {
+        window.press("ctrl-a", cx);
+        window.input("E1103E01", cx);
+    })
+    .expect("edit page");
     click(cx, harness.handle, "type2-write-page");
     cx.update_window(harness.handle, |_, window, cx| {
         assert!(window.has_active_dialog(cx));
@@ -365,6 +386,20 @@ fn trailer_writes_require_confirmation_and_block_zero_is_locked(cx: &mut TestApp
     click(cx, harness.handle, "read-active");
 
     click(cx, harness.handle, ("classic-block", 3usize));
+    click(cx, harness.handle, "classic-write-block");
+    cx.update_window(harness.handle, |_, window, cx| {
+        assert!(
+            !window.has_active_dialog(cx),
+            "unchanged trailer must not open a write dialog"
+        );
+    })
+    .expect("unchanged trailer");
+    click(cx, harness.handle, "classic-block-data");
+    cx.update_window(harness.handle, |_, window, cx| {
+        window.press("ctrl-a", cx);
+        window.input("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF", cx);
+    })
+    .expect("edit trailer");
     click(cx, harness.handle, "classic-write-block");
     cx.update_window(harness.handle, |_, window, cx| {
         assert!(window.has_active_dialog(cx));
@@ -408,6 +443,28 @@ fn settings_reset_restores_defaults(cx: &mut TestAppContext) {
 fn backup_store_defaults_are_available_for_the_shell() {
     let store = BackupStore::default();
     assert!(!store.directory().as_os_str().is_empty());
+}
+
+#[gpui_kit::test]
+fn empty_reader_keeps_both_task_groups_available(cx: &mut TestAppContext) {
+    let transport = Arc::new(MockTransport::new());
+    transport.add(DeviceInfo::new("Mock Empty", "mock:empty"), None);
+    let harness = open_shell(cx, transport, None);
+    settle(cx, harness.handle);
+
+    cx.update_window(harness.handle, |_, window, _| {
+        for id in ["nav-blocks", "nav-memory", "nav-keys", "nav-protection"] {
+            assert!(
+                window.try_find(id).is_some(),
+                "both task groups must remain reachable without a card: {id}"
+            );
+        }
+    })
+    .expect("navigation");
+    cx.update(|cx| {
+        let session = harness.view.read(cx).session().read(cx);
+        assert!(session.present_card.is_none());
+    });
 }
 
 #[gpui_kit::test]

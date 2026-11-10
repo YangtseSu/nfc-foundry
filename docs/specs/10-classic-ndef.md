@@ -62,7 +62,7 @@ not invent an `E1 10` capability container on a Classic card.
 - `nfctl`:
   - `classic ndef info|read|write|format`.
   - Raw-message output and the shared Text/URI message sources.
-  - `--confirm I_OWN_THIS_CARD` for format.
+  - `--yes`, or the interactive prompt, for format.
   - `--read-only` for a read-only format.
 - GPUI Kit:
   - `gui/classic` NDEF tab with the mapping, capacity, records, Text write,

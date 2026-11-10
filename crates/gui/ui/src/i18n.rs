@@ -24,12 +24,12 @@ macro_rules! keys {
 }
 
 keys! {
-    AppName, AppSubtitle, DomainClassic, DomainType2,
+    AppName, AppSubtitle,
     NavClassic, NavType2, NavSystem,
     ScreenBlocks, ScreenClassicNdef, ScreenDiff, ScreenKeys, ScreenRecovery,
     ScreenMemory, ScreenType2Ndef, ScreenProtection,
     ScreenDiagnostics, ScreenActivity, ScreenSettings,
-    SelectReader, ChangeReader, RefreshReaders, Readers, NoReaderSelected,
+    SelectReader, RefreshReaders, Readers, NoReaderSelected,
     NoReadersFound, ReaderConnected, ReaderDisconnected,
     ReadCard, ReadTag, Cancel, Close, Continue, Confirm, Save, Load, Export,
     Import, Add, Remove, Copy, Clear, Refresh, Browse, Back,
@@ -170,8 +170,10 @@ keys! {
     SettingsNote, ResetSettings,
 
     ConfirmAction, ConfirmKicker, TypeToken, DialogCancel, DialogContinue,
-    ActionPlan, BackupBeforeChange, ReadBackPlan, NoCardSelected,
+    ActionPlan, BackupBeforeChange, ReadBackPlan,
     CardPresent, CardAbsent, ReaderMenu, AdvancedActions,
+    NoCardDetected, PlaceCard, NoTagTitle, NoTagBody, CardFamilyLabel,
+    FamilyClassic, FamilyType2, NoKeysTitle, NoKeysBody, ReadToLoad,
     WrittenAndVerified, UnchangedValue, NoChanges, ReadOnly, Settings,
 }
 
@@ -310,8 +312,6 @@ const fn english(key: Key) -> &'static str {
     match key {
         Key::AppName => "NFC Foundry",
         Key::AppSubtitle => "Reader workbench",
-        Key::DomainClassic => "MIFARE Classic",
-        Key::DomainType2 => "Type 2 / NDEF",
         Key::NavClassic => "MIFARE Classic",
         Key::NavType2 => "Type 2 / NTAG",
         Key::NavSystem => "System",
@@ -327,7 +327,6 @@ const fn english(key: Key) -> &'static str {
         Key::ScreenActivity => "Activity",
         Key::ScreenSettings => "Settings",
         Key::SelectReader => "Select a reader",
-        Key::ChangeReader => "Change reader",
         Key::RefreshReaders => "Refresh readers",
         Key::Readers => "Readers",
         Key::NoReaderSelected => "No reader selected",
@@ -592,7 +591,7 @@ const fn english(key: Key) -> &'static str {
 
         Key::ClassicNdefTitle => "Classic NDEF",
         Key::ClassicNdefSubtitle => "MAD mapping, NDEF TLV, and record writes",
-        Key::NdefMessageTitle => "Classic NDEF message",
+        Key::NdefMessageTitle => "NDEF message",
         Key::NdefCapacity => "NDEF capacity",
         Key::NdefUsed => "bytes used",
         Key::NdefEmpty => "empty",
@@ -902,9 +901,18 @@ const fn english(key: Key) -> &'static str {
         Key::ReadBackPlan => {
             "Every written byte is verified by read-back and a card identity check."
         }
-        Key::NoCardSelected => "No card selected",
         Key::CardPresent => "Card present",
         Key::CardAbsent => "No card present",
+        Key::NoCardDetected => "No card detected",
+        Key::PlaceCard => "Place a card on the reader to start.",
+        Key::NoTagTitle => "No tag image",
+        Key::NoTagBody => "Read a Type 2 tag or load a dump file.",
+        Key::CardFamilyLabel => "Card",
+        Key::FamilyClassic => "Classic",
+        Key::FamilyType2 => "Type 2",
+        Key::NoKeysTitle => "No keys stored yet",
+        Key::NoKeysBody => "Scan the card or add a key on the right.",
+        Key::ReadToLoad => "Press Read to load the image.",
         Key::ReaderMenu => "Reader",
         Key::AdvancedActions => "Advanced actions",
         Key::WrittenAndVerified => "written and verified",
@@ -939,8 +947,6 @@ const fn chinese(key: Key) -> &'static str {
     match key {
         Key::AppName => "NFC Foundry",
         Key::AppSubtitle => "读卡工作台",
-        Key::DomainClassic => "MIFARE Classic",
-        Key::DomainType2 => "Type 2 / NDEF",
         Key::NavClassic => "MIFARE Classic",
         Key::NavType2 => "Type 2 / NTAG",
         Key::NavSystem => "系统",
@@ -956,7 +962,6 @@ const fn chinese(key: Key) -> &'static str {
         Key::ScreenActivity => "活动",
         Key::ScreenSettings => "设置",
         Key::SelectReader => "选择读卡器",
-        Key::ChangeReader => "更换读卡器",
         Key::RefreshReaders => "刷新读卡器",
         Key::Readers => "读卡器",
         Key::NoReaderSelected => "未选择读卡器",
@@ -1219,7 +1224,7 @@ const fn chinese(key: Key) -> &'static str {
 
         Key::ClassicNdefTitle => "Classic NDEF",
         Key::ClassicNdefSubtitle => "MAD 映射、NDEF TLV 与记录写入",
-        Key::NdefMessageTitle => "Classic NDEF 消息",
+        Key::NdefMessageTitle => "NDEF 消息",
         Key::NdefCapacity => "NDEF 容量",
         Key::NdefUsed => "已用字节",
         Key::NdefEmpty => "空",
@@ -1493,9 +1498,18 @@ const fn chinese(key: Key) -> &'static str {
         Key::ActionPlan => "操作计划",
         Key::BackupBeforeChange => "首次更改前会写入项目备份。",
         Key::ReadBackPlan => "每个写入字节都会通过回读和卡片标识检查校验。",
-        Key::NoCardSelected => "未选择卡片",
         Key::CardPresent => "卡片在位",
         Key::CardAbsent => "无卡片",
+        Key::NoCardDetected => "未检测到卡片",
+        Key::PlaceCard => "将卡片放到读卡器上即可开始。",
+        Key::NoTagTitle => "无标签镜像",
+        Key::NoTagBody => "读取 Type 2 标签或加载转储文件。",
+        Key::CardFamilyLabel => "卡片",
+        Key::FamilyClassic => "Classic",
+        Key::FamilyType2 => "Type 2",
+        Key::NoKeysTitle => "尚未保存密钥",
+        Key::NoKeysBody => "扫描卡片，或在右侧添加密钥。",
+        Key::ReadToLoad => "点击“读取”加载镜像。",
         Key::ReaderMenu => "读卡器",
         Key::AdvancedActions => "高级操作",
         Key::WrittenAndVerified => "已写入并校验",

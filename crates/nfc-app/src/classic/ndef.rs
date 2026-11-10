@@ -16,7 +16,6 @@ use super::keys::KeyStore;
 use super::read::candidate_keys;
 use super::write::{AllowedTypes, backup_label};
 
-const CONFIRMATION: &str = "I_OWN_THIS_CARD";
 const FACTORY_KEY_B: [u8; 6] = [0xFF; 6];
 
 /// Options for reading the Classic NDEF mapping.
@@ -309,9 +308,9 @@ pub(crate) fn format(
 ) -> Result<ClassicNdefFormatResult> {
     request.cancel.check()?;
     if !request.confirm {
-        return Err(NfcError::InvalidArgument(format!(
-            "formatting replaces sector keys and access bits; pass {CONFIRMATION} to confirm"
-        )));
+        return Err(NfcError::InvalidArgument(
+            "formatting replaces sector keys and access bits; confirmation is required".to_owned(),
+        ));
     }
     let read = super::read::read_dump(operation, request.keys, request.include_common_keys)?;
     if !read.dump.complete() {

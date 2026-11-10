@@ -695,7 +695,7 @@ impl ClassicWorkspace {
         cx.notify();
     }
 
-    pub(crate) fn scan_keys(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn scan_keys(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.is_busy(cx) {
             return;
         }
@@ -1521,8 +1521,7 @@ fn this_detail(dump: Option<&Dump>, translator: nfc_ui::Translator) -> String {
     dump.map(|dump| {
         let readability = dump.readability();
         format!(
-            "{} · {}/{} {} · {}/{} {}",
-            dump.layout.name(),
+            "{}/{} {} · {}/{} {}",
             readability.readable_blocks,
             readability.total_blocks,
             translator.text(Key::BlocksUnit),

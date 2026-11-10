@@ -13,9 +13,6 @@ Forum Type 2 / NDEF cards.
 - CLI: `nfctl`
 - License: GPL-3.0-or-later
 
-Only use cards, readers, and systems you own or have explicit permission to
-test.
-
 ## Business domains
 
 Two first-class domains share the transport and application layers:

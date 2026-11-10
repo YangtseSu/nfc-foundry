@@ -9,22 +9,27 @@ card identity, language, and status; these screens render the page only.
 ## Layout
 
 ```text
-shell sidebar        Blocks · Classic NDEF · Diff · Keys · Recovery
-top bar              domain switch · card identity · reader menu · language · Read card
+shell sidebar        reader · card · Blocks · Classic NDEF · Diff · Keys · Recovery · System
+top bar              card identity (type · family · UID · detail) · reader menu · language · settings
 page header          eyebrow · title · subtitle · screen actions
-file row             dump path · format · Save · Load · Restore · continue policy
+file row             dump path · format · Save · Load · Restore · continue policy (Blocks only)
 Blocks               metric strip · block table · fixed block inspector
 Classic NDEF         message/capacity · mapping · write/export/format cards
 Diff                 before/after files · summary · changed-block table
-Keys                 key store table · scan controls · add/import inspector
-Recovery             strategy grid · target · candidates · run/progress/result
-status bar           operation · detail · cancel · last backup · version
+Keys                 key store table · scan scope · add/import inspector
+Recovery             strategy list · target · candidates · run/progress/result
+action bar           status · detail · last backup · Scan keys · Read card
 ```
 
+- A presence scan detects the card family; the shell shows the Classic task
+  group and routes Read card to the Classic workspace automatically.
 - The block table is the master view. The inspector scrolls independently and
   keeps its read/write actions pinned at the bottom.
-- Block 0 is present but read-only. Trailer writes use the danger variant.
-- The file row is shared by Blocks and Classic NDEF.
+- Block 0 is present but read-only. Trailer writes use the danger variant and
+  name the target block; writes are disabled while the editor still matches
+  the current bytes.
+- Save dump, Load dump, and Save/Load on Classic NDEF share the path and format
+  controls; Restore and the continue policy appear on Blocks only.
 
 ## States
 

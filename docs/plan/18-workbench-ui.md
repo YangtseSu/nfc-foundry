@@ -2,6 +2,11 @@
 
 Status: complete. See `docs/notes/18-workbench-ui.md`.
 
+Follow-up (2026-11-10): the shell is card-centered. A presence scan selects
+the task group and routes the Read action by card family; the top-bar domain
+switch is gone and the bottom bar is a fixed action bar. See the follow-up
+section in the phase note.
+
 Design sample: [`docs/design/03-workbench.html`](../design/03-workbench.html).
 The sample is English-only and defines layout and interaction; the
 implementation adds the language switch and the complete `zh-CN` catalog.

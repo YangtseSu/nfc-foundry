@@ -56,7 +56,7 @@ Kit workspace for memory, NDEF, and protection. The GUI and CLI call the same
 - `nfctl`:
   - `type2 info|read|write|dump|restore|lock|password`.
   - `ndef read|write|format` with raw-message, Text, and URI sources.
-  - `--confirm I_OWN_THIS_CARD` for one-way and destructive actions.
+  - `--yes`, or the interactive prompt, for one-way and destructive actions.
 - GPUI Kit:
   - `gui/type2` workspace with Memory, NDEF, and Protection tabs.
   - Page table and inspector, verified user-page writes, Advanced typed

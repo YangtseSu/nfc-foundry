@@ -9,10 +9,11 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use gpui_kit::assets::IconName;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::{
-    ActiveTheme, Icon, Sizable, Theme, TitleBar,
+    ActiveTheme, Disableable, Icon, Sizable, Theme, TitleBar,
     button::{Button, ButtonVariants as _},
     checkbox::Checkbox,
     input::{Input, InputState},
+    scroll::ScrollbarMode,
 };
 use gpui_kit::prelude::*;
 use gpui_kit::{
@@ -27,8 +28,8 @@ use nfc_classic_gui::{
 };
 use nfc_type2_gui::{Type2Settings, Type2Workspace};
 use nfc_ui::{
-    ActivityEntry, Key, Language, Session, StatusKind, StatusMessage, Translator, UiPreferences,
-    card_type_name, default_language, detect_language, preferences_path,
+    ActivityEntry, CardFamily, CardIdentity, Key, Language, Session, StatusKind, StatusMessage,
+    Translator, UiPreferences, default_language, preferences_path,
 };
 
 /// Card domain.
@@ -259,13 +260,14 @@ impl AppShell {
             tables_input,
             settings_format,
             settings_common_keys,
-            watch_enabled: false,
+            watch_enabled: true,
             watch_task: None,
         };
         cx.observe(&session, |_, _, cx| cx.notify()).detach();
         cx.observe(&shell.classic, |_, _, cx| cx.notify()).detach();
         cx.observe(&shell.type2, |_, _, cx| cx.notify()).detach();
         shell.refresh_devices(cx);
+        shell.start_watch(cx);
         shell
     }
 
@@ -359,6 +361,7 @@ impl AppShell {
             .update(cx, |workspace, cx| workspace.reset_card(cx));
         self.type2
             .update(cx, |workspace, cx| workspace.reset_card(cx));
+        self.spawn_presence_scan(cx);
         cx.notify();
     }
 
@@ -391,6 +394,7 @@ impl AppShell {
         self.type2
             .update(cx, |workspace, cx| workspace.reset_card(cx));
         self.reader_menu_open = false;
+        self.spawn_presence_scan(cx);
         cx.notify();
     }
 
@@ -494,14 +498,137 @@ impl AppShell {
     }
 
     fn read_active(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        match self.domain {
-            Domain::Classic => self
+        let family = self.session.read(cx).present_family;
+        self.read_family(family, window, cx);
+    }
+
+    fn read_family(
+        &mut self,
+        family: Option<CardFamily>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match family {
+            Some(CardFamily::Classic) => self
                 .classic
                 .update(cx, |workspace, cx| workspace.read_card(window, cx)),
-            Domain::Type2 => self
+            Some(CardFamily::Type2) => self
                 .type2
                 .update(cx, |workspace, cx| workspace.read_card(window, cx)),
+            Some(CardFamily::Iso14443 | CardFamily::Unknown) => {
+                self.session.update(cx, |session, cx| {
+                    session.set_status(StatusMessage::error(
+                        Key::ErrorUnsupported,
+                        format!(
+                            "{} is not a supported card family",
+                            session
+                                .present_card
+                                .as_ref()
+                                .map(|card| card.card_type.as_str())
+                                .unwrap_or("this card")
+                        ),
+                    ));
+                    cx.notify();
+                });
+            }
+            None => self.detect_and_read(window, cx),
         }
+    }
+
+    /// Scan first, then read with the workspace that matches the tag.
+    fn detect_and_read(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let service = Arc::clone(&self.service);
+        let this = cx.weak_entity();
+        let background = cx.background_spawn(async move { lock_service(&service).scan() });
+        window
+            .spawn(cx, async move |cx| {
+                let result = background.await;
+                let _ = this.update_in(cx, |this, window, cx| {
+                    match result {
+                        Ok(card) => {
+                            let identity = CardIdentity::from_card(&card, "");
+                            let family = identity.family;
+                            this.apply_presence(Some(identity), cx);
+                            this.read_family(Some(family), window, cx);
+                        }
+                        Err(error) => {
+                            this.session.update(cx, |session, cx| {
+                                session.set_status(StatusMessage::from_error(&error));
+                                cx.notify();
+                            });
+                        }
+                    }
+                    cx.notify();
+                });
+            })
+            .detach();
+    }
+
+    /// Scan the reader and record the card family without loading an image.
+    fn spawn_presence_scan(&mut self, cx: &mut Context<Self>) {
+        if self.session.read(cx).selected_device.is_none() {
+            return;
+        }
+        let service = Arc::clone(&self.service);
+        cx.spawn(async move |this, cx| {
+            let scan = cx.background_spawn(async move {
+                match lock_service(&service).scan() {
+                    Ok(card) => Some(Some(CardIdentity::from_card(&card, ""))),
+                    Err(nfc_ui::NfcError::NoCard) => Some(None),
+                    Err(_) => None,
+                }
+            });
+            if let Some(card) = scan.await {
+                let _ = this.update(cx, |this, cx| this.apply_presence(card, cx));
+            }
+        })
+        .detach();
+    }
+
+    fn apply_presence(&mut self, card: Option<CardIdentity>, cx: &mut Context<Self>) {
+        if self.session.read(cx).present_card == card {
+            return;
+        }
+        let previous = self.session.read(cx).present_family;
+        let family = card.as_ref().map(|card| card.family);
+        let detail = card
+            .as_ref()
+            .map(|card| format!("{} · UID {}", card.card_type, card.uid));
+        self.session.update(cx, |session, cx| {
+            session.set_present_card(card);
+            if family != previous {
+                match detail {
+                    Some(detail) => session.set_status(StatusMessage::new(
+                        StatusKind::Info,
+                        Key::CardPresent,
+                        Some(detail),
+                    )),
+                    None => session.set_status(StatusMessage::info(Key::CardAbsent)),
+                }
+            }
+            cx.notify();
+        });
+        // Follow the card family when the user is on a card screen. System
+        // screens stay where they are.
+        if let Some(family) = family
+            && Some(family) != previous
+            && self.screen.domain().is_some()
+        {
+            let target = match family {
+                CardFamily::Classic => Some(Screen::ClassicBlocks),
+                CardFamily::Type2 => Some(Screen::Type2Memory),
+                CardFamily::Iso14443 | CardFamily::Unknown => None,
+            };
+            if let Some(target) = target
+                && self.screen.domain() != target.domain()
+            {
+                self.screen = target;
+                if let Some(domain) = target.domain() {
+                    self.domain = domain;
+                }
+            }
+        }
+        cx.notify();
     }
 
     fn toggle_watch(&mut self, cx: &mut Context<Self>) {
@@ -514,54 +641,164 @@ impl AppShell {
             });
             return;
         }
+        self.start_watch(cx);
+    }
+
+    fn start_watch(&mut self, cx: &mut Context<Self>) {
+        if self.watch_task.is_some() {
+            return;
+        }
         self.session.update(cx, |session, cx| {
             session.watching = true;
             cx.notify();
         });
         let service = Arc::clone(&self.service);
-        let session = self.session.clone();
-        self.watch_task = Some(cx.spawn(async move |_, cx| {
+        self.watch_task = Some(cx.spawn(async move |this, cx| {
             loop {
-                cx.background_executor()
-                    .timer(std::time::Duration::from_secs(2))
-                    .await;
-                let result = {
-                    let mut service = lock_service(&service);
-                    service.scan()
-                };
-                let keep_going = session.update(cx, |session, cx| {
-                    if !session.watching {
-                        return false;
-                    }
-                    match result {
-                        Ok(card) => {
-                            let name = card_type_name(card.card_type);
-                            session.set_status(StatusMessage::new(
-                                StatusKind::Info,
-                                Key::CardPresent,
-                                Some(format!("{name} · {}", card.uid_hex())),
-                            ));
-                        }
-                        Err(_) => {
-                            session.set_status(StatusMessage::info(Key::CardAbsent));
-                        }
-                    }
-                    cx.notify();
-                    true
-                });
+                let keep_going = this
+                    .update(cx, |this, _| this.watch_enabled)
+                    .unwrap_or(false);
                 if !keep_going {
                     break;
                 }
+                let busy = this
+                    .update(cx, |this, cx| this.session.read(cx).is_busy())
+                    .unwrap_or(true);
+                if !busy {
+                    let service = Arc::clone(&service);
+                    let scan = cx.background_spawn(async move {
+                        match lock_service(&service).scan() {
+                            Ok(card) => Some(Some(CardIdentity::from_card(&card, ""))),
+                            Err(nfc_ui::NfcError::NoCard) => Some(None),
+                            Err(_) => None,
+                        }
+                    });
+                    if let Some(card) = scan.await {
+                        let _ = this.update(cx, |this, cx| this.apply_presence(card, cx));
+                    }
+                }
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(1500))
+                    .await;
             }
         }));
+    }
+
+    /// Family that owns the navigation and the primary read action.
+    fn active_family(&self, cx: &App) -> CardFamily {
+        let session = self.session.read(cx);
+        if let Some(family) = session.present_family {
+            return family;
+        }
+        match self.screen.domain() {
+            Some(Domain::Classic) => CardFamily::Classic,
+            Some(Domain::Type2) => CardFamily::Type2,
+            None => {
+                if session.classic_card.is_some() {
+                    CardFamily::Classic
+                } else if session.type2_card.is_some() {
+                    CardFamily::Type2
+                } else {
+                    match self.domain {
+                        Domain::Classic => CardFamily::Classic,
+                        Domain::Type2 => CardFamily::Type2,
+                    }
+                }
+            }
+        }
+    }
+
+    /// Best identity for the active family: a loaded image carries detail,
+    /// a presence scan identifies the card before it is read.
+    fn display_identity(&self, cx: &App) -> Option<CardIdentity> {
+        let session = self.session.read(cx);
+        let loaded = match self.active_family(cx) {
+            CardFamily::Classic => session.classic_card.clone(),
+            CardFamily::Type2 => session.type2_card.clone(),
+            CardFamily::Iso14443 | CardFamily::Unknown => None,
+        };
+        loaded.or_else(|| session.present_card.clone())
     }
 
     fn render_sidebar(&self, cx: &mut Context<Self>) -> AnyElement {
         let session = self.session.read(cx);
         let translator = session.translator;
         let selected = session.selected_reader().cloned();
+        let family = self.active_family(cx);
+        let identity = self.display_identity(cx);
+        let family_label = match family {
+            CardFamily::Type2 => translator.text(Key::FamilyType2),
+            CardFamily::Iso14443 => "ISO 14443-4",
+            CardFamily::Unknown => translator.text(Key::ErrorUnsupported),
+            CardFamily::Classic => translator.text(Key::FamilyClassic),
+        };
+        let has_identity = identity.is_some();
+        let mut nav = v_flex()
+            .id("sidebar-nav")
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll()
+            .gap_3()
+            .px_2()
+            .pb_3();
+        match session.present_family {
+            Some(CardFamily::Classic) => {
+                nav = nav.child(self.render_nav_group(
+                    cx,
+                    translator.text(Key::NavClassic),
+                    &Screen::CLASSIC,
+                ));
+            }
+            Some(CardFamily::Type2) => {
+                nav = nav.child(self.render_nav_group(
+                    cx,
+                    translator.text(Key::NavType2),
+                    &Screen::TYPE2,
+                ));
+            }
+            Some(CardFamily::Iso14443 | CardFamily::Unknown) => {
+                nav = nav
+                    .child(
+                        div()
+                            .px_2()
+                            .text_xs()
+                            .text_color(cx.theme().sidebar_accent_foreground)
+                            .child(translator.text(Key::ErrorUnsupported)),
+                    )
+                    .child(self.render_nav_group(
+                        cx,
+                        translator.text(Key::NavClassic),
+                        &Screen::CLASSIC,
+                    ))
+                    .child(self.render_nav_group(
+                        cx,
+                        translator.text(Key::NavType2),
+                        &Screen::TYPE2,
+                    ));
+            }
+            None => {
+                // Without a card both families stay reachable so a saved dump
+                // can still be loaded.
+                nav = nav
+                    .child(self.render_nav_group(
+                        cx,
+                        translator.text(Key::NavClassic),
+                        &Screen::CLASSIC,
+                    ))
+                    .child(self.render_nav_group(
+                        cx,
+                        translator.text(Key::NavType2),
+                        &Screen::TYPE2,
+                    ));
+            }
+        }
+        nav = nav.child(self.render_nav_group(
+            cx,
+            translator.text(Key::NavSystem),
+            &[Screen::Diagnostics, Screen::Activity, Screen::Settings],
+        ));
         v_flex()
-            .w(px(240.))
+            .w(px(236.))
             .h_full()
             .flex_shrink_0()
             .bg(cx.theme().sidebar)
@@ -574,16 +811,20 @@ impl AppShell {
                     .items_center()
                     .px_4()
                     .pt_5()
-                    .pb_3()
+                    .pb_4()
                     .child(
                         div()
                             .size(px(34.))
                             .rounded_lg()
-                            .bg(cx.theme().sidebar_accent)
+                            .bg(cx.theme().sidebar_primary)
                             .flex()
                             .items_center()
                             .justify_center()
-                            .child(Icon::new(IconName::Cpu).small()),
+                            .child(
+                                Icon::new(IconName::Cpu)
+                                    .small()
+                                    .text_color(cx.theme().sidebar_primary_foreground),
+                            ),
                     )
                     .child(
                         v_flex()
@@ -597,7 +838,7 @@ impl AppShell {
                             .child(
                                 div()
                                     .text_xs()
-                                    .text_color(cx.theme().sidebar_accent_foreground)
+                                    .text_color(cx.theme().muted_foreground)
                                     .child(translator.text(Key::AppSubtitle)),
                             ),
                     ),
@@ -606,10 +847,35 @@ impl AppShell {
                 v_flex()
                     .gap_1()
                     .mx_3()
-                    .mb_3()
+                    .mb_2()
                     .p_2()
                     .rounded_md()
-                    .bg(cx.theme().sidebar_accent)
+                    .border_1()
+                    .border_color(cx.theme().sidebar_border)
+                    .bg(cx.theme().popover)
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(cx.theme().sidebar_accent_foreground)
+                                    .child(translator.text(Key::ReaderMenu).to_uppercase()),
+                            )
+                            .child(div().flex_1())
+                            .child(
+                                Button::new("rail-refresh-readers")
+                                    .xsmall()
+                                    .ghost()
+                                    .icon(IconName::RefreshCw)
+                                    .accessibility_label(translator.text(Key::RefreshReaders))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.refresh_devices(cx);
+                                    })),
+                            ),
+                    )
                     .child(
                         h_flex()
                             .gap_1()
@@ -643,44 +909,85 @@ impl AppShell {
                                         translator.text(Key::ReaderDisconnected).to_owned()
                                     }),
                             ),
-                    )
-                    .child(
-                        Button::new("sidebar-change-reader")
-                            .xsmall()
-                            .outline()
-                            .w_full()
-                            .label(translator.text(Key::ChangeReader))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.reader_menu_open = !this.reader_menu_open;
-                                cx.notify();
-                            })),
                     ),
             )
             .child(
                 v_flex()
-                    .id("sidebar-nav")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .gap_3()
-                    .px_2()
-                    .pb_3()
-                    .child(self.render_nav_group(
-                        cx,
-                        translator.text(Key::NavClassic),
-                        &Screen::CLASSIC,
-                    ))
-                    .child(self.render_nav_group(
-                        cx,
-                        translator.text(Key::NavType2),
-                        &Screen::TYPE2,
-                    ))
-                    .child(self.render_nav_group(
-                        cx,
-                        translator.text(Key::NavSystem),
-                        &[Screen::Diagnostics, Screen::Activity, Screen::Settings],
-                    )),
+                    .gap_1()
+                    .mx_3()
+                    .mb_4()
+                    .p_2()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(cx.theme().sidebar_border)
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(cx.theme().sidebar_accent_foreground)
+                                    .child(translator.text(Key::CardFamilyLabel).to_uppercase()),
+                            )
+                            .child(div().flex_1())
+                            .when(has_identity, |row| {
+                                row.child(
+                                    div()
+                                        .text_xs()
+                                        .px_1()
+                                        .rounded_sm()
+                                        .bg(cx.theme().sidebar_accent)
+                                        .text_color(cx.theme().sidebar_accent_foreground)
+                                        .child(family_label.to_owned()),
+                                )
+                            }),
+                    )
+                    .when_some(identity, |panel, identity| {
+                        panel
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .truncate()
+                                    .child(identity.card_type.clone()),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_family(cx.theme().mono_font_family.clone())
+                                    .text_color(cx.theme().sidebar_accent_foreground)
+                                    .truncate()
+                                    .child(format!("UID {}", identity.uid)),
+                            )
+                            .when(!identity.detail.is_empty(), |panel| {
+                                panel.child(
+                                    div()
+                                        .text_xs()
+                                        .truncate()
+                                        .text_color(cx.theme().sidebar_accent_foreground)
+                                        .child(identity.detail.clone()),
+                                )
+                            })
+                    })
+                    .when(!has_identity, |panel| {
+                        panel
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(translator.text(Key::NoCardDetected)),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().sidebar_accent_foreground)
+                                    .child(translator.text(Key::PlaceCard)),
+                            )
+                    }),
             )
+            .child(nav)
             .child(
                 h_flex()
                     .gap_2()
@@ -777,7 +1084,7 @@ impl AppShell {
                 let count = self.classic.read(cx).keys().len();
                 (count > 0).then(|| count.to_string())
             }
-            Screen::ClassicRecovery => Some("native".to_owned()),
+            Screen::ClassicRecovery => None,
             Screen::Type2Memory => self
                 .type2
                 .read(cx)
@@ -796,13 +1103,17 @@ impl AppShell {
     fn render_topbar(&self, cx: &mut Context<Self>) -> AnyElement {
         let translator = self.session.read(cx).translator;
         let selected = self.session.read(cx).selected_reader().cloned();
-        let identity = match self.domain {
-            Domain::Classic => self.session.read(cx).classic_card.clone(),
-            Domain::Type2 => self.session.read(cx).type2_card.clone(),
+        let identity = self.display_identity(cx);
+        let family = self.active_family(cx);
+        let family_label = match family {
+            CardFamily::Type2 => translator.text(Key::FamilyType2),
+            CardFamily::Iso14443 => "ISO 14443-4",
+            CardFamily::Unknown => translator.text(Key::ErrorUnsupported),
+            CardFamily::Classic => translator.text(Key::FamilyClassic),
         };
         let mut topbar = h_flex()
             .relative()
-            .h(px(62.))
+            .h(px(58.))
             .flex_shrink_0()
             .gap_3()
             .items_center()
@@ -812,55 +1123,70 @@ impl AppShell {
             .border_color(cx.theme().border)
             .child(
                 h_flex()
-                    .gap_1()
-                    .child(
-                        Button::new("domain-classic")
-                            .small()
-                            .when(self.domain == Domain::Classic, |button| button.primary())
-                            .when(self.domain != Domain::Classic, |button| button.ghost())
-                            .label(translator.text(Key::DomainClassic))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.set_screen(Screen::ClassicBlocks, cx);
-                            })),
-                    )
-                    .child(
-                        Button::new("domain-type2")
-                            .small()
-                            .when(self.domain == Domain::Type2, |button| button.primary())
-                            .when(self.domain != Domain::Type2, |button| button.ghost())
-                            .label(translator.text(Key::DomainType2))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.set_screen(Screen::Type2Memory, cx);
-                            })),
-                    ),
-            )
-            .child(
-                v_flex()
-                    .gap_0p5()
-                    .max_w(px(340.))
+                    .gap_2()
+                    .items_center()
+                    .max_w(px(520.))
                     .min_w_0()
+                    .child(div().size(px(8.)).rounded_full().bg(if identity.is_some() {
+                        cx.theme().success
+                    } else {
+                        cx.theme().muted_foreground
+                    }))
                     .child(
-                        div()
-                            .text_xs()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .truncate()
+                        v_flex()
+                            .gap_0p5()
+                            .min_w_0()
                             .child(
-                                identity
-                                    .as_ref()
-                                    .map(|identity| identity.card_type.clone())
-                                    .unwrap_or_else(|| {
-                                        translator.text(Key::NoCardSelected).to_owned()
+                                h_flex()
+                                    .gap_2()
+                                    .items_center()
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .truncate()
+                                            .child(
+                                                identity
+                                                    .as_ref()
+                                                    .map(|identity| identity.card_type.clone())
+                                                    .unwrap_or_else(|| {
+                                                        translator
+                                                            .text(Key::NoCardDetected)
+                                                            .to_owned()
+                                                    }),
+                                            ),
+                                    )
+                                    .when(identity.is_some(), |row| {
+                                        row.child(
+                                            div()
+                                                .px_1p5()
+                                                .rounded_sm()
+                                                .bg(cx.theme().secondary)
+                                                .text_xs()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child(family_label.to_owned()),
+                                        )
                                     }),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .truncate()
+                                    .child(identity.as_ref().map_or_else(
+                                        || translator.text(Key::PlaceCard).to_owned(),
+                                        |identity| {
+                                            if identity.detail.is_empty() {
+                                                format!("UID {}", identity.uid)
+                                            } else {
+                                                format!(
+                                                    "UID {} · {}",
+                                                    identity.uid, identity.detail
+                                                )
+                                            }
+                                        },
+                                    )),
                             ),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(identity.as_ref().map_or_else(
-                                || "—".to_owned(),
-                                |identity| format!("UID {} · {}", identity.uid, identity.detail),
-                            )),
                     ),
             )
             .child(div().flex_1())
@@ -887,7 +1213,7 @@ impl AppShell {
                         Button::new("language-en")
                             .xsmall()
                             .when(translator.language() == Language::En, |button| {
-                                button.primary()
+                                button.secondary()
                             })
                             .when(translator.language() != Language::En, |button| {
                                 button.ghost()
@@ -901,7 +1227,7 @@ impl AppShell {
                         Button::new("language-zh")
                             .xsmall()
                             .when(translator.language() == Language::ZhCn, |button| {
-                                button.primary()
+                                button.secondary()
                             })
                             .when(translator.language() != Language::ZhCn, |button| {
                                 button.ghost()
@@ -913,16 +1239,8 @@ impl AppShell {
                     ),
             )
             .child(
-                Button::new("read-active")
-                    .primary()
-                    .label(match self.domain {
-                        Domain::Classic => translator.text(Key::ReadCard),
-                        Domain::Type2 => translator.text(Key::ReadTag),
-                    })
-                    .on_click(cx.listener(|this, _, window, cx| this.read_active(window, cx))),
-            )
-            .child(
                 Button::new("open-settings")
+                    .small()
                     .ghost()
                     .icon(IconName::Settings)
                     .accessibility_label(translator.text(Key::Settings))
@@ -1003,6 +1321,10 @@ impl AppShell {
             .bg(cx.theme().popover)
             .border_1()
             .border_color(cx.theme().border)
+            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                this.reader_menu_open = false;
+                cx.notify();
+            }))
             .child(
                 div()
                     .px_1()
@@ -1080,7 +1402,7 @@ impl AppShell {
             .into_any_element()
     }
 
-    fn render_statusbar(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn render_actionbar(&self, cx: &mut Context<Self>) -> AnyElement {
         let session = self.session.read(cx);
         let translator = session.translator;
         let status = &session.status;
@@ -1099,11 +1421,18 @@ impl AppShell {
             .last_backup
             .as_ref()
             .and_then(|path| path.file_name())
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| translator.text(Key::NoBackup).to_owned());
+            .map(|name| name.to_string_lossy().into_owned());
         let recovery_running = self.classic.read(cx).recovery_running();
-        h_flex()
-            .h(px(38.))
+        let family = self.active_family(cx);
+        let busy = session.busy.is_some();
+        let has_reader = session.selected_device.is_some();
+        let read_label = if family == CardFamily::Type2 {
+            translator.text(Key::ReadTag)
+        } else {
+            translator.text(Key::ReadCard)
+        };
+        let mut bar = h_flex()
+            .h(px(50.))
             .flex_shrink_0()
             .gap_2()
             .items_center()
@@ -1113,16 +1442,13 @@ impl AppShell {
             .border_color(cx.theme().status_bar_border)
             .text_xs()
             .text_color(cx.theme().muted_foreground)
-            .child(div().size(px(6.)).rounded_full().bg(color))
+            .child(div().size(px(7.)).rounded_full().bg(color))
             .child(
                 div()
                     .id("status-summary")
                     .test_support()
-                    .text_color(if session.busy.is_some() {
-                        cx.theme().foreground
-                    } else {
-                        color
-                    })
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(if busy { cx.theme().foreground } else { color })
                     .child(summary),
             )
             .child(
@@ -1132,23 +1458,44 @@ impl AppShell {
                     .max_w(px(420.))
                     .child(detail),
             )
-            .child(div().flex_1())
-            .when(recovery_running, |bar| {
-                bar.child(
-                    Button::new("status-cancel")
-                        .xsmall()
-                        .danger()
-                        .label(translator.text(Key::Cancel))
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.classic
-                                .update(cx, |workspace, cx| workspace.cancel_recovery(cx));
-                        })),
-                )
-            })
-            .child(format!("{}: {backup}", translator.text(Key::Backup)))
-            .child(div().w(px(1.)).h(px(14.)).bg(cx.theme().border))
-            .child(format!("v{}", env!("CARGO_PKG_VERSION")))
-            .into_any_element()
+            .child(div().flex_1());
+        if let Some(backup) = backup {
+            bar = bar.child(format!("{}: {backup}", translator.text(Key::Backup)));
+        }
+        if recovery_running {
+            bar = bar.child(
+                Button::new("status-cancel")
+                    .xsmall()
+                    .danger()
+                    .label(translator.text(Key::Cancel))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.classic
+                            .update(cx, |workspace, cx| workspace.cancel_recovery(cx));
+                    })),
+            );
+        }
+        if family == CardFamily::Classic {
+            bar = bar.child(
+                Button::new("action-scan-keys")
+                    .small()
+                    .outline()
+                    .label(translator.text(Key::ScanKeys))
+                    .disabled(busy || !has_reader)
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.classic
+                            .update(cx, |workspace, cx| workspace.scan_keys(window, cx));
+                    })),
+            );
+        }
+        bar.child(
+            Button::new("read-active")
+                .small()
+                .primary()
+                .label(read_label)
+                .disabled(busy || !has_reader)
+                .on_click(cx.listener(|this, _, window, cx| this.read_active(window, cx))),
+        )
+        .into_any_element()
     }
 
     fn render_diagnostics(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -1613,7 +1960,7 @@ impl Render for AppShell {
                         .min_h_0()
                         .child(self.render_topbar(cx))
                         .child(self.render_page(cx))
-                        .child(self.render_statusbar(cx)),
+                        .child(self.render_actionbar(cx)),
                 ),
         )
     }
@@ -1637,17 +1984,50 @@ fn pill_for(cx: &App, kind: StatusKind, text: String) -> AnyElement {
     nfc_ui::pill(cx, kind, text)
 }
 
-/// Use the dark navigation rail from the workbench design regardless of the
-/// light content theme.
+/// Install the workbench palette: soft gray canvas, white panels, teal accent.
 pub fn install_shell_theme(cx: &mut App) {
+    let primary: gpui_kit::Hsla = rgb(0x0E7490).into();
+    let primary_hover: gpui_kit::Hsla = rgb(0x0B5F75).into();
+    let primary_active: gpui_kit::Hsla = rgb(0x0A5265).into();
+    let white: gpui_kit::Hsla = rgb(0xFFFFFF).into();
     let theme = Theme::global_mut(cx);
-    theme.sidebar = rgb(0x0d1522).into();
-    theme.sidebar_foreground = rgb(0xcbd5e1).into();
-    theme.sidebar_accent = rgb(0x1b2740).into();
-    theme.sidebar_accent_foreground = rgb(0x8190a5).into();
-    theme.sidebar_border = rgb(0x1f2b3a).into();
-    theme.sidebar_primary = rgb(0x818cf8).into();
-    theme.sidebar_primary_foreground = rgb(0x0d1522).into();
+    theme.background = rgb(0xF7F8FA).into();
+    theme.popover = rgb(0xFFFFFF).into();
+    theme.popover_foreground = rgb(0x101828).into();
+    theme.foreground = rgb(0x101828).into();
+    theme.border = rgb(0xE2E7ED).into();
+    theme.secondary = rgb(0xF2F5F8).into();
+    theme.secondary_foreground = rgb(0x101828).into();
+    theme.muted = rgb(0xF2F5F8).into();
+    theme.muted_foreground = rgb(0x667085).into();
+    theme.primary = primary;
+    theme.primary_hover = primary_hover;
+    theme.primary_active = primary_active;
+    theme.primary_foreground = white;
+    theme.button_primary = primary;
+    theme.button_primary_hover = primary_hover;
+    theme.button_primary_active = primary_active;
+    theme.button_primary_foreground = white;
+    theme.tokens.button_primary = primary.into();
+    theme.tokens.button_primary_hover = primary_hover.into();
+    theme.tokens.button_primary_active = primary_active.into();
+    theme.tokens.button_primary_foreground = white.into();
+    theme.accent = rgb(0xECFBFD).into();
+    theme.accent_foreground = rgb(0x0E7490).into();
+    theme.success = rgb(0x067647).into();
+    theme.warning = rgb(0xB54708).into();
+    theme.danger = rgb(0xB42318).into();
+    theme.info = rgb(0x0E7490).into();
+    theme.status_bar = rgb(0xFFFFFF).into();
+    theme.status_bar_border = rgb(0xE2E7ED).into();
+    theme.sidebar = rgb(0xF2F5F8).into();
+    theme.sidebar_foreground = rgb(0x101828).into();
+    theme.sidebar_accent = rgb(0xE7F6FA).into();
+    theme.sidebar_accent_foreground = rgb(0x0E7490).into();
+    theme.sidebar_border = rgb(0xE2E7ED).into();
+    theme.sidebar_primary = rgb(0x0E7490).into();
+    theme.sidebar_primary_foreground = rgb(0xFFFFFF).into();
+    Theme::set_scrollbar_mode(ScrollbarMode::Always, cx);
 }
 
 /// Merge stored preferences and the current locale into shell configuration.
@@ -1660,7 +2040,10 @@ pub fn load_config() -> (ShellConfig, Translator) {
         .ok()
         .flatten()
         .unwrap_or_default();
-    let language = detect_language(stored.language(), |variable| std::env::var(variable).ok());
+    // The GUI starts in English unless the preference file explicitly asks for
+    // Chinese. The system locale does not override the in-app switch, so
+    // technical terms stay in the language the user chose.
+    let language = stored.language().unwrap_or(Language::En);
     let translator = Translator::new(language);
     (ShellConfig::from_preferences(stored, path), translator)
 }

@@ -21,6 +21,14 @@ use crate::model::{NdefSource, PageFilter, role_key};
 use crate::workspace::Type2Workspace;
 
 impl Type2Workspace {
+    fn empty_body_key(&self, cx: &App) -> Key {
+        if self.session.read(cx).present_card.is_some() {
+            Key::ReadToLoad
+        } else {
+            Key::NoTagBody
+        }
+    }
+
     pub fn render_memory(&self, cx: &mut Context<Self>) -> AnyElement {
         let translator = self.session.read(cx).translator;
         let subtitle = self
@@ -51,13 +59,13 @@ impl Type2Workspace {
                 .child(empty_state(
                     cx,
                     translator,
-                    Key::NoCardTitle,
-                    Key::NoCardBody,
+                    Key::NoTagTitle,
+                    self.empty_body_key(cx),
                 ))
                 .into_any_element();
         };
         page = page
-            .child(self.render_file_row(cx))
+            .child(self.render_file_row(cx, true))
             .child(self.render_metrics(cx, image));
         let workbench = h_flex()
             .items_start()
@@ -69,10 +77,10 @@ impl Type2Workspace {
         page.child(workbench).into_any_element()
     }
 
-    fn render_file_row(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn render_file_row(&self, cx: &mut Context<Self>, restore: bool) -> AnyElement {
         let translator = self.session.read(cx).translator;
         let busy = self.is_busy(cx);
-        h_flex()
+        let mut row = h_flex()
             .gap_2()
             .items_center()
             .flex_wrap()
@@ -91,43 +99,49 @@ impl Type2Workspace {
                     .label(translator.text(Key::LoadDump))
                     .disabled(busy)
                     .on_click(cx.listener(|this, _, _, cx| this.load_dump(cx))),
-            )
-            .child(
-                Button::new("type2-restore")
-                    .small()
-                    .danger()
-                    .label(translator.text(Key::RestoreTag))
-                    .disabled(busy || self.loaded.is_none())
-                    .on_click(cx.listener(|this, _, window, cx| this.restore_loaded(window, cx))),
-            )
-            .child(
-                Checkbox::new("type2-restore-config")
-                    .checked(self.restore_configuration)
-                    .label(translator.text(Key::IncludeConfiguration))
-                    .on_click(cx.listener(|this, checked, _, cx| {
-                        this.restore_configuration = *checked;
-                        cx.notify();
-                    })),
-            )
-            .child(
-                Checkbox::new("type2-restore-cc")
-                    .checked(self.restore_cc)
-                    .label(translator.text(Key::IncludeCapabilityContainer))
-                    .on_click(cx.listener(|this, checked, _, cx| {
-                        this.restore_cc = *checked;
-                        cx.notify();
-                    })),
-            )
-            .child(
-                Checkbox::new("type2-restore-locks")
-                    .checked(self.restore_locks)
-                    .label(translator.text(Key::IncludeLocks))
-                    .on_click(cx.listener(|this, checked, _, cx| {
-                        this.restore_locks = *checked;
-                        cx.notify();
-                    })),
-            )
-            .into_any_element()
+            );
+        if restore && self.loaded.is_some() {
+            row = row
+                .child(
+                    Button::new("type2-restore")
+                        .small()
+                        .danger()
+                        .label(translator.text(Key::RestoreTag))
+                        .disabled(busy || self.loaded.is_none())
+                        .on_click(
+                            cx.listener(|this, _, window, cx| this.restore_loaded(window, cx)),
+                        ),
+                )
+                .child(div().w(px(1.)).h(px(18.)).bg(cx.theme().border))
+                .child(
+                    Checkbox::new("type2-restore-config")
+                        .checked(self.restore_configuration)
+                        .label(translator.text(Key::IncludeConfiguration))
+                        .on_click(cx.listener(|this, checked, _, cx| {
+                            this.restore_configuration = *checked;
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    Checkbox::new("type2-restore-cc")
+                        .checked(self.restore_cc)
+                        .label(translator.text(Key::IncludeCapabilityContainer))
+                        .on_click(cx.listener(|this, checked, _, cx| {
+                            this.restore_cc = *checked;
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    Checkbox::new("type2-restore-locks")
+                        .checked(self.restore_locks)
+                        .label(translator.text(Key::IncludeLocks))
+                        .on_click(cx.listener(|this, checked, _, cx| {
+                            this.restore_locks = *checked;
+                            cx.notify();
+                        })),
+                );
+        }
+        row.into_any_element()
     }
 
     fn render_metrics(&self, cx: &mut Context<Self>, image: &Type2Image) -> AnyElement {
@@ -491,6 +505,11 @@ impl Type2Workspace {
             ));
         }
         let busy = self.is_busy(cx);
+        let unchanged = data.is_some_and(|data| {
+            nfc_ui::parse_hex_array::<{ nfc_core::PAGE_SIZE }>(&self.page_input.read(cx).value())
+                .ok()
+                .is_some_and(|parsed| parsed == data)
+        });
         let actions = if writable {
             v_flex()
                 .gap_2()
@@ -507,11 +526,11 @@ impl Type2Workspace {
                         .when(advanced, |button| button.danger())
                         .when(!advanced, |button| button.primary())
                         .label(if advanced {
-                            translator.text(Key::WriteAdvancedPage)
+                            format!("{} {page}", translator.text(Key::WriteAdvancedPage))
                         } else {
-                            translator.text(Key::WritePage)
+                            format!("{} {page}", translator.text(Key::WritePage))
                         })
-                        .disabled(busy)
+                        .disabled(busy || unchanged)
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.write_selected_page(window, cx);
                         })),
@@ -571,20 +590,21 @@ impl Type2Workspace {
         let page = v_flex()
             .size_full()
             .child(header)
-            .child(self.render_file_row(cx));
+            .child(self.render_file_row(cx, false));
         let Some(image) = &self.image else {
             return page
                 .child(empty_state(
                     cx,
                     translator,
-                    Key::NoCardTitle,
-                    Key::NoCardBody,
+                    Key::NoTagTitle,
+                    self.empty_body_key(cx),
                 ))
                 .into_any_element();
         };
         let ndef = self.ndef.as_ref();
         let read_only = ndef.is_some_and(|ndef| ndef.read_only);
         let writable = !read_only && image.cc.writable();
+        let unformatted = matches!(ndef.map(|ndef| &ndef.state), Some(NdefState::Unformatted));
         let (state_label, used, capacity) = match ndef.map(|ndef| &ndef.state) {
             Some(NdefState::Message(message)) => (
                 format!(
@@ -874,6 +894,18 @@ impl Type2Workspace {
                             })),
                     ),
             );
+        let right = v_flex().w(px(360.)).flex_shrink_0().gap_3();
+        let right = if unformatted {
+            right
+                .child(format_card)
+                .child(write_card)
+                .child(export_card)
+        } else {
+            right
+                .child(write_card)
+                .child(export_card)
+                .child(format_card)
+        };
         page.child(
             h_flex()
                 .items_start()
@@ -888,15 +920,7 @@ impl Type2Workspace {
                         .child(message_card)
                         .child(capacity_card),
                 )
-                .child(
-                    v_flex()
-                        .w(px(360.))
-                        .flex_shrink_0()
-                        .gap_3()
-                        .child(write_card)
-                        .child(export_card)
-                        .child(format_card),
-                ),
+                .child(right),
         )
         .into_any_element()
     }
@@ -922,8 +946,8 @@ impl Type2Workspace {
                 .child(empty_state(
                     cx,
                     translator,
-                    Key::NoCardTitle,
-                    Key::NoCardBody,
+                    Key::NoTagTitle,
+                    self.empty_body_key(cx),
                 ))
                 .into_any_element();
         };

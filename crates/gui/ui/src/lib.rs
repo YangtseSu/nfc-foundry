@@ -19,8 +19,9 @@ pub use preferences::{UiPreferences, config_directory, preferences_path};
 
 /// Shared typed-confirmation callback used by the workspace crates.
 pub type ConfirmAction = std::rc::Rc<dyn Fn(&mut gpui_kit::Window, &mut gpui_kit::App)>;
+pub use nfc_core::NfcError;
 pub use session::{
-    ActivityEntry, Busy, CardIdentity, ReaderSummary, RecoveryStage, RecoveryView, Session,
-    StatusKind, StatusMessage, card_type_name, error_key, timestamp,
+    ActivityEntry, Busy, CardFamily, CardIdentity, ReaderSummary, RecoveryStage, RecoveryView,
+    Session, StatusKind, StatusMessage, card_type_name, error_key, timestamp,
 };
 pub use util::{parse_hex_array, parse_hex_bytes, parse_page_list, write_private};

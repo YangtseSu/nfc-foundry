@@ -9,20 +9,24 @@ status; these screens render the page only.
 ## Layout
 
 ```text
-shell sidebar        Memory · NDEF · Protection
-top bar              domain switch · tag identity · reader menu · language · Read tag
+shell sidebar        reader · card · Memory · NDEF · Protection · System
+top bar              tag identity (type · family · UID · detail) · reader menu · language · settings
 page header          eyebrow · title · subtitle
-file row             dump path · Save · Load · Restore · include options
+file row             dump path · Save · Load · Restore · include options (Memory only)
 Memory               metric strip · page table · fixed page inspector
 NDEF                 message/capacity · capability container · write/export/format
 Protection           lock state · lock form · configuration · password · action plan
-status bar           operation · detail · cancel · last backup · version
+action bar           status · detail · last backup · Read tag
 ```
 
+- A presence scan detects the tag family; the shell shows the Type 2 task
+  group and routes Read tag to the Type 2 workspace automatically.
 - The page table is the master view; the inspector keeps its write actions
-  pinned at the bottom.
+  pinned at the bottom. Writes are disabled while the editor still matches the
+  current page.
 - Locked pages, manufacturer pages, and reserved pages cannot be written.
   Configuration, password, and lock pages use the Advanced label.
+- Restore include options appear after a dump is loaded and only on Memory.
 
 ## States
 

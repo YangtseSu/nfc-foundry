@@ -6,18 +6,26 @@ Guides.
 
 ## Shell
 
-- One window, persistent left navigation, page content, fixed inspector actions.
-- Top bar: domain switch, card identity, reader menu, language switch, Read,
-  Settings. The reader menu is an overlay above page content with a capped,
-  scrollable list; USB serial adapters come before platform UARTs.
-- Bottom status: operation, detail, cancel, last backup, version.
+- One window, persistent left rail, page content, fixed inspector actions.
+- The rail keeps reader state, the detected card identity, the task group for
+  the detected card family, and the System group. A card-family change replaces
+  the task group instead of asking the user to pick a domain. Without a card,
+  both task groups stay available so a saved dump can be loaded.
+- Top bar: card identity (type, family, UID, detail), reader menu, language
+  switch, Settings. There is no separate domain switch or Read button.
+- Bottom action bar: status, detail, last backup, Cancel during recovery,
+  Scan keys for Classic, and the family-aware Read action. The Read action
+  stays in the same place on every screen.
+- Presence is scanned in the background. A detected Classic or Type 2 card
+  selects the matching task group and routes Read; no card keeps the last
+  loaded image available for inspection.
+- Reader menu: an overlay above page content with a capped, scrollable list;
+  outside clicks dismiss it. USB serial adapters come before platform UARTs.
 - Window chrome: client-side decorations with an in-app title bar (brand,
   drag, double-click maximize, minimize/maximize/close). Server-decorated
   windows keep the compositor title bar instead of drawing a duplicate.
 - Minimum window size 960x640. Page headers, tables, inspectors, and the reader
   menu flex or scroll within the window instead of overflowing it.
-- Two domain entries, **Classic** and **Type 2 / NDEF**, plus Diagnostics,
-  Activity, and Settings.
 - English is the base language; a complete `zh-CN` catalog is available from
   the in-app switch. The CLI is English-only.
 

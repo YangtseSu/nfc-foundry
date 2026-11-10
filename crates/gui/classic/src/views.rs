@@ -25,6 +25,14 @@ use crate::model::{
 use crate::workspace::ClassicWorkspace;
 
 impl ClassicWorkspace {
+    fn empty_body_key(&self, cx: &App) -> Key {
+        if self.session.read(cx).present_card.is_some() {
+            Key::ReadToLoad
+        } else {
+            Key::NoCardBody
+        }
+    }
+
     pub fn render_blocks(&self, cx: &mut Context<Self>) -> AnyElement {
         let translator = self.session.read(cx).translator;
         let subtitle = self
@@ -33,8 +41,7 @@ impl ClassicWorkspace {
             .map(|dump| {
                 let readability = dump.readability();
                 format!(
-                    "{} · {}/{} {} · {}/{} {}",
-                    dump.layout.name(),
+                    "{}/{} {} · {}/{} {}",
                     readability.readable_blocks,
                     readability.total_blocks,
                     translator.text(Key::BlocksUnit),
@@ -55,14 +62,14 @@ impl ClassicWorkspace {
         let mut page = v_flex()
             .size_full()
             .child(header)
-            .child(self.render_file_row(cx));
+            .child(self.render_file_row(cx, true));
         let Some(dump) = &self.dump else {
             return page
                 .child(empty_state(
                     cx,
                     translator,
                     Key::NoCardTitle,
-                    Key::NoCardBody,
+                    self.empty_body_key(cx),
                 ))
                 .into_any_element();
         };
@@ -77,15 +84,21 @@ impl ClassicWorkspace {
         page.child(workbench).into_any_element()
     }
 
-    fn render_file_row(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn render_file_row(&self, cx: &mut Context<Self>, restore: bool) -> AnyElement {
         let translator = self.session.read(cx).translator;
         let busy = self.is_busy(cx);
-        h_flex()
+        let mut row = h_flex()
             .gap_2()
             .items_center()
             .flex_wrap()
             .pb_3()
             .child(Input::new(&self.path_input).id("classic-path").w(px(260.)))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(translator.text(Key::FieldFormat)),
+            )
             .children(DUMP_FORMATS.iter().enumerate().map(|(index, format)| {
                 format_button(
                     ("classic-format", index),
@@ -107,25 +120,30 @@ impl ClassicWorkspace {
                     .label(translator.text(Key::LoadDump))
                     .disabled(busy)
                     .on_click(cx.listener(|this, _, window, cx| this.load_dump(window, cx))),
-            )
-            .child(
-                Button::new("classic-restore")
-                    .small()
-                    .danger()
-                    .label(translator.text(Key::RestoreTag))
-                    .disabled(busy || self.dump.is_none())
-                    .on_click(cx.listener(|this, _, window, cx| this.restore_loaded(window, cx))),
-            )
-            .child(
-                Checkbox::new("classic-restore-continue")
-                    .checked(self.restore_continue)
-                    .label(translator.text(Key::ContinueOnError))
-                    .on_click(cx.listener(|this, checked, _, cx| {
-                        this.restore_continue = *checked;
-                        cx.notify();
-                    })),
-            )
-            .into_any_element()
+            );
+        if restore {
+            row = row
+                .child(
+                    Button::new("classic-restore")
+                        .small()
+                        .danger()
+                        .label(translator.text(Key::RestoreTag))
+                        .disabled(busy || self.dump.is_none())
+                        .on_click(
+                            cx.listener(|this, _, window, cx| this.restore_loaded(window, cx)),
+                        ),
+                )
+                .child(
+                    Checkbox::new("classic-restore-continue")
+                        .checked(self.restore_continue)
+                        .label(translator.text(Key::ContinueOnError))
+                        .on_click(cx.listener(|this, checked, _, cx| {
+                            this.restore_continue = *checked;
+                            cx.notify();
+                        })),
+                );
+        }
+        row.into_any_element()
     }
 
     fn render_metrics(&self, cx: &mut Context<Self>, dump: &nfc_classic::Dump) -> AnyElement {
@@ -578,6 +596,10 @@ impl ClassicWorkspace {
             ));
         }
         let busy = self.is_busy(cx);
+        let unchanged =
+            nfc_ui::parse_hex_array::<{ nfc_core::BLOCK_SIZE }>(&self.block_input.read(cx).value())
+                .ok()
+                .is_some_and(|data| data == block.data);
         let actions = v_flex()
             .gap_2()
             .child(field(
@@ -607,11 +629,11 @@ impl ClassicWorkspace {
                             .when(is_trailer, |button| button.danger())
                             .when(!is_trailer, |button| button.primary())
                             .label(if is_trailer {
-                                translator.text(Key::WriteTrailer)
+                                format!("{} {number}", translator.text(Key::WriteTrailer))
                             } else {
-                                translator.text(Key::WriteBlock)
+                                format!("{} {number}", translator.text(Key::WriteBlock))
                             })
-                            .disabled(busy || number == 0)
+                            .disabled(busy || number == 0 || unchanged)
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.write_selected_block(window, cx);
                             })),
@@ -681,14 +703,14 @@ impl ClassicWorkspace {
         let page = v_flex()
             .size_full()
             .child(header)
-            .child(self.render_file_row(cx));
+            .child(self.render_file_row(cx, false));
         let Some(info) = &self.ndef else {
             return page
                 .child(empty_state(
                     cx,
                     translator,
                     Key::NoCardTitle,
-                    Key::NoCardBody,
+                    self.empty_body_key(cx),
                 ))
                 .into_any_element();
         };
@@ -1007,6 +1029,18 @@ impl ClassicWorkspace {
                             })),
                     ),
             );
+        let right = v_flex().w(px(360.)).flex_shrink_0().gap_3();
+        let right = if formatted {
+            right
+                .child(write_card)
+                .child(export_card)
+                .child(format_card)
+        } else {
+            right
+                .child(format_card)
+                .child(write_card)
+                .child(export_card)
+        };
         page.child(
             h_flex()
                 .items_start()
@@ -1014,15 +1048,7 @@ impl ClassicWorkspace {
                 .flex_1()
                 .min_h_0()
                 .child(left)
-                .child(
-                    v_flex()
-                        .w(px(360.))
-                        .flex_shrink_0()
-                        .gap_3()
-                        .child(write_card)
-                        .child(export_card)
-                        .child(format_card),
-                ),
+                .child(right),
         )
         .into_any_element()
     }
@@ -1035,13 +1061,7 @@ impl ClassicWorkspace {
             Key::EyebrowClassicCompare,
             Key::DiffTitle,
             translator.text(Key::DiffSubtitle),
-            vec![action(
-                "classic-compare",
-                translator.text(Key::Compare),
-                false,
-                true,
-                cx.listener(|this, _, _, cx| this.compare_files(cx)),
-            )],
+            Vec::new(),
         );
         let page = v_flex().size_full().child(header).child(
             h_flex()
@@ -1264,22 +1284,28 @@ impl ClassicWorkspace {
             Key::EyebrowClassicKeys,
             Key::KeysTitle,
             translator.text(Key::KeysSubtitle),
-            vec![action(
-                "classic-keys-import-action",
-                translator.text(Key::ImportKeys),
-                busy,
-                false,
-                cx.listener(|this, _, _, cx| this.import_keys(cx)),
-            )],
+            Vec::new(),
         );
         let mut rows = v_flex().gap_1().p_2();
         if self.keys.is_empty() {
             rows = rows.child(
-                div()
-                    .p_4()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(translator.text(Key::KeyStoreSub)),
+                v_flex()
+                    .items_center()
+                    .justify_center()
+                    .gap_2()
+                    .p_8()
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(translator.text(Key::NoKeysTitle)),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(translator.text(Key::NoKeysBody)),
+                    ),
             );
         } else {
             for (index, entry) in self.keys.entries().iter().enumerate() {
@@ -1363,6 +1389,13 @@ impl ClassicWorkspace {
                             })
                             .on_click(cx.listener(|this, _, _, cx| this.toggle_reveal(cx))),
                     )
+                    .child(div().w(px(1.)).h(px(18.)).bg(cx.theme().border))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(translator.text(Key::ScanTypes)),
+                    )
                     .children(
                         [Key::KeyTypesAB, Key::KeyTypesA, Key::KeyTypesB]
                             .into_iter()
@@ -1377,15 +1410,6 @@ impl ClassicWorkspace {
                                     }),
                                 )
                             }),
-                    )
-                    .child(
-                        Button::new("classic-scan-keys")
-                            .xsmall()
-                            .label(translator.text(Key::ScanKeys))
-                            .disabled(busy)
-                            .on_click(
-                                cx.listener(|this, _, window, cx| this.scan_keys(window, cx)),
-                            ),
                     ),
             )
             .child(
@@ -1514,29 +1538,69 @@ impl ClassicWorkspace {
                 translator.text(Key::RecoveryNoWrites),
             )],
         );
-        let mut strategies = v_flex().gap_2().p_4();
+        let mut strategies = v_flex().gap_1().p_4();
         for (index, strategy) in STRATEGIES.iter().enumerate() {
+            let selected = index == self.recovery.strategy;
             strategies = strategies.child(
                 v_flex()
+                    .id(("recovery-strategy", index))
+                    .test_support()
+                    .role(Role::RadioButton)
+                    .aria_label(translator.text(strategy_key(*strategy)))
                     .gap_1()
+                    .p_2()
+                    .rounded_md()
+                    .cursor_pointer()
+                    .when(selected, |item| item.bg(cx.theme().accent))
+                    .when(!selected, |item| {
+                        item.hover(|item| item.bg(cx.theme().secondary))
+                    })
                     .child(
-                        Button::new(("recovery-strategy", index))
-                            .w_full()
-                            .when(index == self.recovery.strategy, |button| button.primary())
-                            .when(index != self.recovery.strategy, |button| button.outline())
-                            .label(translator.text(strategy_key(*strategy)))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.recovery.strategy = index;
-                                cx.notify();
-                            })),
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .child(
+                                div()
+                                    .size_4()
+                                    .flex_shrink_0()
+                                    .rounded_full()
+                                    .border_1()
+                                    .border_color(if selected {
+                                        cx.theme().primary
+                                    } else {
+                                        cx.theme().border
+                                    })
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .when(selected, |dot| {
+                                        dot.child(
+                                            div().size_2().rounded_full().bg(cx.theme().primary),
+                                        )
+                                    }),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(if selected {
+                                        FontWeight::SEMIBOLD
+                                    } else {
+                                        FontWeight::NORMAL
+                                    })
+                                    .child(translator.text(strategy_key(*strategy))),
+                            ),
                     )
                     .child(
                         div()
-                            .px_1()
+                            .pl_6()
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
                             .child(translator.text(strategy_description_key(*strategy))),
-                    ),
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.recovery.strategy = index;
+                        cx.notify();
+                    })),
             );
         }
         let candidates = self.recovery_candidates_for_display(cx);
@@ -1876,21 +1940,6 @@ impl ClassicWorkspace {
         candidates.dedup();
         candidates
     }
-}
-
-fn action(
-    id: impl Into<gpui_kit::ElementId>,
-    label: &'static str,
-    disabled: bool,
-    primary: bool,
-    handler: impl Fn(&gpui_kit::ClickEvent, &mut gpui_kit::Window, &mut App) + 'static,
-) -> AnyElement {
-    Button::new(id)
-        .label(label)
-        .when(primary, |button| button.primary())
-        .disabled(disabled)
-        .on_click(handler)
-        .into_any_element()
 }
 
 fn format_button(

@@ -234,7 +234,7 @@ Card workflow example:
 cargo run -p nfctl -- --device pn532_uart:/dev/ttyUSB0 \
   --key FFFFFFFFFFFF classic dump --output card.json
 cargo run -p nfctl -- --device pn532_uart:/dev/ttyUSB0 \
-  --key FFFFFFFFFFFF classic restore --input card.json --confirm
+  --key FFFFFFFFFFFF classic restore --input card.json --yes
 ```
 
 PN532 UART firmware identification, Classic 1K selection/authentication/read,
@@ -264,7 +264,7 @@ cargo run -p nfctl -- \
 static-nonce path, `recover hardnested` loads the PM3 tables and runs the
 bit-sliced solver with `--max-nonces` and throttled progress, and `recover
 darkside` reports a no-sample failure when the card does not expose eight
-probes against one tag nonce. Use only cards you own.
+probes against one tag nonce.
 
 Hardnested tables are read from `/usr/share/nfc-foundry/hardnested_tables`,
 the checkout's `resources/hardnested_tables`, or
@@ -284,7 +284,7 @@ cargo run -p nfctl -- --device acr122_usb:001:017 type2 read --page 4
 cargo run -p nfctl -- --device acr122_usb:001:017 ndef write --text "hello"
 cargo run -p nfctl -- --device acr122_usb:001:017 ndef read
 cargo run -p nfctl -- --device acr122_usb:001:017 \
-  type2 lock --pages 4 --confirm I_OWN_THIS_CARD
+  type2 lock --pages 4 --yes
 ```
 
 Type 2 reads are hardware-validated on both readers. The PN532 UART path also
@@ -299,7 +299,7 @@ Classic NDEF commands use the same readers:
 cargo run -p nfctl -- --device pn532_uart:/dev/ttyUSB0 classic ndef info
 cargo run -p nfctl -- --device pn532_uart:/dev/ttyUSB0 classic ndef write --text hello
 cargo run -p nfctl -- --device pn532_uart:/dev/ttyUSB0 \
-  classic ndef format --confirm I_OWN_THIS_CARD
+  classic ndef format --yes
 ```
 
 Formatting replaces sector keys and access bits on every NFC sector. On
@@ -340,7 +340,7 @@ policy as `nfctl`.
 
 ## Safety
 
-Use only cards, readers, and systems you own or have explicit permission to
-test. Destructive operations require a backup, an explicit confirmation, and
-read-back verification. NDEF lock, configuration, password, and capability
-writes are Advanced operations.
+Destructive operations require a backup, an explicit confirmation, and
+read-back verification. `nfctl` asks `Continue? [y/N]` and accepts `y` or
+`yes`; pass `--yes` for non-interactive use. NDEF lock, configuration,
+password, and capability writes are Advanced operations.

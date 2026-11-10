@@ -172,7 +172,7 @@ fn write_restore_and_backups_are_reported() {
         "restore",
         "--input",
         dump.to_str().expect("path"),
-        "--confirm",
+        "--yes",
     ]);
     assert_success(&output);
     assert!(
@@ -234,7 +234,7 @@ fn destructive_actions_require_confirmation() {
         dump.to_str().expect("path"),
     ]);
     assert_eq!(output.status.code(), Some(2));
-    assert!(stderr(&output).contains("explicit confirmation"));
+    assert!(stderr(&output).contains("needs confirmation"));
 }
 
 #[test]
@@ -419,7 +419,7 @@ fn type2_page_write_is_verified_and_advanced_write_needs_confirmation() {
     ]);
     assert!(!output.status.success());
     assert!(
-        stderr(&output).contains("I_OWN_THIS_CARD"),
+        stderr(&output).contains("needs confirmation"),
         "{}",
         stderr(&output)
     );
@@ -465,8 +465,7 @@ fn ndef_text_write_read_and_format_round_trip() {
         backups.to_str().expect("path"),
         "ndef",
         "format",
-        "--confirm",
-        "I_OWN_THIS_CARD",
+        "--yes",
     ]);
     assert_success(&output);
 
@@ -506,8 +505,7 @@ fn type2_dump_restore_and_lock_round_trip() {
         "restore",
         "--input",
         dump.to_str().expect("path"),
-        "--confirm",
-        "I_OWN_THIS_CARD",
+        "--yes",
     ]);
     assert_success(&output);
     assert!(stdout(&output).contains("unchanged"), "{}", stdout(&output));
@@ -522,8 +520,7 @@ fn type2_dump_restore_and_lock_round_trip() {
         "lock",
         "--pages",
         "4",
-        "--confirm",
-        "I_OWN_THIS_CARD",
+        "--yes",
     ]);
     assert_success(&output);
     assert!(
@@ -586,7 +583,7 @@ fn classic_ndef_reads_reports_and_writes() {
 }
 
 #[test]
-fn classic_ndef_format_requires_the_explicit_token() {
+fn classic_ndef_format_requires_confirmation() {
     let output = nfctl(&[
         "--mock",
         "--device",
@@ -597,7 +594,7 @@ fn classic_ndef_format_requires_the_explicit_token() {
     ]);
     assert!(!output.status.success());
     assert!(
-        stderr(&output).contains("I_OWN_THIS_CARD"),
+        stderr(&output).contains("needs confirmation"),
         "{}",
         stderr(&output)
     );
@@ -613,8 +610,7 @@ fn classic_ndef_format_requires_the_explicit_token() {
         "classic",
         "ndef",
         "format",
-        "--confirm",
-        "I_OWN_THIS_CARD",
+        "--yes",
     ]);
     assert_success(&output);
     let text = stdout(&output);
@@ -636,8 +632,7 @@ fn classic_ndef_format_can_set_read_only() {
         "classic",
         "ndef",
         "format",
-        "--confirm",
-        "I_OWN_THIS_CARD",
+        "--yes",
         "--read-only",
     ]);
     assert_success(&output);

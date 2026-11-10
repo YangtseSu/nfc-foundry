@@ -94,6 +94,7 @@ pub struct ReaderSummary {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CardIdentity {
     pub card_type: String,
+    pub family: CardFamily,
     pub uid: String,
     pub atqa: String,
     pub sak: String,
@@ -104,10 +105,31 @@ impl CardIdentity {
     pub fn from_card(card: &CardInfo, detail: impl Into<String>) -> Self {
         Self {
             card_type: card_type_name(card.card_type).to_owned(),
+            family: CardFamily::from_card_type(card.card_type),
             uid: card.uid_hex(),
             atqa: format!("{:02X} {:02X}", card.atqa[0], card.atqa[1]),
             sak: format!("{:02X}", card.sak),
             detail: detail.into(),
+        }
+    }
+}
+
+/// Card protocol family that selects the workspace.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CardFamily {
+    Classic,
+    Type2,
+    Iso14443,
+    Unknown,
+}
+
+impl CardFamily {
+    pub const fn from_card_type(card_type: CardType) -> Self {
+        match card_type {
+            CardType::MifareClassic1K | CardType::MifareClassic4K => Self::Classic,
+            CardType::Type2 => Self::Type2,
+            CardType::Iso14443 => Self::Iso14443,
+            CardType::Unknown => Self::Unknown,
         }
     }
 }
@@ -199,6 +221,10 @@ pub struct Session {
     pub busy: Option<Busy>,
     pub classic_card: Option<CardIdentity>,
     pub type2_card: Option<CardIdentity>,
+    /// Card currently detected on the reader, before any workspace image is
+    /// loaded. Drives the family-specific navigation and the Read action.
+    pub present_card: Option<CardIdentity>,
+    pub present_family: Option<CardFamily>,
     pub devices: Vec<ReaderSummary>,
     pub selected_device: Option<String>,
     pub last_backup: Option<PathBuf>,
@@ -215,6 +241,8 @@ impl Default for Session {
             busy: None,
             classic_card: None,
             type2_card: None,
+            present_card: None,
+            present_family: None,
             devices: Vec::new(),
             selected_device: None,
             last_backup: None,
@@ -294,9 +322,18 @@ impl Session {
         self.recovery = recovery;
     }
 
+    /// Record the card found by a presence scan.
+    pub fn set_present_card(&mut self, card: Option<CardIdentity>) {
+        let family = card.as_ref().map(|card| card.family);
+        self.present_card = card;
+        self.present_family = family;
+    }
+
     pub fn reset_cards(&mut self) {
         self.classic_card = None;
         self.type2_card = None;
+        self.present_card = None;
+        self.present_family = None;
         self.recovery = None;
     }
 }
