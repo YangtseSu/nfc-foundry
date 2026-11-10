@@ -8,8 +8,8 @@ Make the first Rust release installable and auditable:
 
 - one Arch Linux AUR source package named `nfc-foundry`;
 - one GitHub Actions binary tarball for Linux amd64 built on Ubuntu 26.04;
-- one source archive for GPL compliance;
-- udev rules, license texts, notices, and dependency license bundle;
+- GitHub-generated source archives for GPL compliance;
+- udev rules, the project's license texts, and notices;
 - a hardware matrix that states exactly which operations each reader has
   passed;
 - no package or file conflict with another installed NFC application.
@@ -51,24 +51,21 @@ Rules:
   - `/usr/bin/nfctl`
   - `/usr/lib/udev/rules.d/70-nfc-foundry.rules`
   - `/usr/share/nfc-foundry/hardnested_tables/*.lz4`
-  - `/usr/share/licenses/nfc-foundry/` with `LICENSE`, `LICENSES/`, `NOTICE`,
-    `THIRD_PARTY_NOTICES.md`, and the dependency license bundle
-  - `/usr/share/doc/nfc-foundry/` with the product, hardware, testing,
-    packaging and plan documents.
+  - `/usr/share/licenses/nfc-foundry/` with `LICENSE`, the GPL text,
+    `NOTICE`, and `THIRD_PARTY_NOTICES.md`
 - No `libnfc`, `pcsclite`, external recovery engine, `nfc-*` utility, desktop
   file, or icon is installed. The first release ships two binaries and the
   data they need.
 - Runtime dependencies are the direct NEEDED libraries of the packaged ELF
   files plus the GPUI runtime libraries loaded dynamically. Build-only
-  dependencies are `cargo`, `git`, `python`, and `rust`.
+  dependencies are `cargo`, `git`, and `rust`.
 - The package must not contain `/usr/local`, `/opt`, or a broad
   `MODE="0666"` udev rule.
 
 ## Binary tarball
 
-`packaging/release/package.sh <version> <out-dir>` builds a reproducible
-`nfc-foundry-<version>-x86_64.tar.gz` from an already built
-`target/release`:
+The release workflow builds `nfc-foundry-<version>-x86_64.tar.gz` inline from
+the `x86_64-unknown-linux-gnu` build:
 
 ```text
 nfc-foundry-<version>-x86_64/
@@ -78,18 +75,14 @@ nfc-foundry-<version>-x86_64/
   lib/udev/rules.d/70-nfc-foundry.rules
   share/nfc-foundry/hardnested_tables/*.lz4
   share/licenses/nfc-foundry/
-  share/doc/nfc-foundry/
 ```
 
 The tree is relocatable. `nfctl` resolves the tables at
 `/usr/share/nfc-foundry/hardnested_tables`, through
-`NFC_FOUNDRY_HARDNESTED_TABLES`, or through `../share/nfc-foundry/hardnested_tables`
-relative to the executable. The tarball ships a `SHA256SUMS` file at the
-release root, generated separately for each uploaded asset.
-
-A source archive is produced with `git archive` from the tagged commit, with
-the `nfc-foundry-<version>/` prefix. It includes `Cargo.lock`,
-`resources/hardnested_tables`, and all license files.
+`NFC_FOUNDRY_HARDNESTED_TABLES`, or through
+`../share/nfc-foundry/hardnested_tables` relative to the executable.
+The release includes a `SHA256SUMS` file. GitHub attaches its generated source
+archives to the release; no custom source archive is built.
 
 ## CI
 
@@ -98,8 +91,8 @@ the `nfc-foundry-<version>/` prefix. It includes `Cargo.lock`,
 1. install the Linux build dependencies on Ubuntu 26.04;
 2. resolve the version and require `v<version>` to equal the tag;
 3. build only the `x86_64-unknown-linux-gnu` target;
-4. create the binary tarball, dependency license bundle, and source archive;
-5. upload the assets; a tag build publishes them to the GitHub release.
+4. create the binary tarball and license notices;
+5. upload the binary tarball and `SHA256SUMS`; a tag build publishes them.
 
 The release workflow does not re-run formatters, clippy, tests, or REUSE.
 `check.yml` runs that suite on branches and pull requests and does not run on
@@ -160,6 +153,6 @@ The release is not allowed to promote an operation from `not recorded` to
   `nfc-foundry` namespaced binaries, paths, and resources, so another NFC
   application can remain installed.
 - The binary tarball contains both binaries, the udev rule, the tables, the
-  license bundle, and the documentation.
+  license notices.
 - `bin/nfctl --version` and `nfctl diag` report `0.1.0`; the hardware
   matrix lists the PN532 UART and ACR122U records and their gaps.

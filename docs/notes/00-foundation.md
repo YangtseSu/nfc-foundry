@@ -21,7 +21,7 @@ Date: 2026-11-09
 - GPUI Kit bootstrap window with the two-domain shell.
 - Architecture, hardware, recovery, NDEF, testing, packaging, design, ADR, and
   phase plan documentation.
-- GPL-3.0-or-later license, NOTICE, REUSE metadata, Makefile, and CI workflow.
+- GPL-3.0-or-later license, NOTICE, REUSE metadata, and CI workflow.
 
 ## Tested
 

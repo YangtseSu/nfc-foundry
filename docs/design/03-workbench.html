@@ -1,0 +1,1634 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NFC Foundry — Workbench</title>
+<style>
+  :root{
+    --bg:#f4f6f9; --panel:#ffffff; --panel-2:#fbfcfd; --sidebar:#0d1522; --sidebar-2:#111c2e;
+    --ink:#111827; --ink-2:#374151; --muted:#667085; --faint:#7d8898;
+    --line:#e5e9ef; --line-2:#d4dae4; --line-3:#eef1f5;
+    --accent:#4f46e5; --accent-2:#4338ca; --accent-soft:#eef2ff; --accent-line:#c7d2fe;
+    --success:#047857; --success-soft:#ecfdf5; --success-line:#a7f3d0;
+    --warn:#b45309; --warn-soft:#fffbeb; --warn-line:#fde68a;
+    --danger:#b91c1c; --danger-soft:#fef2f2; --danger-line:#fecaca;
+    --violet:#6d28d9; --violet-soft:#f5f3ff; --cyan:#0e7490; --cyan-soft:#ecfeff;
+    --sidebar-text:#cbd5e1; --sidebar-muted:#8190a5; --sidebar-line:rgba(255,255,255,.08);
+    --radius:12px; --radius-sm:8px; --radius-xs:6px;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:Inter,"Noto Sans","Segoe UI",system-ui,-apple-system,sans-serif;
+    --shadow:0 1px 2px rgba(15,23,42,.04),0 7px 22px rgba(15,23,42,.035);
+  }
+  body[data-domain="type2"]{
+    --accent:#0f766e; --accent-2:#115e59; --accent-soft:#ecfdf5; --accent-line:#99f6e4;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--bg);color:var(--ink);font:13px/1.45 var(--sans);-webkit-font-smoothing:antialiased}
+  button,input,select,textarea{font:inherit;color:inherit}
+  button{cursor:pointer}
+  button:disabled{cursor:not-allowed;opacity:.48}
+  .sprite{position:absolute;width:0;height:0;overflow:hidden}
+  .ico{width:17px;height:17px;flex:none;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  .ico-sm{width:14px;height:14px}
+  .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .app{display:grid;grid-template-columns:252px minmax(0,1fr);height:100vh;min-height:680px}
+
+  /* ---------- sidebar ---------- */
+  .sidebar{background:var(--sidebar);color:var(--sidebar-text);display:flex;flex-direction:column;min-height:0;border-right:1px solid #0b1220}
+  .brand{display:flex;align-items:center;gap:11px;padding:21px 18px 17px}
+  .brand-mark{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:linear-gradient(145deg,#1e2b45,#121c2e);border:1px solid rgba(148,163,184,.24);color:#a5b4fc;box-shadow:inset 0 1px 0 rgba(255,255,255,.06)}
+  .brand-name{font-size:14.5px;font-weight:700;letter-spacing:.01em;color:#f1f5f9;line-height:1.1}
+  .brand-sub{font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--sidebar-muted);margin-top:4px}
+  .reader-card{margin:0 12px 14px;padding:11px;border-radius:10px;background:rgba(255,255,255,.045);border:1px solid var(--sidebar-line)}
+  .reader-top{display:flex;align-items:center;gap:8px}
+  .status-dot{width:7px;height:7px;border-radius:50%;background:#34d399;box-shadow:0 0 0 3px rgba(52,211,153,.15);flex:none}
+  .reader-name{font-size:12px;font-weight:650;color:#e2e8f0;line-height:1.2}
+  .reader-state{font-size:9.5px;color:#6ee7b7;margin-top:2px}
+  .reader-conn{font-family:var(--mono);font-size:9.5px;color:#8fa1b8;margin:8px 0 9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .reader-change{height:25px;width:100%;border-radius:6px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:#cbd5e1;font-size:10px;display:flex;align-items:center;justify-content:center;gap:6px}
+  .reader-change:hover{background:rgba(255,255,255,.08);color:#fff}
+  .nav{flex:1;overflow-y:auto;padding:4px 10px 12px;scrollbar-width:thin}
+  .nav-group{margin-top:14px}
+  .nav-label{font-size:9px;font-weight:700;letter-spacing:.15em;text-transform:uppercase;color:#61728a;padding:0 9px 7px}
+  .nav-item{position:relative;display:flex;align-items:center;gap:10px;width:100%;height:34px;padding:0 9px;border:0;border-radius:7px;background:transparent;color:#aebdd0;font-size:11.5px;text-align:left;margin:1px 0}
+  .nav-item .ico{color:#71849c}
+  .nav-item:hover{background:rgba(255,255,255,.055);color:#e2e8f0}
+  .nav-item:hover .ico{color:#a5b4fc}
+  .nav-item.active{background:rgba(255,255,255,.075);color:#f8fafc;font-weight:600;box-shadow:inset 2px 0 0 #818cf8}
+  .nav-item.active .ico{color:#c7d2fe}
+  .nav-badge{margin-left:auto;font-family:var(--mono);font-size:9px;color:#7f91a8;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.06);padding:1px 5px;border-radius:5px}
+  .nav-item.active .nav-badge{color:#c7d2fe;background:rgba(129,140,248,.12);border-color:rgba(129,140,248,.22)}
+  .sidebar-foot{border-top:1px solid var(--sidebar-line);padding:11px 15px 13px;display:flex;align-items:center;gap:8px;font-size:9.5px;color:#6b7d93}
+  .sidebar-foot .dot{width:5px;height:5px;border-radius:50%;background:#475569}
+  .sidebar-foot .spacer{flex:1}
+  .sidebar-foot .mono{font-size:9px;color:#8394aa}
+
+  /* ---------- shell ---------- */
+  .shell{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--bg)}
+  .topbar{height:62px;flex:none;display:flex;align-items:center;gap:14px;padding:0 22px;background:rgba(255,255,255,.9);border-bottom:1px solid var(--line);backdrop-filter:blur(8px);position:relative;z-index:5}
+  .domain-switch{display:flex;align-items:center;background:#eef1f6;border:1px solid #e2e7ef;border-radius:8px;padding:3px;gap:2px}
+  .domain-tab{height:26px;padding:0 11px;border:0;border-radius:6px;background:transparent;color:#6b7280;font-size:10.5px;font-weight:600;white-space:nowrap;display:flex;align-items:center;gap:6px}
+  .domain-tab .ico{width:14px;height:14px}
+  .domain-tab.active{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(15,23,42,.08)}
+  .top-card{display:flex;align-items:center;gap:10px;padding-left:14px;border-left:1px solid var(--line);min-width:0}
+  .card-art{width:27px;height:32px;border-radius:6px;background:linear-gradient(150deg,#26324a,#111a2a);border:1px solid #34445f;position:relative;flex:none}
+  .card-art:after{content:"";position:absolute;inset:5px;border:1px dashed rgba(165,180,252,.35);border-radius:3px}
+  .top-card-type{font-size:11px;font-weight:650;color:var(--ink);line-height:1.15;white-space:nowrap}
+  .top-card-uid{font-family:var(--mono);font-size:9px;color:var(--muted);margin-top:2px;white-space:nowrap}
+  .top-spacer{flex:1}
+  .reader-button{height:32px;display:flex;align-items:center;gap:8px;padding:0 10px;border:1px solid var(--line-2);border-radius:7px;background:#fff;color:var(--ink-2);font-size:10.5px;white-space:nowrap}
+  .reader-button:hover{border-color:#b9c2d0;background:#fbfcfe}
+  .reader-button .dot{width:6px;height:6px;border-radius:50%;background:#10b981}
+  .reader-button .sub{font-family:var(--mono);font-size:9px;color:var(--muted)}
+  .btn{height:32px;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:0 12px;border:1px solid var(--line-2);border-radius:7px;background:#fff;color:var(--ink-2);font-size:10.5px;font-weight:550;white-space:nowrap;transition:background .12s,border-color .12s,color .12s}
+  .btn:hover{background:#f8fafc;border-color:#bdc7d4}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.primary:hover{background:var(--accent-2);border-color:var(--accent-2)}
+  .btn.danger{background:var(--danger);border-color:var(--danger);color:#fff}
+  .btn.danger:hover{background:#991b1b;border-color:#991b1b}
+  .btn.danger-outline{background:#fff;border-color:var(--danger-line);color:var(--danger)}
+  .btn.danger-outline:hover{background:var(--danger-soft);border-color:#fca5a5}
+  .btn.ghost{background:transparent;border-color:transparent;color:var(--muted)}
+  .btn.ghost:hover{background:#f1f4f8;color:var(--ink)}
+  .btn.sm{height:27px;padding:0 9px;font-size:10px}
+  .btn.icon{width:32px;padding:0}
+  .btn .ico{width:15px;height:15px}
+  .spinner{width:13px;height:13px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}
+  .lang-switch{display:flex;align-items:center;background:#eef1f6;border:1px solid #e2e7ef;border-radius:7px;padding:2px;gap:1px}
+  .lang-switch button{height:24px;padding:0 7px;border:0;border-radius:5px;background:transparent;color:var(--muted);font-size:9px;font-weight:650}
+  .lang-switch button.active{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(15,23,42,.08)}
+  .app-icon-preview{width:38px;height:38px;border-radius:10px;background:linear-gradient(145deg,#1e2b45,#121c2e);border:1px solid #34445f;display:grid;place-items:center;color:#a5b4fc;flex:none}
+  .desktop-preview{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #f1f4f8}
+  .desktop-preview:last-child{border-bottom:0}
+  button:focus-visible,.nav-item:focus-visible,.strategy:focus-visible,.reader-option:focus-visible{outline:2px solid var(--accent-line);outline-offset:1px}
+  tbody tr:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  /* ---------- page ---------- */
+  .page{flex:1;min-height:0;overflow:auto;padding:22px 22px 26px;scrollbar-width:thin}
+  .page-head{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin-bottom:16px}
+  .eyebrow{font-size:9px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);display:flex;align-items:center;gap:7px}
+  .eyebrow .marker{width:5px;height:5px;border-radius:50%;background:var(--accent)}
+  h1{font-size:23px;letter-spacing:-.025em;line-height:1.15;margin:3px 0 3px;font-weight:720}
+  .page-sub{font-size:11px;color:var(--muted);margin:0}
+  .page-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+  .view{display:none}
+  .view.active{display:block}
+  .metric-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px}
+  .metric{background:#fff;border:1px solid var(--line);border-radius:9px;padding:10px 12px;min-width:0;box-shadow:var(--shadow)}
+  .metric-label{font-size:8.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--faint)}
+  .metric-value{font-size:16px;font-weight:700;letter-spacing:-.01em;margin-top:3px;white-space:nowrap}
+  .metric-value span{font-size:10px;font-weight:500;color:var(--muted);letter-spacing:0}
+  .metric-sub{font-size:9.5px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+  .card-head{display:flex;align-items:center;gap:12px;padding:13px 15px 11px;border-bottom:1px solid var(--line-3)}
+  .card-title{font-size:12px;font-weight:680;letter-spacing:-.005em}
+  .card-sub{font-size:9.5px;color:var(--muted);margin-top:2px}
+  .card-head .spacer{flex:1}
+  .card-body{padding:14px 15px}
+  .workbench{display:grid;grid-template-columns:minmax(0,1fr) 350px;gap:14px;align-items:start}
+  .table-card{overflow:hidden;height:calc(100vh - 320px);min-height:360px;display:flex;flex-direction:column}
+  .table-wrap{flex:1;overflow:auto;scrollbar-width:thin}
+  table{border-collapse:separate;border-spacing:0;width:100%;font-size:10.5px}
+  thead th{position:sticky;top:0;z-index:2;background:#fafbfd;border-bottom:1px solid var(--line);color:var(--faint);font-size:8.5px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;text-align:left;padding:8px 10px;white-space:nowrap}
+  tbody td{border-bottom:1px solid #f0f3f7;padding:7px 10px;white-space:nowrap;color:var(--ink-2)}
+  tbody tr{cursor:pointer}
+  tbody tr:hover td{background:#f8fafc}
+  tbody tr.selected td{background:var(--accent-soft)}
+  tbody tr.selected td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+  td.num,th.num{font-family:var(--mono);font-size:9.5px;color:var(--muted)}
+  td.hex{font-family:var(--mono);font-size:9.5px;color:#475569;letter-spacing:.01em;overflow:hidden;text-overflow:ellipsis;max-width:420px}
+  td.hex .dim{color:#c0c8d4}
+  .pill{display:inline-flex;align-items:center;gap:4px;height:19px;padding:0 6px;border-radius:5px;font-size:8.5px;font-weight:650;letter-spacing:.01em;border:1px solid transparent;white-space:nowrap}
+  .pill .dot{width:4px;height:4px;border-radius:50%;background:currentColor}
+  .pill.ok{color:var(--success);background:var(--success-soft);border-color:var(--success-line)}
+  .pill.info{color:var(--cyan);background:var(--cyan-soft);border-color:#a5f3fc}
+  .pill.warn{color:var(--warn);background:var(--warn-soft);border-color:var(--warn-line)}
+  .pill.danger{color:var(--danger);background:var(--danger-soft);border-color:var(--danger-line)}
+  .pill.neutral{color:var(--muted);background:#f3f4f6;border-color:#e5e7eb}
+  .pill.accent{color:var(--accent);background:var(--accent-soft);border-color:var(--accent-line)}
+  .type-mark{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:4px;font-size:8px;font-weight:700;font-family:var(--mono)}
+  .type-mark.m{background:#fef3c7;color:#92400e;border:1px solid #fde68a}
+  .type-mark.d{background:#eef2ff;color:#4338ca;border:1px solid #c7d2fe}
+  .type-mark.t{background:#fdf2f8;color:#9d174d;border:1px solid #fbcfe8}
+  .type-mark.l{background:#ecfdf5;color:#047857;border:1px solid #a7f3d0}
+  .type-mark.w{background:#f5f3ff;color:#6d28d9;border:1px solid #ddd6fe}
+  .table-foot{display:flex;align-items:center;gap:14px;padding:7px 12px;border-top:1px solid var(--line-3);color:var(--faint);font-size:8.5px;background:#fcfdfe}
+  .legend{display:flex;align-items:center;gap:5px;white-space:nowrap}
+  .legend .dot{width:5px;height:5px;border-radius:50%;background:currentColor}
+  .legend .ok{color:var(--success)} .legend .warn{color:var(--warn)} .legend .muted{color:var(--faint)}
+  .table-foot .spacer{flex:1}
+  .filter{height:27px;border:1px solid var(--line-2);border-radius:6px;background:#fff;color:var(--ink-2);font-size:10px;padding:0 8px}
+  .search{height:27px;border:1px solid var(--line-2);border-radius:6px;background:#fff;font-size:10px;padding:0 8px;width:160px}
+  .search:focus,.filter:focus,input:focus,select:focus,textarea:focus{outline:2px solid color-mix(in srgb,var(--accent) 26%,transparent);outline-offset:1px;border-color:var(--accent-line)}
+
+  /* ---------- inspector ---------- */
+  .inspector{height:calc(100vh - 320px);min-height:360px;overflow:hidden;display:flex;flex-direction:column;scrollbar-width:thin}
+  .inspector-head{flex:none;padding:14px 15px 12px;border-bottom:1px solid var(--line-3);display:flex;align-items:flex-start;gap:10px}
+  .inspector-head h2{font-size:14px;margin:3px 0 2px;letter-spacing:-.01em;line-height:1.2}
+  .kicker{font-size:8.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+  .inspector-head .pill{margin-left:auto;margin-top:2px}
+  .inspector-body{flex:1;overflow:auto;padding:13px 15px 18px;scrollbar-width:thin}
+  .inspector-actions{flex:none;border-top:1px solid var(--line-3);padding:10px 15px 13px;background:#fff}
+  .inspector-actions .field{margin-top:0}
+  .inspector-actions .write-actions{margin-top:8px}
+  .meta-row{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px}
+  .section-title{font-size:8.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--faint);margin:14px 0 7px}
+  .bytes{display:grid;grid-template-columns:repeat(8,1fr);gap:4px}
+  .byte{height:25px;border:1px solid var(--line);border-radius:4px;background:#fbfcfe;display:grid;place-items:center;font-family:var(--mono);font-size:9.5px;color:#475569}
+  .ascii{margin-top:7px;background:#f8fafc;border:1px solid var(--line);border-radius:6px;padding:7px 8px;font-family:var(--mono);font-size:9.5px;color:#475569;overflow-wrap:anywhere}
+  .kv{display:grid;grid-template-columns:92px minmax(0,1fr);gap:6px 9px;font-size:10px;margin-top:6px}
+  .kv dt{color:var(--muted)}
+  .kv dd{margin:0;color:var(--ink-2);min-width:0;overflow-wrap:anywhere}
+  .kv .mono{font-size:9.5px}
+  .callout{display:flex;gap:8px;padding:8px 9px;border-radius:7px;font-size:9.5px;line-height:1.4;margin:9px 0}
+  .callout .ico{width:14px;height:14px;margin-top:1px}
+  .callout.info{background:#eff6ff;border:1px solid #dbeafe;color:#1e40af}
+  .callout.warn{background:var(--warn-soft);border:1px solid var(--warn-line);color:#92400e}
+  .callout.danger{background:var(--danger-soft);border:1px solid var(--danger-line);color:#991b1b}
+  .field{display:flex;flex-direction:column;gap:4px;margin-top:9px}
+  .field label{font-size:9.5px;font-weight:600;color:var(--ink-2)}
+  .field .hint{font-size:8.5px;color:var(--faint);line-height:1.35}
+  input[type=text],input[type=password],input[type=number],select,textarea{height:30px;border:1px solid var(--line-2);border-radius:6px;background:#fff;padding:0 8px;font-size:10.5px;min-width:0}
+  textarea{height:auto;min-height:64px;padding:7px 8px;resize:vertical;font-family:var(--mono);font-size:10px}
+  .input-row{display:flex;gap:6px}
+  .input-row input{flex:1}
+  .write-actions{display:flex;gap:7px;margin-top:10px}
+  .write-actions .btn{flex:1}
+  .empty{padding:40px 20px;text-align:center;color:var(--muted);font-size:11px}
+
+  /* ---------- NDEF / forms ---------- */
+  .grid-2{display:grid;grid-template-columns:minmax(0,1fr) 350px;gap:14px;align-items:start}
+  .stack{display:flex;flex-direction:column;gap:12px}
+  .section-head{display:flex;align-items:center;gap:8px;margin:2px 0 9px}
+  .section-head h2{font-size:12.5px;margin:0;font-weight:680}
+  .section-head .spacer{flex:1}
+  .muted{color:var(--muted)}
+  .tiny{font-size:9px;color:var(--faint)}
+  .record{border:1px solid var(--line);border-radius:8px;padding:10px 11px;background:#fbfcfe;margin-top:8px}
+  .record-top{display:flex;align-items:center;gap:7px}
+  .record-type{font-size:9px;font-weight:700;letter-spacing:.04em;color:var(--violet);background:var(--violet-soft);border:1px solid #ddd6fe;border-radius:4px;padding:2px 5px}
+  .record-type.uri{color:var(--cyan);background:var(--cyan-soft);border-color:#a5f3fc}
+  .record-name{font-size:10.5px;font-weight:650;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .record-body{font-family:var(--mono);font-size:9px;color:#475569;margin-top:7px;overflow-wrap:anywhere;line-height:1.45}
+  .record-meta{font-size:8.5px;color:var(--faint);margin-top:5px}
+  .capacity{height:7px;border-radius:99px;background:#edf1f6;overflow:hidden;margin-top:8px}
+  .capacity > span{display:block;height:100%;background:linear-gradient(90deg,var(--accent),#818cf8);border-radius:99px}
+  .capacity-row{display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-top:5px}
+  .check{display:flex;align-items:flex-start;gap:7px;font-size:10px;color:var(--ink-2);margin-top:9px}
+  .check input{margin:2px 0 0}
+  .divider{height:1px;background:var(--line-3);margin:13px 0}
+  .form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+  .form-grid .field{margin-top:0}
+  .span-2{grid-column:span 2}
+  .danger-zone{border:1px solid var(--danger-line);background:#fffafa;border-radius:9px;padding:12px}
+  .danger-zone h3{font-size:10.5px;margin:0 0 3px;color:#991b1b}
+  .danger-zone p{font-size:9.5px;color:#7f1d1d;margin:0 0 8px;line-height:1.4}
+
+  /* ---------- diff / keys / recovery ---------- */
+  .file-card{display:flex;align-items:center;gap:10px;border:1px solid var(--line);background:#fbfcfe;border-radius:8px;padding:10px 11px}
+  .file-icon{width:30px;height:36px;border-radius:5px;background:#eef2ff;border:1px solid var(--accent-line);color:var(--accent);display:grid;place-items:center;flex:none}
+  .file-name{font-size:10.5px;font-weight:650}
+  .file-meta{font-size:8.5px;color:var(--faint);margin-top:2px}
+  .file-card .spacer{flex:1}
+  .summary-row{display:flex;gap:9px;flex-wrap:wrap;margin:12px 0}
+  .summary{background:#fff;border:1px solid var(--line);border-radius:8px;padding:9px 11px;min-width:120px}
+  .summary .n{font-size:16px;font-weight:700}
+  .summary .l{font-size:8.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.1em;margin-top:1px}
+  .keys-table td .key{font-family:var(--mono);font-size:9.5px;color:#475569;letter-spacing:.02em}
+  .key-actions{display:flex;gap:4px;justify-content:flex-end}
+  .icon-btn{width:25px;height:25px;border:1px solid transparent;border-radius:5px;background:transparent;color:var(--muted);display:grid;place-items:center}
+  .icon-btn:hover{background:#f1f4f8;color:var(--ink);border-color:var(--line)}
+  .recovery-grid{display:grid;grid-template-columns:minmax(0,1fr) 370px;gap:14px;align-items:start}
+  .strategy-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+  .strategy{position:relative;border:1px solid var(--line);border-radius:8px;background:#fff;padding:10px 11px;text-align:left}
+  .strategy:hover{border-color:#c4ccd8;background:#fcfdff}
+  .strategy.selected{border-color:var(--accent-line);background:var(--accent-soft);box-shadow:0 0 0 1px var(--accent-line)}
+  .strategy-title{font-size:10.5px;font-weight:650;display:flex;align-items:center;gap:6px}
+  .strategy-desc{font-size:8.7px;color:var(--muted);margin-top:3px;line-height:1.35}
+  .strategy .pill{margin-top:7px}
+  .radio{width:13px;height:13px;border:1.5px solid #b9c2d0;border-radius:50%;display:inline-block;flex:none}
+  .strategy.selected .radio{border-color:var(--accent);border-width:4px}
+  .stages{display:flex;flex-direction:column;gap:7px;margin-top:9px}
+  .stage{display:flex;align-items:center;gap:8px;font-size:9.5px;color:var(--muted)}
+  .stage .num{width:17px;height:17px;border-radius:50%;background:#f1f4f8;color:var(--faint);display:grid;place-items:center;font-family:var(--mono);font-size:8px;font-weight:700;border:1px solid var(--line)}
+  .stage.active{color:var(--ink-2);font-weight:600}
+  .stage.active .num{background:var(--accent-soft);color:var(--accent);border-color:var(--accent-line)}
+  .stage.done .num{background:var(--success-soft);color:var(--success);border-color:var(--success-line)}
+  .progress{height:6px;border-radius:99px;background:#edf1f6;overflow:hidden;margin-top:10px}
+  .progress > span{display:block;height:100%;width:0;background:var(--accent);border-radius:99px;transition:width .25s ease}
+  .progress-meta{display:flex;justify-content:space-between;font-size:8.5px;color:var(--faint);margin-top:5px}
+  .result{border:1px solid var(--success-line);background:var(--success-soft);border-radius:8px;padding:9px 10px;margin-top:10px;display:none}
+  .result.show{display:block}
+  .result .label{font-size:8px;letter-spacing:.12em;text-transform:uppercase;color:#047857;font-weight:700}
+  .result .key{font-family:var(--mono);font-size:11px;color:#065f46;margin-top:2px}
+  .candidates{display:flex;flex-direction:column;gap:5px}
+  .candidate{display:flex;align-items:center;gap:7px;font-size:9.5px;color:var(--ink-2);padding:5px 7px;border:1px solid var(--line-3);border-radius:6px;background:#fbfcfe}
+  .candidate .mono{margin-left:auto;font-size:9px;color:var(--muted)}
+
+  /* ---------- diagnostics / activity ---------- */
+  .diag-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .diag-card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:13px 14px;box-shadow:var(--shadow)}
+  .diag-card h3{font-size:11px;margin:0 0 8px;font-weight:680;display:flex;align-items:center;gap:7px}
+  .diag-row{display:flex;justify-content:space-between;gap:12px;font-size:9.8px;padding:5px 0;border-bottom:1px solid #f1f4f8}
+  .diag-row:last-child{border:0}
+  .diag-row .k{color:var(--muted)}
+  .diag-row .v{font-family:var(--mono);font-size:9.2px;color:var(--ink-2);text-align:right;overflow-wrap:anywhere}
+  .timeline{position:relative;padding-left:22px}
+  .timeline:before{content:"";position:absolute;left:7px;top:5px;bottom:5px;width:1px;background:var(--line)}
+  .event{position:relative;padding:0 0 15px}
+  .event:last-child{padding-bottom:0}
+  .event .node{position:absolute;left:-22px;top:1px;width:15px;height:15px;border-radius:50%;background:#fff;border:1px solid var(--line-2);display:grid;place-items:center;color:var(--muted)}
+  .event .node .ico{width:9px;height:9px}
+  .event.ok .node{border-color:var(--success-line);background:var(--success-soft);color:var(--success)}
+  .event.warn .node{border-color:var(--warn-line);background:var(--warn-soft);color:var(--warn)}
+  .event-head{font-size:10.5px;font-weight:600;color:var(--ink-2);display:flex;align-items:center;gap:8px}
+  .event-time{font-size:8.5px;color:var(--faint);font-family:var(--mono)}
+  .event-body{font-size:9.5px;color:var(--muted);margin-top:2px;line-height:1.4}
+  .event-body .mono{font-size:9px;color:#475569}
+
+  /* ---------- status bar / popover / dialog ---------- */
+  .statusbar{height:38px;flex:none;display:flex;align-items:center;gap:10px;padding:0 18px;background:#fff;border-top:1px solid var(--line);font-size:9.5px;color:var(--muted)}
+  .status-left{display:flex;align-items:center;gap:7px;min-width:0}
+  .status-left .dot{width:6px;height:6px;border-radius:50%;background:#10b981;flex:none}
+  .status-left .dot.busy{background:var(--accent);animation:pulse 1s ease infinite}
+  .status-left .dot.error{background:var(--danger)}
+  @keyframes pulse{50%{opacity:.35}}
+  .status-text{color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .status-detail{color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .statusbar .spacer{flex:1}
+  .statusbar .sep{width:1px;height:14px;background:var(--line)}
+  .statusbar .mono{font-size:8.8px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:360px}
+  .popover{position:absolute;top:calc(100% + 8px);right:18px;width:300px;background:#fff;border:1px solid var(--line-2);border-radius:10px;box-shadow:0 18px 45px rgba(15,23,42,.18);padding:7px;z-index:20}
+  .popover[hidden]{display:none}
+  .popover-title{font-size:8.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);font-weight:700;padding:5px 7px 6px}
+  .reader-option{display:flex;align-items:center;gap:9px;width:100%;padding:8px 8px;border:0;border-radius:7px;background:transparent;text-align:left}
+  .reader-option:hover{background:#f5f7fa}
+  .reader-option .dot{width:6px;height:6px;border-radius:50%;background:#10b981}
+  .reader-option.off .dot{background:#cbd5e1}
+  .reader-option .name{font-size:10.5px;font-weight:600;color:var(--ink-2)}
+  .reader-option .conn{font-family:var(--mono);font-size:8.5px;color:var(--faint);margin-top:1px}
+  .reader-option .check{margin-left:auto;color:var(--accent);width:14px;height:14px}
+  .popover-foot{border-top:1px solid var(--line-3);margin-top:4px;padding-top:5px}
+  dialog{border:0;padding:0;background:transparent;max-width:min(460px,calc(100vw - 32px));width:100%}
+  dialog::backdrop{background:rgba(15,23,42,.38);backdrop-filter:blur(2px)}
+  .dialog-card{background:#fff;border:1px solid var(--line-2);border-radius:13px;box-shadow:0 30px 80px rgba(15,23,42,.28);overflow:hidden}
+  .dialog-head{padding:17px 18px 12px;display:flex;align-items:flex-start;gap:10px;border-bottom:1px solid var(--line-3)}
+  .dialog-head h2{font-size:14px;margin:3px 0 2px;line-height:1.25}
+  .dialog-head .close{margin-left:auto}
+  .dialog-body{padding:14px 18px 6px;font-size:10.5px;color:var(--ink-2)}
+  .dialog-body p{margin:0 0 8px;color:var(--muted);font-size:10px;line-height:1.45}
+  .dialog-foot{display:flex;justify-content:flex-end;gap:7px;padding:12px 18px 16px}
+  .dialog-error{display:none;color:var(--danger);font-size:9.5px;margin-top:5px}
+  .dialog-error.show{display:block}
+  .toast{position:fixed;right:18px;bottom:52px;background:#111827;color:#f8fafc;border-radius:8px;padding:9px 12px;font-size:10px;box-shadow:0 12px 30px rgba(15,23,42,.25);opacity:0;transform:translateY(6px);transition:.18s;pointer-events:none;z-index:30}
+  .toast.show{opacity:1;transform:none}
+
+  @media (max-width:1180px){
+    .app{grid-template-columns:220px minmax(0,1fr)}
+    .workbench,.grid-2,.recovery-grid{grid-template-columns:minmax(0,1fr)}
+    .inspector{height:auto;min-height:0}
+    .table-card{height:calc(100vh - 360px)}
+    .metric-strip{grid-template-columns:repeat(2,minmax(0,1fr))}
+  }
+  @media (max-width:820px){
+    .app{grid-template-columns:1fr}
+    .sidebar{display:none}
+    .topbar{height:auto;padding:10px 14px;flex-wrap:wrap}
+    .page{padding:16px 14px}
+    .page-head{align-items:flex-start;flex-direction:column}
+    .page-actions{justify-content:flex-start}
+  }
+</style>
+</head>
+<body data-domain="classic">
+<svg class="sprite" aria-hidden="true">
+  <symbol id="i-chip" viewBox="0 0 20 20"><rect x="5" y="5" width="10" height="10" rx="2"/><path d="M8 2v3M12 2v3M8 15v3M12 15v3M2 8h3M2 12h3M15 8h3M15 12h3"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 20 20"><rect x="3" y="3" width="5.5" height="5.5" rx="1"/><rect x="11.5" y="3" width="5.5" height="5.5" rx="1"/><rect x="3" y="11.5" width="5.5" height="5.5" rx="1"/><rect x="11.5" y="11.5" width="5.5" height="5.5" rx="1"/></symbol>
+  <symbol id="i-tag" viewBox="0 0 20 20"><path d="M3 4.5A1.5 1.5 0 0 1 4.5 3h5.1a2 2 0 0 1 1.4.6l4.4 4.4a2 2 0 0 1 0 2.8l-4.6 4.6a2 2 0 0 1-2.8 0L3.6 11a2 2 0 0 1-.6-1.4Z"/><circle cx="7.2" cy="7.2" r="1.2"/></symbol>
+  <symbol id="i-diff" viewBox="0 0 20 20"><rect x="3" y="4" width="9" height="12" rx="1.5"/><rect x="8" y="2" width="9" height="12" rx="1.5"/><path d="M6 8h3M6 11h3"/></symbol>
+  <symbol id="i-key" viewBox="0 0 20 20"><circle cx="7" cy="12" r="3.2"/><path d="m9.3 9.7 6-6M13 3l4 4M11.7 6.3l2.3 2.3"/></symbol>
+  <symbol id="i-radar" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7"/><circle cx="10" cy="10" r="3.5"/><path d="M10 10 16 4M10 10h7"/></symbol>
+  <symbol id="i-memory" viewBox="0 0 20 20"><rect x="4" y="5" width="12" height="10" rx="1.5"/><path d="M7 5V2M10 5V2M13 5V2M7 18v-3M10 18v-3M13 18v-3M4 8H1M4 12H1M19 8h-3M19 12h-3"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 20 20"><path d="M10 2.5 16 5v5c0 4-2.6 6.4-6 7.5-3.4-1.1-6-3.5-6-7.5V5Z"/><path d="m7.5 9.8 1.8 1.8 3.4-3.6"/></symbol>
+  <symbol id="i-activity" viewBox="0 0 20 20"><path d="M2 10h4l2-6 4 12 2-6h4"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 20 20"><path d="M4 5h12M4 10h12M4 15h12"/><circle cx="7" cy="5" r="1.5"/><circle cx="13" cy="10" r="1.5"/><circle cx="9" cy="15" r="1.5"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 20 20"><path d="M16 8a6.5 6.5 0 1 0 .5 4"/><path d="M16 3v5h-5"/></symbol>
+  <symbol id="i-download" viewBox="0 0 20 20"><path d="M10 3v9M6 8l4 4 4-4M4 16h12"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 20 20"><path d="M10 13V4M6 8l4-4 4 4M4 16h12"/></symbol>
+  <symbol id="i-restore" viewBox="0 0 20 20"><path d="M4 7a6.5 6.5 0 1 1-.3 5.8"/><path d="M4 2v5h5"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 20 20"><path d="m4 13.5-.7 3.2 3.2-.7L16 6.5 13.5 4Z"/><path d="m12 5.5 2.5 2.5"/></symbol>
+  <symbol id="i-search" viewBox="0 0 20 20"><circle cx="8.5" cy="8.5" r="5"/><path d="m12.2 12.2 4 4"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 20 20"><path d="m6 8 4 4 4-4"/></symbol>
+  <symbol id="i-check" viewBox="0 0 20 20"><path d="m4 10.5 4 4 8-9"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 20 20"><path d="M10 3.5 17 16H3Z"/><path d="M10 8v3.5M10 14h.01"/></symbol>
+  <symbol id="i-x" viewBox="0 0 20 20"><path d="m5 5 10 10M15 5 5 15"/></symbol>
+  <symbol id="i-play" viewBox="0 0 20 20"><path d="M6 4.5 15 10l-9 5.5Z"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 20 20"><rect x="5" y="5" width="10" height="10" rx="1.5"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 20 20"><rect x="7" y="7" width="9" height="9" rx="1.5"/><path d="M13 7V5.5A1.5 1.5 0 0 0 11.5 4h-7A1.5 1.5 0 0 0 3 5.5v7A1.5 1.5 0 0 0 4.5 14H7"/></symbol>
+  <symbol id="i-more" viewBox="0 0 20 20"><circle cx="4" cy="10" r="1"/><circle cx="10" cy="10" r="1"/><circle cx="16" cy="10" r="1"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 20 20"><rect x="4.5" y="8.5" width="11" height="8" rx="2"/><path d="M7 8.5V6a3 3 0 0 1 6 0v2.5"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 20 20"><path d="M2.5 10S5.5 5 10 5s7.5 5 7.5 5-3 5-7.5 5-7.5-5-7.5-5Z"/><circle cx="10" cy="10" r="2.2"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 20 20"><path d="M10 4v12M4 10h12"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 20 20"><path d="M3 6a1.5 1.5 0 0 1 1.5-1.5h4L10 6h5.5A1.5 1.5 0 0 1 17 7.5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 3 14.5Z"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="12" rx="2"/><path d="m7 8 2.5 2L7 12M11 12h3"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7"/><path d="M10 6v4.5l3 1.8"/></symbol>
+</svg>
+
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark"><svg class="ico" aria-hidden="true"><use href="#i-chip"/></svg></div>
+      <div>
+        <div class="brand-name">NFC Foundry</div>
+        <div class="brand-sub">Reader workbench</div>
+      </div>
+    </div>
+
+    <div class="reader-card">
+      <div class="reader-top">
+        <span class="status-dot"></span>
+        <div>
+          <div class="reader-name" id="railReaderName">PN532 UART</div>
+          <div class="reader-state" id="railReaderState">Connected · firmware 1.6</div>
+        </div>
+      </div>
+      <div class="reader-conn" id="railReaderConn">pn532_uart:/dev/ttyUSB0</div>
+      <button class="reader-change" data-action="toggle-reader"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-refresh"/></svg>Change reader</button>
+    </div>
+
+    <nav class="nav" aria-label="Workspace">
+      <div class="nav-group">
+        <div class="nav-label">MIFARE Classic</div>
+        <button class="nav-item active" data-view="classic-blocks" aria-current="page"><svg class="ico" aria-hidden="true"><use href="#i-grid"/></svg><span>Blocks</span><span class="nav-badge">64</span></button>
+        <button class="nav-item" data-view="classic-ndef"><svg class="ico" aria-hidden="true"><use href="#i-tag"/></svg><span>Classic NDEF</span><span class="nav-badge">2</span></button>
+        <button class="nav-item" data-view="classic-diff"><svg class="ico" aria-hidden="true"><use href="#i-diff"/></svg><span>Diff</span><span class="nav-badge">2</span></button>
+        <button class="nav-item" data-view="classic-keys"><svg class="ico" aria-hidden="true"><use href="#i-key"/></svg><span>Keys</span><span class="nav-badge">6</span></button>
+        <button class="nav-item" data-view="classic-recovery"><svg class="ico" aria-hidden="true"><use href="#i-radar"/></svg><span>Recovery</span><span class="nav-badge">native</span></button>
+      </div>
+      <div class="nav-group">
+        <div class="nav-label">Type 2 / NTAG</div>
+        <button class="nav-item" data-view="type2-memory"><svg class="ico" aria-hidden="true"><use href="#i-memory"/></svg><span>Memory</span><span class="nav-badge">135</span></button>
+        <button class="nav-item" data-view="type2-ndef"><svg class="ico" aria-hidden="true"><use href="#i-tag"/></svg><span>NDEF</span><span class="nav-badge">2</span></button>
+        <button class="nav-item" data-view="type2-protection"><svg class="ico" aria-hidden="true"><use href="#i-shield"/></svg><span>Protection</span></button>
+      </div>
+      <div class="nav-group">
+        <div class="nav-label">System</div>
+        <button class="nav-item" data-view="diagnostics"><svg class="ico" aria-hidden="true"><use href="#i-sliders"/></svg><span>Diagnostics</span></button>
+        <button class="nav-item" data-view="activity"><svg class="ico" aria-hidden="true"><use href="#i-clock"/></svg><span>Activity</span><span class="nav-badge">4</span></button>
+      </div>
+    </nav>
+
+    <div class="sidebar-foot">
+      <span class="dot"></span><span>Linux · amd64</span><span class="spacer"></span><span class="mono">v0.1.0</span>
+    </div>
+  </aside>
+
+  <div class="shell">
+    <header class="topbar">
+      <div class="domain-switch" role="tablist" aria-label="Card domain">
+        <button class="domain-tab active" data-jump="classic-blocks" role="tab" aria-selected="true"><svg class="ico" aria-hidden="true"><use href="#i-grid"/></svg>MIFARE Classic</button>
+        <button class="domain-tab" data-jump="type2-memory" role="tab" aria-selected="false"><svg class="ico" aria-hidden="true"><use href="#i-memory"/></svg>Type 2 / NDEF</button>
+      </div>
+      <div class="top-card" id="topCard">
+        <div class="card-art"></div>
+        <div>
+          <div class="top-card-type" id="topCardType">MIFARE Classic 1K</div>
+          <div class="top-card-uid" id="topCardUid">UID 6A 31 5E 28 · SAK 08</div>
+        </div>
+      </div>
+      <div class="top-spacer"></div>
+      <button class="reader-button" data-action="toggle-reader" aria-haspopup="true" aria-expanded="false">
+        <span class="dot"></span>
+        <span id="topReaderName">PN532 UART</span>
+        <span class="sub" id="topReaderPort">/dev/ttyUSB0</span>
+        <svg class="ico ico-sm" aria-hidden="true"><use href="#i-chevron"/></svg>
+      </button>
+      <div class="lang-switch" role="group" aria-label="Language">
+        <button class="active" data-lang="en" aria-pressed="true">EN</button>
+        <button data-lang="zh" aria-pressed="false">中文</button>
+      </div>
+      <button class="btn primary" data-action="read" id="readButton"><svg class="ico" aria-hidden="true"><use href="#i-refresh"/></svg><span id="readLabel">Read card</span></button>
+      <button class="icon-btn" aria-label="Settings" data-action="settings"><svg class="ico" aria-hidden="true"><use href="#i-sliders"/></svg></button>
+
+      <div class="popover" id="readerPopover" hidden>
+        <div class="popover-title">Readers</div>
+        <button class="reader-option" data-reader="pn532">
+          <span class="dot"></span>
+          <span><span class="name">PN532 UART</span><span class="conn">pn532_uart:/dev/ttyUSB0</span></span>
+          <svg class="ico check" aria-hidden="true"><use href="#i-check"/></svg>
+        </button>
+        <button class="reader-option off" data-reader="acr">
+          <span class="dot"></span>
+          <span><span class="name">ACR122U USB</span><span class="conn">Not connected</span></span>
+        </button>
+        <div class="popover-foot">
+          <button class="btn ghost sm" data-action="refresh-readers"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-refresh"/></svg>Refresh readers</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="page">
+      <div class="page-head">
+        <div>
+          <div class="eyebrow" id="pageEyebrow"><span class="marker"></span>Classic / Memory</div>
+          <h1 id="pageTitle">Blocks</h1>
+          <p class="page-sub" id="pageSubtitle">MIFARE Classic 1K · 64 blocks · 16 sectors · complete image</p>
+        </div>
+        <div class="page-actions" id="pageActions"></div>
+      </div>
+
+      <!-- CLASSIC BLOCKS -->
+      <section class="view active" data-view-panel="classic-blocks">
+        <div class="metric-strip">
+          <div class="metric"><div class="metric-label">Readability</div><div class="metric-value">64<span>/64 blocks</span></div><div class="metric-sub">16/16 sectors authenticated</div></div>
+          <div class="metric"><div class="metric-label">Card identity</div><div class="metric-value" style="font-size:13px">6A 31 5E 28</div><div class="metric-sub">ATQA 00 04 · SAK 08</div></div>
+          <div class="metric"><div class="metric-label">Key store</div><div class="metric-value">6<span> keys</span></div><div class="metric-sub">2 wildcard · 4 sector-bound</div></div>
+          <div class="metric"><div class="metric-label">Last backup</div><div class="metric-value" style="font-size:13px">14:36:12</div><div class="metric-sub">20261110T143612-block4.json</div></div>
+        </div>
+        <div class="workbench">
+          <div class="card table-card">
+            <div class="card-head">
+              <div><div class="card-title">Card memory</div><div class="card-sub">Sector 0–15 · manufacturer, data, and trailer blocks</div></div>
+              <div class="spacer"></div>
+              <input class="search" id="blockSearch" type="search" placeholder="Filter blocks" aria-label="Filter blocks">
+              <select class="filter" id="blockFilter" aria-label="Block type filter">
+                <option value="all">All types</option>
+                <option value="data">Data</option>
+                <option value="trailer">Trailers</option>
+                <option value="manufacturer">Manufacturer</option>
+              </select>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th style="width:54px">Block</th><th style="width:54px">Sector</th><th style="width:46px">Type</th><th style="width:82px">Status</th><th style="width:60px">Known</th><th>Data</th></tr></thead>
+                <tbody id="classicTableBody"></tbody>
+              </table>
+            </div>
+            <div class="table-foot">
+              <span class="legend"><span class="dot ok"></span>read</span>
+              <span class="legend"><span class="dot warn"></span>unreadable</span>
+              <span class="legend"><span class="dot muted"></span>unknown</span>
+              <span class="spacer"></span>
+              <span id="blockCount">64 blocks</span>
+            </div>
+          </div>
+          <aside class="card inspector" id="classicInspector" aria-live="polite"></aside>
+        </div>
+      </section>
+
+      <!-- CLASSIC NDEF -->
+      <section class="view" data-view-panel="classic-ndef">
+        <div class="grid-2">
+          <div class="stack">
+            <div class="card">
+              <div class="card-head">
+                <div><div class="card-title">Classic NDEF message</div><div class="card-sub">MAD1 v1.0 · sectors 1, 2, 3 · 144 bytes capacity</div></div>
+                <div class="spacer"></div>
+                <span class="pill accent"><span class="dot"></span>read / write</span>
+              </div>
+              <div class="card-body">
+                <div class="capacity"><span style="width:36%"></span></div>
+                <div class="capacity-row"><span>52 bytes used</span><span>144 bytes capacity</span></div>
+                <div class="record">
+                  <div class="record-top"><span class="record-type">TEXT</span><span class="record-name">NFC Foundry workbench</span><span class="spacer"></span><span class="tiny">record 1</span></div>
+                  <div class="record-body">54 02 65 6E 4E 46 43 20 46 6F 75 6E 64 72 79 20 77 6F 72 6B 62 65 6E 63 68</div>
+                  <div class="record-meta">TNF well-known · RTD Text · language en · 21 text bytes</div>
+                </div>
+                <div class="record">
+                  <div class="record-top"><span class="record-type uri">URI</span><span class="record-name">https://example.com/ndef</span><span class="spacer"></span><span class="tiny">record 2</span></div>
+                  <div class="record-body">55 04 65 78 61 6D 70 6C 65 2E 63 6F 6D 2F 6E 64 65 66</div>
+                  <div class="record-meta">TNF well-known · RTD URI · prefix 04 (https://)</div>
+                </div>
+                <div class="callout info"><svg class="ico" aria-hidden="true"><use href="#i-check"/></svg><span>TLV at byte 16 · length field 1 byte · remaining bytes preserved.</span></div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-head"><div><div class="card-title">Mapping</div><div class="card-sub">MAD and NFC sector facts</div></div></div>
+              <div class="card-body">
+                <div class="form-grid">
+                  <div><div class="tiny">MAD version</div><div class="mono" style="font-size:10px;margin-top:3px">1.0 · CRC valid</div></div>
+                  <div><div class="tiny">NFC sectors</div><div class="mono" style="font-size:10px;margin-top:3px">1, 2, 3</div></div>
+                  <div><div class="tiny">Data blocks</div><div class="mono" style="font-size:10px;margin-top:3px">9 · 144 bytes</div></div>
+                  <div><div class="tiny">Access</div><div class="mono" style="font-size:10px;margin-top:3px">read/write · GPB v1.0</div></div>
+                </div>
+                <div class="callout warn"><svg class="ico" aria-hidden="true"><use href="#i-alert"/></svg><span>Formatting rewrites the MAD and every NFC sector, then changes sector keys and access bits. A backup is written first.</span></div>
+              </div>
+            </div>
+          </div>
+          <aside class="stack">
+            <div class="card">
+              <div class="card-head"><div><div class="card-title">Write Text record</div><div class="card-sub">NDEF message replacement</div></div></div>
+              <div class="card-body">
+                <div class="field"><label for="classicNdefKind">Record type</label><select id="classicNdefKind"><option>Text</option><option>URI</option><option>Raw file</option></select></div>
+                <div class="field"><label for="classicNdefText">Value</label><input id="classicNdefText" type="text" value="NFC Foundry workbench"></div>
+                <div class="field"><label for="classicNdefLang">Language</label><input id="classicNdefLang" type="text" value="en" style="width:72px"></div>
+                <div class="write-actions"><button class="btn primary" data-action="write-ndef" data-family="classic"><svg class="ico" aria-hidden="true"><use href="#i-upload"/></svg>Write NDEF</button></div>
+                <div class="hint" style="margin-top:7px">Writes the TLV, verifies every byte, and keeps a pre-write project backup.</div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-head"><div><div class="card-title">Format card</div><div class="card-sub">Destructive · Advanced</div></div></div>
+              <div class="card-body">
+                <label class="check"><input type="checkbox" id="classicReadOnlyFormat"> <span>Read-only after format</span></label>
+                <p class="tiny" style="margin:7px 0 10px;line-height:1.45">Writes MAD1 and access bits to every NFC sector. Keys and access conditions change.</p>
+                <button class="btn danger-outline" data-action="format-classic"><svg class="ico" aria-hidden="true"><use href="#i-alert"/></svg>Format…</button>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <!-- CLASSIC DIFF -->
+      <section class="view" data-view-panel="classic-diff">
+        <div class="grid-2">
+          <div class="stack">
+            <div class="card">
+              <div class="card-head"><div><div class="card-title">Compare images</div><div class="card-sub">Before and after card state</div></div></div>
+              <div class="card-body stack" style="gap:8px">
+                <div class="file-card"><div class="file-icon"><svg class="ico" aria-hidden="true"><use href="#i-folder"/></svg></div><div><div class="file-name">before-20261110.json</div><div class="file-meta">project · 64/64 blocks · 14:28:41</div></div><div class="spacer"></div><button class="btn sm" data-action="load-dump">Replace</button></div>
+                <div class="file-card"><div class="file-icon"><svg class="ico" aria-hidden="true"><use href="#i-folder"/></svg></div><div><div class="file-name">after-20261110.json</div><div class="file-meta">project · 64/64 blocks · 14:36:12</div></div><div class="spacer"></div><button class="btn sm" data-action="load-dump">Replace</button></div>
+              </div>
+            </div>
+            <div class="summary-row">
+              <div class="summary"><div class="n" style="color:var(--warn)">2</div><div class="l">changed blocks</div></div>
+              <div class="summary"><div class="n">62</div><div class="l">equal blocks</div></div>
+              <div class="summary"><div class="n">0</div><div class="l">unknown blocks</div></div>
+              <div class="summary"><div class="n">1</div><div class="l">trailer change</div></div>
+            </div>
+            <div class="card table-card" style="height:auto">
+              <div class="card-head"><div><div class="card-title">Changed blocks</div><div class="card-sub">Only differences are listed</div></div><div class="spacer"></div><span class="pill ok"><span class="dot"></span>identity unchanged</span></div>
+              <div class="table-wrap">
+                <table><thead><tr><th style="width:60px">Block</th><th style="width:60px">Sector</th><th style="width:80px">State</th><th>Detail</th></tr></thead>
+                <tbody>
+                  <tr><td class="num">04</td><td class="num">1</td><td><span class="pill warn">changed</span></td><td class="hex">data · 16/16 bytes changed</td></tr>
+                  <tr><td class="num">07</td><td class="num">1</td><td><span class="pill warn">changed</span></td><td class="hex">trailer · Key A changed · access bits changed</td></tr>
+                </tbody></table>
+              </div>
+            </div>
+          </div>
+          <aside class="card">
+            <div class="card-head"><div><div class="card-title">Diff summary</div><div class="card-sub">MIFARE Classic 1K</div></div></div>
+            <div class="card-body">
+              <dl class="kv">
+                <dt>Before</dt><dd class="mono">6A 31 5E 28</dd>
+                <dt>After</dt><dd class="mono">6A 31 5E 28</dd>
+                <dt>Layout</dt><dd class="mono">classic_1k · 1024 bytes</dd>
+                <dt>Identity</dt><dd><span class="pill ok">unchanged</span></dd>
+              </dl>
+              <div class="callout info"><svg class="ico" aria-hidden="true"><use href="#i-alert"/></svg><span>Trailer changes are highlighted separately because they alter keys and access conditions.</span></div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <!-- CLASSIC KEYS -->
+      <section class="view" data-view-panel="classic-keys">
+        <div class="workbench">
+          <div class="card table-card" style="height:auto">
+            <div class="card-head">
+              <div><div class="card-title">Key store</div><div class="card-sub">Sector-bound and wildcard candidates · stored at 0600</div></div>
+              <div class="spacer"></div>
+              <button class="btn sm" data-action="toggle-keys"><svg class="ico" aria-hidden="true"><use href="#i-eye"/></svg><span id="keyRevealLabel">Reveal keys</span></button>
+              <select class="filter" id="scanTypes" aria-label="Key types"><option value="AB">A + B</option><option value="A">Key A</option><option value="B">Key B</option></select>
+              <button class="btn sm" data-action="scan-keys"><svg class="ico" aria-hidden="true"><use href="#i-radar"/></svg>Scan keys</button>
+            </div>
+            <div class="table-wrap">
+              <table class="keys-table"><thead><tr><th style="width:86px">Sector</th><th style="width:60px">Type</th><th>Key</th><th style="width:82px">Source</th><th style="width:60px"></th></tr></thead><tbody id="keysTableBody"></tbody></table>
+            </div>
+            <div class="table-foot"><span>Keys are shown masked until revealed.</span><span class="spacer"></span><span>6 entries</span></div>
+          </div>
+          <aside class="card inspector" style="height:auto">
+            <div class="inspector-head"><div><div class="kicker">KEY STORE</div><h2>Add a key</h2></div></div>
+            <div class="inspector-body">
+              <div class="field"><label for="newKeyHex">Key</label><input id="newKeyHex" class="mono" type="text" placeholder="12 hex digits" maxlength="12"></div>
+              <div class="field"><label for="newKeySector">Sector</label><input id="newKeySector" class="mono" type="text" placeholder="Empty = all sectors"></div>
+              <div class="field"><label>Type</label>
+                <select id="newKeyType"><option>Key A</option><option>Key B</option><option>Any</option></select>
+              </div>
+              <div class="write-actions"><button class="btn primary" data-action="add-key"><svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg>Add key</button></div>
+              <div class="hint" style="margin-top:8px">A key becomes trusted only after the card accepts it and a trailer read succeeds.</div>
+              <div class="divider"></div>
+              <div class="callout info"><svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg><span>The key store is shared by the GUI and <span class="mono">nfctl</span>; it never lives inside a dump.</span></div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <!-- CLASSIC RECOVERY -->
+      <section class="view" data-view-panel="classic-recovery">
+        <div class="recovery-grid">
+          <div class="stack">
+            <div class="card">
+              <div class="card-head"><div><div class="card-title">Recovery strategy</div><div class="card-sub">Native engine · authentication only · read-only</div></div><div class="spacer"></div><span class="pill ok"><span class="dot"></span>no writes</span></div>
+              <div class="card-body">
+                <div class="strategy-grid" id="strategyGrid">
+                  <button class="strategy selected" data-strategy="auto"><span class="strategy-title"><span class="radio"></span>Auto <span class="pill accent">recommended</span></span><span class="strategy-desc">Classify the card, then try dictionary, nested, static-nested, or darkside.</span></button>
+                  <button class="strategy" data-strategy="nested"><span class="strategy-title"><span class="radio"></span>Nested</span><span class="strategy-desc">Use a known sector key to recover an unknown key on another sector.</span></button>
+                  <button class="strategy" data-strategy="static"><span class="strategy-title"><span class="radio"></span>Static nested</span><span class="strategy-desc">Nested path for cards with a static encrypted nonce.</span></button>
+                  <button class="strategy" data-strategy="hard"><span class="strategy-title"><span class="radio"></span>Hardnested</span><span class="strategy-desc">Bit-sliced solver over PM3 tables. Uses more CPU and time.</span></button>
+                  <button class="strategy" data-strategy="darkside"><span class="strategy-title"><span class="radio"></span>Darkside</span><span class="strategy-desc">Card-only path when no known key is available.</span></button>
+                  <button class="strategy" data-strategy="fm11"><span class="strategy-title"><span class="radio"></span>FM11RF08S</span><span class="strategy-desc">Detect the static encrypted nonce profile and explain limitations.</span></button>
+                </div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-head"><div><div class="card-title">Target</div><div class="card-sub">Sector keys are derived from the selected blocks</div></div></div>
+              <div class="card-body">
+                <div class="form-grid">
+                  <div class="field"><label for="knownBlock">Known block</label><input id="knownBlock" class="mono" type="text" value="4"></div>
+                  <div class="field"><label for="targetBlock">Target block</label><input id="targetBlock" class="mono" type="text" value="0"></div>
+                  <div class="field"><label for="knownKey">Known key</label><input id="knownKey" class="mono" type="password" value="D3F7D3F7D3F7"></div>
+                  <div class="field"><label for="targetType">Target key type</label><select id="targetType"><option>Key A</option><option>Key B</option></select></div>
+                  <div class="field"><label for="maxNonces">Max nonces</label><input id="maxNonces" class="mono" type="text" value="4000"></div>
+                  <div class="field"><label>Table directory</label><input class="mono" type="text" value="/usr/share/nfc-foundry/hardnested_tables" readonly></div>
+                </div>
+                <div class="divider"></div>
+                <div class="section-head"><h2 style="font-size:10.5px">Candidate keys</h2><span class="spacer"></span><span class="tiny">6 stored keys</span></div>
+                <div class="candidates">
+                  <div class="candidate"><span class="pill neutral">A</span><span>Sector 0</span><span class="mono">A0 A1 A2 A3 A4 A5</span></div>
+                  <div class="candidate"><span class="pill neutral">A</span><span>Wildcard</span><span class="mono">FF FF FF FF FF FF</span></div>
+                  <div class="candidate"><span class="pill neutral">B</span><span>Wildcard</span><span class="mono">D3 F7 D3 F7 D3 F7</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <aside class="card">
+            <div class="card-head"><div><div class="card-title">Run</div><div class="card-sub">Acquire → filter → solve → verify</div></div></div>
+            <div class="card-body">
+              <div class="stages" id="recoveryStages">
+                <div class="stage" data-stage="0"><span class="num">1</span>Acquire encrypted nonces</div>
+                <div class="stage" data-stage="1"><span class="num">2</span>Filter state pairs</div>
+                <div class="stage" data-stage="2"><span class="num">3</span>Bit-sliced solver</div>
+                <div class="stage" data-stage="3"><span class="num">4</span>Verify key on card</div>
+              </div>
+              <div class="progress"><span id="recoveryProgress"></span></div>
+              <div class="progress-meta"><span id="recoveryStageLabel">Idle</span><span id="recoveryPercent">0%</span></div>
+              <div class="result" id="recoveryResult"><div class="label">VERIFIED KEY</div><div class="key">Sector 0 · Key A · A0 A1 A2 A3 A4 A5</div><div class="tiny" style="margin-top:3px">Fresh authentication succeeded after recovery.</div></div>
+              <div class="write-actions"><button class="btn primary" id="recoveryStart" data-action="start-recovery"><svg class="ico" aria-hidden="true"><use href="#i-play"/></svg>Start recovery</button><button class="btn" id="recoveryCancel" data-action="cancel-recovery" disabled><svg class="ico" aria-hidden="true"><use href="#i-stop"/></svg>Cancel</button></div>
+              <div class="callout warn" style="margin-top:11px"><svg class="ico" aria-hidden="true"><use href="#i-shield"/></svg><span>Recovery authenticates but never writes a block. Use only cards you own.</span></div>
+              <div class="divider"></div>
+              <dl class="kv">
+                <dt>Reader</dt><dd>PN532 UART · 1.6</dd>
+                <dt>Last run</dt><dd class="mono">4m03s · 1816 frames</dd>
+                <dt>Result</dt><dd><span class="pill ok">verified</span></dd>
+              </dl>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <!-- TYPE 2 MEMORY -->
+      <section class="view" data-view-panel="type2-memory">
+        <div class="metric-strip">
+          <div class="metric"><div class="metric-label">Tag</div><div class="metric-value" style="font-size:13px">NTAG215</div><div class="metric-sub">135 pages · 504 bytes user</div></div>
+          <div class="metric"><div class="metric-label">Readability</div><div class="metric-value">135<span>/135 pages</span></div><div class="metric-sub">4/4 quads readable</div></div>
+          <div class="metric"><div class="metric-label">NDEF</div><div class="metric-value">52<span> / 492 bytes</span></div><div class="metric-sub">Text + URI · read/write</div></div>
+          <div class="metric"><div class="metric-label">Protection</div><div class="metric-value" style="font-size:13px">Unlocked</div><div class="metric-sub">No locked pages · CFGLCK clear</div></div>
+        </div>
+        <div class="workbench">
+          <div class="card table-card">
+            <div class="card-head">
+              <div><div class="card-title">Tag memory</div><div class="card-sub">Page 0–134 · roles and one-way locks</div></div>
+              <div class="spacer"></div>
+              <input class="search" id="pageSearch" type="search" placeholder="Filter pages" aria-label="Filter pages">
+              <select class="filter" id="pageFilter" aria-label="Page role filter">
+                <option value="all">All roles</option><option value="user">User memory</option><option value="config">Configuration</option><option value="lock">Lock pages</option>
+              </select>
+            </div>
+            <div class="table-wrap">
+              <table><thead><tr><th style="width:54px">Page</th><th style="width:112px">Role</th><th style="width:58px">Lock</th><th>Data</th></tr></thead><tbody id="type2TableBody"></tbody></table>
+            </div>
+            <div class="table-foot"><span class="legend"><span class="dot ok"></span>writable</span><span class="legend"><span class="dot warn"></span>locked</span><span class="spacer"></span><span id="pageCount">135 pages</span></div>
+          </div>
+          <aside class="card inspector" id="type2Inspector" aria-live="polite"></aside>
+        </div>
+      </section>
+
+      <!-- TYPE 2 NDEF -->
+      <section class="view" data-view-panel="type2-ndef">
+        <div class="grid-2">
+          <div class="stack">
+            <div class="card">
+              <div class="card-head"><div><div class="card-title">NDEF message</div><div class="card-sub">Type 2 tag · capability container read/write</div></div><div class="spacer"></div><span class="pill accent"><span class="dot"></span>read / write</span></div>
+              <div class="card-body">
+                <div class="capacity"><span style="width:10.6%"></span></div>
+                <div class="capacity-row"><span>52 bytes used</span><span>492 bytes capacity</span></div>
+                <div class="record"><div class="record-top"><span class="record-type">TEXT</span><span class="record-name">NFC Foundry workbench</span><span class="spacer"></span><span class="tiny">record 1</span></div><div class="record-body">54 02 65 6E 4E 46 43 20 46 6F 75 6E 64 72 79 20 77 6F 72 6B 62 65 6E 63 68</div><div class="record-meta">TNF well-known · RTD Text · language en</div></div>
+                <div class="record"><div class="record-top"><span class="record-type uri">URI</span><span class="record-name">https://example.com/ndef</span><span class="spacer"></span><span class="tiny">record 2</span></div><div class="record-body">55 04 65 78 61 6D 70 6C 65 2E 63 6F 6D 2F 6E 64 65 66</div><div class="record-meta">TNF well-known · RTD URI · prefix 04</div></div>
+                <div class="callout info"><svg class="ico" aria-hidden="true"><use href="#i-check"/></svg><span>TLV parsed · terminator and padding preserved · message verified after write.</span></div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-head"><div><div class="card-title">Capability container</div><div class="card-sub">CC at page 3</div></div></div>
+              <div class="card-body"><div class="form-grid"><div><div class="tiny">CC bytes</div><div class="mono" style="font-size:10px;margin-top:3px">E1 10 3F 00</div></div><div><div class="tiny">Mapping version</div><div class="mono" style="font-size:10px;margin-top:3px">1.0 · 0x10</div></div><div><div class="tiny">Data area</div><div class="mono" style="font-size:10px;margin-top:3px">page 4 · 504 bytes</div></div><div><div class="tiny">Access</div><div class="mono" style="font-size:10px;margin-top:3px">read/write · free</div></div></div></div>
+            </div>
+          </div>
+          <aside class="stack">
+            <div class="card">
+              <div class="card-head"><div><div class="card-title">Write Text record</div><div class="card-sub">Replaces the current NDEF message</div></div></div>
+              <div class="card-body">
+                <div class="field"><label for="type2NdefKind">Record type</label><select id="type2NdefKind"><option>Text</option><option>URI</option><option>Raw file</option></select></div>
+                <div class="field"><label for="type2NdefText">Value</label><input id="type2NdefText" type="text" value="NFC Foundry workbench"></div>
+                <div class="field"><label for="type2NdefLang">Language</label><input id="type2NdefLang" type="text" value="en" style="width:72px"></div>
+                <div class="write-actions"><button class="btn primary" data-action="write-ndef" data-family="type2"><svg class="ico" aria-hidden="true"><use href="#i-upload"/></svg>Write NDEF</button></div>
+                <div class="hint" style="margin-top:7px">Writes NLEN last, then verifies NLEN and the message by read-back.</div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-head"><div><div class="card-title">Format tag</div><div class="card-sub">Destructive · creates an empty NDEF TLV</div></div></div>
+              <div class="card-body"><p class="tiny" style="margin:0 0 10px;line-height:1.45">Rewrites the user-memory NDEF TLV. A backup is written before the first change.</p><button class="btn danger-outline" data-action="format-type2"><svg class="ico" aria-hidden="true"><use href="#i-alert"/></svg>Format…</button></div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <!-- TYPE 2 PROTECTION -->
+      <section class="view" data-view-panel="type2-protection">
+        <div class="grid-2">
+          <div class="stack">
+            <div class="card">
+              <div class="card-head"><div><div class="card-title">Lock state</div><div class="card-sub">One-way lock bytes · pages 2 and 130</div></div><div class="spacer"></div><span class="pill ok"><span class="dot"></span>no locked pages</span></div>
+              <div class="card-body"><div class="form-grid"><div><div class="tiny">Static lock</div><div class="mono" style="font-size:10px;margin-top:3px">00 00 00</div></div><div><div class="tiny">Dynamic lock</div><div class="mono" style="font-size:10px;margin-top:3px">00 00 00</div></div><div><div class="tiny">Locked pages</div><div class="mono" style="font-size:10px;margin-top:3px">none</div></div><div><div class="tiny">Writable user pages</div><div class="mono" style="font-size:10px;margin-top:3px">4–129</div></div></div></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><div><div class="card-title">Lock pages</div><div class="card-sub">Advanced · typed confirmation required</div></div></div>
+              <div class="card-body">
+                <div class="field"><label for="lockPages">Pages</label><input id="lockPages" class="mono" type="text" value="4, 8" placeholder="4,8,16-20"></div>
+                <button class="btn danger-outline" data-action="lock-pages"><svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg>Apply locks…</button>
+                <div class="callout danger" style="margin-top:10px"><svg class="ico" aria-hidden="true"><use href="#i-alert"/></svg><span>Lock bits are one-way. A backup is written before the first lock; the action cannot be undone.</span></div>
+              </div>
+            </div>
+          </div>
+          <aside class="stack">
+            <div class="card">
+              <div class="card-head"><div><div class="card-title">Configuration</div><div class="card-sub">NTAG215 · pages 131–134</div></div></div>
+              <div class="card-body"><div class="form-grid"><div><div class="tiny">AUTH0</div><div class="mono" style="font-size:10px;margin-top:3px">FF</div></div><div><div class="tiny">ACCESS</div><div class="mono" style="font-size:10px;margin-top:3px">00</div></div><div><div class="tiny">CFGLCK</div><div class="mono" style="font-size:10px;margin-top:3px">unlocked</div></div><div><div class="tiny">AUTHLIM</div><div class="mono" style="font-size:10px;margin-top:3px">0</div></div></div></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><div><div class="card-title">Password configuration</div><div class="card-sub">Advanced · PWD/PACK never read back</div></div></div>
+              <div class="card-body">
+                <div class="form-grid">
+                  <div class="field"><label for="auth0Input">AUTH0</label><input id="auth0Input" class="mono" type="text" value="FF"></div>
+                  <div class="field"><label for="accessInput">ACCESS</label><input id="accessInput" class="mono" type="text" value="00"></div>
+                  <div class="field"><label for="pwdInput">PWD</label><input id="pwdInput" class="mono" type="password" placeholder="8 hex digits"></div>
+                  <div class="field"><label for="packInput">PACK</label><input id="packInput" class="mono" type="text" placeholder="4 hex digits"></div>
+                </div>
+                <button class="btn danger-outline" style="margin-top:10px" data-action="set-password"><svg class="ico" aria-hidden="true"><use href="#i-key"/></svg>Set password…</button>
+                <div class="callout warn" style="margin-top:10px"><svg class="ico" aria-hidden="true"><use href="#i-shield"/></svg><span>Writing AUTH0/ACCESS can make the tag inaccessible without the password. A backup is written first.</span></div>
+              </div>
+            </div>
+          </aside>
+        </div>
+        <div class="card" style="margin-top:14px">
+          <div class="card-head"><div><div class="card-title">Advanced action plan</div><div class="card-sub">Shown in the confirmation dialog before any write</div></div><div class="spacer"></div><span class="pill warn"><span class="dot"></span>typed confirmation</span></div>
+          <div class="card-body">
+            <div class="form-grid" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+              <div><div class="tiny">Exact target</div><div class="mono" style="font-size:10px;margin-top:3px">pages 4, 8</div></div>
+              <div><div class="tiny">Old → new</div><div class="mono" style="font-size:10px;margin-top:3px">unlocked → locked</div></div>
+              <div><div class="tiny">Backup</div><div class="mono" style="font-size:10px;margin-top:3px">before first change</div></div>
+              <div><div class="tiny">Verification</div><div class="mono" style="font-size:10px;margin-top:3px">read-back + identity</div></div>
+            </div>
+            <div class="callout info" style="margin:11px 0 0"><svg class="ico" aria-hidden="true"><use href="#i-shield"/></svg><span>Every Advanced action names the exact pages, old and new values, backup path, and read-back plan before confirmation.</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- DIAGNOSTICS -->
+      <section class="view" data-view-panel="diagnostics">
+        <div class="diag-grid">
+          <div class="diag-card"><h3><svg class="ico" aria-hidden="true"><use href="#i-chip"/></svg>Application</h3>
+            <div class="diag-row"><span class="k">Version</span><span class="v">0.1.0</span></div>
+            <div class="diag-row"><span class="k">Build</span><span class="v">release · x86_64-unknown-linux-gnu</span></div>
+            <div class="diag-row"><span class="k">Platform</span><span class="v">Linux · amd64</span></div>
+            <div class="diag-row"><span class="k">GUI</span><span class="v">GPUI Kit</span></div>
+          </div>
+          <div class="diag-card"><h3><svg class="ico" aria-hidden="true"><use href="#i-radar"/></svg>Readers</h3>
+            <div class="diag-row"><span class="k">PN532 UART</span><span class="v">connected · firmware 1.6</span></div>
+            <div class="diag-row"><span class="k">ACR122U USB</span><span class="v">not connected</span></div>
+            <div class="diag-row"><span class="k">Reader lease</span><span class="v">held by this window</span></div>
+            <div class="diag-row"><span class="k">pcscd</span><span class="v">not required for pn532_uart</span></div>
+          </div>
+          <div class="diag-card"><h3><svg class="ico" aria-hidden="true"><use href="#i-folder"/></svg>Data</h3>
+            <div class="diag-row"><span class="k">Hardnested tables</span><span class="v">/usr/share/nfc-foundry/hardnested_tables</span></div>
+            <div class="diag-row"><span class="k">Key store</span><span class="v">~/.config/nfc-foundry/classic-keys.json</span></div>
+            <div class="diag-row"><span class="k">Backups</span><span class="v">~/.local/share/nfc-foundry/backups</span></div>
+            <div class="diag-row"><span class="k">Backup mode</span><span class="v">0600 · directory 0700</span></div>
+          </div>
+          <div class="diag-card"><h3><svg class="ico" aria-hidden="true"><use href="#i-chip"/></svg>Application identity</h3>
+            <div class="desktop-preview"><div class="app-icon-preview"><svg class="ico" style="width:22px;height:22px" aria-hidden="true"><use href="#i-chip"/></svg></div><div><div class="file-name">NFC Foundry</div><div class="file-meta">hicolor · scalable, 128, 256, 512 px</div></div><span class="pill ok" style="margin-left:auto"><span class="dot"></span>valid</span></div>
+            <div class="diag-row"><span class="k">Desktop entry</span><span class="v">nfc-foundry.desktop</span></div>
+            <div class="diag-row"><span class="k">Exec / Icon</span><span class="v">nfc-foundry · nfc-foundry</span></div>
+            <div class="diag-row"><span class="k">Locales</span><span class="v">English · 简体中文</span></div>
+          </div>
+          <div class="diag-card"><h3><svg class="ico" aria-hidden="true"><use href="#i-terminal"/></svg>Checks</h3>
+            <div class="diag-row"><span class="k">Card transport</span><span class="v" style="color:var(--success)">ready</span></div>
+            <div class="diag-row"><span class="k">NDEF codec</span><span class="v" style="color:var(--success)">ready</span></div>
+            <div class="diag-row"><span class="k">Recovery engine</span><span class="v" style="color:var(--success)">ready</span></div>
+            <div class="diag-row"><span class="k">Hardware tests</span><span class="v">explicit gate only</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ACTIVITY -->
+      <section class="view" data-view-panel="activity">
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head"><div><div class="card-title">Session activity</div><div class="card-sub">Operations in this window · newest first</div></div><div class="spacer"></div><button class="btn ghost sm" data-action="clear-activity">Clear</button></div>
+            <div class="card-body">
+              <div class="timeline">
+                <div class="event ok"><span class="node"><svg class="ico" aria-hidden="true"><use href="#i-check"/></svg></span><div class="event-head">Read card <span class="event-time">14:32:08</span></div><div class="event-body">MIFARE Classic 1K · 64/64 blocks · 16/16 sectors · <span class="mono">6A 31 5E 28</span></div></div>
+                <div class="event ok"><span class="node"><svg class="ico" aria-hidden="true"><use href="#i-upload"/></svg></span><div class="event-head">Write block 4 <span class="event-time">14:36:12</span></div><div class="event-body">Read-back verified · backup <span class="mono">20261110T143612-block4.json</span></div></div>
+                <div class="event ok"><span class="node"><svg class="ico" aria-hidden="true"><use href="#i-shield"/></svg></span><div class="event-head">Key scan complete <span class="event-time">14:37:02</span></div><div class="event-body">16/16 sectors · 37 attempts · 32 verified keys</div></div>
+                <div class="event ok"><span class="node"><svg class="ico" aria-hidden="true"><use href="#i-key"/></svg></span><div class="event-head">Key store updated <span class="event-time">14:38:05</span></div><div class="event-body">Manual key added as a wildcard candidate · 6 entries stored.</div></div>
+              </div>
+            </div>
+          </div>
+          <aside class="card">
+            <div class="card-head"><div><div class="card-title">Safety</div><div class="card-sub">Rules applied to every mutation</div></div></div>
+            <div class="card-body">
+              <div class="callout info"><svg class="ico" aria-hidden="true"><use href="#i-shield"/></svg><span>Every write creates a project backup, writes, reads back, and checks card identity.</span></div>
+              <div class="callout warn"><svg class="ico" aria-hidden="true"><use href="#i-alert"/></svg><span>Lock, configuration, password, and format actions require typed confirmation.</span></div>
+              <div class="callout danger"><svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg><span>Block 0 is read-only in this build. UID and factory-format actions are not exposed.</span></div>
+            </div>
+          </aside>
+        </div>
+      </section>
+    </main>
+
+    <footer class="statusbar" role="status" aria-live="polite">
+      <div class="status-left"><span class="dot" id="statusDot"></span><span class="status-text" id="statusText">Ready</span><span class="status-detail" id="statusDetail">PN532 UART · card present</span></div>
+      <span class="spacer"></span>
+      <span class="mono" id="backupPath">backup: 20261110T143612-block4.json</span>
+      <span class="sep"></span>
+      <span>v0.1.0</span>
+    </footer>
+  </div>
+</div>
+
+<dialog id="actionDialog" aria-labelledby="dialogTitle">
+  <div class="dialog-card">
+    <div class="dialog-head">
+      <div><div class="kicker" id="dialogKicker">CONFIRM</div><h2 id="dialogTitle">Confirm action</h2></div>
+      <button class="icon-btn close" data-action="close-dialog" aria-label="Close"><svg class="ico" aria-hidden="true"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="dialog-body">
+      <p id="dialogBody">This changes card state.</p>
+      <div id="dialogExtra"></div>
+      <div class="field" id="dialogTyped" style="display:none"><label for="dialogToken">Type <span class="mono">I_OWN_THIS_CARD</span> to continue</label><input id="dialogToken" class="mono" type="text" autocomplete="off"></div>
+      <div class="dialog-error" id="dialogError"></div>
+    </div>
+    <div class="dialog-foot"><button class="btn" data-action="close-dialog">Cancel</button><button class="btn" id="dialogConfirm">Continue</button></div>
+  </div>
+</dialog>
+
+<input type="file" id="dumpFile" accept=".json,.bin,.mfd,.mct,.txt" hidden>
+<input type="file" id="keyFile" accept=".txt" hidden>
+<input type="file" id="ndefFile" accept=".ndef,.bin" hidden>
+
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  const $ = (selector, root) => (root || document).querySelector(selector);
+  const $$ = (selector, root) => Array.from((root || document).querySelectorAll(selector));
+  const svgIcon = (name, cls) => `<svg class="ico ${cls || ""}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+  const hex = (n) => n.toString(16).toUpperCase().padStart(2, "0");
+  const bytes = (text) => text.replace(/[^0-9a-f]/gi, "").toUpperCase();
+
+  const sx = {
+    uid: "6A 31 5E 28", type: "MIFARE Classic 1K", atqa: "00 04", sak: "08",
+    layout: "classic_1k", blocks: 64, sectors: 16
+  };
+  const t2 = {
+    uid: "04 52 F5 67 D3 2A 81", type: "NTAG215", pages: 135, userPages: 126, ndefCapacity: 492
+  };
+
+  const trailers = {
+    0: "FFFFFFFFFFFF078069FFFFFFFFFFFF",
+    1: "A0A1A2A3A4A57F078869000000000000",
+    2: "A0A1A2A3A4A57F078869000000000000",
+    3: "A0A1A2A3A4A57F078869000000000000"
+  };
+  const classicBlocks = [];
+  for (let number = 0; number < sx.blocks; number += 1) {
+    const sector = Math.floor(number / 4);
+    const kind = number === 0 ? "M" : (number % 4 === 3 ? "T" : "D");
+    let data = "00000000000000000000000000000000";
+    if (number === 0) data = "6A315E282D0800046263646566676869";
+    if (number === 4) data = "031BD101175402656E4E464320466F75";
+    if (number === 5) data = "6E64727920776F726B62656E6368D1";
+    if (number === 6) data = "010175046578616D706C652E636F6D2F";
+    if (number === 9) data = "640000009BFFFFFF6400000009F60900";
+    if (number === 7) data = trailers[sector] || trailers[0];
+    if (kind === "T" && number !== 7) data = trailers[sector] || "FFFFFFFFFFFF078069FFFFFFFFFFFF";
+    classicalPush(number, sector, kind, data);
+  }
+  function classicalPush(number, sector, kind, data) {
+    classicBlocks.push({
+      number, sector, kind: kind === "M" ? "Manufacturer" : kind === "T" ? "Trailer" : "Data",
+      short: kind, status: "read", known: 16, data
+    });
+  }
+
+  const t2Pages = [];
+  const t2Roles = (page) => {
+    if (page <= 1) return ["Manufacturer", "manufacturer"];
+    if (page === 2) return ["Static lock", "lock"];
+    if (page === 3) return ["Capability", "config"];
+    if (page <= 129) return ["User memory", "user"];
+    if (page === 130) return ["Dynamic lock", "lock"];
+    if (page <= 132) return ["Configuration", "config"];
+    if (page === 133) return ["Password", "config"];
+    return ["Password ack", "config"];
+  };
+  const t2Data = {
+    0: "0452F567", 1: "D32A81C4", 2: "00000000", 3: "E1103F00",
+    4: "0321D101", 5: "1D540265", 6: "6E4E4643", 7: "20466F75",
+    8: "6E647279", 9: "20776F72", 10: "6B62656E", 11: "63680000",
+    130: "00000000", 131: "FF000000", 132: "00000000"
+  };
+  for (let page = 0; page < t2.pages; page += 1) {
+    const [role, group] = t2Roles(page);
+    let data = t2Data[page] || (page >= 4 && page <= 129 ? "00000000" : "00000000");
+    if (page === 133 || page === 134) data = null;
+    t2Pages.push({ page, role, group, data, locked: false });
+  }
+
+  const keys = [
+    { sector: "0", type: "A", key: "A0A1A2A3A4A5", source: "scan" },
+    { sector: "1", type: "A", key: "FFFFFFFFFFFF", source: "common" },
+    { sector: "2", type: "A", key: "FFFFFFFFFFFF", source: "common" },
+    { sector: "3", type: "B", key: "D3F7D3F7D3F7", source: "key file" },
+    { sector: "All", type: "Any", key: "FFFFFFFFFFFF", source: "manual" },
+    { sector: "All", type: "A", key: "AABBCCDDEEFF", source: "scan" }
+  ];
+
+  const views = {
+    "classic-blocks": { eyebrow: "Classic / Memory", title: "Blocks", sub: `${sx.type} · 64 blocks · 16 sectors · complete image`, domain: "classic",
+      actions: [["save-dump", "download", "Save dump"], ["load-dump", "upload", "Load dump"], ["restore", "restore", "Restore…", "danger-outline"]] },
+    "classic-ndef": { eyebrow: "Classic / NDEF", title: "Classic NDEF", sub: "MAD1 v1.0 · 3 NFC sectors · 144 bytes capacity", domain: "classic",
+      actions: [["save-dump", "download", "Save dump"], ["export-ndef", "download", "Export message"], ["load-dump", "upload", "Load dump"]] },
+    "classic-diff": { eyebrow: "Classic / Compare", title: "Diff", sub: "Two card images · changed blocks and trailers", domain: "classic",
+      actions: [["load-dump", "upload", "Load image"]] },
+    "classic-keys": { eyebrow: "Classic / Keys", title: "Key store", sub: "Sector candidates and provenance · shared with nfctl", domain: "classic",
+      actions: [["import-keys", "upload", "Import keys"]] },
+    "classic-recovery": { eyebrow: "Classic / Recovery", title: "Recovery", sub: "Native Crypto1 engine · authentication only · no card writes", domain: "classic",
+      actions: [["recovery-help", "alert", "Safety"]] },
+    "type2-memory": { eyebrow: "Type 2 / Memory", title: "Memory", sub: "NTAG215 · 135 pages · 504 bytes user memory", domain: "type2",
+      actions: [["save-dump", "download", "Save dump"], ["load-dump", "upload", "Load dump"], ["restore", "restore", "Restore…", "danger-outline"]] },
+    "type2-ndef": { eyebrow: "Type 2 / NDEF", title: "NDEF", sub: "NTAG215 · formatted · 52 / 492 bytes used", domain: "type2",
+      actions: [["save-dump", "download", "Save dump"], ["export-ndef", "download", "Export message"]] },
+    "type2-protection": { eyebrow: "Type 2 / Protection", title: "Protection", sub: "Lock bytes, configuration, and password · Advanced actions", domain: "type2",
+      actions: [] },
+    diagnostics: { eyebrow: "System / Diagnostics", title: "Diagnostics", sub: "Version, readers, resources, and runtime checks", domain: "classic",
+      actions: [["copy-report", "copy", "Copy report"], ["settings", "sliders", "Settings"]] },
+    activity: { eyebrow: "System / Activity", title: "Activity", sub: "Operations in this session · backup and verification results", domain: "classic",
+      actions: [] }
+  };
+
+  const state = {
+    view: "classic-blocks", domain: "classic", selectedBlock: 4, selectedPage: 4,
+    keysRevealed: false, busy: false, recoveryTimer: null, recoveryProgress: 0,
+    language: "en", defaultDumpFormat: "project"
+  };
+
+  function selectedBlock() { return classicBlocks.find((block) => block.number === state.selectedBlock); }
+
+  function renderActions(view) {
+    const host = $("#pageActions");
+    host.innerHTML = (view.actions || []).map(([action, icon, label, variant]) =>
+      `<button class="btn ${variant || ""}" data-action="${action}">${svgIcon(icon)}${label}</button>`).join("");
+  }
+
+  function showView(name) {
+    const view = views[name];
+    if (!view) return;
+    state.view = name;
+    state.domain = view.domain;
+    document.body.dataset.domain = view.domain;
+    $$(".view").forEach((panel) => panel.classList.toggle("active", panel.dataset.viewPanel === name));
+    $$(".nav-item").forEach((item) => {
+      const active = item.dataset.view === name;
+      item.classList.toggle("active", active);
+      if (active) item.setAttribute("aria-current", "page"); else item.removeAttribute("aria-current");
+    });
+    $$(".domain-tab").forEach((tab) => {
+      const active = tab.dataset.jump === (view.domain === "classic" ? "classic-blocks" : "type2-memory");
+      tab.classList.toggle("active", active);
+      tab.setAttribute("aria-selected", String(active));
+    });
+    $("#pageEyebrow").innerHTML = `<span class="marker"></span>${view.eyebrow}`;
+    $("#pageTitle").textContent = view.title;
+    $("#pageSubtitle").textContent = view.sub;
+    renderActions(view);
+    $("#readLabel").textContent = view.domain === "type2" ? "Read tag" : "Read card";
+    updateTopCard();
+    if (name === "classic-blocks") renderClassicTable();
+    if (name === "type2-memory") renderType2Table();
+    closeReader();
+  }
+
+  function updateTopCard() {
+    if (state.domain === "type2") {
+      $("#topCardType").textContent = t2.type;
+      $("#topCardUid").textContent = `UID ${t2.uid} · NDEF 52/492 B`;
+    } else {
+      $("#topCardType").textContent = sx.type;
+      $("#topCardUid").textContent = `UID ${sx.uid} · SAK ${sx.sak}`;
+    }
+  }
+
+  function renderClassicTable() {
+    const query = ($("#blockSearch").value || "").trim().toLowerCase();
+    const filter = $("#blockFilter").value;
+    const rows = classicBlocks.filter((block) => {
+      const typeMatch = filter === "all" || (filter === "data" && block.short === "D") || (filter === "trailer" && block.short === "T") || (filter === "manufacturer" && block.short === "M");
+      const text = `${block.number} ${block.sector} ${block.kind} ${block.data}`.toLowerCase();
+      return typeMatch && (!query || text.includes(query));
+    });
+    $("#classicTableBody").innerHTML = rows.map((block) => `
+      <tr data-block="${block.number}" class="${block.number === state.selectedBlock ? "selected" : ""}" tabindex="0">
+        <td class="num">${String(block.number).padStart(2, "0")}</td>
+        <td class="num">${block.sector}</td>
+        <td><span class="type-mark ${block.short.toLowerCase()}">${block.short}</span></td>
+        <td><span class="pill ok"><span class="dot"></span>${block.status}</span></td>
+        <td class="num">${block.known}/16</td>
+        <td class="hex">${formatHex(block.data)}</td>
+      </tr>`).join("");
+    $("#blockCount").textContent = `${rows.length} blocks`;
+    renderClassicInspector();
+  }
+
+  function formatHex(data) {
+    if (!data) return "—";
+    const pairs = data.match(/.{1,2}/g) || [];
+    return pairs.map((pair, index) => index < 8 ? pair : `<span class="dim">${pair}</span>`).join(" ");
+  }
+
+  function renderClassicInspector() {
+    const block = selectedBlock();
+    const host = $("#classicInspector");
+    if (!block) { host.innerHTML = `<div class="empty">Select a block.</div>`; return; }
+    const isTrailer = block.short === "T";
+    const isManufacturer = block.short === "M";
+    const parsed = isTrailer ? trailerParts(block.data) : null;
+    const value = !isTrailer && block.number === 9 ? valueBlock(block.data) : null;
+    const access = [{ label: "read", value: "A|B" }, { label: "write", value: "A|B" }, { label: "increment", value: "A|B" }, { label: "decrement", value: "A|B" }];
+    const action = isManufacturer ? "" : `
+      <div class="inspector-actions">
+        <div class="field"><label for="blockWriteInput">New block data</label><input id="blockWriteInput" class="mono" type="text" maxlength="32" value="${block.data}"><div class="hint">32 hex digits · pre-write backup · read-back verification</div></div>
+        <div class="write-actions"><button class="btn ${isTrailer ? "danger" : "primary"}" data-action="write-block" ${isTrailer ? "data-trailer=\"true\"" : ""}>${isTrailer ? "Write trailer…" : "Write block"}</button></div>
+      </div>`;
+    host.innerHTML = `
+      <div class="inspector-head">
+        <div><div class="kicker">BLOCK ${String(block.number).padStart(2, "0")} · SECTOR ${block.sector}</div><h2>${block.kind}</h2><div class="tiny">${block.known}/16 bytes known · ${block.status}</div></div>
+        <span class="pill ${isTrailer ? "warn" : "ok"}"><span class="dot"></span>${isTrailer ? "trailer" : "read"}</span>
+      </div>
+      <div class="inspector-body">
+        <div class="meta-row"><span class="pill neutral">sector ${block.sector}</span><span class="pill neutral">${block.known} bytes</span>${isManufacturer ? `<span class="pill ok"><span class="dot"></span>BCC 2D</span><span class="pill danger"><span class="dot"></span>read-only</span>` : ""}</div>
+        <div class="section-title">Hex</div>
+        <div class="bytes">${(block.data.match(/.{1,2}/g) || []).map((byte) => `<span class="byte">${byte}</span>`).join("")}</div>
+        <div class="section-title">ASCII</div>
+        <div class="ascii">${ascii(block.data)}</div>
+        ${isTrailer ? `
+          <div class="section-title">Trailer fields</div>
+          <dl class="kv"><dt>Key A</dt><dd class="mono">${parsed.keyA}</dd><dt>Access</dt><dd class="mono">${parsed.access}</dd><dt>Key B</dt><dd class="mono">${parsed.keyB}</dd></dl>
+        ` : value ? `
+          <div class="section-title">Value block</div>
+          <dl class="kv"><dt>Value</dt><dd class="mono">${value.value}</dd><dt>Address</dt><dd class="mono">${value.address}</dd></dl>
+        ` : ""}
+        <div class="section-title">Access conditions</div>
+        <dl class="kv">${access.map((entry) => `<dt>${entry.label}</dt><dd class="mono">${entry.value}</dd>`).join("")}</dl>
+        ${isManufacturer ? `<div class="callout warn"><svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg><span>Block 0 is read-only in this build. UID writes are not exposed.</span></div>` : ""}
+      </div>
+      ${action}`;
+  }
+  function trailerParts(data) {
+    return { keyA: data.slice(0, 12).match(/.{1,2}/g).join(" "), access: data.slice(12, 20).match(/.{1,2}/g).join(" "), keyB: data.slice(20).match(/.{1,2}/g).join(" ") };
+  }
+  function valueBlock(data) {
+    const pairs = data.match(/.{1,2}/g) || [];
+    const value = parseInt(pairs.slice(0, 4).reverse().join(""), 16);
+    return { value: `${value} · 0x${value.toString(16).toUpperCase()}`, address: pairs[12] };
+  }
+  function ascii(data) {
+    return (data.match(/.{1,2}/g) || []).map((pair) => {
+      const code = parseInt(pair, 16);
+      return code >= 32 && code <= 126 ? String.fromCharCode(code) : ".";
+    }).join("");
+  }
+
+  function renderType2Table() {
+    const query = ($("#pageSearch").value || "").trim().toLowerCase();
+    const filter = $("#pageFilter").value;
+    const rows = t2Pages.filter((page) => {
+      const roleMatch = filter === "all" || filter === page.group;
+      const text = `${page.page} ${page.role} ${page.data || ""}`.toLowerCase();
+      return roleMatch && (!query || text.includes(query));
+    });
+    $("#type2TableBody").innerHTML = rows.map((page) => `
+      <tr data-page="${page.page}" class="${page.page === state.selectedPage ? "selected" : ""}" tabindex="0">
+        <td class="num">${String(page.page).padStart(3, "0")}</td>
+        <td><span class="pill ${page.group === "config" ? "warn" : page.group === "lock" ? "neutral" : "neutral"}">${page.role}</span></td>
+        <td>${page.locked ? `<span class="pill danger">locked</span>` : `<span class="tiny">—</span>`}</td>
+        <td class="hex">${page.data ? formatPage(page.data) : "—"}</td>
+      </tr>`).join("");
+    $("#pageCount").textContent = `${rows.length} pages`;
+    renderType2Inspector();
+  }
+  function formatPage(data) {
+    return (data.match(/.{1,2}/g) || []).join(" ");
+  }
+  function renderType2Inspector() {
+    const page = t2Pages[state.selectedPage];
+    const host = $("#type2Inspector");
+    if (!page) { host.innerHTML = `<div class="empty">Select a page.</div>`; return; }
+    const advanced = page.group === "config" || page.group === "lock";
+    const manufacturer = page.page <= 1;
+    const noWrite = page.locked || manufacturer || page.page === 133 || page.page === 134;
+    const action = noWrite ? "" : `
+      <div class="inspector-actions">
+        <div class="field"><label for="pageWriteInput">New page data</label><input id="pageWriteInput" class="mono" type="text" maxlength="8" value="${page.data}"><div class="hint">8 hex digits · backup · read-back verification</div></div>
+        <div class="write-actions"><button class="btn ${advanced ? "danger" : "primary"}" data-action="write-page" ${advanced ? "data-advanced=\"true\"" : ""}>${advanced ? "Write page…" : "Write page"}</button></div>
+      </div>`;
+    host.innerHTML = `
+      <div class="inspector-head"><div><div class="kicker">PAGE ${String(page.page).padStart(3, "0")}</div><h2>${page.role}</h2><div class="tiny">${page.locked ? "locked · read-only" : manufacturer ? "manufacturer · read-only" : "writable"}</div></div><span class="pill ${advanced ? "warn" : "ok"}"><span class="dot"></span>${advanced ? "advanced" : "user"}</span></div>
+      <div class="inspector-body">
+        <div class="meta-row"><span class="pill neutral">4 bytes</span>${page.locked ? `<span class="pill danger">locked</span>` : ""}${advanced ? `<span class="pill warn"><span class="dot"></span>confirmation</span>` : ""}</div>
+        <div class="section-title">Hex</div>
+        <div class="bytes" style="grid-template-columns:repeat(4,1fr)">${page.data ? (page.data.match(/.{1,2}/g) || []).map((byte) => `<span class="byte">${byte}</span>`).join("") : `<span class="byte">—</span><span class="byte">—</span><span class="byte">—</span><span class="byte">—</span>`}</div>
+        <div class="section-title">ASCII</div><div class="ascii">${page.data ? ascii(page.data) : "not readable"}</div>
+        ${page.page === 133 || page.page === 134 ? `<div class="callout warn"><svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg><span>PWD and PACK never read back. A write is verified with PWD_AUTH.</span></div>` : ""}
+        ${advanced ? `<div class="callout warn"><svg class="ico" aria-hidden="true"><use href="#i-alert"/></svg><span>${page.role} pages need an Advanced confirmation and a backup.</span></div>` : ""}
+        ${page.locked ? `<div class="callout danger"><svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg><span>This page is locked and cannot be written.</span></div>` : ""}
+      </div>
+      ${action}`;
+  }
+  function renderKeys() {
+    const badge = document.querySelector('[data-view="classic-keys"] .nav-badge');
+    if (badge) badge.textContent = String(keys.length);
+    $("#keysTableBody").innerHTML = keys.map((entry, index) => `
+      <tr><td class="num">${entry.sector}</td><td><span class="pill neutral">${entry.type}</span></td><td><span class="key">${state.keysRevealed ? entry.key.match(/.{1,2}/g).join(" ") : "•••• •••• ••••"}</span></td><td class="tiny">${entry.source}</td><td class="key-actions"><button class="icon-btn" data-action="copy-key" data-index="${index}" aria-label="Copy key">${svgIcon("copy")}</button><button class="icon-btn" data-action="remove-key" data-index="${index}" aria-label="Remove key">${svgIcon("x")}</button></td></tr>`).join("");
+  }
+
+  function setStatus(text, detail, kind) {
+    $("#statusText").textContent = text;
+    $("#statusDetail").textContent = detail || "";
+    const dot = $("#statusDot");
+    dot.className = "dot" + (kind === "error" ? " error" : kind === "busy" ? " busy" : "");
+  }
+  function toast(message) {
+    const el = $("#toast");
+    el.textContent = message;
+    el.classList.add("show");
+    clearTimeout(toast.timer);
+    toast.timer = setTimeout(() => el.classList.remove("show"), 2400);
+  }
+  function setBusy(busy) {
+    state.busy = busy;
+    $$("[data-action='read']").forEach((button) => { button.disabled = busy; });
+  }
+  function simulateRead() {
+    if (state.busy) return;
+    setBusy(true);
+    setStatus("Reading card…", "Authenticating sectors with the key store", "busy");
+    const label = $("#readLabel");
+    const original = label.textContent;
+    label.innerHTML = `<span class="spinner"></span>Reading`;
+    setTimeout(() => {
+      setBusy(false);
+      label.textContent = original;
+      setStatus("Ready", state.domain === "type2" ? "NTAG215 · 135/135 pages read" : "MIFARE Classic 1K · 64/64 blocks read", "ok");
+      toast(state.domain === "type2" ? "Tag read and verified" : "Card read and verified");
+    }, 850);
+  }
+
+  function openReader() {
+    const popover = $("#readerPopover");
+    popover.hidden = false;
+    $(".reader-button").setAttribute("aria-expanded", "true");
+  }
+  function closeReader() {
+    const popover = $("#readerPopover");
+    popover.hidden = true;
+    $(".reader-button").setAttribute("aria-expanded", "false");
+  }
+  function toggleReader() { $("#readerPopover").hidden ? openReader() : closeReader(); }
+
+  const dialog = $("#actionDialog");
+  let dialogConfirmHandler = null;
+  function openDialog(options) {
+    $("#dialogKicker").textContent = options.kicker || "CONFIRM";
+    $("#dialogTitle").textContent = options.title || "Confirm action";
+    $("#dialogBody").textContent = options.body || "";
+    $("#dialogExtra").innerHTML = options.extra || "";
+    const typed = $("#dialogTyped");
+    typed.style.display = options.typed ? "" : "none";
+    $("#dialogToken").value = "";
+    $("#dialogError").classList.remove("show");
+    const confirm = $("#dialogConfirm");
+    confirm.textContent = options.confirmLabel || "Continue";
+    confirm.className = "btn " + (options.danger ? "danger" : "primary");
+    confirm.disabled = Boolean(options.typed);
+    dialogConfirmHandler = options.onConfirm || null;
+    dialog.showModal();
+    setTimeout(() => (options.typed ? $("#dialogToken") : confirm).focus({ preventScroll: true }), 50);
+  }
+  function closeDialog() { dialog.close(); dialogConfirmHandler = null; }
+  function confirmDialog() {
+    const typed = $("#dialogTyped").style.display !== "none";
+    if (typed && $("#dialogToken").value.trim() !== "I_OWN_THIS_CARD") {
+      $("#dialogError").textContent = "Type I_OWN_THIS_CARD exactly.";
+      $("#dialogError").classList.add("show");
+      return;
+    }
+    const handler = dialogConfirmHandler;
+    closeDialog();
+    if (handler) handler();
+  }
+  $("#dialogToken").addEventListener("input", () => {
+    $("#dialogConfirm").disabled = $("#dialogToken").value.trim() !== "I_OWN_THIS_CARD";
+    $("#dialogError").classList.remove("show");
+  });
+  $("#dialogConfirm").addEventListener("click", confirmDialog);
+  dialog.addEventListener("cancel", (event) => { event.preventDefault(); closeDialog(); });
+
+  function openWriteBlock() {
+    const block = selectedBlock();
+    if (!block) return;
+    const isTrailer = block.short === "T";
+    openDialog({
+      kicker: isTrailer ? "SECTOR TRAILER" : "BLOCK WRITE",
+      title: isTrailer ? `Write trailer for sector ${block.sector}` : `Write block ${String(block.number).padStart(2, "0")}`,
+      body: isTrailer ? "This changes Key A, access bits, and Key B. A backup is written first and the block is read back." : "The block is backed up, written, read back, and the card identity is checked.",
+      extra: `<div class="field"><label for="dialogBlockData">New block data</label><input id="dialogBlockData" class="mono" type="text" maxlength="32" value="${block.data}"></div>`,
+      typed: isTrailer,
+      confirmLabel: isTrailer ? "Write trailer" : "Write block",
+      danger: isTrailer,
+      onConfirm: () => {
+        const input = $("#dialogBlockData");
+        const data = bytes(input ? input.value : block.data);
+        if (data.length !== 32) { toast("Block data must be 32 hex digits"); return; }
+        block.data = data;
+        if (block.number === 4) {
+          const after = classicBlocks.find((item) => item.number === 4);
+          if (after) after.data = data;
+        }
+        renderClassicTable();
+        const backup = `20261110T143612-block${block.number}.json`;
+        $("#backupPath").textContent = `backup: ${backup}`;
+        setStatus(isTrailer ? "Trailer written and verified" : `Block ${String(block.number).padStart(2, "0")} written and verified`, `backup ${backup}`, "ok");
+        toast("Write verified");
+      }
+    });
+  }
+  function setLanguage(language) {
+    state.language = language;
+    $$(".lang-switch [data-lang]").forEach((button) => {
+      const active = button.dataset.lang === language;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+    document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
+    setStatus("Language preference saved", language === "zh" ? "简体中文" : "English", "ok");
+    toast(language === "zh" ? "语言偏好已保存" : "Language preference saved");
+  }
+
+  function openSettings() {
+    const formatOptions = ["project", "raw", "mct", "proxmark3"].map((format) =>
+      `<option value="${format}" ${format === state.defaultDumpFormat ? "selected" : ""}>${format}</option>`).join("");
+    openDialog({
+      kicker: "SETTINGS",
+      title: "Workbench settings",
+      body: "Host-side options shared with the CLI where the CLI exposes a path or default. Card operations still use the shared services and their safety gates.",
+      confirmLabel: "Save settings",
+      extra: `<div class="form-grid">
+        <div class="field"><label for="settingsLanguage">Language</label><select id="settingsLanguage"><option value="en" ${state.language === "en" ? "selected" : ""}>English</option><option value="zh" ${state.language === "zh" ? "selected" : ""}>简体中文</option></select></div>
+        <div class="field"><label for="settingsDumpFormat">Default dump format</label><select id="settingsDumpFormat">${formatOptions}</select></div>
+        <div class="field span-2"><label for="settingsKeyStore">Key store</label><input id="settingsKeyStore" class="mono" type="text" value="$HOME/.config/nfc-foundry/classic-keys.json"></div>
+        <div class="field span-2"><label for="settingsBackups">Backup directory</label><input id="settingsBackups" class="mono" type="text" value="$HOME/.local/share/nfc-foundry/backups"></div>
+        <div class="field span-2"><label for="settingsTables">Hardnested tables</label><input id="settingsTables" class="mono" type="text" value="/usr/share/nfc-foundry/hardnested_tables"></div>
+        <label class="check span-2"><input id="settingsCommonKeys" type="checkbox" checked> <span>Try built-in common keys as authentication candidates</span></label>
+      </div>`,
+      onConfirm: () => {
+        const language = $("#settingsLanguage").value;
+        state.defaultDumpFormat = $("#settingsDumpFormat").value;
+        if (language !== state.language) setLanguage(language);
+        setStatus("Settings saved", `default dump: ${state.defaultDumpFormat}`, "ok");
+        toast("Settings saved");
+      }
+    });
+  }
+
+  function openSaveDump() {
+    const formatOptions = ["project", "raw", "mct", "proxmark3"].map((format) =>
+      `<option value="${format}" ${format === state.defaultDumpFormat ? "selected" : ""}>${format}</option>`).join("");
+    openDialog({
+      kicker: "SAVE DUMP",
+      title: "Save card image",
+      body: "A project dump preserves unknown bytes and per-block state. Raw, MCT, and Proxmark3 exports require a complete image.",
+      confirmLabel: "Save dump",
+      extra: `<div class="form-grid"><div class="field"><label for="dialogDumpPath">Path</label><input id="dialogDumpPath" class="mono" type="text" value="card.json"></div><div class="field"><label for="dialogDumpFormat">Format</label><select id="dialogDumpFormat">${formatOptions}</select></div></div>`,
+      onConfirm: () => {
+        const path = $("#dialogDumpPath").value.trim() || "card.json";
+        const format = $("#dialogDumpFormat").value;
+        state.defaultDumpFormat = format;
+        setStatus("Dump saved", `${path} · ${format} · 0600`, "ok");
+        toast("Dump saved");
+      }
+    });
+  }
+
+  function openRestore(family) {
+    const isType2 = family === "type2";
+    const extra = `<div class="form-grid">
+      <div class="field span-2"><label for="dialogRestoreFormat">Image format</label><select id="dialogRestoreFormat"><option value="project">project</option><option value="raw">raw .mfd/.bin</option>${isType2 ? "" : `<option value="mct">MCT</option><option value="proxmark3">Proxmark3</option>`}</select></div>
+      ${isType2 ? `<label class="check span-2"><input id="restoreConfig" type="checkbox"> <span>Include configuration pages</span></label><label class="check span-2"><input id="restoreCc" type="checkbox"> <span>Include the capability container</span></label><label class="check span-2"><input id="restoreLocks" type="checkbox"> <span>Include lock bytes</span></label>` : `<label class="check span-2"><input id="restoreContinue" type="checkbox"> <span>Continue after the first failed block (Advanced)</span></label>`}
+    </div>`;
+    openDialog({
+      kicker: "RESTORE",
+      title: "Restore card image",
+      body: isType2 ? "Restore defaults to user memory only. Configuration, CC, and lock bytes are optional Advanced choices. A backup is written first." : "Restore writes every block in the image. Data blocks are written before trailers; the default stops at the first failure.",
+      extra,
+      typed: true,
+      danger: true,
+      confirmLabel: "Restore",
+      onConfirm: () => {
+        const format = $("#dialogRestoreFormat").value;
+        setStatus("Restore complete", `${format} image · 0 failures · backup 20261110T143208-restore.json`, "ok");
+        $("#backupPath").textContent = "backup: 20261110T143208-restore.json";
+        toast("Restore complete");
+      }
+    });
+  }
+
+  function openFormat(family) {
+    openDialog({ kicker: "DESTRUCTIVE", title: family === "classic" ? "Format Classic NDEF area" : "Format Type 2 tag", body: family === "classic" ? "The MAD and every NFC sector are rewritten. Sector keys and access bits change. A backup is written first." : "The user-memory NDEF TLV is rewritten. A backup is written before the first change.", typed: true, danger: true, confirmLabel: "Format",
+      extra: family === "classic" ? `<label class="check"><input type="checkbox" id="dialogReadOnly"> <span>Read-only after format</span></label>` : "",
+      onConfirm: () => { setStatus("Format complete", "NDEF state: empty · backup 20261110T143208-format.json", "ok"); $("#backupPath").textContent = "backup: 20261110T143208-format.json"; toast("Format complete"); }
+    });
+  }
+  function openLock() {
+    const pages = $("#lockPages").value.trim() || "4";
+    openDialog({ kicker: "ONE-WAY LOCK", title: "Apply lock bits", body: `Lock pages ${pages}. Lock bits are one-way; this cannot be undone. A backup is written first.`, typed: true, danger: true, confirmLabel: "Lock pages",
+      onConfirm: () => { setStatus("Lock bits applied", `pages ${pages} · backup 20261110T143208-lock.json`, "ok"); toast("Lock bits applied"); }
+    });
+  }
+  function openPassword() {
+    openDialog({ kicker: "ADVANCED", title: "Set NTAG password", body: "Writes AUTH0, ACCESS, PWD, and PACK. PWD/PACK never read back; the result is verified with PWD_AUTH. A backup is written first.", typed: true, danger: true, confirmLabel: "Set password",
+      onConfirm: () => { setStatus("Password configuration written", "verified with PWD_AUTH · backup 20261110T143208-password.json", "ok"); toast("Password configuration verified"); }
+    });
+  }
+  function openWritePage() {
+    const page = t2Pages[state.selectedPage];
+    if (!page) return;
+    const advanced = page.group === "config" || page.group === "lock";
+    openDialog({ kicker: advanced ? "ADVANCED PAGE" : "PAGE WRITE", title: `Write page ${String(page.page).padStart(3, "0")}`, body: advanced ? "This is an Advanced page. A backup is written first and the page is read back." : "The page is backed up, written, read back, and the card identity is checked.", typed: advanced, danger: advanced, confirmLabel: advanced ? "Write page" : "Write page",
+      extra: `<div class="field"><label for="dialogPageData">New page data</label><input id="dialogPageData" class="mono" type="text" maxlength="8" value="${page.data || ""}"></div>`,
+      onConfirm: () => { const input = $("#dialogPageData"); const data = bytes(input ? input.value : page.data || ""); if (data.length !== 8) { toast("Page data must be 8 hex digits"); return; } page.data = data; renderType2Table(); setStatus(`Page ${String(page.page).padStart(3, "0")} written and verified`, "backup 20261110T143208-page.json", "ok"); $("#backupPath").textContent = "backup: 20261110T143208-page.json"; toast("Page write verified"); }
+    });
+  }
+  function writeNdef(family) {
+    const kind = $(family === "classic" ? "#classicNdefKind" : "#type2NdefKind").value;
+    if (kind === "Raw file") { $("#ndefFile").click(); return; }
+    const text = (family === "classic" ? $("#classicNdefText").value : $("#type2NdefText").value).trim();
+    if (!text) { toast(`Enter a ${kind.toLowerCase()} value`); return; }
+    setStatus("NDEF write complete", `${kind} · ${text.length} bytes · read-back verified · backup 20261110T143208-ndef.json`, "ok");
+    $("#backupPath").textContent = "backup: 20261110T143208-ndef.json";
+    toast("NDEF written and verified");
+  }
+  function scanKeys() {
+    const types = $("#scanTypes").value;
+    setStatus("Scanning keys…", `types ${types} · trying candidates against every sector`, "busy");
+    setTimeout(() => { setStatus("Key scan complete", `${types} · 16/16 sectors · 37 attempts · 32 verified keys`, "ok"); toast("Keyscan complete"); }, 900);
+  }
+  function copyText(value, label) {
+    const done = () => toast(`${label || "Value"} copied`);
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(value).then(done, done); else done();
+  }
+
+  const strategies = {
+    auto: "Auto", nested: "Nested", static: "Static nested", hard: "Hardnested", darkside: "Darkside", fm11: "FM11RF08S"
+  };
+  function selectStrategy(button) {
+    $$("#strategyGrid .strategy").forEach((item) => item.classList.remove("selected"));
+    button.classList.add("selected");
+    setStatus("Strategy selected", strategies[button.dataset.strategy] || "Auto", "ok");
+  }
+  function startRecovery() {
+    if (state.recoveryTimer) return;
+    state.recoveryProgress = 0;
+    $("#recoveryResult").classList.remove("show");
+    $("#recoveryCancel").disabled = false;
+    $("#recoveryStart").disabled = true;
+    const stages = $$("#recoveryStages .stage");
+    stages.forEach((stage) => stage.classList.remove("active", "done"));
+    stages[0].classList.add("active");
+    setStatus("Recovery running…", "Acquiring encrypted nonces · authentication only", "busy");
+    state.recoveryTimer = setInterval(() => {
+      state.recoveryProgress = Math.min(100, state.recoveryProgress + 4 + Math.random() * 7);
+      const percent = Math.floor(state.recoveryProgress);
+      $("#recoveryProgress").style.width = `${percent}%`;
+      $("#recoveryPercent").textContent = `${percent}%`;
+      const stage = Math.min(3, Math.floor(percent / 25));
+      stages.forEach((item, index) => item.classList.toggle("active", index === stage));
+      stages.forEach((item, index) => item.classList.toggle("done", index < stage));
+      const labels = ["Acquiring encrypted nonces", "Filtering state pairs", "Bit-sliced solver", "Verifying key on card"];
+      $("#recoveryStageLabel").textContent = labels[stage];
+      setStatus("Recovery running…", `${labels[stage]} · authentication only`, "busy");
+      if (state.recoveryProgress >= 100) finishRecovery();
+    }, 190);
+  }
+  function finishRecovery() {
+    clearInterval(state.recoveryTimer);
+    state.recoveryTimer = null;
+    state.recoveryProgress = 100;
+    $("#recoveryProgress").style.width = "100%";
+    $("#recoveryPercent").textContent = "100%";
+    $$("#recoveryStages .stage").forEach((stage) => { stage.classList.remove("active"); stage.classList.add("done"); });
+    $("#recoveryStageLabel").textContent = "Complete";
+    $("#recoveryResult").classList.add("show");
+    $("#recoveryStart").disabled = false;
+    $("#recoveryCancel").disabled = true;
+    setStatus("Recovery complete", "Sector 0 Key A verified with a fresh authentication", "ok");
+    toast("Recovery key verified");
+  }
+  function cancelRecovery() {
+    if (state.recoveryTimer) { clearInterval(state.recoveryTimer); state.recoveryTimer = null; }
+    $("#recoveryStart").disabled = false;
+    $("#recoveryCancel").disabled = true;
+    $("#recoveryProgress").style.width = "0";
+    $("#recoveryPercent").textContent = "0%";
+    $("#recoveryStageLabel").textContent = "Cancelled";
+    $$("#recoveryStages .stage").forEach((stage) => stage.classList.remove("active", "done"));
+    setStatus("Recovery cancelled", "Reader released", "error");
+  }
+
+  function handleAction(action, button) {
+    switch (action) {
+      case "read": simulateRead(); break;
+      case "toggle-reader": toggleReader(); break;
+      case "close-dialog": closeDialog(); break;
+      case "load-dump": $("#dumpFile").click(); break;
+      case "save-dump": openSaveDump(); break;
+      case "restore": openRestore(state.view.startsWith("type2") ? "type2" : "classic"); break;
+      case "scan-keys": scanKeys(); break;
+      case "import-keys": $("#keyFile").click(); break;
+      case "export-ndef": setStatus("NDEF message exported", "message.ndef · raw bytes", "ok"); toast("NDEF message exported"); break;
+      case "settings": openSettings(); break;
+      case "write-block": openWriteBlock(); break;
+      case "write-page": openWritePage(); break;
+      case "write-ndef": writeNdef(button.dataset.family); break;
+      case "choose-ndef-file": $("#ndefFile").click(); break;
+      case "format-classic": openFormat("classic"); break;
+      case "format-type2": openFormat("type2"); break;
+      case "lock-pages": openLock(); break;
+      case "set-password": openPassword(); break;
+      case "toggle-keys": state.keysRevealed = !state.keysRevealed; $("#keyRevealLabel").textContent = state.keysRevealed ? "Hide keys" : "Reveal keys"; renderKeys(); break;
+      case "add-key": {
+        const value = bytes($("#newKeyHex").value);
+        if (value.length !== 12) { toast("Enter 12 hex digits"); return; }
+        keys.push({ sector: $("#newKeySector").value.trim() || "All", type: $("#newKeyType").value.replace("Key ", ""), key: value, source: "manual" });
+        $("#newKeyHex").value = ""; $("#newKeySector").value = "";
+        renderKeys();
+        setStatus("Key added", "manual · wildcard candidate", "ok");
+        break;
+      }
+      case "remove-key": {
+        const index = Number(button.dataset.index);
+        keys.splice(index, 1); renderKeys(); setStatus("Key removed", "key store updated", "ok"); break;
+      }
+      case "copy-key": copyText(keys[Number(button.dataset.index)].key, "Key"); break;
+      case "start-recovery": startRecovery(); break;
+      case "cancel-recovery": cancelRecovery(); break;
+      case "copy-report": copyText("NFC Foundry 0.1.0 · Linux amd64 · PN532 UART firmware 1.6", "Report"); break;
+      case "clear-activity": {
+        $("#activity .timeline").innerHTML = `<div class="empty">No activity in this session.</div>`;
+        const activityBadge = document.querySelector('[data-view="activity"] .nav-badge');
+        if (activityBadge) activityBadge.textContent = "0";
+        toast("Activity cleared");
+        break;
+      }
+      case "recovery-help": toast("Recovery authenticates only; it never writes a block"); break;
+      case "refresh-readers": closeReader(); setStatus("Readers refreshed", "1 connected · PN532 UART", "ok"); toast("1 reader found"); break;
+      case "more": toast("More actions are available in the workspace toolbar"); break;
+      default: break;
+    }
+  }
+
+  document.addEventListener("click", (event) => {
+    const nav = event.target.closest("[data-view]");
+    if (nav) { showView(nav.dataset.view); return; }
+    const jump = event.target.closest("[data-jump]");
+    if (jump) { showView(jump.dataset.jump); return; }
+    const language = event.target.closest("[data-lang]");
+    if (language) { setLanguage(language.dataset.lang); return; }
+    const action = event.target.closest("[data-action]");
+    if (action) { handleAction(action.dataset.action, action); return; }
+    const blockRow = event.target.closest("[data-block]");
+    if (blockRow) { state.selectedBlock = Number(blockRow.dataset.block); renderClassicTable(); return; }
+    const pageRow = event.target.closest("[data-page]");
+    if (pageRow) { state.selectedPage = Number(pageRow.dataset.page); renderType2Table(); return; }
+    const strategy = event.target.closest("[data-strategy]");
+    if (strategy) { selectStrategy(strategy); return; }
+    const reader = event.target.closest("[data-reader]");
+    if (reader) {
+      if (reader.dataset.reader === "pn532") {
+        closeReader();
+        setStatus("Reader selected", "PN532 UART · /dev/ttyUSB0", "ok");
+        toast("PN532 UART selected");
+      } else {
+        toast("ACR122U is not connected");
+      }
+      return;
+    }
+    if (!event.target.closest("#readerPopover") && !event.target.closest(".reader-button") && !event.target.closest(".reader-change")) closeReader();
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeReader();
+    if ((event.key === "Enter" || event.key === " ") && event.target.matches("[data-block],[data-page]")) {
+      event.preventDefault();
+      event.target.click();
+    }
+  });
+
+  $("#blockSearch").addEventListener("input", renderClassicTable);
+  $("#blockFilter").addEventListener("change", renderClassicTable);
+  $("#pageSearch").addEventListener("input", renderType2Table);
+  $("#pageFilter").addEventListener("change", renderType2Table);
+  $("#dumpFile").addEventListener("change", (event) => {
+    const file = event.target.files && event.target.files[0];
+    if (file) { setStatus("Dump loaded", `${file.name} · project format`, "ok"); toast("Dump loaded"); }
+    event.target.value = "";
+  });
+  $("#keyFile").addEventListener("change", (event) => {
+    const file = event.target.files && event.target.files[0];
+    if (file) {
+      keys.push({ sector: "All", type: "Any", key: "FFFFFFFFFFFF", source: "key file" });
+      renderKeys();
+      setStatus("Keys imported", `${file.name} · keys added as wildcard candidates`, "ok");
+      toast("Keys imported");
+    }
+    event.target.value = "";
+  });
+  $("#ndefFile").addEventListener("change", (event) => {
+    const file = event.target.files && event.target.files[0];
+    if (file) { setStatus("NDEF file loaded", `${file.name} · ready to write`, "ok"); toast("NDEF file loaded"); }
+    event.target.value = "";
+  });
+
+  renderClassicTable();
+  renderType2Table();
+  renderKeys();
+  updateTopCard();
+  renderActions(views[state.view]);
+})();
+</script>
+</body>
+</html>

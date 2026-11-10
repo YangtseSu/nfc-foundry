@@ -22,12 +22,15 @@ Status legend: `done`, `in progress`, `pending`, `optional`, `blocked`.
 | 15 | Read-only eMRTD reader (passport, compatible permits) | optional |
 | 16 | Chinese resident ID read-only (authorized SAM) | blocked |
 | 17 | Amiibo / NTAG215 read, decrypt, encrypt, write (user keys/data) | optional |
+| 18 | Workbench UI redesign, bilingual UI, icon and desktop entry | pending |
 
 ## Rules
 
 - One phase at a time unless work is genuinely independent.
 - A CLI operation is incomplete until the GUI exposes the same operation with
   the same safety rules.
+- `nfctl` is English-only. The GUI is English-base with a complete Simplified
+  Chinese (`zh-CN`) translation and an in-app language switch.
 - Every phase needs a spec in `docs/specs/` and a note in `docs/notes/`.
 - No driver or card family is advertised until its hardware test is recorded.
 - `cargo test --workspace` must never touch hardware.
@@ -42,6 +45,9 @@ Status legend: `done`, `in progress`, `pending`, `optional`, `blocked`.
   backup-first, read-back verified, and limited to user-owned magic NTAG215
   tags. It is independent of phases 13-15 and only needs the existing Type 2
   path.
+- Phase 18 is the workbench UI redesign and bilingual UI. It is independent of
+  phases 13-17 and can start before them if UI work is prioritized. It adds the
+  application icon and desktop entry; the 0.1.0 package does not contain them.
 - A new card family needs its own ADR, spec, note, and hardware record. It is
   never smuggled into the Classic, Type 2, or Type 4 adapter.
 - Sensitive card data is not logged or persisted by default. PAN, MRZ, document
@@ -344,7 +350,7 @@ is added in this phase. See `docs/specs/11-type4-ndef.md` and
 Deliver:
 
 - AUR source package and GitHub CI binary tarball.
-- udev rules, license/notices, source archive.
+- udev rules, license/notices, GitHub-generated source archives.
 - Hardware matrix and validation records.
 
 Acceptance:
@@ -354,8 +360,8 @@ Acceptance:
 - `cargo fmt`, clippy, tests, GPUI UI tests, REUSE, packaging checks pass.
 
 Status: complete. `packaging/aur` contains the `nfc-foundry` source package and
-`.SRCINFO`; `packaging/release` builds the relocatable binary tarball, the
-dependency license bundle, and the GPL source archive. The release workflow
+`.SRCINFO`; the release workflow builds the relocatable binary tarball and
+license notices inline. It
 builds on Ubuntu 26.04 for Linux amd64 and publishes the assets on a
 `v*` tag. The check suite runs on branches and pull requests, not on the
 release tag. The AUR package remains outside GitHub
@@ -364,8 +370,8 @@ ACR122U scope; ACR122U writes for Classic data blocks, Type 2 NDEF, and Classic
 NDEF, one-way locks, passwords, trailer writes, Classic 4K, and Type 4 remain
 unrecorded and are not advertised. Version reporting is unified
 in `Cargo.toml`, `nfctl --version`, `nfctl diag`, and the GUI window title.
-Local package build, package file list, tarball extraction, source archive,
-`namcap`, and `.SRCINFO` checks passed on 2026-11-10. The GitHub release is
+Local package build, package file list, tarball extraction, `namcap`, and
+`.SRCINFO` checks passed on 2026-11-10. The GitHub release is
 published from the `v*` tag; the AUR upload remains a separate manual step. See
 `docs/specs/12-release.md` and `docs/notes/12-release.md`.
 
@@ -559,3 +565,47 @@ Non-goals:
 - Writing genuine locked Amiibo tags.
 - Cloning or distributing third-party Amiibo data.
 - Online Amiibo services or account integration.
+
+### 18: Workbench UI redesign and bilingual UI
+
+Goal: replace the current per-workspace shells with the persistent workbench
+in `docs/design/03-workbench.html`, provide an English-base UI with a complete
+Simplified Chinese translation, and ship an application icon and desktop file.
+The CLI remains English-only. The GUI must expose every non-test `nfctl`
+operation with the same safety rules. This phase adds no card operation or
+protocol.
+
+Deliver:
+
+- Persistent shell: grouped navigation, reader/card header, reader menu,
+  domain switch, status bar, session activity, and language switch.
+- Screens: Classic blocks, Classic NDEF, diff, keys, recovery; Type 2 memory,
+  NDEF, protection; diagnostics.
+- English base catalog and complete `zh-CN` catalog; persisted language
+  preference; system-locale detection with English fallback.
+- Recovery GUI over the existing native recovery services: strategy, target,
+  progress, cancel, and verified result. Read-only and exclusive-lease rules
+  are unchanged.
+- Diagnostics without card I/O and a session-only activity log.
+- Application identity: vector icon with final PNG exports, `.desktop` file
+  with English and `zh_CN` metadata, package and tarball installation, and
+  icon/desktop validation.
+- Full GUI parity with every non-test `nfctl` operation: dump/restore
+  formats, key import, raw NDEF and URI writes, restore include options, and
+  all recovery strategies.
+- Updated design contracts, UI tests, i18n tests, and packaging checks.
+
+Acceptance:
+
+- All listed screens match the design sample and retain current safety rules.
+- English and Chinese UI copy is complete; switching is immediate and
+  persisted; missing keys fall back to English.
+- `nfctl` remains English-only under a Chinese system locale.
+- The installed desktop file validates, resolves its icon, and launches the
+  GUI.
+- `cargo fmt`, clippy, workspace tests, GUI tests, `reuse lint`, and packaging
+  checks pass.
+
+Detailed plan: [18-workbench-ui.md](18-workbench-ui.md).
+
+Status: planning complete; implementation pending.

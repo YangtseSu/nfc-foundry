@@ -134,16 +134,15 @@ cd packaging/aur
 makepkg -sri
 ```
 
-Binary tarball, from a release tag or a local build:
+Binary tarball from the GitHub release:
 
 ```sh
-make dist
-tar -xzf dist/nfc-foundry-0.1.0-x86_64.tar.gz
+tar -xzf nfc-foundry-0.1.0-x86_64.tar.gz
 ./nfc-foundry-0.1.0-x86_64/bin/nfctl diag
 ```
 
 The package and tarball install `nfc-foundry`, `nfctl`, the ACR122U udev rule,
-the hardnested tables, licenses, notices, and documentation. All paths use the
+the hardnested tables, licenses, and notices. All paths use the
 `nfc-foundry` namespace, so another NFC reader application can stay installed;
 only one process may own a reader at a time. See [Packaging](docs/packaging.md).
 
@@ -260,9 +259,9 @@ bit-sliced solver with `--max-nonces` and throttled progress, and `recover
 darkside` reports a no-sample failure when the card does not expose eight
 probes against one tag nonce. Use only cards you own.
 
-Hardnested tables are read from `/usr/share/nfc-foundry/hardnested_tables`, the
-checkout's `resources/hardnested_tables`, or `NFC_FOUNDRY_HARDNESTED_TABLES` (also
-`--hardnested-tables`).
+Hardnested tables are read from `/usr/share/nfc-foundry/hardnested_tables`,
+the checkout's `resources/hardnested_tables`, or
+`NFC_FOUNDRY_HARDNESTED_TABLES` (also `--hardnested-tables`).
 
 `pcscd` holds the same CCID interface, so stop it before using the direct USB
 path and restart it afterwards. The ACR122U was validated for firmware

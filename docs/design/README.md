@@ -36,6 +36,31 @@ The implemented screen contract is
   require confirmation; lock/config/password use typed confirmation.
 - Classic NDEF: MAD/CC/sector mapping remains phase 10.
 
+## Prototypes
+
+- [03-workbench.html](03-workbench.html) is the current expanded workbench
+  prototype. It covers the reader/card shell, Classic blocks, Classic NDEF,
+  diff, keys, native recovery, Type 2 memory, NDEF, protection, diagnostics,
+  activity, and typed confirmation flows. It is a design sample, not a second
+  implementation. The sample keeps English copy and shows the language-switch
+  placement; the complete `zh-CN` catalog is phase 18 work.
+- [02-workbench-ndef.html](02-workbench-ndef.html) is the earlier NDEF-only
+  reference. It is retained for comparison and does not cover the expanded
+  feature set.
+
+The prototype is a new information architecture, not a restyle of the earlier
+file. It replaces per-workspace toolbars with one persistent command shell:
+
+- left navigation groups Classic, Type 2, and system surfaces instead of hiding
+  features behind a single workspace tab bar;
+- reader and card state stay in the shell, while the inspector actions remain
+  fixed at the bottom of the pane;
+- recovery, diagnostics, and session activity are first-class surfaces;
+- destructive and Advanced actions open a confirmation surface that names the
+  target, old/new state, backup, and read-back plan;
+- the application identity is part of phase 18: a vector icon, PNG exports, and
+  a desktop entry with English and `zh_CN` metadata.
+
 ## Rules
 
 Follow the GPUI Kit Design Guides:

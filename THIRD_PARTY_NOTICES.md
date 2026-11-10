@@ -1,8 +1,9 @@
 # Third-party notices
 
 NFC Foundry is GPL-3.0-or-later. The Rust dependency graph includes components
-under other licenses. This file lists direct dependencies; a release must also
-include the complete dependency license texts and any required notices.
+under other licenses. This file lists direct dependencies. A release ships the required license
+texts and notices for the shipped work; it does not duplicate dependency
+license files or generate a dependency manifest.
 
 | Dependency | Version | License |
 |---|---:|---|
@@ -18,13 +19,9 @@ include the complete dependency license texts and any required notices.
 | `lz4_flex` | 0.14.x | MIT |
 
 Transitive dependencies and their exact versions are recorded in
-`Cargo.lock`. A release copies each dependency's published license files into
-`dependencies/` and writes `dependencies/manifest.tsv` with the declared SPDX
-expression and the copied file names. Some crates declare an expression but
-publish no license file, mostly platform-specific dependencies that are not
-linked on Linux. The standard texts in `LICENSES/MIT.txt`,
-`LICENSES/Apache-2.0.txt`, `LICENSES/Zlib.txt`, and `LICENSES/MPL-2.0.txt`
-cover those expressions; `STANDARD_LICENSE_TEXTS.md` records the mapping.
+`Cargo.lock`. The release installs only NFC Foundry's own license texts and
+notices. It does not duplicate dependency license files and does not generate a
+dependency manifest; full texts remain with their upstream crates.
 
 Proxmark3-derived recovery code retains its GPL-3.0-or-later notices:
 
@@ -75,5 +72,7 @@ appear only in development notes as test oracles.
 The Gen1A unlock and manufacturer-block write sequence in
 `crates/nfc-drivers/src/acr122_usb/protocol.rs` is derived from the libnfc
 `nfc-mfsetuid` example (Adam Laurie, 2011; Dario Carluccio, 2014). It is
-available under BSD-2-Clause OR GPL-3.0-or-later; the BSD text is
-`LICENSES/BSD-2-Clause.txt`.
+available under BSD-2-Clause OR GPL-3.0-or-later. This project distributes
+the combined work under GPL-3.0-or-later; the source tree keeps
+`LICENSES/BSD-2-Clause.txt` for the alternative grant, but the installed
+package ships only the GPL text.

@@ -31,8 +31,8 @@ Date: 2026-11-10
 - VCS source with `SKIP` checksum, so a build always uses the exact tag;
 - `cargo fetch --locked` in `prepare()`, offline release build in `build()`;
 - `check()` runs the workspace tests and the GUI check without hardware;
-- installs both binaries, the udev rule, hardnested tables, license bundle,
-  dependency license bundle, and documentation;
+- installs both binaries, the udev rule, one hardnested pack, the license
+  notices;
 - runtime dependencies from the packaged ELF files (`glibc`, `libgcc`,
   `libxcb`, `libxkbcommon`, `libxkbcommon-x11`, `systemd-libs`) plus the GPUI
   libraries loaded dynamically (`libglvnd`, `vulkan-icd-loader`, `wayland`);
@@ -42,20 +42,10 @@ Date: 2026-11-10
 
 ### Release assets
 
-- `packaging/release/package.sh` builds
-  `nfc-foundry-<version>-x86_64.tar.gz` with a relocatable tree
-  (`bin/`, `lib/udev/rules.d/`, `share/nfc-foundry/`, `share/licenses/`,
-  `share/doc/`, `README.md`, `Cargo.lock`).
-- `packaging/release/source-archive.sh` builds the GPL source archive with
-  `git archive` from the release ref.
-- `packaging/release/collect-licenses.py` copies each dependency's published
-  license files and writes `dependencies/manifest.tsv` with package, version,
-  SPDX expression, and bundled file names. Files are forced to `0644`.
-- Standard texts for MIT, Apache-2.0, Zlib, and MPL-2.0 cover crates that
-  declare an expression but publish no file; `STANDARD_LICENSE_TEXTS.md`
-  explains the mapping.
-- `make dist` runs the release build, binary tarball, source archive, and
-  `SHA256SUMS`. `make aur-check` checks `namcap` and `.SRCINFO`.
+- `.github/workflows/release.yml` builds the relocatable
+  `nfc-foundry-<version>-x86_64.tar.gz` inline from the Linux amd64 build.
+- GitHub attaches its generated source archives to the release; no custom
+  source archive is built.
 - `.github/workflows/release.yml` runs on `v*` tags and manual dispatch on
   Ubuntu 26.04: version/tag verification, a `x86_64-unknown-linux-gnu` release
   build, assets, artifact upload, and GitHub release publication on a tag. It
@@ -89,13 +79,15 @@ includes the new CLI version/diag test.
 
 ### Packaging checks
 
+The first package build was slimmed after review; see
+`docs/notes/12a-package-slimming.md` for the final file-count and size record.
+
 - `namcap packaging/aur/PKGBUILD`: only the expected VCS `git` note before the
   dependency was added; no remaining error.
 - `makepkg --printsrcinfo` matches the committed `.SRCINFO`.
 - Local package build in a staged source tree:
   `nfc-foundry 0.1.0-1`; the package contains both binaries, the udev rule,
-  351 hardnested table files, the documentation, and the dependency license
-  bundle.
+  the hardnested table directory and the project's license notices.
 - `namcap` on the package reports only the `ld-linux-x86-64.so.2` unused-library
   warning for both binaries. The loader entry is normal for a Rust ELF and is
   not a missing dependency.
@@ -167,6 +159,5 @@ does not claim the unrecorded ACR122U paths.
   package build used `--nocheck` for time. The workspace suite was run
   separately and passed. `check()` is present in the PKGBUILD for users and
   AUR builds.
-- The dependency license bundle is a superset: it includes licenses for all
-  packages in the metadata graph, including platform-specific and dev-only
-  crates, not only the Linux release link set.
+- The package installs only the project's own license texts and notices. It does
+  not duplicate dependency license files or generate a dependency manifest.

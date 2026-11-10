@@ -13,4 +13,5 @@ PARTICULAR PURPOSE. See the GNU General Public License for more details.
 The full license text is in LICENSE and LICENSES/GPL-3.0-or-later.txt.
 
 Third-party components retain their own copyright and license notices. See
-THIRD_PARTY_NOTICES.md and the dependency licenses included with a release.
+THIRD_PARTY_NOTICES.md; full dependency license texts remain with their
+upstream crates.

@@ -4,10 +4,11 @@
 
 - Arch Linux AUR source package for `nfc-foundry`.
 - GitHub CI binary tarball for Linux amd64 built on Ubuntu 26.04.
-- GPL source archive from the release tag.
+- GitHub-generated source archives for the release tag.
 
-No Windows, macOS, Debian/RPM, AppImage, Flatpak, Snap, desktop entry, or
-container image is part of the product.
+No Windows, macOS, Debian/RPM, AppImage, Flatpak, Snap, or container image is
+part of the product. The 0.1.0 package has no desktop entry or icon; phase 18
+adds them.
 
 ## Version and tag
 
@@ -43,17 +44,11 @@ Package contents:
 /usr/bin/nfc-foundry
 /usr/bin/nfctl
 /usr/lib/udev/rules.d/70-nfc-foundry.rules
-/usr/share/nfc-foundry/hardnested_tables/*.lz4
+/usr/share/nfc-foundry/hardnested_tables
 /usr/share/licenses/nfc-foundry/LICENSE
-/usr/share/licenses/nfc-foundry/LICENSES/
+/usr/share/licenses/nfc-foundry/LICENSES/GPL-3.0-or-later.txt
 /usr/share/licenses/nfc-foundry/NOTICE
 /usr/share/licenses/nfc-foundry/THIRD_PARTY_NOTICES.md
-/usr/share/licenses/nfc-foundry/STANDARD_LICENSE_TEXTS.md
-/usr/share/licenses/nfc-foundry/dependencies/
-/usr/share/doc/nfc-foundry/README.md
-/usr/share/doc/nfc-foundry/{architecture,hardware,hardware-matrix,testing,packaging,recovery,ndef}.md
-/usr/share/doc/nfc-foundry/plan.md
-/usr/share/doc/nfc-foundry/adr/
 ```
 
 Do not install:
@@ -68,8 +63,7 @@ Runtime dependencies are the direct NEEDED libraries of the packaged ELF
 files (`glibc`, `libgcc`, `libxcb`, `libxkbcommon`, `libxkbcommon-x11`,
 `systemd-libs`) plus the GPUI runtime libraries it loads dynamically
 (`libglvnd` for EGL/GL, `vulkan-icd-loader`, and `wayland`). Build-only
-dependencies are `cargo`, `git`, `rust`, and `python` (the dependency license
-collector).
+dependencies are `cargo`, `git`, and `rust`.
 
 ## Coexistence
 
@@ -85,21 +79,11 @@ switch the reader between the stacks instead of running both.
 
 ## Binary tarball
 
-```sh
-cargo build --release --locked --workspace
-packaging/release/package.sh 0.1.0 dist
-```
-
-or:
-
-```sh
-make dist
-```
-
-The result is `dist/nfc-foundry-0.1.0-x86_64.tar.gz`:
+The release workflow builds `nfc-foundry-<version>-x86_64.tar.gz` from the
+`x86_64-unknown-linux-gnu` build and uploads it to the GitHub release:
 
 ```text
-nfc-foundry-0.1.0-x86_64/
+nfc-foundry-<version>-x86_64/
   README.md
   Cargo.lock
   bin/nfc-foundry
@@ -107,12 +91,12 @@ nfc-foundry-0.1.0-x86_64/
   lib/udev/rules.d/70-nfc-foundry.rules
   share/nfc-foundry/hardnested_tables/*.lz4
   share/licenses/nfc-foundry/
-  share/doc/nfc-foundry/
 ```
 
 The tree is relocatable. `nfctl` resolves hardnested tables from
-`/usr/share/nfc-foundry/hardnested_tables`, `NFC_FOUNDRY_HARDNESTED_TABLES`, or
-`../share/nfc-foundry/hardnested_tables` relative to the executable.
+`/usr/share/nfc-foundry/hardnested_tables`,
+`NFC_FOUNDRY_HARDNESTED_TABLES`, or `../share/nfc-foundry/hardnested_tables`
+relative to the executable.
 
 Extract and run without installing:
 
@@ -122,36 +106,25 @@ tar -xzf nfc-foundry-0.1.0-x86_64.tar.gz
 ```
 
 For a system-wide unpack, copy `bin/` into `/usr/bin`, the udev rule into
-`/usr/lib/udev/rules.d/`, and the two `share/` trees under `/usr/share/`.
+`/usr/lib/udev/rules.d/`, and the `share/` tree under `/usr/share/`.
 
-## Source archive
+## Source archives
 
-```sh
-packaging/release/source-archive.sh 0.1.0 dist v0.1.0
-```
+GitHub attaches its generated source archives to every release. No custom
+source archive is built or uploaded.
 
-The archive is created with `git archive` from the tagged commit and uses the
-`nfc-foundry-<version>/` prefix. It contains the complete source,
-`Cargo.lock`, `resources/hardnested_tables/`, and every license file.
+## License notices
 
-## License bundle
+The package installs only the project's own notices:
 
-The release carries:
+- `LICENSE` (GPL-3.0-or-later);
+- `LICENSES/GPL-3.0-or-later.txt`;
+- `NOTICE` and `THIRD_PARTY_NOTICES.md`.
 
-- `LICENSE`, `LICENSES/`, `NOTICE`, and `THIRD_PARTY_NOTICES.md`;
-- one directory per dependency with its license files;
-- `dependencies/manifest.tsv` with the package, version, SPDX expression, and
-  bundled file names.
-
-The collector reads `cargo metadata --locked` and the registry sources that
-`cargo fetch` already downloaded:
-
-```sh
-python3 packaging/release/collect-licenses.py --root . --output /tmp/licenses
-```
-
-Packages that publish only an SPDX expression appear in `manifest.tsv` without
-a bundled file; the expression names the license text to resolve.
+It does not install per-dependency license files, a dependency manifest, or
+development documentation. `THIRD_PARTY_NOTICES.md` lists direct dependencies
+and required upstream notices; `Cargo.lock` records the exact dependency graph.
+Full dependency license texts remain with their upstream crates.
 
 ## CI
 
@@ -166,8 +139,8 @@ a bundled file; the expression names the license text to resolve.
 `.github/workflows/release.yml` runs on `v*` tags and on manual dispatch. It
 uses Ubuntu 26.04, installs the native build dependencies, verifies that the
 tag matches `Cargo.toml`, builds only `x86_64-unknown-linux-gnu`, creates the
-binary tarball, license bundle, and source archive, writes `SHA256SUMS`, and
-uploads the assets. A tag build publishes them to the GitHub release. It does
+binary tarball and license notices, writes `SHA256SUMS`, and uploads them. A
+tag build publishes them to the GitHub release. It does
 not re-run the check suite; branch and pull-request checks are handled by
 `check.yml`, and `check.yml` does not run on tag pushes.
 
@@ -230,6 +203,7 @@ nfctl diag
 3. Run the release checks above.
 4. Build and inspect the AUR package and binary tarball.
 5. Tag `v<version>` and push the tag only with explicit approval.
-6. Let `.github/workflows/release.yml` publish the tarball and source archive.
+6. Let `.github/workflows/release.yml` publish the tarball and checksums; GitHub
+   attaches its source archives to the release.
 7. Copy `PKGBUILD` and `.SRCINFO` into the `nfc-foundry` AUR repository and
    push that repository separately.

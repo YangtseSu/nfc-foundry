@@ -68,18 +68,37 @@ jobs:
       - name: Build release assets
         env:
           VERSION: ${{ steps.version.outputs.version }}
-          NFC_FOUNDRY_BUILD_DIR: ${{ github.workspace }}/target/x86_64-unknown-linux-gnu/release
         run: |
-          packaging/release/package.sh "$VERSION" dist
-          packaging/release/source-archive.sh "$VERSION" dist "$GITHUB_SHA"
-          (cd dist && sha256sum "nfc-foundry-$VERSION-x86_64.tar.gz" \
-            "nfc-foundry-$VERSION-source.tar.gz" >SHA256SUMS)
+          build="target/x86_64-unknown-linux-gnu/release"
+          name="nfc-foundry-$VERSION-x86_64"
+          stage="dist/$name"
+          install -d "$stage/bin" "$stage/lib/udev/rules.d" \
+            "$stage/share/nfc-foundry" "$stage/share/licenses/nfc-foundry"
+          install -m 0755 "$build/nfc-foundry" "$stage/bin/nfc-foundry"
+          install -m 0755 "$build/nfctl" "$stage/bin/nfctl"
+          install -m 0644 resources/udev/70-nfc-foundry.rules \
+            "$stage/lib/udev/rules.d/70-nfc-foundry.rules"
+          cp -a resources/hardnested_tables "$stage/share/nfc-foundry/"
+          install -m 0644 LICENSE "$stage/share/licenses/nfc-foundry/LICENSE"
+          install -Dm644 LICENSES/GPL-3.0-or-later.txt \
+            "$stage/share/licenses/nfc-foundry/LICENSES/GPL-3.0-or-later.txt"
+          install -m 0644 NOTICE "$stage/share/licenses/nfc-foundry/NOTICE"
+          install -m 0644 THIRD_PARTY_NOTICES.md \
+            "$stage/share/licenses/nfc-foundry/THIRD_PARTY_NOTICES.md"
+          install -m 0644 README.md "$stage/README.md"
+          install -m 0644 Cargo.lock "$stage/Cargo.lock"
+          epoch=$(git log -1 --format=%ct)
+          tar --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner \
+            -cf - -C dist "$name" | gzip -n -9 >"dist/$name.tar.gz"
+          (cd dist && sha256sum "$name.tar.gz" >SHA256SUMS)
           ls -lh dist
 
       - uses: actions/upload-artifact@v7
         with:
           name: nfc-foundry-${{ steps.version.outputs.version }}-linux-amd64
-          path: dist/*
+          path: |
+            dist/*.tar.gz
+            dist/SHA256SUMS
           if-no-files-found: error
 
       - name: Publish the GitHub release
@@ -91,7 +110,6 @@ jobs:
           tag="v$VERSION"
           assets=(
             "dist/nfc-foundry-$VERSION-x86_64.tar.gz"
-            "dist/nfc-foundry-$VERSION-source.tar.gz"
             "dist/SHA256SUMS"
           )
           if gh release view "$tag" >/dev/null 2>&1; then

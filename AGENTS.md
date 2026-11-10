@@ -131,6 +131,19 @@ trace in the phase note.
 6. Do not let a lower crate depend on `nfc-app`, a GUI feature crate, or a
    sibling feature.
 
+## Interface parity
+
+- GUI and CLI are two surfaces over the same `nfc-app` services. Every card or
+  file operation exposed by `nfctl` must have a GUI path with the same
+  semantics, safety preconditions, and confirmation requirements.
+- A CLI command without a matching GUI path is incomplete. Do not add a
+  CLI-only card operation unless the plan explicitly marks it as a
+  developer-only diagnostic outside the product workflow.
+- Test fixtures (`--mock`), output formatting, and host/device selection flags
+  may differ between surfaces; card and file semantics may not.
+- The GUI may present an option differently, but it must not hide a capability
+  or relax a gate.
+
 ## Hardware scope
 
 ### PN532 UART

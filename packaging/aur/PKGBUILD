@@ -25,7 +25,6 @@ depends=(
 makedepends=(
   cargo
   git
-  python
   rust
 )
 source=("$pkgname-$pkgver::git+$url.git#tag=v$pkgver")
@@ -64,21 +63,11 @@ package() {
   cp -a resources/hardnested_tables "$pkgdir/usr/share/nfc-foundry/"
 
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
-  cp -a LICENSES "$pkgdir/usr/share/licenses/$pkgname/LICENSES"
+  install -Dm644 LICENSES/GPL-3.0-or-later.txt \
+    "$pkgdir/usr/share/licenses/$pkgname/LICENSES/GPL-3.0-or-later.txt"
   install -Dm644 NOTICE "$pkgdir/usr/share/licenses/$pkgname/NOTICE"
   install -Dm644 THIRD_PARTY_NOTICES.md \
     "$pkgdir/usr/share/licenses/$pkgname/THIRD_PARTY_NOTICES.md"
-  install -Dm644 packaging/release/standard-license-texts.md \
-    "$pkgdir/usr/share/licenses/$pkgname/STANDARD_LICENSE_TEXTS.md"
-  python packaging/release/collect-licenses.py --root . \
-    --output "$pkgdir/usr/share/licenses/$pkgname/dependencies"
-
-  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
-  for document in architecture hardware hardware-matrix testing packaging recovery ndef; do
-    install -Dm644 "docs/$document.md" "$pkgdir/usr/share/doc/$pkgname/$document.md"
-  done
-  install -Dm644 docs/plan/README.md "$pkgdir/usr/share/doc/$pkgname/plan.md"
-  cp -a docs/adr "$pkgdir/usr/share/doc/$pkgname/adr"
 }
 
 # vim:set ts=2 sw=2 et:
