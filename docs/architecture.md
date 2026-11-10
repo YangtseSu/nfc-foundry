@@ -187,31 +187,40 @@ by borrow and is the current boundary.
 - readability counts, trailer validation, and block diff with byte and trailer
   detail;
 - dump interchange for project JSON, raw images, MCT text, and Proxmark3
-  `mfc v2`/`mfc v3` JSON.
+  `mfc v2`/`mfc v3` JSON;
+- `DumpFormat::Auto`, which exports a complete image as Proxmark3 raw and a
+  partial image as the project format, and detects either on load.
 
 The project format is the only format that represents partial images, masked
 bytes, and malformed trailers. Raw, MCT, and Proxmark3 exports require a
 complete image with valid trailers; BCC is checked when the card identity is
 known. Imports reject duplicate JSON keys, missing blocks, inconsistent
 addresses, broken trailer complements, and Proxmark3 SectorKeys that disagree
-with trailer bytes. The exchange layer works on bytes; the workflow layer owns
-file paths, sidecars, and backup policy.
+with trailer bytes. Default interchange names are `card-dump.bin`,
+`card-dump.mfc.json`, `card-dump.mct`, and `card-dump.nfc-foundry.json`. The
+exchange layer works on bytes; the workflow layer owns file paths, sidecars,
+and backup policy.
 
 `nfc-app::classic` composes the model with the transport:
 
 - `KeyStore` stores sector-specific and wildcard A/B/any keys with provenance,
-  persists JSON, and imports text key files.
+  persists JSON, and imports Proxmark3 `.dic` text. `.dic` export writes unique
+  uppercase keys and drops sector, key type, and provenance; imported `.dic`
+  keys apply to every sector as `any`.
 - A full read authenticates each sector with the first accepted candidate and
   reads block 0 with sector 0. If sector 0 does not authenticate, block 0 stays
   unknown. Authentication and read failures remain visible per block; unknown
   bytes are never reported as known.
-- A block write checks the current access bits, selects an allowed key type,
-  saves a project-format backup, writes, reads back, and rechecks card
-  identity. Block 0 is rejected.
+- A block write checks the expected card identity, the current access bits,
+  selects an allowed key type, saves a project-format backup, writes, reads
+  back, and rechecks card identity. A mismatched identity returns
+  `CardChanged` before the backup. Block 0 is rejected.
 - A restore requires confirmation, verifies layout and known identity, refuses
   to change block 0, requires every pending block to exist in the backup,
   writes data blocks before the sector trailer, and stops at the first failure
-  unless the caller explicitly opts into continuing.
+  unless the caller explicitly opts into continuing. The source dump identity
+  and an optional expected card are checked before the backup. The result
+  carries one outcome per block: written, unchanged, unknown, or failed.
 - A key scan authenticates candidates as A and B per sector and verifies each
   success with a trailer read. It never writes.
 - Backups are written atomically to the XDG data directory (or an injected

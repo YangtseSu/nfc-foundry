@@ -129,7 +129,8 @@ enum ClassicCommand {
     Dump {
         #[arg(long, short, value_name = "PATH")]
         output: PathBuf,
-        #[arg(long, default_value = "project", value_name = "FORMAT")]
+        /// auto, raw, proxmark3, mct, or project.
+        #[arg(long, default_value = "auto", value_name = "FORMAT")]
         format: String,
     },
     /// Write one block after a backup and read-back verification.
@@ -226,6 +227,14 @@ enum KeysCommand {
         sector: Option<usize>,
         #[arg(long, default_value = "any", value_name = "A|B|any")]
         key_type: String,
+    },
+    /// Export the store as a Proxmark3 `.dic` or JSON file.
+    Export {
+        #[arg(long, default_value = "dic", value_name = "dic|json")]
+        format: String,
+        /// Write to this path instead of standard output.
+        #[arg(long, short, value_name = "PATH")]
+        output: Option<PathBuf>,
     },
 }
 
@@ -632,13 +641,14 @@ fn classic_read(cli: &Cli, service: &mut Service, block: usize) -> Result<()> {
 fn classic_dump(cli: &Cli, service: &mut Service, output: &Path, format: &str) -> Result<()> {
     prepare(service, cli.device.as_deref())?;
     let keys = load_key_store(cli)?;
-    let format = DumpFormat::parse(format)?;
+    let requested = DumpFormat::parse(format)?;
     let result =
         service.classic_read(ClassicRead::new(&keys).include_common_keys(!cli.no_common_keys))?;
     for warning in &result.warnings {
         eprintln!("warning: {warning}");
     }
-    let bytes = exchange::export(&result.dump, format)?;
+    let bytes = exchange::export(&result.dump, requested)?;
+    let chosen = requested.resolve(&result.dump);
     write_output(output, &bytes)?;
     let readability = result.dump.readability();
     println!(
@@ -660,7 +670,12 @@ fn classic_dump(cli: &Cli, service: &mut Service, output: &Path, format: &str) -
                 .join(", ")
         );
     }
-    println!("wrote {} ({} bytes)", output.display(), bytes.len());
+    println!(
+        "wrote {} ({} bytes, {})",
+        output.display(),
+        bytes.len(),
+        chosen.name()
+    );
     Ok(())
 }
 
@@ -828,6 +843,30 @@ fn classic_keys(cli: &Cli, command: KeysCommand) -> Result<()> {
                 println!("added key to {}", path.display());
             } else {
                 println!("key is already present in {}", path.display());
+            }
+            Ok(())
+        }
+        KeysCommand::Export { format, output } => {
+            let (store, _path) = management_store(cli, false)?;
+            let bytes = match format.trim().to_ascii_lowercase().as_str() {
+                "dic" => store.export_dic().into_bytes(),
+                "json" => store.to_json()?,
+                other => {
+                    return Err(NfcError::InvalidArgument(format!(
+                        "unknown key export format {other:?}; use dic or json"
+                    )));
+                }
+            };
+            match output {
+                Some(path) => {
+                    write_output(&path, &bytes)?;
+                    println!("wrote {} ({} bytes)", path.display(), bytes.len());
+                }
+                None => {
+                    io::stdout().write_all(&bytes).map_err(|error| {
+                        NfcError::Io(format!("could not write stdout: {error}"))
+                    })?;
+                }
             }
             Ok(())
         }

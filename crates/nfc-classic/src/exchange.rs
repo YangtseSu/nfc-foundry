@@ -17,6 +17,9 @@ const CREATED_BY: &str = "NFC Foundry";
 /// represent partial images, masked bytes, and invalid trailer state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DumpFormat {
+    /// Complete images export as raw, partial images as the project format.
+    /// Loading with `auto` detects the format from the content.
+    Auto,
     Project,
     Raw,
     Mct,
@@ -26,22 +29,52 @@ pub enum DumpFormat {
 impl DumpFormat {
     pub fn parse(name: &str) -> Result<Self> {
         match name.trim().to_ascii_lowercase().as_str() {
+            "auto" => Ok(Self::Auto),
             "project" => Ok(Self::Project),
             "raw" => Ok(Self::Raw),
             "mct" => Ok(Self::Mct),
             "proxmark3" => Ok(Self::Proxmark3),
             other => Err(NfcError::InvalidArgument(format!(
-                "unknown dump format {other:?}; use project, raw, mct, or proxmark3"
+                "unknown dump format {other:?}; use auto, project, raw, mct, or proxmark3"
             ))),
         }
     }
 
     pub const fn name(self) -> &'static str {
         match self {
+            Self::Auto => "auto",
             Self::Project => "project",
             Self::Raw => "raw",
             Self::Mct => "mct",
             Self::Proxmark3 => "proxmark3",
+        }
+    }
+
+    /// Concrete format used when exporting this choice for `dump`.
+    pub fn resolve(self, dump: &Dump) -> Self {
+        match self {
+            Self::Auto if dump.complete() => Self::Raw,
+            Self::Auto => Self::Project,
+            concrete => concrete,
+        }
+    }
+
+    /// Whether this format can represent the image. External formats need
+    /// every byte to be known; the project format keeps unknown bytes.
+    pub fn can_represent(self, dump: &Dump) -> bool {
+        match self.resolve(dump) {
+            Self::Project => true,
+            _ => dump.complete(),
+        }
+    }
+
+    /// Default file name for this format. `auto` resolves first.
+    pub const fn default_file_name(self) -> &'static str {
+        match self {
+            Self::Auto | Self::Raw => "card-dump.bin",
+            Self::Mct => "card-dump.mct",
+            Self::Proxmark3 => "card-dump.mfc.json",
+            Self::Project => "card-dump.nfc-foundry.json",
         }
     }
 }
@@ -90,6 +123,7 @@ pub fn load(data: &[u8]) -> Result<DumpLoad> {
 /// exactly.
 pub fn load_as(data: &[u8], format: DumpFormat) -> Result<DumpLoad> {
     match format {
+        DumpFormat::Auto => load(data),
         DumpFormat::Project => Ok(DumpLoad {
             format,
             dump: parse_project(data)?,
@@ -131,7 +165,8 @@ pub fn export(dump: &Dump, format: DumpFormat) -> Result<Vec<u8>> {
     if let Some(card) = &dump.card {
         validate_card_identity(card)?;
     }
-    match format {
+    match format.resolve(dump) {
+        DumpFormat::Auto => unreachable!("resolve never returns auto"),
         DumpFormat::Project => encode_project(dump),
         DumpFormat::Raw => {
             validate_external(dump)?;

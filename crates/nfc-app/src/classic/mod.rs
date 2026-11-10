@@ -20,5 +20,5 @@ pub use ndef::{
     ClassicNdefWrite, ClassicNdefWriteResult,
 };
 pub use read::{ClassicRead, ClassicReadResult};
-pub use restore::{ClassicRestore, ClassicRestoreResult};
+pub use restore::{ClassicRestore, ClassicRestoreResult, RestoreBlockResult, RestoreBlockState};
 pub use write::{ClassicBlockWrite, ClassicWriteResult};

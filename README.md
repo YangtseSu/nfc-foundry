@@ -186,13 +186,20 @@ commands can be exercised without a card:
 
 ```sh
 cargo run -p nfctl -- --mock --device mock:classic-1k classic dump \
-  --output /tmp/card.json
+  --output /tmp/card-dump.bin
 cargo run -p nfctl -- --mock --device mock:classic-1k classic read --block 4
 cargo run -p nfctl -- --mock --device mock:classic-1k \
   --backup-dir /tmp/nfc-backups classic write --block 4 \
   --data 000102030405060708090A0B0C0D0E0F
 cargo run -p nfctl -- --mock --device mock:classic-1k classic keyscan
 ```
+
+`classic dump` defaults to `--format auto`: a complete image is written as a
+Proxmark3 raw `.bin`, and a partial image as the lossless NFC Foundry project
+`.nfc-foundry.json`. `--format raw`, `proxmark3`, `mct`, and `project` select a
+format explicitly; raw, Proxmark3 JSON, and MCT are refused for partial images
+because unknown bytes cannot be represented. Backup files always use the
+project format.
 
 The mock Classic NDEF 1K carries a valid MAD1 image and a Text record:
 
@@ -213,9 +220,13 @@ cargo run -p nfctl -- --mock --device mock:ntag215 ndef read
 cargo run -p nfctl -- --mock --device mock:ntag215 type2 dump --output ntag.json
 ```
 
-`nfctl classic keys list|import|add` manages the JSON key store. Pass
+`nfctl classic keys list|import|add|export` manages the JSON key store. Pass
 `--key-store <path>` to choose it explicitly; otherwise the default is
-`$XDG_CONFIG_HOME/nfc-foundry/classic-keys.json`.
+`$XDG_CONFIG_HOME/nfc-foundry/classic-keys.json`. `keys export --format dic`
+writes the Proxmark3 dictionary dialect: unique uppercase 12-hex keys, one per
+line. Import accepts that dialect plus the JSON store. `.dic` cannot carry
+sector, A/B, or provenance, and imported `.dic` keys apply to every sector as
+`any`.
 
 ## Hardware reader
 
@@ -233,9 +244,9 @@ Card workflow example:
 
 ```sh
 cargo run -p nfctl -- --device pn532_uart:/dev/ttyUSB0 \
-  --key FFFFFFFFFFFF classic dump --output card.json
+  --key FFFFFFFFFFFF classic dump --output card-dump.bin
 cargo run -p nfctl -- --device pn532_uart:/dev/ttyUSB0 \
-  --key FFFFFFFFFFFF classic restore --input card.json --yes
+  --key FFFFFFFFFFFF classic restore --input card-dump.bin --yes
 ```
 
 PN532 UART firmware identification, Classic 1K selection/authentication/read,
@@ -311,12 +322,14 @@ still pending because no ACR122U was connected.
 
 ## GUI
 
-The GTK4 workbench lives in `crates/gui`. This slice includes the shell, real
-reader selection, Classic read/table/inspector, verified block write, dump
-save/load, and a read-only Classic NDEF view. Keys, diff, recovery, NDEF
-mutations, Type 2/Type 4 screens, the `zh-CN` catalog, GUI integration tests,
-and packaging remain in progress. The application icon and desktop entry are
-in `resources/` for the packaged application.
+The GTK4 workbench lives in `crates/gui`. It includes the shell, real reader
+selection, Classic read/table/inspector, verified block write, dump save/load
+with format selection, Keys, Diff, Restore, and a read-only Classic NDEF view.
+Writes and restores pass the loaded image's card identity to the service and
+are refused with `CardChanged` before any backup if the live card differs.
+Recovery, NDEF mutations, Type 2/Type 4 screens, the `zh-CN` catalog, and
+packaging remain in progress. The application icon and desktop entry are in
+`resources/` for the packaged application.
 
 ## Documentation
 

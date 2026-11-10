@@ -23,7 +23,8 @@
 
 ## Verification
 
-- `cargo test -p nfc-foundry`: 4 tests pass.
+- `cargo test -p nfc-foundry`: presentation tests passed at this slice; the
+  Keys, Diff, Restore, dump-format, and Xvfb UI work landed in phase 19a.
 - `cargo clippy -p nfc-foundry --all-targets -- -D warnings`: clean.
 - Real hardware on 2026-11-11 through PN532 UART
   `pn532_uart:/dev/ttyUSB0`:
@@ -60,12 +61,14 @@
 
 ## Remaining
 
-- Keys, diff, recovery, restore, dump formats, and Advanced UID/factory
-  screens.
+- Recovery and Advanced UID/factory screens.
 - NDEF composer/write/format over the shared document path; Type 2 and Type 4
   screens.
 - `zh-CN` catalog and in-app language switch.
-- GTK UI integration tests (the current tests are pure presentation tests).
 - Packaging: GTK dependencies, GUI binary, icon, desktop entry, and release
   tarball. The GUI is not shipped until feature complete.
 - Windows/macOS assessment is deferred until after Linux feature parity.
+
+Keys, diff, restore, dump formats, the completed inspector, the write identity
+guard, and mock/Xvfb GTK UI tests are implemented in phase 19a; see
+[19a-classic-pm3.md](19a-classic-pm3.md).

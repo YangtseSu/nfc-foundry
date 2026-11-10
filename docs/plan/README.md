@@ -30,7 +30,7 @@ domain and CLI work.
 | 17 | Amiibo / NTAG215 read, decrypt, encrypt, write (user keys/data) | optional |
 | 18 | Workbench UI redesign, bilingual UI, icon and desktop entry | done (GPUI; GUI superseded by 19) |
 | 19 | GTK4 workbench: shell, Classic slice, then parity screens | in progress |
-| 19a | Classic completion: PM3 interchange, keys, diff/restore, safety, UI tests | pending |
+| 19a | Classic completion: PM3 interchange, keys, diff/restore, safety, UI tests | done |
 
 ## Rules
 
@@ -658,4 +658,5 @@ and a second frontend.
 Detailed plan: [19a-classic-pm3.md](19a-classic-pm3.md). Spec:
 [19a-classic-pm3.md](../specs/19a-classic-pm3.md).
 
-Status: pending. Start at commit `403e0f7` on `feat/gtk4-ui`.
+Status: complete 2026-11-11. See `docs/specs/19a-classic-pm3.md` and
+`docs/notes/19a-classic-pm3.md`.

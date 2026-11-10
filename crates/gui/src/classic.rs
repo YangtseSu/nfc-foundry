@@ -3,7 +3,10 @@
 //! The GTK view never reads a card itself. These helpers turn a [`Dump`] into
 //! rows and parse the hex editor; `nfc-app` owns the actual operations.
 
-use nfc_classic::{Block, BlockStatus, Dump, Layout};
+use nfc_classic::{
+    AccessBits, BccStatus, Block, BlockKind, BlockStatus, DiffState, Dump, DumpDiff, KeyMask,
+    Layout, value,
+};
 
 /// One row in the Classic block table. Rows are immutable snapshots; a write
 /// replaces the row with a fresh snapshot from the service result.
@@ -104,6 +107,324 @@ pub fn display_layout(layout: Layout) -> &'static str {
     }
 }
 
+/// Inspector detail for one block: decoded access conditions, value-block
+/// contents, BCC state, and warnings. Empty lines separate sections.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct BlockInsight {
+    pub details: String,
+    pub warnings: Vec<String>,
+}
+
+pub fn inspect_block(dump: &Dump, number: usize) -> Option<BlockInsight> {
+    let block = dump.blocks.get(number)?;
+    let mut lines = Vec::new();
+    let mut warnings = Vec::new();
+    if !block.complete() {
+        warnings.push("Some bytes were not read; unknown bytes are never treated as zero.".into());
+    }
+    if number == 0 {
+        lines.push(manufacturer_bcc(dump).unwrap_or_else(|error| {
+            warnings.push(error);
+            "BCC: not checked".to_owned()
+        }));
+    }
+    if number == 0 || block.complete() {
+        let sector = block.sector;
+        match dump.access_bits(sector) {
+            Ok(bits) => {
+                let group = dump
+                    .layout
+                    .access_group_for_block(number)
+                    .expect("block within layout");
+                if number == 0 {
+                    lines.push(format!(
+                        "Sector 0 access bits {} · group 0 · {} · {}",
+                        access_hex(&bits),
+                        condition_code(bits.groups[0]),
+                        data_permissions(bits.groups[0])
+                    ));
+                } else if dump.layout.is_trailer(number).unwrap_or(false) {
+                    lines.push(trailer_access(dump.layout, sector, &bits, block));
+                } else {
+                    lines.push(format!(
+                        "Access group {group} · {} · {}",
+                        group_blocks(dump.layout, sector, group),
+                        condition_code(bits.groups[group])
+                    ));
+                    lines.push(data_permissions(bits.groups[group]));
+                }
+            }
+            Err(error) => warnings.push(error.to_string()),
+        }
+        if number != 0 && !dump.layout.is_trailer(number).unwrap_or(false) {
+            let data = block.data;
+            if let Ok(value) = value::decode(data) {
+                lines.push(format!(
+                    "Value block · value {} · address {}",
+                    value.value, value.address
+                ));
+            }
+        }
+    }
+    Some(BlockInsight {
+        details: lines.join("\n"),
+        warnings,
+    })
+}
+
+fn manufacturer_bcc(dump: &Dump) -> Result<String, String> {
+    let Some(card) = &dump.card else {
+        return Ok("BCC: no card identity; cannot check".to_owned());
+    };
+    match dump
+        .validate_bcc(card.uid.len())
+        .map_err(|error| error.to_string())?
+    {
+        BccStatus::Valid => Ok(format!("BCC {:02X} · valid", dump.blocks[0].data[4])),
+        BccStatus::Invalid { expected, actual } => Err(format!(
+            "BCC {actual:02X} does not match the UID (expected {expected:02X})"
+        )),
+        BccStatus::NotApplicable => Ok("BCC: not applicable for this UID length".to_owned()),
+    }
+}
+
+fn trailer_access(layout: Layout, sector: usize, bits: &AccessBits, block: &Block) -> String {
+    let mut text = format!(
+        "Sector {sector} trailer · access bytes {} {}\n",
+        access_hex(bits),
+        condition_codes(bits)
+    );
+    for group in 0..3 {
+        text.push_str(&format!(
+            "Group {group} · {} · {} · {}\n",
+            group_blocks(layout, sector, group),
+            condition_code(bits.groups[group]),
+            data_permissions(bits.groups[group])
+        ));
+    }
+    let permissions = bits.groups[3].trailer_access();
+    text.push_str(&format!(
+        "Group 3 · {} · {} · Key A write {} · access write {} · Key B write {} · Key B readable {}",
+        group_blocks(layout, sector, 3),
+        condition_code(bits.groups[3]),
+        mask_label(permissions.write_key_a),
+        mask_label(permissions.write_access),
+        mask_label(permissions.write_key_b),
+        if permissions.key_b_readable {
+            "yes"
+        } else {
+            "no"
+        }
+    ));
+    text.push_str(&format!(
+        "\nKey A {} · Key B {} · GPB {:02X}",
+        hex_bytes(&block.data[0..6]),
+        hex_bytes(&block.data[10..16]),
+        block.data[9]
+    ));
+    text
+}
+
+fn access_hex(bits: &AccessBits) -> String {
+    let [b6, b7, b8] = bits.encode();
+    format!("{b6:02X} {b7:02X} {b8:02X}")
+}
+
+fn condition_codes(bits: &AccessBits) -> String {
+    let codes = bits
+        .groups
+        .iter()
+        .map(|condition| condition_code(*condition))
+        .collect::<Vec<_>>()
+        .join(" / ");
+    format!("groups {codes}")
+}
+
+fn condition_code(condition: nfc_classic::AccessCondition) -> String {
+    format!("C1C2C3 {:03b}", condition.code())
+}
+
+fn data_permissions(condition: nfc_classic::AccessCondition) -> String {
+    format!(
+        "read {} · write {} · increment {} · decrement {}",
+        mask_label(condition.data_read_keys()),
+        mask_label(condition.data_write_keys()),
+        mask_label(condition.data_increment_keys()),
+        mask_label(condition.data_decrement_keys())
+    )
+}
+
+fn mask_label(mask: KeyMask) -> &'static str {
+    match (mask.allows_a(), mask.allows_b()) {
+        (true, true) => "A|B",
+        (true, false) => "A",
+        (false, true) => "B",
+        (false, false) => "never",
+    }
+}
+
+fn group_blocks(layout: Layout, sector: usize, group: usize) -> String {
+    let Ok(first) = layout.first_block(sector) else {
+        return "unknown".to_owned();
+    };
+    let Ok(count) = layout.blocks_in_sector(sector) else {
+        return "unknown".to_owned();
+    };
+    let trailer = first + count - 1;
+    if group == 3 {
+        return format!("block {trailer}");
+    }
+    let range = if count == 16 {
+        let start = first + group * 5;
+        (start, start + 4)
+    } else {
+        (first + group, first + group)
+    };
+    if range.0 == range.1 {
+        format!("block {}", range.0)
+    } else {
+        format!("blocks {}-{}", range.0, range.1)
+    }
+}
+
+fn hex_bytes(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02X}")).collect()
+}
+
+/// One save-format choice in the dump dialog.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SaveFormatOption {
+    pub format: nfc_classic::DumpFormat,
+    pub label: &'static str,
+    pub enabled: bool,
+}
+
+/// Save choices with a completeness-sensitive default. Auto stays first and
+/// resolves to raw for a complete image or project for a partial image.
+pub fn save_format_options(dump: &Dump) -> Vec<SaveFormatOption> {
+    use nfc_classic::DumpFormat;
+    [
+        (DumpFormat::Auto, "Automatic (raw or project)"),
+        (DumpFormat::Raw, "Proxmark3 raw (.bin)"),
+        (DumpFormat::Proxmark3, "Proxmark3 JSON (.mfc.json)"),
+        (DumpFormat::Mct, "MCT text (.mct)"),
+        (
+            DumpFormat::Project,
+            "NFC Foundry project (.nfc-foundry.json)",
+        ),
+    ]
+    .into_iter()
+    .map(|(format, label)| SaveFormatOption {
+        format,
+        label,
+        enabled: format.can_represent(dump),
+    })
+    .collect()
+}
+
+/// One row in the diff table. Equal blocks are summarized only.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DiffRow {
+    pub number: usize,
+    pub sector: usize,
+    pub kind: &'static str,
+    pub state: &'static str,
+    pub detail: String,
+}
+
+pub fn diff_rows(diff: &DumpDiff) -> Vec<DiffRow> {
+    diff.blocks
+        .iter()
+        .filter(|block| block.state != DiffState::Equal)
+        .map(|block| DiffRow {
+            number: block.block,
+            sector: block.sector,
+            kind: diff_kind_label(block.kind),
+            state: diff_state_label(block.state),
+            detail: diff_detail(block),
+        })
+        .collect()
+}
+
+fn diff_kind_label(kind: BlockKind) -> &'static str {
+    match kind {
+        BlockKind::Manufacturer => "M",
+        BlockKind::Data => "D",
+        BlockKind::Trailer => "T",
+    }
+}
+
+fn diff_state_label(state: DiffState) -> &'static str {
+    match state {
+        DiffState::Equal => "equal",
+        DiffState::Changed => "changed",
+        DiffState::Unknown => "unknown",
+    }
+}
+
+fn diff_detail(block: &nfc_classic::BlockDiff) -> String {
+    let mut parts = Vec::new();
+    if let Some(trailer) = &block.trailer {
+        if trailer.key_a_changed {
+            parts.push(format!(
+                "Key A {} → {}",
+                trailer.before_key_a.to_hex(),
+                trailer.after_key_a.to_hex()
+            ));
+        }
+        if trailer.key_b_changed {
+            parts.push(format!(
+                "Key B {} → {}",
+                trailer.before_key_b.to_hex(),
+                trailer.after_key_b.to_hex()
+            ));
+        }
+        if trailer.access_changed {
+            parts.push(format!(
+                "access {} → {}",
+                hex_bytes(&trailer.before_access),
+                hex_bytes(&trailer.after_access)
+            ));
+        }
+        if trailer.gpb_changed {
+            parts.push(format!(
+                "GPB {:02X} → {:02X}",
+                trailer.before_gpb, trailer.after_gpb
+            ));
+        }
+        if let Some(error) = &trailer.error {
+            parts.push(error.clone());
+        }
+    }
+    if block.state == DiffState::Unknown {
+        parts.push("unknown bytes on one or both sides".to_owned());
+    }
+    for byte in block.bytes.iter().take(4) {
+        let before = if byte.before_known {
+            format!("{:02X}", byte.before)
+        } else {
+            "??".to_owned()
+        };
+        let after = if byte.after_known {
+            format!("{:02X}", byte.after)
+        } else {
+            "??".to_owned()
+        };
+        parts.push(format!("[{:02}] {before} → {after}", byte.offset));
+    }
+    if block.bytes.len() > 4 {
+        parts.push(format!("+{} more", block.bytes.len() - 4));
+    }
+    parts.join("; ")
+}
+
+/// Whether a restore action is available: a loaded complete-or-partial image,
+/// a live selected card, and no running operation. The service enforces its
+/// own gates; this is only the button state.
+pub fn restore_ready(live: bool, busy: bool, loaded: bool) -> bool {
+    live && !busy && loaded
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -144,5 +465,104 @@ mod tests {
         assert_eq!(kind_label(0, Layout::Classic1K), "M");
         assert_eq!(kind_label(3, Layout::Classic1K), "T");
         assert_eq!(kind_label(4, Layout::Classic1K), "D");
+    }
+
+    fn complete_dump() -> Dump {
+        let mut raw = vec![0u8; Layout::Classic1K.dump_size()];
+        raw[0..4].copy_from_slice(&[1, 2, 3, 4]);
+        raw[4] = nfc_classic::bcc_for_uid(&[1, 2, 3, 4]).expect("bcc");
+        for sector in 0..Layout::Classic1K.sector_count() {
+            let block = Layout::Classic1K.trailer_block(sector).expect("trailer");
+            let offset = block * 16;
+            raw[offset + 6..offset + 9].copy_from_slice(&[0xFF, 0x07, 0x80]);
+            raw[offset + 9] = 0x69;
+        }
+        Dump::from_raw(&raw)
+            .expect("complete image")
+            .with_card(nfc_core::CardInfo::new(
+                vec![1, 2, 3, 4],
+                [0x00, 0x04],
+                0x08,
+                nfc_core::CardType::MifareClassic1K,
+            ))
+    }
+
+    #[test]
+    fn inspect_decodes_bcc_value_block_and_trailer() {
+        let mut dump = complete_dump();
+        dump.blocks[4].set_read(value::encode(value::ValueBlock {
+            value: 1234,
+            address: 4,
+        }));
+        dump.blocks[5].set_read(value::encode(value::ValueBlock {
+            value: -7,
+            address: 5,
+        }));
+        let manufacturer = inspect_block(&dump, 0).expect("block 0");
+        assert!(manufacturer.details.contains("BCC"));
+        assert!(manufacturer.details.contains("valid"));
+        let data = inspect_block(&dump, 4).expect("block 4");
+        assert!(
+            data.details
+                .contains("Value block · value 1234 · address 4")
+        );
+        assert!(data.details.contains("Access group 0 · block 4"));
+        let trailer = inspect_block(&dump, 7).expect("trailer");
+        assert!(trailer.details.contains("Sector 1 trailer"));
+        assert!(trailer.details.contains("Group 0"));
+        assert!(trailer.details.contains("Key A"));
+    }
+
+    #[test]
+    fn inspect_reports_invalid_trailer_and_unknown_bytes() {
+        let mut dump = complete_dump();
+        dump.blocks[7].data[6] = 0x00;
+        dump.blocks[8].known_mask = 0x000F;
+        let trailer = inspect_block(&dump, 7).expect("trailer");
+        assert!(!trailer.warnings.is_empty());
+        let data = inspect_block(&dump, 8).expect("block 8");
+        assert!(
+            data.warnings
+                .iter()
+                .any(|warning| warning.contains("not read"))
+        );
+    }
+
+    #[test]
+    fn save_options_follow_completeness() {
+        let complete = complete_dump();
+        let partial = Dump::new(Layout::Classic1K);
+        let complete_options = save_format_options(&complete);
+        assert_eq!(complete_options[0].format, nfc_classic::DumpFormat::Auto);
+        assert!(complete_options.iter().all(|option| option.enabled));
+        let partial_options = save_format_options(&partial);
+        for option in &partial_options {
+            match option.format {
+                nfc_classic::DumpFormat::Raw
+                | nfc_classic::DumpFormat::Proxmark3
+                | nfc_classic::DumpFormat::Mct => assert!(!option.enabled, "{option:?}"),
+                nfc_classic::DumpFormat::Auto | nfc_classic::DumpFormat::Project => {
+                    assert!(option.enabled)
+                }
+            }
+        }
+        assert_eq!(
+            nfc_classic::DumpFormat::Auto.default_file_name(),
+            "card-dump.bin"
+        );
+    }
+
+    #[test]
+    fn diff_rows_keep_only_informative_blocks() {
+        let before = complete_dump();
+        let mut after = before.clone();
+        after.blocks[4].set_read([0xAA; 16]);
+        after.blocks[5].known_mask = 0;
+        let rows = diff_rows(&nfc_classic::diff::diff(&before, &after).expect("diff"));
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].state, "changed");
+        assert!(rows[0].detail.contains("[00]"));
+        assert_eq!(rows[1].state, "unknown");
+        assert!(rows[1].detail.contains("unknown bytes"));
     }
 }

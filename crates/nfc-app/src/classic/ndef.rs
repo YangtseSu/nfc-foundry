@@ -6,7 +6,7 @@ use nfc_classic_ndef::{
     NFC_KEY_A, NFC_RO_ACCESS_BITS, NFC_RW_ACCESS_BITS, NdefState, encode_ndef_area,
     format_ndef_area, length_field_bytes, read_ndef,
 };
-use nfc_core::{BLOCK_SIZE, CancelToken, Key, KeyType, NfcError, Result};
+use nfc_core::{BLOCK_SIZE, CancelToken, CardInfo, Key, KeyType, NfcError, Result};
 use nfc_ndef::NdefMessage;
 
 use crate::operation::Operation;
@@ -14,7 +14,7 @@ use crate::operation::Operation;
 use super::backup::{BackupRecord, BackupStore};
 use super::keys::KeyStore;
 use super::read::candidate_keys;
-use super::write::{AllowedTypes, backup_label};
+use super::write::{AllowedTypes, backup_label, check_expected_card};
 
 const FACTORY_KEY_B: [u8; 6] = [0xFF; 6];
 
@@ -59,6 +59,8 @@ pub struct ClassicNdefWrite<'a> {
     pub message: NdefMessage,
     pub keys: &'a KeyStore,
     pub include_common_keys: bool,
+    /// Identity of the image the write was composed from.
+    pub expected_card: Option<CardInfo>,
     pub backup: &'a BackupStore,
     pub cancel: CancelToken,
 }
@@ -69,6 +71,7 @@ impl<'a> ClassicNdefWrite<'a> {
             message,
             keys,
             include_common_keys: true,
+            expected_card: None,
             backup,
             cancel: CancelToken::new(),
         }
@@ -76,6 +79,11 @@ impl<'a> ClassicNdefWrite<'a> {
 
     pub fn include_common_keys(mut self, include: bool) -> Self {
         self.include_common_keys = include;
+        self
+    }
+
+    pub fn expected_card(mut self, card: CardInfo) -> Self {
+        self.expected_card = Some(card);
         self
     }
 
@@ -103,6 +111,8 @@ pub struct ClassicNdefFormat<'a> {
     pub backup: &'a BackupStore,
     pub read_only: bool,
     pub confirm: bool,
+    /// Identity of the image the format was composed from.
+    pub expected_card: Option<CardInfo>,
     pub cancel: CancelToken,
 }
 
@@ -114,6 +124,7 @@ impl<'a> ClassicNdefFormat<'a> {
             backup,
             read_only: false,
             confirm: false,
+            expected_card: None,
             cancel: CancelToken::new(),
         }
     }
@@ -131,6 +142,11 @@ impl<'a> ClassicNdefFormat<'a> {
     /// Formatting replaces keys and access bits; the caller must confirm.
     pub fn confirm(mut self, confirm: bool) -> Self {
         self.confirm = confirm;
+        self
+    }
+
+    pub fn expected_card(mut self, card: CardInfo) -> Self {
+        self.expected_card = Some(card);
         self
     }
 
@@ -176,6 +192,7 @@ pub(crate) fn write(
     request: ClassicNdefWrite<'_>,
 ) -> Result<ClassicNdefWriteResult> {
     request.cancel.check()?;
+    check_expected_card(operation.card(), request.expected_card.as_ref())?;
     let read = super::read::read_dump(operation, request.keys, request.include_common_keys)?;
     let info = read_ndef(&read.dump)?;
     let layout = info.layout.as_ref().ok_or_else(|| {
@@ -312,6 +329,7 @@ pub(crate) fn format(
             "formatting replaces sector keys and access bits; confirmation is required".to_owned(),
         ));
     }
+    check_expected_card(operation.card(), request.expected_card.as_ref())?;
     let read = super::read::read_dump(operation, request.keys, request.include_common_keys)?;
     if !read.dump.complete() {
         return Err(NfcError::VerificationFailed(

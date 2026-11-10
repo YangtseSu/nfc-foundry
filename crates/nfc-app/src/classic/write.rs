@@ -2,7 +2,7 @@
 
 use crate::operation::Operation;
 use nfc_classic::{AccessBits, Dump, KeyMask, Layout};
-use nfc_core::{BLOCK_SIZE, CancelToken, Key, KeyType, NfcError, Result};
+use nfc_core::{BLOCK_SIZE, CancelToken, CardInfo, Key, KeyType, NfcError, Result};
 
 use super::backup::{BackupRecord, BackupStore};
 use super::keys::KeyStore;
@@ -20,6 +20,9 @@ pub struct ClassicBlockWrite<'a> {
     /// Sector trailers require an explicit confirmation at the service
     /// boundary.
     pub confirm_trailer: bool,
+    /// Identity of the image the write was composed from. A live card with a
+    /// different UID, ATQA, or SAK is refused before the backup.
+    pub expected_card: Option<CardInfo>,
     pub backup: &'a BackupStore,
     pub cancel: CancelToken,
 }
@@ -38,6 +41,7 @@ impl<'a> ClassicBlockWrite<'a> {
             include_common_keys: true,
             key: None,
             confirm_trailer: false,
+            expected_card: None,
             backup,
             cancel: CancelToken::new(),
         }
@@ -55,6 +59,11 @@ impl<'a> ClassicBlockWrite<'a> {
 
     pub fn confirm_trailer(mut self, confirm: bool) -> Self {
         self.confirm_trailer = confirm;
+        self
+    }
+
+    pub fn expected_card(mut self, card: CardInfo) -> Self {
+        self.expected_card = Some(card);
         self
     }
 
@@ -80,6 +89,7 @@ pub fn write_block(
     request: ClassicBlockWrite<'_>,
 ) -> Result<ClassicWriteResult> {
     request.cancel.check()?;
+    check_expected_card(operation.card(), request.expected_card.as_ref())?;
     let layout = layout_for_card(operation.card())?;
     if request.block >= layout.block_count() {
         return Err(NfcError::InvalidArgument(format!(
@@ -198,6 +208,15 @@ pub fn write_block(
         changed: true,
         backup: Some(backup),
     })
+}
+
+/// Refuses an operation whose image came from a different card. The check
+/// runs before any backup or mutation, so a card swap leaves no trace.
+pub(crate) fn check_expected_card(actual: &CardInfo, expected: Option<&CardInfo>) -> Result<()> {
+    match expected {
+        Some(expected) if !expected.same_identity(actual) => Err(NfcError::CardChanged),
+        _ => Ok(()),
+    }
 }
 
 pub(crate) struct AllowedTypes {

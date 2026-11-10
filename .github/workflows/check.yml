@@ -25,13 +25,19 @@ jobs:
             libudev-dev \
             libgtk-4-dev \
             libadwaita-1-dev \
-            desktop-file-utils
+            desktop-file-utils \
+            xvfb
       - name: Format
         run: cargo fmt --all --check
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Tests
         run: cargo test --workspace
+      - name: GTK UI tests
+        run: |
+          env -u WAYLAND_DISPLAY NFC_FOUNDRY_GUI_TESTS=1 \
+            xvfb-run -a env GDK_BACKEND=x11 \
+            cargo test -p nfc-foundry gtk_workbench_scenarios
       - name: Desktop entry
         run: desktop-file-validate resources/nfc-foundry.desktop
       - name: REUSE

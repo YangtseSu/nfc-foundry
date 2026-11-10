@@ -18,7 +18,7 @@ pub use classic::{
     ClassicNdefFormat, ClassicNdefFormatResult, ClassicNdefRead, ClassicNdefReadResult,
     ClassicNdefWrite, ClassicNdefWriteResult, ClassicRead, ClassicReadResult, ClassicRestore,
     ClassicRestoreResult, ClassicWriteResult, KeyEntry, KeyKind, KeySource, KeyStore, KeyTypes,
-    SectorKeys,
+    RestoreBlockResult, RestoreBlockState, SectorKeys,
 };
 pub use device::DeviceManager;
 pub use nfc_classic_ndef::{

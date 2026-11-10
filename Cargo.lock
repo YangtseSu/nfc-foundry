@@ -905,6 +905,7 @@ dependencies = [
  "nfc-drivers",
  "nfc-ndef",
  "nfc-transport",
+ "tempfile",
 ]
 
 [[package]]
@@ -971,6 +972,7 @@ dependencies = [
  "nfc-transport",
  "nfc-type2",
  "nfc-type4",
+ "serde_json",
  "tempfile",
 ]
 

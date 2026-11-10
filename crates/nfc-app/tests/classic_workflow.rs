@@ -3,7 +3,9 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use nfc_app::classic::{ClassicBlockWrite, ClassicKeyscan, ClassicRead, ClassicRestore, KeyTypes};
+use nfc_app::classic::{
+    ClassicBlockWrite, ClassicKeyscan, ClassicRead, ClassicRestore, KeyTypes, RestoreBlockState,
+};
 use nfc_app::{BackupStore, KeyEntry, KeyKind, KeySource, KeyStore, Service};
 use nfc_classic::{AccessBits, AccessCondition, Dump, Layout, bcc_for_uid};
 use nfc_core::{BLOCK_SIZE, CancelToken, CardInfo, CardType, Key, KeyType, NfcError, Result};
@@ -397,6 +399,30 @@ fn single_block_write_backs_up_before_writing_and_verifies_read_back() {
 }
 
 #[test]
+fn single_block_write_refuses_a_card_swap_before_backup() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+    let source = read_dump(&mut service, &store);
+    let expected = source.card.clone().expect("source identity");
+
+    handle.lock().card = Some(card_with_uid(0x55));
+    let result = service.classic_write_block(
+        ClassicBlockWrite::new(4, [0xA5; BLOCK_SIZE], &store, &backup).expected_card(expected),
+    );
+    assert!(matches!(result, Err(NfcError::CardChanged)));
+    assert!(handle.lock().write_log.is_empty());
+    assert_eq!(
+        std::fs::read_dir(directory.path())
+            .expect("backup dir")
+            .count(),
+        0
+    );
+}
+
+#[test]
 fn single_block_write_detects_an_ignored_write() {
     let handle = TestHandle::new(TestState::with_card(card()));
     handle.lock().ignore_write = Some(5);
@@ -438,6 +464,12 @@ fn restore_writes_data_blocks_before_the_trailer_and_backs_up() {
     assert_eq!(result.written_blocks, 4);
     assert_eq!(result.trailer_writes, 1);
     assert!(result.failures.is_empty());
+    assert_eq!(result.blocks.len(), 64);
+    assert_eq!(result.blocks[0].state, RestoreBlockState::Unchanged);
+    for block in 4..=7 {
+        assert_eq!(result.blocks[block].state, RestoreBlockState::Written);
+    }
+    assert_eq!(result.blocks[8].state, RestoreBlockState::Unchanged);
     assert_eq!(handle.lock().write_log, vec![4, 5, 6, 7]);
     assert_eq!(handle.lock().blocks[&7], new_trailer);
     let record = result.backup.expect("backup");
@@ -501,6 +533,9 @@ fn restore_honors_the_explicit_continue_policy() {
     assert_eq!(result.written_blocks, 3);
     assert_eq!(result.failures.len(), 1);
     assert!(result.failures[0].contains("block 5"));
+    assert_eq!(result.blocks[5].state, RestoreBlockState::Failed);
+    assert_eq!(result.blocks[4].state, RestoreBlockState::Written);
+    assert_eq!(result.blocks[7].state, RestoreBlockState::Written);
     assert_eq!(handle.lock().write_log, vec![4, 5, 6, 7]);
     assert_eq!(handle.lock().blocks[&4], [0x44; BLOCK_SIZE]);
     assert_eq!(handle.lock().blocks[&5], [5; BLOCK_SIZE]);
@@ -519,8 +554,14 @@ fn restore_rejects_identity_mismatch_and_block_zero_changes_before_writing() {
     different_card.card = Some(card_with_uid(0x77));
     let result = service
         .classic_restore(ClassicRestore::new(different_card, &store, &backup).confirmed(true));
-    assert!(matches!(result, Err(NfcError::VerificationFailed(_))));
+    assert!(matches!(result, Err(NfcError::CardChanged)));
     assert!(handle.lock().write_log.is_empty());
+    assert_eq!(
+        std::fs::read_dir(directory.path())
+            .expect("backup dir")
+            .count(),
+        0
+    );
 
     let mut different_block_zero = read_dump(&mut service, &store);
     different_block_zero.card = None;

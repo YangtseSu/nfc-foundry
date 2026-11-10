@@ -175,6 +175,12 @@ impl KeyStore {
     }
 
     pub fn save(&self, path: &Path) -> Result<()> {
+        write_atomic(path, &self.to_json()?)
+    }
+
+    /// Internal JSON store as UTF-8 bytes, including sector, key type, and
+    /// provenance.
+    pub fn to_json(&self) -> Result<Vec<u8>> {
         let document = StoreDocument {
             version: STORE_VERSION,
             keys: self
@@ -188,9 +194,21 @@ impl KeyStore {
                 })
                 .collect(),
         };
-        let bytes = serde_json::to_vec_pretty(&document)
+        let mut bytes = serde_json::to_vec_pretty(&document)
             .map_err(|error| NfcError::Io(format!("could not serialize the key store: {error}")))?;
-        write_atomic(path, &bytes)
+        bytes.push(b'\n');
+        Ok(bytes)
+    }
+
+    /// Proxmark3 `.dic` text: unique uppercase keys in candidate order, one
+    /// per line. Sector, key type, and provenance are not representable.
+    pub fn export_dic(&self) -> String {
+        let mut text = String::new();
+        for key in self.all_keys() {
+            text.push_str(&key.to_hex());
+            text.push('\n');
+        }
+        text
     }
 
     pub fn from_json(text: &str) -> Result<Self> {
@@ -259,10 +277,19 @@ impl KeyStore {
         self.import_text_str(&text)
     }
 
+    /// Imports a key file by content: JSON documents use the structured
+    /// importer, everything else uses the Proxmark3 `.dic` text dialect.
     pub fn import_text_str(&mut self, text: &str) -> Result<usize> {
         if text.trim_start().starts_with('{') {
             return self.import_json_str(text);
         }
+        self.import_dic_str(text)
+    }
+
+    /// Imports Proxmark3 `.dic` text: one 12-hex key per line, blank lines and
+    /// `#` comments accepted, inline comments allowed. Keys become wildcard
+    /// `any` entries.
+    pub fn import_dic_str(&mut self, text: &str) -> Result<usize> {
         let mut added = 0;
         for (index, line) in text.lines().enumerate() {
             let line = line.split('#').next().unwrap_or("").trim();
@@ -601,6 +628,69 @@ mod tests {
         assert_eq!(added, 2);
         assert_eq!(store.len(), 2);
         assert_eq!(store.candidates_for(0).len(), 4);
+    }
+
+    #[test]
+    fn dic_export_is_unique_uppercase_candidate_order() {
+        let mut store = KeyStore::new();
+        store
+            .add(KeyEntry::new(
+                Some(4),
+                KeyKind::B,
+                key(0xAB),
+                KeySource::KeyScan,
+            ))
+            .expect("sector key");
+        store
+            .add(KeyEntry::new(
+                None,
+                KeyKind::Any,
+                key(0xCD),
+                KeySource::KeyFile,
+            ))
+            .expect("wildcard");
+        store
+            .add(KeyEntry::new(
+                Some(6),
+                KeyKind::A,
+                key(0xAB),
+                KeySource::Manual,
+            ))
+            .expect("duplicate key");
+        assert_eq!(
+            store.export_dic(),
+            format!("{0}\n{1}\n", "AB".repeat(6), "CD".repeat(6))
+        );
+    }
+
+    #[test]
+    fn dic_import_skips_blank_and_inline_comments_and_rejects_bad_lines() {
+        let mut store = KeyStore::new();
+        let added = store
+            .import_dic_str(
+                "\n# PM3 dictionary\r\n\
+                 ffffffffffff\r\n\
+                 A0A1A2A3A4A5 # factory\n\
+                 # trailing comment\n\
+                 ffffffffffff\n",
+            )
+            .expect("dic import");
+        assert_eq!(added, 2);
+        assert_eq!(store.len(), 2);
+        assert_eq!(store.entries()[0].key.to_hex(), "FFFFFFFFFFFF");
+        assert_eq!(store.entries()[0].kind, KeyKind::Any);
+        assert_eq!(store.entries()[0].source, KeySource::KeyFile);
+        assert_eq!(store.entries()[1].key.to_hex(), "A0A1A2A3A4A5");
+
+        assert!(store.import_dic_str("FFFFFFFFFFFF extra\n").is_err());
+        assert!(store.import_dic_str("FFFFFFFF\n").is_err());
+        assert!(store.import_dic_str("GGGGGGGGGGGG\n").is_err());
+        assert_eq!(
+            store
+                .import_dic_str("# only comments\n")
+                .expect("empty import"),
+            0
+        );
     }
 
     #[test]

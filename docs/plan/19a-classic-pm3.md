@@ -1,6 +1,8 @@
 # Phase 19a plan: Classic completion and Proxmark3 interchange
 
-Status: pending. This is the next work package after the phase 19 first slice.
+Status: complete 2026-11-11. This was the work package after the phase 19
+first slice. Implementation record:
+[notes/19a-classic-pm3.md](../notes/19a-classic-pm3.md).
 
 Starting point: `feat/gtk4-ui` at `403e0f7` (clean). The GTK shell, real Classic
 read/table/inspector, verified block write, project save/load, and read-only
@@ -159,6 +161,16 @@ The file contract changes once, before the Keys and dump UI depend on it.
   warnings`, `cargo test --workspace`, and `reuse lint` pass.
 - Hardware verification remains read-only unless a write is explicitly
   authorized.
+
+## Verification (2026-11-11)
+
+- `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D
+  warnings`, `cargo test --workspace`, and `reuse lint` pass.
+- GTK scenarios pass under Xvfb:
+  `NFC_FOUNDRY_GUI_TESTS=1 xvfb-run -a cargo test -p nfc-foundry
+  gtk_workbench_scenarios`.
+- Hardware was not touched; no write hardware authorization was needed for
+  this work package.
 
 ## Non-goals
 

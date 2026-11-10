@@ -327,6 +327,85 @@ fn key_file_import_is_visible_to_read_commands() {
 }
 
 #[test]
+fn dump_auto_uses_pm3_raw_and_keys_export_round_trips() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let dump = directory.path().join("card-dump.bin");
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "classic",
+        "dump",
+        "--output",
+        dump.to_str().expect("path"),
+    ]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("(1024 bytes, raw)"), "{text}");
+    assert_eq!(std::fs::metadata(&dump).expect("dump").len(), 1024);
+
+    let store = directory.path().join("keys.json");
+    let dic = directory.path().join("keys.dic");
+    let output = nfctl(&[
+        "classic",
+        "keys",
+        "add",
+        "a0a1a2a3a4a5",
+        "--key-store",
+        store.to_str().expect("path"),
+    ]);
+    assert_success(&output);
+    let output = nfctl(&[
+        "classic",
+        "keys",
+        "export",
+        "--format",
+        "dic",
+        "--output",
+        dic.to_str().expect("path"),
+        "--key-store",
+        store.to_str().expect("path"),
+    ]);
+    assert_success(&output);
+    let exported = std::fs::read_to_string(&dic).expect("dic");
+    assert_eq!(exported, "A0A1A2A3A4A5\n");
+
+    let imported = directory.path().join("imported.json");
+    let output = nfctl(&[
+        "classic",
+        "keys",
+        "import",
+        dic.to_str().expect("path"),
+        "--key-store",
+        imported.to_str().expect("path"),
+    ]);
+    assert_success(&output);
+    let output = nfctl(&[
+        "classic",
+        "keys",
+        "list",
+        "--key-store",
+        imported.to_str().expect("path"),
+    ]);
+    assert_success(&output);
+    assert!(stdout(&output).contains("A0A1A2A3A4A5"));
+
+    let output = nfctl(&[
+        "classic",
+        "keys",
+        "export",
+        "--format",
+        "json",
+        "--key-store",
+        store.to_str().expect("path"),
+    ]);
+    assert_success(&output);
+    let json: serde_json::Value = serde_json::from_str(&stdout(&output)).expect("json");
+    assert_eq!(json["version"], 1);
+    assert_eq!(json["keys"][0]["key"], "A0A1A2A3A4A5");
+}
+
+#[test]
 fn nested_recovery_without_parity_fails_honestly() {
     let output = nfctl(&[
         "--mock",

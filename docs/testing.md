@@ -368,7 +368,17 @@ For changed GTK screens, add GTK4 UI integration tests and a manual window
 check for keyboard, focus, theme, zoom, and CJK input. The GTK app needs
 `gtk4`/`libadwaita` development libraries to build; on a headless host, use a
 private Xvfb display (for example `Xvfb :99 -screen 0 1400x920x24` with
-`GDK_BACKEND=x11`).
+`GDK_BACKEND=x11`). The phase 19a workbench scenarios use a scripted transport
+and are gated:
+
+```sh
+env -u WAYLAND_DISPLAY NFC_FOUNDRY_GUI_TESTS=1 \
+  xvfb-run -a env GDK_BACKEND=x11 \
+  cargo test -p nfc-foundry gtk_workbench_scenarios
+```
+
+Without `NFC_FOUNDRY_GUI_TESTS=1` the test takes its skip branch so
+`cargo test --workspace` still passes on a machine without a display.
 
 For hardware features:
 
@@ -393,6 +403,9 @@ cargo clippy -p nfc-drivers --features hardware --all-targets -- -D warnings
   disconnect, and card change.
 - Classic workflow scripts with per-sector key rules, denied sector keys,
   ignored writes, failing writes, and cancellation after a chosen attempt.
+- Proxmark3 `mfc v2` golden JSON (`crates/nfc-classic/tests/fixtures/`) and
+  PM3 `.dic` vectors for comments, inline comments, duplicates, lowercase, and
+  malformed lines.
 
 ## What not to test
 

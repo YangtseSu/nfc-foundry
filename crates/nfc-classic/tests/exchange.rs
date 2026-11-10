@@ -211,6 +211,88 @@ fn proxmark_export_contains_trailer_keys_and_access_text() {
 }
 
 #[test]
+fn auto_resolves_by_completeness_and_uses_interchange_names() {
+    let complete = complete_dump(Layout::Classic1K);
+    let partial = Dump::new(Layout::Classic1K);
+    assert_eq!(DumpFormat::Auto.resolve(&complete), DumpFormat::Raw);
+    assert_eq!(DumpFormat::Auto.resolve(&partial), DumpFormat::Project);
+    assert!(DumpFormat::Raw.can_represent(&complete));
+    assert!(!DumpFormat::Raw.can_represent(&partial));
+    assert!(!DumpFormat::Proxmark3.can_represent(&partial));
+    assert!(DumpFormat::Project.can_represent(&partial));
+
+    assert_eq!(
+        exchange::detect_dump_format(&exchange::export(&complete, DumpFormat::Auto).expect("auto"))
+            .expect("detect"),
+        DumpFormat::Raw
+    );
+    assert_eq!(
+        exchange::detect_dump_format(&exchange::export(&partial, DumpFormat::Auto).expect("auto"))
+            .expect("detect"),
+        DumpFormat::Project
+    );
+
+    assert_eq!(DumpFormat::Raw.default_file_name(), "card-dump.bin");
+    assert_eq!(
+        DumpFormat::Proxmark3.default_file_name(),
+        "card-dump.mfc.json"
+    );
+    assert_eq!(DumpFormat::Mct.default_file_name(), "card-dump.mct");
+    assert_eq!(
+        DumpFormat::Project.default_file_name(),
+        "card-dump.nfc-foundry.json"
+    );
+    assert_eq!(DumpFormat::Auto.default_file_name(), "card-dump.bin");
+}
+
+#[test]
+fn raw_1k_and_4k_round_trips_are_exact() {
+    for layout in [Layout::Classic1K, Layout::Classic4K] {
+        let dump = complete_dump(layout);
+        let raw = exchange::export(&dump, DumpFormat::Raw).expect("raw export");
+        assert_eq!(raw.len(), layout.dump_size());
+        let loaded = exchange::load(&raw).expect("raw import");
+        assert_eq!(loaded.format, DumpFormat::Raw);
+        assert_eq!(loaded.dump, dump);
+    }
+}
+
+#[test]
+fn golden_proxmark_fixture_round_trips_semantically() {
+    let fixture = include_str!("fixtures/pm3-mfc-v2.json");
+    let load = exchange::load(fixture.as_bytes()).expect("fixture import");
+    assert_eq!(load.format, DumpFormat::Proxmark3);
+    assert_eq!(load.dump.layout, Layout::Classic1K);
+    let card = load.dump.card.as_ref().expect("card");
+    assert_eq!(card.uid, vec![1, 2, 3, 4]);
+    assert_eq!(card.atqa, [0x00, 0x04]);
+    assert_eq!(card.sak, 0x08);
+    assert!(load.warnings.is_empty(), "{:?}", load.warnings);
+
+    let encoded = exchange::export(&load.dump, DumpFormat::Proxmark3).expect("re-export");
+    let document: serde_json::Value = serde_json::from_slice(&encoded).expect("json");
+    assert_eq!(document["Created"], "NFC Foundry");
+    assert_eq!(document["FileType"], "mfc v2");
+    assert_eq!(document["Card"]["UID"], "01020304");
+    assert_eq!(document["blocks"].as_object().expect("blocks").len(), 64);
+    assert_eq!(document["SectorKeys"]["0"]["KeyA"], "A0A1A2A3A4A5");
+    assert_eq!(document["SectorKeys"]["15"]["AccessConditions"], "FF078000");
+    assert!(
+        document["SectorKeys"]["0"]["AccessConditionsText"]
+            .as_object()
+            .expect("access text")
+            .contains_key("block3")
+    );
+    let reloaded = exchange::load(&encoded).expect("re-import");
+    assert_eq!(reloaded.dump, load.dump);
+    assert!(
+        !String::from_utf8_lossy(&encoded)
+            .to_ascii_lowercase()
+            .contains("nfcx")
+    );
+}
+
+#[test]
 fn project_export_of_a_default_dump_keeps_unknown_bytes_unknown() {
     let dump = Dump::new(Layout::Classic1K);
     let encoded = exchange::export(&dump, DumpFormat::Project).expect("project");
