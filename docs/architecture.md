@@ -6,8 +6,8 @@ NFC Foundry is a Rust workspace with two first-class business domains over one
 transport and one application service layer.
 
 ```text
-GPUI Kit GUI / nfctl
-        |
+        nfctl
+          |
       nfc-app
    /     |      \
 Classic  Recovery  NDEF
@@ -39,9 +39,6 @@ application shell, or a sibling feature.
 | `nfc-type4` | ISO-DEP/APDU CC and NDEF file read/write | via transport |
 | `nfc-app` | Device manager, exclusive operations, Classic, Type 2, and Type 4 workflows, key store, backups | via transport |
 | `nfctl` | English-only CLI and JSON contract | via `nfc-app` |
-| `gui/nfc-foundry` | GPUI Kit shell | via `nfc-app` |
-| `gui/classic` | GPUI Kit Classic workspace (view, actions, UI tests) | via `nfc-app` |
-| `gui/type2` | GPUI Kit Type 2 / NDEF workspace (memory, NDEF, protection) | via `nfc-app` |
 
 ## Transport
 
@@ -353,31 +350,14 @@ golden vector.
 
 ## GUI
 
-GPUI Kit is the only GUI dependency. The application shell composes feature
-crates:
-
-```text
-gui/nfc-foundry     shell, domain switch, and reader wiring
-gui/classic         Classic workspace and UI integration tests
-gui/type2           Type 2 / NDEF workspace and UI integration tests
-```
-
-The shell switches between the Classic and Type 2 workspaces over the same
-`Service`. Both workspaces keep their own retained state and call the shared
-`nfc-app` services on a background executor.
-
-The Classic workspace is one window with a reader header, card/file toolbar,
-Blocks/NDEF/Diff/Keys tabs, a block table, a block inspector, and a Classic NDEF
-view with mapping facts, records, Text write, and confirmed format:
-
-- `RenderOnce` for value-like presentation.
-- `Entity<T>` for input, tables, scrolling, focus, and async state.
-- No domain mutation or hardware I/O in `render`.
-- Card operations run on a background executor through the shared `nfc-app`
-  service; the view updates state through its entity context.
-- Theme tokens only; no raw colors or spacing literals in application code.
-- English is the current interface language. The application-wide localization
-  pass remains a release requirement.
+The GPUI Kit layer was removed on `feat/gtk4-ui`. The GTK4-rs workbench in
+`crates/gui` calls the same `nfc-app` services and is the only desktop
+frontend. The first slice covers the shell, reader selection, Classic
+read/table/inspector/verified block write, dump save/load, and a read-only
+Classic NDEF view. GUI view code stays presentation-only; card operations run
+on a background thread and report through the application model. Remaining
+screens, NDEF mutations, localization, UI tests, and packaging are tracked in
+phase 19.
 
 ## Errors and cancellation
 

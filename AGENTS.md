@@ -30,9 +30,11 @@ editor. It has its own codec crate and family-specific adapters.
 ## Fixed technical stack
 
 - Rust latest stable, edition 2024, `rust-toolchain.toml` channel `stable`.
-- One GUI dependency: **GPUI Kit**. Use `gpui_kit::*`, `component`, `base`,
-  `assets`, and the GPUI Kit component system. Do not introduce MyGo, Wails,
-  Electron, Tauri, WebView2, or a browser frontend.
+- GUI: **GTK4-rs** (`gtk4` + `libadwaita`) in `crates/gui`, binary
+  `nfc-foundry`. It is the only desktop frontend and the only GUI toolkit.
+  The removed GPUI implementation is not a fallback, and a second frontend is
+  never added. Linux is the current target; Windows/macOS are assessed only
+  after Linux feature parity, and a GTK Windows build keeps GTK's look.
 - GUI view code is presentation only. Domain logic lives in `nfc-*` crates and
   `nfc-app`; the GUI calls application services.
 - Transport is pure Rust. PN532 UART uses `serialport`. ACR122U uses direct
@@ -212,7 +214,7 @@ layer, not a protocol bypass.
   old C engines during development.
 - NDEF gets malformed-input, capacity, chunking, TLV, lock-state, and hardware
   round-trip tests.
-- GPUI Kit views get UI integration tests for interaction, focus, overlays, and
+- GTK4 views get UI integration tests for interaction, focus, overlays, and
   state transitions.
 
 Required before a change is complete:
@@ -220,7 +222,7 @@ Required before a change is complete:
 - `cargo fmt --check`
 - `cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo test --workspace`
-- GPUI Kit UI tests for changed screens
+- GTK4 UI tests for changed screens
 - `reuse lint`
 - Hardware test for the changed reader/card path when applicable
 
@@ -230,7 +232,7 @@ Required before a change is complete:
 - `docs/specs/`: per-change specs.
 - `docs/notes/`: implementation records, problems, and blockers.
 - `docs/adr/`: architectural decisions.
-- `docs/design/`: UI design references and GPUI Kit screen contracts.
+- `docs/design/`: UI design references and GTK screen contracts.
 
 When a driver interface, recovery source, packaging, or NDEF format changes,
 update the plan, spec, notes, and README in the same change.

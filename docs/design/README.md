@@ -1,10 +1,11 @@
 # Design references
 
-The GUI is a GPUI Kit desktop application. This directory records screen
-contracts and design decisions; it does not duplicate the GPUI Kit Design
-Guides.
+The GPUI Kit implementation was removed on `feat/gtk4-ui`. The current GTK4
+screen contract is [workbench.md](workbench.md). This directory also records
+the removed design and the workbench prototype. The Go version remains the
+visual reference for the rewrite.
 
-## Shell
+## Removed GPUI shell (record)
 
 - One window, persistent left rail, page content, fixed inspector actions.
 - The rail keeps reader state, the detected card identity, the task group for
@@ -83,9 +84,10 @@ file. It replaces per-workspace toolbars with one persistent command shell:
 - the application identity is part of phase 18: a vector icon, PNG exports, and
   a desktop entry with English and `zh_CN` metadata.
 
-## Rules
+## Historical GPUI rules (record)
 
-Follow the GPUI Kit Design Guides:
+The GPUI Kit review rules below no longer apply; the GTK4 contracts will state
+their own rules.
 
 - Desktop conventions, keyboard access, persistent navigation, resizable panes.
 - `Button` for commands; no link-styled internal actions.

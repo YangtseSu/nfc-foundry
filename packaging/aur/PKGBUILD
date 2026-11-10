@@ -8,24 +8,18 @@ pkgdesc='NFC reader workbench for MIFARE Classic and NFC Forum Type 2/NDEF cards
 arch=('x86_64')
 url='https://github.com/YangtseSu/nfc-foundry-rs'
 license=('GPL-3.0-or-later')
-# Runtime libraries: direct NEEDED entries plus the GPUI libraries loaded
-# dynamically. libm and the loader are glibc; libudev is systemd-libs; the XKB
-# and XCB libraries come from GPUI's Linux backend.
+# Runtime libraries: glibc, libgcc, and libudev (systemd-libs) for the reader
+# backends.
 depends=(
   glibc
-  hicolor-icon-theme
   libgcc
-  libglvnd
-  libxcb
-  libxkbcommon
-  libxkbcommon-x11
   systemd-libs
-  vulkan-icd-loader
-  wayland
 )
 makedepends=(
   cargo
   git
+  gtk4
+  libadwaita
   rust
 )
 source=("$pkgname-$pkgver::git+$url.git#tag=v$pkgver")
@@ -49,26 +43,14 @@ build() {
 check() {
   cd "$pkgname-$pkgver"
   cargo test --workspace --offline
-  cargo check -p nfc-foundry --offline
 }
 
 package() {
   cd "$pkgname-$pkgver"
 
-  install -Dm755 target/release/nfc-foundry "$pkgdir/usr/bin/nfc-foundry"
   install -Dm755 target/release/nfctl "$pkgdir/usr/bin/nfctl"
   install -Dm644 resources/udev/70-nfc-foundry.rules \
     "$pkgdir/usr/lib/udev/rules.d/70-nfc-foundry.rules"
-  install -Dm644 resources/nfc-foundry.desktop \
-    "$pkgdir/usr/share/applications/nfc-foundry.desktop"
-  install -Dm644 resources/icons/nfc-foundry.svg \
-    "$pkgdir/usr/share/icons/hicolor/scalable/apps/nfc-foundry.svg"
-  install -Dm644 resources/icons/nfc-foundry-128.png \
-    "$pkgdir/usr/share/icons/hicolor/128x128/apps/nfc-foundry.png"
-  install -Dm644 resources/icons/nfc-foundry-256.png \
-    "$pkgdir/usr/share/icons/hicolor/256x256/apps/nfc-foundry.png"
-  install -Dm644 resources/icons/nfc-foundry-512.png \
-    "$pkgdir/usr/share/icons/hicolor/512x512/apps/nfc-foundry.png"
 
   install -d "$pkgdir/usr/share/nfc-foundry"
   cp -a resources/hardnested_tables "$pkgdir/usr/share/nfc-foundry/"

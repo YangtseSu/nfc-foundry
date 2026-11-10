@@ -1,6 +1,8 @@
 # Phase 18 plan: Workbench UI redesign and bilingual UI
 
-Status: complete. See `docs/notes/18-workbench-ui.md`.
+Status: superseded. The GPUI Kit shell was removed on `feat/gtk4-ui`; GUI
+phases are being re-planned for GTK4-rs. The CLI and domain phases remain
+current.
 
 Follow-up (2026-11-10): the shell is card-centered. A presence scan selects
 the task group and routes the Read action by card family; the top-bar domain

@@ -31,13 +31,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libudev-dev \
-            libfontconfig1-dev \
-            libfreetype-dev \
-            libwayland-dev \
-            libx11-xcb-dev \
-            libxcb1-dev \
-            libxkbcommon-dev \
-            libxkbcommon-x11-dev
+            libgtk-4-dev \
+            libadwaita-1-dev
 
       - name: Resolve and verify the version
         id: version
@@ -73,26 +68,10 @@ jobs:
           name="nfc-foundry-$VERSION-x86_64"
           stage="dist/$name"
           install -d "$stage/bin" "$stage/lib/udev/rules.d" \
-            "$stage/share/nfc-foundry" "$stage/share/licenses/nfc-foundry" \
-            "$stage/share/applications" \
-            "$stage/share/icons/hicolor/scalable/apps" \
-            "$stage/share/icons/hicolor/128x128/apps" \
-            "$stage/share/icons/hicolor/256x256/apps" \
-            "$stage/share/icons/hicolor/512x512/apps"
-          install -m 0755 "$build/nfc-foundry" "$stage/bin/nfc-foundry"
+            "$stage/share/nfc-foundry" "$stage/share/licenses/nfc-foundry"
           install -m 0755 "$build/nfctl" "$stage/bin/nfctl"
           install -m 0644 resources/udev/70-nfc-foundry.rules \
             "$stage/lib/udev/rules.d/70-nfc-foundry.rules"
-          install -m 0644 resources/nfc-foundry.desktop \
-            "$stage/share/applications/nfc-foundry.desktop"
-          install -m 0644 resources/icons/nfc-foundry.svg \
-            "$stage/share/icons/hicolor/scalable/apps/nfc-foundry.svg"
-          install -m 0644 resources/icons/nfc-foundry-128.png \
-            "$stage/share/icons/hicolor/128x128/apps/nfc-foundry.png"
-          install -m 0644 resources/icons/nfc-foundry-256.png \
-            "$stage/share/icons/hicolor/256x256/apps/nfc-foundry.png"
-          install -m 0644 resources/icons/nfc-foundry-512.png \
-            "$stage/share/icons/hicolor/512x512/apps/nfc-foundry.png"
           cp -a resources/hardnested_tables "$stage/share/nfc-foundry/"
           install -m 0644 LICENSE "$stage/share/licenses/nfc-foundry/LICENSE"
           install -Dm644 LICENSES/GPL-3.0-or-later.txt \

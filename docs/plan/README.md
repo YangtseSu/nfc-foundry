@@ -2,6 +2,11 @@
 
 Status legend: `done`, `in progress`, `pending`, `optional`, `blocked`.
 
+GUI note: the GPUI Kit workspaces were removed on `feat/gtk4-ui`. Phase 19
+replaces them with the GTK4-rs workbench in `crates/gui`; phases 04/09/10/18
+describe the removed GPUI surfaces and remain historical for domain and CLI
+work.
+
 | Phase | Scope | Status |
 |---|---|---|
 | 00 | Rust workspace, crate boundaries, docs, CI, REUSE | done |
@@ -22,7 +27,8 @@ Status legend: `done`, `in progress`, `pending`, `optional`, `blocked`.
 | 15 | Read-only eMRTD reader (passport, compatible permits) | optional |
 | 16 | Chinese resident ID read-only (authorized SAM) | blocked |
 | 17 | Amiibo / NTAG215 read, decrypt, encrypt, write (user keys/data) | optional |
-| 18 | Workbench UI redesign, bilingual UI, icon and desktop entry | done |
+| 18 | Workbench UI redesign, bilingual UI, icon and desktop entry | done (GPUI; GUI superseded by 19) |
+| 19 | GTK4 workbench: shell, Classic slice, then parity screens | in progress |
 
 ## Rules
 
@@ -45,9 +51,11 @@ Status legend: `done`, `in progress`, `pending`, `optional`, `blocked`.
   backup-first, read-back verified, and limited to user-owned magic NTAG215
   tags. It is independent of phases 13-15 and only needs the existing Type 2
   path.
-- Phase 18 is the workbench UI redesign and bilingual UI. It is independent of
-  phases 13-17 and can start before them if UI work is prioritized. It adds the
-  application icon and desktop entry; the 0.1.0 package does not contain them.
+- Phase 18 is the historical GPUI workbench redesign and bilingual UI. Its GUI
+  implementation was removed on `feat/gtk4-ui`; phase 19 is the current GTK4
+  workbench. Phase 19 is independent of phases 13-17 and can proceed before
+  them. The application icon and desktop entry are installed when the GTK
+  application is packaged.
 - A new card family needs its own ADR, spec, note, and hardware record. It is
   never smuggled into the Classic, Type 2, or Type 4 adapter.
 - Sensitive card data is not logged or persisted by default. PAN, MRZ, document
@@ -608,9 +616,25 @@ Acceptance:
 
 Detailed plan: [18-workbench-ui.md](18-workbench-ui.md).
 
-Status: complete. The persistent workbench, English and complete `zh-CN`
-catalogs, language preference, recovery screen, diagnostics/activity/settings,
-GUI parity for every non-test `nfctl` operation, and icon/desktop installation
-are implemented. Shell UI tests, catalog tests, CLI locale tests, and desktop
-validation pass. See `docs/specs/18-workbench-ui.md` and
-`docs/notes/18-workbench-ui.md`.
+Status: complete for the removed GPUI implementation. The shell, bilingual
+catalog, recovery screen, diagnostics/activity/settings, GUI parity, and
+icon/desktop installation were implemented and tested. The GUI code was
+removed on `feat/gtk4-ui`; the GTK4 replacement is phase 19. See
+`docs/specs/18-workbench-ui.md` and `docs/notes/18-workbench-ui.md`.
+
+### 19: GTK4 workbench
+
+Goal: one GTK4-rs frontend for the workbench, replacing the removed GPUI
+workspaces. The first slice covers the shell, real reader selection, Classic
+read/table/inspector/verified block write, dump save/load, and a read-only
+Classic NDEF view. Keys, diff, recovery, NDEF mutations, Type 2/Type 4, the
+`zh-CN` catalog, GUI integration tests, and packaging remain.
+
+Acceptance: real Classic read; partial reads explicit; block 0 read-only;
+trailer confirmation; backup and read-back visible; reader change invalidates
+writes; `cargo fmt`, clippy, workspace tests, and `reuse lint` pass.
+
+Detailed plan: [19-gtk-ui.md](19-gtk-ui.md).
+
+Status: in progress. First Classic slice implemented on 2026-11-11. See
+`docs/specs/19-gtk-ui.md` and `docs/notes/19-gtk-ui.md`.

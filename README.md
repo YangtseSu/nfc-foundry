@@ -21,8 +21,8 @@ Gen1A manufacturer-block write capability. Hardware validation covered
 Classic and Type 2 reads, a raw 7-bit REQA, and a same-value Gen1A block 0
 write verified by reselection and read-back. The Classic workflow layer covers
 key stores, common-key authentication, partial dumps, single-block reads and
-writes, restores, key scans, and atomic project-format backups. `nfctl` and the
-GPUI Kit Classic workspace call the same `nfc-app` methods. Every write checks
+writes, restores, key scans, and atomic project-format backups. `nfctl` calls the
+shared `nfc-app` methods. Every write checks
 access conditions, saves a backup, writes the block, reads it back, and
 rechecks card identity; restore requires confirmation, refuses to change
 manufacturer block 0, writes data blocks before sector trailers, and stops at
@@ -43,22 +43,22 @@ proprietary preservation; Text, URI, Smart Poster, vCard, Wi-Fi WSC, Bluetooth
 LE OOB, and DPP templates; and message/TLV capacity checks. The Type 2 / NTAG
 adapter is implemented: CC and product layouts, static/dynamic locks, NTAG
 configuration, project dumps, NDEF TLV preservation, and verified page and
-NDEF writes over both readers. `nfctl type2|ndef` and the GPUI Kit Type 2
-workspace share the `nfc-app` services, with backups, read-back verification,
-and typed confirmations for one-way locks and configuration. A PN532 UART
+NDEF writes over both readers. `nfctl type2|ndef` uses the shared `nfc-app`
+services, with backups, read-back verification, and typed confirmations for
+one-way locks and configuration. A PN532 UART
 NTAG215 read plus authorized NDEF write/read/restore round trip is recorded for
 2026-11-10; the ACR122U record and lock/password paths remain pending. The read
 path was validated earlier on both readers. Classic NDEF maps NDEF onto MAD1,
 MAD2, and NFC sectors: the adapter parses the directory and per-sector GPB,
 reads and writes the mandatory NDEF Message TLV with access checks, and formats
-a blank card after a typed confirmation and backup. `nfctl classic ndef` and
-the Classic workspace NDEF tab share the same services. The Classic mapping
-has no capability-container record; the GPB carries the mapping version and
-access state. The GUI is a persistent workbench with sidebar navigation,
-reader/card header, status bar, session activity, and settings. It is
-English-base with a complete Simplified Chinese (`zh-CN`) translation and an
-in-app language switch; `nfctl` stays English-only. The package ships the
-application icon and desktop entry.
+a blank card after a typed confirmation and backup. `nfctl classic ndef` uses
+the same services. The Classic mapping has no capability-container record; the
+GPB carries the mapping version and access state. The GPUI Kit shell was
+removed on `feat/gtk4-ui`. The GTK4 workbench in `crates/gui` now provides the
+shell, real reader selection, Classic read/table/inspector, verified block
+write, dump save/load, and a read-only Classic NDEF view. Remaining screens,
+NDEF mutations, the `zh-CN` catalog, GUI tests, and packaging are still in
+progress. The application icon and desktop entry are in `resources/`.
 
 ## Product scope
 
@@ -91,7 +91,8 @@ support is claimed until validated.
 ## Technical stack
 
 - Rust latest stable, edition 2024.
-- GUI: [GPUI Kit](https://gpui-kit.com/) only.
+- GUI: GTK4-rs (`gtk4` + `libadwaita`) in `crates/gui`, one frontend only.
+  The GPUI Kit implementation was removed and is not a fallback.
 - Transport: pure Rust drivers over `serialport` (PN532 UART) and `nusb`
   (ACR122U USB/CCID). No C shim, no CGO, no `libnfc`.
 - Recovery: native Rust, ported from the current
@@ -116,16 +117,12 @@ crates/
   nfc-type4           # ISO-DEP/APDU CC and NDEF file read/write
   nfc-app             # device manager, services, workflows, events
   nfctl               # CLI
-  gui/ui              # shared language catalogs, preferences, presentation
-  gui/classic         # GPUI Kit Classic screens
-  gui/type2           # GPUI Kit Type 2 / NDEF screens
-  gui/nfc-foundry     # persistent GPUI Kit workbench shell
 ```
 
 Dependency direction:
 
 ```text
-gui/* -> nfc-app -> nfc-recover / nfc-classic / nfc-type2 / nfc-classic-ndef
+nfctl -> nfc-app -> nfc-recover / nfc-classic / nfc-type2 / nfc-classic-ndef
       -> nfc-ndef -> nfc-core
 nfc-drivers -> nfc-transport
 ```
@@ -146,9 +143,9 @@ tar -xzf nfc-foundry-0.1.0-x86_64.tar.gz
 ./nfc-foundry-0.1.0-x86_64/bin/nfctl diag
 ```
 
-The package and tarball install `nfc-foundry`, `nfctl`, the desktop entry, the
-hicolor icons, the ACR122U udev rule,
-the hardnested tables, licenses, and notices. All paths use the
+The current package and tarball install `nfctl`, the ACR122U udev rule, the
+hardnested tables, licenses, and notices. The desktop entry and icons stay in
+`resources/` for the GTK application. All paths use the
 `nfc-foundry` namespace, so another NFC reader application can stay installed;
 only one process may own a reader at a time. See [Packaging](docs/packaging.md).
 
@@ -160,12 +157,16 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-The GUI is excluded from default members so core/CLI checks stay fast. Build it
-explicitly:
+The GTK4 application is a workspace member. Build and run it with:
 
 ```sh
+cargo build -p nfc-foundry
 cargo run -p nfc-foundry
 ```
+
+It needs GTK 4.10 or newer and libadwaita 1.5 or newer development/runtime
+libraries. On Arch Linux: `gtk4`, `libadwaita`; on Debian/Ubuntu:
+`libgtk-4-dev`, `libadwaita-1-dev`.
 
 Hardware tests never run by default. They require an explicit feature and
 environment variable; see `docs/testing.md`.
@@ -310,21 +311,12 @@ still pending because no ACR122U was connected.
 
 ## GUI
 
-The GPUI Kit shell switches between the Classic and Type 2 workspaces:
-
-```sh
-cargo run -p nfc-foundry
-```
-
-The Classic workspace provides reader selection, card read, dump save/load,
-restore with confirmation, block write with trailer confirmation, key scan, key
-store management, a block inspector, a two-dump diff, and a Classic NDEF tab
-with mapping facts, record display, Text writes, and a confirmed format action.
-The Type 2 workspace
-provides a page table and inspector, verified user-page writes, dump
-save/load/restore, Text NDEF write and format, and protection actions with
-typed confirmation. All operations use the same `nfc-app` services and safety
-policy as `nfctl`.
+The GTK4 workbench lives in `crates/gui`. This slice includes the shell, real
+reader selection, Classic read/table/inspector, verified block write, dump
+save/load, and a read-only Classic NDEF view. Keys, diff, recovery, NDEF
+mutations, Type 2/Type 4 screens, the `zh-CN` catalog, GUI integration tests,
+and packaging remain in progress. The application icon and desktop entry are
+in `resources/` for the packaged application.
 
 ## Documentation
 

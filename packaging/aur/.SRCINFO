@@ -9,15 +9,8 @@ pkgbase = nfc-foundry
 	makedepends = git
 	makedepends = rust
 	depends = glibc
-	depends = hicolor-icon-theme
 	depends = libgcc
-	depends = libglvnd
-	depends = libxcb
-	depends = libxkbcommon
-	depends = libxkbcommon-x11
 	depends = systemd-libs
-	depends = vulkan-icd-loader
-	depends = wayland
 	options = !debug
 	options = !lto
 	source = nfc-foundry-0.1.0::git+https://github.com/YangtseSu/nfc-foundry-rs.git#tag=v0.1.0

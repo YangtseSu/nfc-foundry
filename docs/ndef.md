@@ -68,7 +68,7 @@ Implemented in `nfc-type2`:
 - Verified page, NDEF, format, restore, lock, and password writes over
   `nfc-transport`. Read and write work through the DRIVER page primitives, not
   a raw caller-managed command stream.
-- `nfctl type2|ndef` and the GPUI Kit Type 2 workspace.
+- `nfctl type2|ndef`.
 
 Not implemented yet:
 
@@ -158,17 +158,8 @@ output is English-only.
 
 ## GUI
 
-GPUI Kit feature crates:
-
-- `gui/type2`: page table, CC, lock/config inspector, protection actions, and
-  the Text/records NDEF view. Its NDEF view replaces the earlier separate
-  `gui/ndef` plan until a second family needs shared editor components.
-- `gui/classic`: Blocks, NDEF, Diff, and Keys tabs; the NDEF tab shows the
-  Classic mapping and records and exposes Text write and confirmed format.
-
-Use `DataTable` for memory, `TextArea`/`Input` for records, `Select` for
-templates, `AlertDialog` for destructive actions, and `Diff` for before/after
-payload comparison.
+The GPUI Kit GUI was removed on `feat/gtk4-ui`. The GTK4-rs application will
+consume the same NDEF services; until it lands, use `nfctl`.
 
 ## Tests
 

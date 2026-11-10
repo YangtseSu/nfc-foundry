@@ -9,14 +9,14 @@
 - GitHub-generated source archives for the release tag.
 
 No Windows, macOS, Debian/RPM, AppImage, Flatpak, Snap, or container image is
-part of the product. The installed application includes its desktop entry and
-hicolor icons.
+part of the product. The current package installs the CLI; the desktop entry
+and hicolor icons stay in `resources/` for the GTK4 application.
 
 ## Version and tag
 
 `[workspace.package].version` in `Cargo.toml` is the only version source. The
-release tag is `v<version>`. `nfctl --version`, `nfctl diag`, and the GUI window
-title report the same value.
+release tag is `v<version>`. `nfctl --version` and `nfctl diag` report the same
+value; the GTK application will use it for its window title.
 
 ## AUR source package
 
@@ -37,20 +37,14 @@ makepkg -sri
 
 `prepare()` runs `cargo fetch --locked`. `build()` runs
 `cargo build --release --locked --offline --workspace`. `check()` runs
-`cargo test --workspace --offline` and `cargo check -p nfc-foundry --offline`.
-Hardware tests are never enabled by a package build.
+`cargo test --workspace --offline`. Hardware tests are never enabled by a
+package build.
 
 Package contents:
 
 ```text
-/usr/bin/nfc-foundry
 /usr/bin/nfctl
 /usr/lib/udev/rules.d/70-nfc-foundry.rules
-/usr/share/applications/nfc-foundry.desktop
-/usr/share/icons/hicolor/scalable/apps/nfc-foundry.svg
-/usr/share/icons/hicolor/128x128/apps/nfc-foundry.png
-/usr/share/icons/hicolor/256x256/apps/nfc-foundry.png
-/usr/share/icons/hicolor/512x512/apps/nfc-foundry.png
 /usr/share/nfc-foundry/hardnested_tables
 /usr/share/licenses/nfc-foundry/LICENSE
 /usr/share/licenses/nfc-foundry/LICENSES/GPL-3.0-or-later.txt
@@ -66,12 +60,10 @@ Do not install:
 - a broad `MODE="0666"` udev rule;
 - files under `/usr/local` or `/opt`.
 
-Runtime dependencies are the direct NEEDED libraries of the packaged ELF
-files (`glibc`, `libgcc`, `libxcb`, `libxkbcommon`, `libxkbcommon-x11`,
-`systemd-libs`) plus the GPUI runtime libraries it loads dynamically
-(`libglvnd` for EGL/GL, `vulkan-icd-loader`, and `wayland`) and
-`hicolor-icon-theme` for the installed icon hierarchy. Build-only dependencies
-are `cargo`, `git`, and `rust`.
+Runtime dependencies are the direct NEEDED libraries of the packaged ELF files
+(`glibc`, `libgcc`, `systemd-libs` for libudev). The package currently installs
+the CLI only; the GTK4 rewrite will add `gtk4` and `libadwaita` when it lands.
+Build-only dependencies are `cargo`, `git`, and `rust`.
 
 ## Coexistence
 
@@ -94,7 +86,6 @@ The release workflow builds `nfc-foundry-<version>-x86_64.tar.gz` from the
 nfc-foundry-<version>-x86_64/
   README.md
   Cargo.lock
-  bin/nfc-foundry
   bin/nfctl
   lib/udev/rules.d/70-nfc-foundry.rules
   share/nfc-foundry/hardnested_tables/*.lz4
@@ -141,7 +132,6 @@ Full dependency license texts remain with their upstream crates.
 - `cargo fmt --all --check`
 - `cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo test --workspace`
-- `cargo check -p nfc-foundry`
 - `reuse lint`
 
 `.github/workflows/release.yml` runs on `v*` tags and on manual dispatch. It
@@ -168,7 +158,6 @@ by CI.
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-cargo check -p nfc-foundry
 reuse lint
 ```
 

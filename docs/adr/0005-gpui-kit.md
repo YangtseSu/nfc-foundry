@@ -1,7 +1,12 @@
 # ADR 0005: GPUI Kit is the GUI stack
 
-- Status: accepted
+- Status: superseded by the GTK4-rs rewrite
 - Date: 2026-11-09
+- Superseded: 2026-11-10
+
+The GPUI Kit shell was removed on `feat/gtk4-ui`. It is kept as a record of the
+earlier decision; the current stack decision is GTK4-rs (`gtk4` +
+`libadwaita`).
 
 ## Context
 

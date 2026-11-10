@@ -9,8 +9,8 @@
 3. **Transport tests**: mock reader with scripted cards, authentication
    failures, timeouts, disconnects, cancellation, card changes.
 4. **Application tests**: workflows, backups, preflight, read-back verification,
-   error mapping, GUI/CLI parity.
-5. **UI integration tests**: GPUI Kit views, focus, keyboard, overlays,
+   error mapping, CLI contracts.
+5. **UI integration tests**: GTK4 views, focus, keyboard, overlays,
    destructive confirmations, empty/loading/error states.
 6. **Hardware tests**: explicit, environment-gated, never run by `cargo test`.
 
@@ -85,9 +85,7 @@ and Proxmark3 client file interoperability remains a release check.
 The phase 04 workflow tests are hardware-free. `nfc-app` tests use a scripted
 transport with per-sector key rules, ignored writes, failing writes, and
 cancellation hooks. `nfctl` integration tests run the built binary against the
-mock Classic image. The GPUI Classic workspace has UI integration tests for
-read, block selection, diff, key add/remove, write, key scan, and restore
-confirmation.
+mock Classic image.
 
 The phase 08 NDEF tests are hardware-free. `nfc-ndef` has deterministic tests
 for the Text RTD example, short/normal/chunked record layouts, all 36 URI
@@ -104,10 +102,8 @@ writes, locks, PWD_AUTH verification, and restore validation. `nfc-app` adds
 scripted workflows for backups, Advanced confirmations, NDEF write/read/format,
 lock denial, password configuration, and CC mismatch. `nfctl` exercises
 `type2 info|write|dump|restore|lock` and `ndef write|read|format` against the
-mock NTAG215. `nfc-type2-gui` covers page selection, NDEF write/format,
-Advanced confirmation, lock typed confirmation, and protection controls. Driver
-unit tests assert the Type 2 READ CRC (`30 04 26 EE`) and raw-mode restoration
-for both transports.
+mock NTAG215. Driver unit tests assert the Type 2 READ CRC (`30 04 26 EE`) and
+raw-mode restoration for both transports.
 
 The phase 10 Classic NDEF tests are hardware-free. `nfc-classic-ndef` covers
 MAD1/MAD2 and CRC vectors, NFC AIDs, contiguity, GPB mapping version and
@@ -115,8 +111,7 @@ read-only state, TLV framing/capacity, long messages, leading proprietary TLV
 preservation, and partial data areas. `nfc-app` adds scripted 1K and 4K format,
 NDEF write/read, confirmation, complete-read enforcement, Key B preservation,
 read-only refusal, unformatted refusal, and malformed MAD tests. `nfctl`
-exercises `classic ndef info|read|write|format`, and the GPUI Classic workspace
-covers format, NDEF write, and read-only format.
+exercises `classic ndef info|read|write|format`.
 
 The phase 11 Type 4 tests are hardware-free. `nfc-type4` covers NTAG 424 and
 DESFire capability containers, read-only and proprietary access, malformed
@@ -366,18 +361,14 @@ reference works, fix the Rust driver and add a regression test.
 cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-cargo check -p nfc-foundry
 reuse lint
 ```
 
-For changed GUI screens, add GPUI Kit UI integration tests and a manual window
-check for keyboard, focus, theme, zoom, and Chinese input. The Classic
-workspace tests run headlessly:
-
-```sh
-cargo test -p nfc-classic-gui --test ui
-cargo test -p nfc-type2-gui --test ui
-```
+For changed GTK screens, add GTK4 UI integration tests and a manual window
+check for keyboard, focus, theme, zoom, and CJK input. The GTK app needs
+`gtk4`/`libadwaita` development libraries to build; on a headless host, use a
+private Xvfb display (for example `Xvfb :99 -screen 0 1400x920x24` with
+`GDK_BACKEND=x11`).
 
 For hardware features:
 

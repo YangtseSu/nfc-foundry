@@ -7,7 +7,6 @@ license files or generate a dependency manifest.
 
 | Dependency | Version | License |
 |---|---:|---|
-| `gpui-kit` | 0.9.x | Apache-2.0 |
 | `nusb` | 0.2.x | Apache-2.0 OR MIT |
 | `serialport` | 4.10.x | MPL-2.0 |
 | `clap` | 4.6.x | MIT OR Apache-2.0 |

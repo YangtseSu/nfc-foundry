@@ -1,6 +1,7 @@
 # Phase 18 spec: workbench UI redesign and bilingual UI
 
-Status: implemented. See `docs/notes/18-workbench-ui.md`.
+Status: superseded. The GPUI Kit shell was removed on `feat/gtk4-ui`; GTK4
+screen contracts will replace it.
 
 ## Goal
 
