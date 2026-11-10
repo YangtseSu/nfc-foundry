@@ -134,8 +134,8 @@ Implemented in `nfc-type4`:
 
 Both drivers carry ISO-DEP APDUs: PN532 UART through `InDataExchange` and
 ACR122U through the `D4 40 01` pseudo-APDU. The shared 247-byte command limit
-comes from the ACR122U wrapper. No DESFire key, application, file-creation, or
-format workflow is implemented.
+comes from the ACR122U wrapper. The adapter uses an existing Type 4 NDEF
+application; it does not create one.
 
 Not implemented yet:
 

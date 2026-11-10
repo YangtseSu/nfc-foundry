@@ -117,8 +117,8 @@ written by the adapter.
 - The Type 4 write is not atomic. NLEN is written last so a truncated message
   is not visible as complete, but a failure before the final NLEN leaves the
   file empty. This is documented in the write API and the spec.
-- The capability container is never written. Formatting, read-only
-  transitions, and DESFire application/file creation remain out of scope.
+- The capability container is never written. The adapter expects an existing
+  Type 4 NDEF application; it does not create DESFire applications or files.
 - Project backups contain the raw CC and canonical NLEN+message bytes. They
   are sufficient to restore the visible NDEF message, but they do not preserve
   unused tail bytes or proprietary files.

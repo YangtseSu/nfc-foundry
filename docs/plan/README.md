@@ -1,6 +1,6 @@
 # Phased implementation plan
 
-Status legend: `done`, `in progress`, `pending`, `optional`.
+Status legend: `done`, `in progress`, `pending`, `optional`, `blocked`.
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -17,6 +17,11 @@ Status legend: `done`, `in progress`, `pending`, `optional`.
 | 10 | Classic NDEF: MAD/GPB/format + GUI | done |
 | 11 | Type 4 / ISO-DEP NDEF adapter | in progress |
 | 12 | Packaging, CI, hardware certification, release | pending |
+| 13 | RF and transport completion: Type B, high rate, auto-poll, diagnostics | pending |
+| 14 | Read-only protocol adapters: Type 4B/Type 3, EMV, T-Union, FMCOS/Calypso | optional |
+| 15 | Read-only eMRTD reader (passport, compatible permits) | optional |
+| 16 | Chinese resident ID read-only (authorized SAM) | blocked |
+| 17 | Amiibo / NTAG215 read, decrypt, encrypt, write (user keys/data) | optional |
 
 ## Rules
 
@@ -27,6 +32,23 @@ Status legend: `done`, `in progress`, `pending`, `optional`.
 - No driver or card family is advertised until its hardware test is recorded.
 - `cargo test --workspace` must never touch hardware.
 - Do not add an external recovery engine to the shipped product.
+- Phase 13 is the pending RF/transport prerequisite. It is not optional:
+  phases 14 and 15 depend on its Type B and high-rate paths.
+- Phases 14 and 15 are optional read-only work. Phase 14 exposes no write,
+  credit, purchase, PIN, or cloning operation; phase 15 only reads eMRTD data.
+  Phase 16 is blocked and read-only if it ever starts.
+- Phase 17 is the optional controlled Amiibo path. It never ships Nintendo
+  keys or Amiibo data; the user supplies both. Writes are Advanced,
+  backup-first, read-back verified, and limited to user-owned magic NTAG215
+  tags. It is independent of phases 13-15 and only needs the existing Type 2
+  path.
+- A new card family needs its own ADR, spec, note, and hardware record. It is
+  never smuggled into the Classic, Type 2, or Type 4 adapter.
+- Sensitive card data is not logged or persisted by default. PAN, MRZ, document
+  numbers, and personal records are redacted or user-supplied only.
+- Only cards owned by the user, or covered by explicit written permission, may
+  be read. Chinese resident ID work additionally requires an authorized SAM and
+  written authorization; it stays blocked until then.
 
 ## Phase details
 
@@ -303,7 +325,6 @@ Deliver:
 Acceptance:
 
 - Hardware validation before advertisement.
-- No DESFire key/format workflow in this phase.
 
 Status: software complete; hardware record pending. `nfc-transport` adds
 `ApduCapabilities`/`ApduResponse` and `Reader::transceive_apdu`; both PN532
@@ -332,3 +353,194 @@ Acceptance:
 - Clean install on Arch Linux.
 - PN532 UART and ACR122U pass the documented matrix.
 - `cargo fmt`, clippy, tests, GPUI UI tests, REUSE, packaging checks pass.
+
+Priority after release: phase 13 first. Phases 14 and 15 are optional and
+depend on phase 13; phase 16 stays blocked; phase 17 is optional and
+independent after the Type 2 hardware record. A card adapter is not started
+before its RF and transport dependency is validated on real hardware.
+
+### 13: RF and transport completion
+
+Goal: finish the RF and transport work that every later read-only adapter
+needs. This phase is the priority; it does not interpret payment, transit, or
+identity applications.
+
+Deliver:
+
+- PN532 UART and ACR122U Type B selection at 106 kbps: ATQB parsing, protocol
+  byte, CID, targeted exchange, and RF-field recovery.
+- `CardType` and `CardInfo` facts for Type B; no guessing an application from
+  the UID or ATS.
+- High-rate ISO-DEP at 212 and 424 kbps where the reader supports it: Type A
+  and Type B `InListPassiveTarget` rates, RATS/PPS, ATS/FSCI handling, and a
+  fallback to 106 kbps when a card or reader refuses the rate.
+- Auto-poll and mixed-card scanning: report Type A, Type B, and FeliCa (if the
+  reader path is validated) without a manual mode switch.
+- APDU chaining and extended-length handling. The existing per-reader
+  `max_command` limit stays authoritative; a reader that cannot carry an APDU
+  reports it instead of splitting it silently.
+- Reader control and diagnostics: RF field on/off, power-down/wake-up,
+  hot-plug recovery, firmware and register reads, ACR122U LED/buzzer, PN532
+  GPIO, timeout/retry reporting, and card-presence watch.
+- A read-only APDU diagnostic surface limited to SELECT, READ BINARY, and READ
+  RECORD. It must refuse every other instruction; it is not a write console.
+  Card-specific reads that need another instruction live in phase 14 behind
+  their own read-only allowlists.
+- Scripted Type A/B cards, rate-negotiation tests, chaining tests, and
+  hardware gates on both readers.
+
+Acceptance:
+
+- A Type B card is selected and a read-only APDU round trip is recorded on both
+  PN532 UART and ACR122U.
+- At least one reader completes a 212 or 424 kbps ISO-DEP exchange and falls
+  back cleanly to 106 kbps when the card rejects the rate.
+- Type 4B APDU reads work through the same transport; phase 14 maps them to
+  NDEF.
+- Auto-poll reports the card family without a write path.
+- No card write, credit, purchase, PIN, or cloning path is introduced.
+- New ADRs cover Type B, high-rate negotiation, and the read-only APDU policy.
+
+### 14: Read-only protocol adapters (optional)
+
+Goal: add read-only application and NDEF adapters on top of the phase 13
+transport. No adapter in this phase performs a transaction, credit, purchase,
+PIN, or card write.
+
+Deliver:
+
+- Type 4B NDEF read: the existing Type 4 adapter over the Type B transport.
+- Type 3 / FeliCa NDEF read: PN532 first; ACR122U only after its FeliCa path
+  is validated. Report an unsupported reader instead of guessing.
+- EMV public-data reader:
+  - PPSE/PSE selection, application selection, GPO, READ RECORD, and TLV
+    decoding.
+  - Type A and Type B contactless cards.
+  - PAN, expiry, and cardholder data redaction in logs and default output.
+- China T-Union reader:
+  - Type 4A selection and AID `A000000632010105`.
+  - Balance, up to 10 transaction records (file `0x18`), and up to 30 travel
+    records (file `0x1E`), matching the Proxmark3 `read-t-union.py` behavior.
+- FMCOS read-only: `info`, balance, and history for cards that expose the
+  FMCOS file system. No credit, purchase, key write, or file write.
+- Calypso, CIPURSE, and ITSO read-only adapters are optional follow-ups in
+  this phase; validate a card before claiming one.
+- Amiibo is an NTAG215 application and is already covered by the Type 2 raw
+  read path; it needs no new RF work. Its decrypt/encrypt/write workflow is
+  phase 17 and uses user-supplied Nintendo key material and data. No amiibo
+  keys, decrypted dumps, or cloning operations are shipped.
+- `nfctl` and GUI read-only views. Fixture tests for EMV TLV, T-Union records,
+  Type 3/Type 4B NDEF, and FMCOS layouts. Live card data is never committed.
+
+Acceptance:
+
+- One owned Type 4B or Type 3 NDEF tag is read on a reader that supports its
+  RF path.
+- One owned EMV card and one owned T-Union card are read on at least one
+  supported reader; both readers are targeted for the release matrix.
+- EMV, T-Union, and FMCOS output is read-only and redacted by default.
+- No EMV transaction, PIN, online authorization, T-Union credit, T-Union
+  purchase, FMCOS financial operation, or card mutation exists.
+- ISO 15693 / Type 5 and Type 1 / Topaz are not implemented: the supported
+  readers do not provide those RF paths.
+
+### 15: Read-only eMRTD reader (optional)
+
+Goal: read ICAO 9303 electronic travel documents: passports, and compatible
+Hong Kong/Macau permits if they present the same eMRTD application.
+
+Deliver:
+
+- ICAO 9303 LDS parsing, BAC and PACE, secure messaging, and data-group read
+  and dump.
+- Type A and Type B documents, with MRZ or CAN input supplied by the user.
+- `nfctl` and GUI read-only views; explicit warning that only the document
+  owner may use them.
+- BAC/PACE vectors, malformed-file tests, and hardware gates on both readers.
+- No terminal authentication, EAC, document write, or cloning. Some protected
+  data groups may remain unavailable; report that explicitly.
+
+Acceptance:
+
+- `info` and `dump` succeed on one owned passport with the correct MRZ or CAN.
+- A non-eMRTD Type B document is rejected without pretending to be readable.
+- Hong Kong/Macau permits are supported only when the document presents the
+  ICAO 9303 eMRTD application; a proprietary SAM-based permit stays out of
+  scope.
+- No document data is logged or persisted by default.
+
+### 16: Chinese resident ID read-only (authorized SAM) (blocked)
+
+This phase stays blocked. A second-generation resident ID requires an
+authorized SAM, the corresponding keys, and written authorization for the
+reader deployment. `hf 14b`/APDU access alone is not enough.
+
+Prerequisites before any work starts:
+
+- written authorization for the exact reader and use case;
+- a supported reader with an accessible SAM interface;
+- the authorized SAM and key material;
+- an ADR, spec, and read-only safety contract.
+
+No deliverable is scheduled until those prerequisites exist. The phase is
+read-only even if unblocked: no ID data write, duplication, or authentication
+bypass.
+
+### 17: Amiibo / NTAG215 read, decrypt, encrypt, write (optional)
+
+Goal: read an Amiibo NTAG215 image, decrypt or encrypt it with a user-supplied
+amiitool-compatible key file, and write a user-supplied encrypted image to a
+user-owned magic NTAG215. No Nintendo keys or Amiibo data are shipped.
+
+This phase is independent of phases 13-15: Amiibo uses the existing Type 2 /
+NTAG215 path, so it can start after the Type 2 hardware record without waiting
+for Type B or eMRTD work. Phase 16 is blocked and unrelated.
+
+Deliver:
+
+- Type 2 / NTAG215 Amiibo profile: 135-page raw image, UID, lock bits,
+  configuration, and capacity checks. The raw read/dump reuses the existing
+  Type 2 workflow.
+- Key import: an amiitool-compatible key file selected by the user, held only
+  in memory, never logged, never written to project files, and zeroized after
+  use where practical.
+- Decrypt/unpack: verify the encrypted payload and produce the plaintext
+  Amiibo image. A wrong key or corrupted tag is a typed error, not garbage
+  output.
+- Encrypt/pack: accept a user-supplied plaintext image, validate its size and
+  fields, and produce the encrypted NTAG215 image.
+- Write path: Advanced-only, explicit confirmation, full pre-write image
+  backup, encrypted-image capacity and lock checks, read-back verification,
+  and card identity check. Refuse genuine locked NTAG215 tags; only
+  user-owned magic NTAG215 tags are writable. When the user-supplied image
+  requires the original UID, a magic-tag UID write is a separate Advanced
+  confirmation with the same backup and verify rules; it is never attempted on
+  a genuine tag.
+- CLI and GUI read-only/decrypt/encrypt views, plus the Advanced write action.
+  The CLI uses a separate `nfctl amiibo` command family so the Type 2 page
+  editor does not grow Amiibo-specific branches.
+- Golden tests built from synthetic keys and synthetic images; no real Amiibo
+  key file, plaintext dump, or retail tag data is committed. If an
+  amiitool-derived algorithm is used, keep its MIT notice and license.
+- Hardware gates: read/decrypt on both PN532 UART and ACR122U; write/verify on
+  an owned magic NTAG215.
+
+Acceptance:
+
+- A user-supplied key file decrypts a user-supplied Amiibo dump and
+  re-encrypts it without changing the underlying plaintext.
+- A read-back-verified write completes on an owned magic NTAG215; the raw
+  backup is written before the first mutation.
+- No key material, plaintext Amiibo image, or retail dump is written to the
+  repository, logs, or default output.
+- A genuine locked tag is refused before any write.
+- No genuine-tag UID write, lock bypass, or third-party Amiibo copying is part
+  of this phase. A magic-tag UID write is Advanced, explicit, backed up, and
+  verified.
+
+Non-goals:
+
+- Shipping Nintendo keys, decrypted Amiibo data, or retail dumps.
+- Writing genuine locked Amiibo tags.
+- Cloning or distributing third-party Amiibo data.
+- Online Amiibo services or account integration.

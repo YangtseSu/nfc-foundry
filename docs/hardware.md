@@ -14,6 +14,13 @@ not part of the advertised scope until a Type 4 read/write record is added to
 `docs/notes/11-type4-ndef.md`. The transport-wide limit is 247 bytes per
 command APDU because the ACR122U pseudo-APDU wrapper leaves that much room.
 
+Post-release work in plan phases 13-17 uses the same two readers for ISO
+14443B, high-rate ISO-DEP, Type 3/4B NDEF, EMV public data, China T-Union,
+FMCOS/Calypso, ICAO 9303 eMRTD, and Amiibo/NTAG215. Phase 13 is the pending
+RF/transport prerequisite; phases 14-17 are optional. It is not advertised and
+has no hardware record. Amiibo uses the existing Type 2 path; its write path
+is Advanced and limited to owned magic NTAG215 tags.
+
 ## PN532 UART
 
 The connstring is `pn532_uart:<serial-port>`. `nfctl list` reports every serial

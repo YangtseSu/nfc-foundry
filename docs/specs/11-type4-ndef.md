@@ -98,8 +98,6 @@ yet.
 
 ## Non-goals
 
-- No DESFire key, application creation, file creation, or NDEF formatting.
-  A blank DESFire must be formatted outside this tool.
 - No mapping version 3.0 or Extended NDEF File Control TLV.
 - No writing of non-mandatory NDEF files or proprietary files.
 - No CC modification, read-only transition, or lock operation.

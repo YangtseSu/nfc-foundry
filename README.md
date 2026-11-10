@@ -75,6 +75,14 @@ Out of scope for the first release: PN53x USB, PC/SC-only readers, Proxmark3
 device control, Windows, macOS, containers, AppImage/Flatpak/Snap, telemetry,
 and a browser-first UI.
 
+Post-release work is listed in the phase plan (phases 13-17): phase 13 is the
+pending RF and transport prerequisite; phases 14-17 are optional and cover
+Type 3/4B NDEF, EMV public data, China T-Union, FMCOS/Calypso, ICAO 9303
+eMRTD, and a controlled Amiibo path with user-supplied keys and data. The
+read-only phases add no write or transaction path; Amiibo writes are Advanced,
+user-key/user-data only, and limited to owned magic NTAG215 tags. No hardware
+support is claimed until validated.
+
 ## Technical stack
 
 - Rust latest stable, edition 2024.
