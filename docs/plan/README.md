@@ -356,8 +356,9 @@ Acceptance:
 Status: complete. `packaging/aur` contains the `nfc-foundry` source package and
 `.SRCINFO`; `packaging/release` builds the relocatable binary tarball, the
 dependency license bundle, and the GPL source archive. The release workflow
-builds on Arch Linux, runs the full check set, and publishes the assets on a
-`v*` tag. `docs/hardware-matrix.md` records the certified PN532 UART and
+builds on Ubuntu 26.04 for Linux amd64, runs the full check set, and
+publishes the assets on a `v*` tag. The AUR package remains outside GitHub
+CI. `docs/hardware-matrix.md` records the certified PN532 UART and
 ACR122U scope; ACR122U writes for Classic data blocks, Type 2 NDEF, and Classic
 NDEF, one-way locks, passwords, trailer writes, Classic 4K, and Type 4 remain
 unrecorded and are not advertised. Version reporting is unified

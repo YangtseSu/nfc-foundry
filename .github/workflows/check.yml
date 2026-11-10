@@ -4,23 +4,28 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   check:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2.9.3
       - name: Install native build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             libudev-dev \
             libfontconfig1-dev \
+            libfreetype-dev \
             libwayland-dev \
             libx11-xcb-dev \
+            libxcb1-dev \
             libxkbcommon-dev \
             libxkbcommon-x11-dev
       - name: Format
@@ -32,4 +37,4 @@ jobs:
       - name: GUI check
         run: cargo check -p nfc-foundry
       - name: REUSE
-        uses: fsfe/reuse-action@v5
+        uses: fsfe/reuse-action@v6

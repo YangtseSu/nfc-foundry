@@ -7,7 +7,7 @@ Date: 2026-11-10
 Make the first Rust release installable and auditable:
 
 - one Arch Linux AUR source package named `nfc-foundry`;
-- one GitHub Actions binary tarball built on Arch Linux;
+- one GitHub Actions binary tarball for Linux amd64 built on Ubuntu 26.04;
 - one source archive for GPL compliance;
 - udev rules, license texts, notices, and dependency license bundle;
 - a hardware matrix that states exactly which operations each reader has
@@ -95,12 +95,15 @@ the `nfc-foundry-<version>/` prefix. It includes `Cargo.lock`,
 
 `.github/workflows/release.yml` runs on `v*` tags and on manual dispatch:
 
-1. install Arch build dependencies in an `archlinux` container;
+1. install the Linux build dependencies on Ubuntu 26.04;
 2. resolve the version and require `v<version>` to equal the tag;
-3. run `make check` (`fmt`, `clippy`, `test`, GUI check, `reuse lint`);
-4. build the release workspace;
+3. run `make fmt-check clippy test gui-check` and `reuse lint`;
+4. build only the `x86_64-unknown-linux-gnu` target;
 5. create the binary tarball, dependency license bundle, and source archive;
 6. upload the assets; a tag build publishes them to the GitHub release.
+
+The workflow contains no Arch Linux, `makepkg`, or AUR step. The AUR package is
+maintained for the AUR release path outside GitHub CI.
 
 CI never sets a hardware gate and never writes a card. It does not claim a
 hardware result that is not in `docs/hardware-matrix.md`.

@@ -49,6 +49,20 @@ editor. It has its own codec crate and family-specific adapters.
 - Proxmark3 is not a device backend. Users run PM3's own client; NFC Foundry
   exchanges dumps and key files only.
 
+## Version policy
+
+- Track the latest stable release of the Rust toolchain, crates, GitHub
+  Actions, GitHub-hosted runner images, and system libraries. Use the newest
+  stable version, not an older LTS or a pre-release, unless a phase explicitly
+  validates that pre-release and records why.
+- Update `Cargo.lock` with the dependency change instead of deferring it. Do
+  not pin an old version; when an incompatibility forces a pin, record the
+  reason next to it and revisit it with the next update.
+- Dependabot checks Cargo and GitHub Actions daily. Treat its pull requests as
+  normal dependency work and land them promptly.
+- Keep `rust-toolchain.toml` on the stable channel and keep the locked
+  dependency set current.
+
 ## Recovery source policy
 
 The source of truth for MIFARE Classic recovery behavior is the current

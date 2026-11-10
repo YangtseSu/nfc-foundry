@@ -19,6 +19,10 @@ for binary in nfc-foundry nfctl; do
         printf 'run: cargo build --release --locked --workspace\n' >&2
         exit 1
     fi
+    if ! file "$build/$binary" | grep -q 'x86-64'; then
+        printf 'release binary is not Linux amd64: %s\n' "$build/$binary" >&2
+        exit 1
+    fi
 done
 
 rm -rf "$stage"

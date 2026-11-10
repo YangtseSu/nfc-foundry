@@ -3,7 +3,7 @@
 ## Supported outputs
 
 - Arch Linux AUR source package for `nfc-foundry`.
-- GitHub CI binary tarball built on Arch Linux.
+- GitHub CI binary tarball for Linux amd64 built on Ubuntu 26.04.
 - GPL source archive from the release tag.
 
 No Windows, macOS, Debian/RPM, AppImage, Flatpak, Snap, desktop entry, or
@@ -155,7 +155,7 @@ a bundled file; the expression names the license text to resolve.
 
 ## CI
 
-`.github/workflows/check.yml` is the pull-request gate:
+`.github/workflows/check.yml` is the pull-request gate on Ubuntu 26.04:
 
 - `cargo fmt --all --check`
 - `cargo clippy --workspace --all-targets -- -D warnings`
@@ -164,11 +164,17 @@ a bundled file; the expression names the license text to resolve.
 - `reuse lint`
 
 `.github/workflows/release.yml` runs on `v*` tags and on manual dispatch. It
-uses an `archlinux` container, installs the native build dependencies, verifies
-that the tag matches `Cargo.toml`, runs `make check`, builds the release
-workspace, creates the binary tarball, license bundle, and source archive,
-writes `SHA256SUMS`, and uploads the assets. A tag build publishes them to the
-GitHub release.
+uses Ubuntu 26.04, installs the native build dependencies, verifies that the
+tag matches `Cargo.toml`, runs the checks, builds only
+`x86_64-unknown-linux-gnu`, creates the binary tarball, license bundle, and
+source archive, writes `SHA256SUMS`, and uploads the assets. A tag build
+publishes them to the GitHub release.
+
+The workflow contains no Arch Linux, `makepkg`, or AUR step. The AUR package in
+`packaging/aur` is maintained for the AUR release path and is validated there,
+not in GitHub CI.
+
+`.github/dependabot.yml` checks Cargo and GitHub Actions daily.
 
 CI never sets a hardware gate and never writes a card. Hardware results live in
 `docs/hardware-matrix.md` and are referenced by the release note, not produced
@@ -182,6 +188,11 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo check -p nfc-foundry
 reuse lint
+```
+
+AUR-side checks, run outside GitHub CI:
+
+```sh
 namcap packaging/aur/PKGBUILD
 (cd packaging/aur && makepkg --printsrcinfo > .SRCINFO)
 ```

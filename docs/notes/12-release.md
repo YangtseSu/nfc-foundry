@@ -56,10 +56,12 @@ Date: 2026-11-10
   explains the mapping.
 - `make dist` runs the release build, binary tarball, source archive, and
   `SHA256SUMS`. `make aur-check` checks `namcap` and `.SRCINFO`.
-- `.github/workflows/release.yml` runs on `v*` tags and manual dispatch in an
-  `archlinux` container: version/tag verification, `make check`, release build,
-  assets, `namcap`, `.SRCINFO` diff, artifact upload, and GitHub release
-  publication on a tag. It sets no hardware gate.
+- `.github/workflows/release.yml` runs on `v*` tags and manual dispatch on
+  Ubuntu 26.04: version/tag verification, checks, a
+  `x86_64-unknown-linux-gnu` release build, assets, artifact upload, and GitHub
+  release publication on a tag. It sets no hardware gate and has no Arch,
+  `makepkg`, or AUR step.
+- `.github/dependabot.yml` checks Cargo and GitHub Actions daily.
 
 ### Hardware matrix
 
