@@ -7,3 +7,6 @@
 /packaging/aur/src
 /packaging/aur/pkg
 /packaging/aur/*.pkg.tar*
+/packaging/local-git/src
+/packaging/local-git/pkg
+/packaging/local-git/*.pkg.tar*
