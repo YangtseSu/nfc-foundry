@@ -68,7 +68,7 @@ capability. Card-family workflows, NDEF, and recovery stay above this layer.
 - Gen1A writes require a four-byte UID MIFARE Classic 1K card, a valid block 0
   BCC, an explicit hardware-test confirmation, and a read-back after
   reselection. The hardware test writes the current block 0 unchanged unless
-  `NFCX_TEST_UID` is set.
+  `NFC_FOUNDRY_TEST_UID` is set.
 - Raw mode rejects ordinary MIFARE operations; ordinary mode rejects raw
   exchange.
 - No write is retried by the protocol layer; callers verify read-back.
@@ -86,11 +86,11 @@ capability. Card-family workflows, NDEF, and recovery stay above this layer.
   assignment, status-word handling, firmware checks, selection, retries,
   disconnects, authentication, block reads/writes, raw bytes, raw trailing
   bits, and Gen1A frame order.
-- Hardware: with `NFCX_HARDWARE=1` and an exact `NFCX_DEVICE`, the ACR122U
+- Hardware: with `NFC_FOUNDRY_HARDWARE=1` and an exact `NFC_FOUNDRY_DEVICE`, the ACR122U
   identifies its internal PN532, reads a Classic block and a Type 2 page, and
   returns a 16-bit ATQA from a raw 7-bit REQA. With `hardware-write`,
-  `NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD`, and
-  `NFCX_HARDWARE_GEN1A_CONFIRM=I_OWN_THIS_CARD`, a Gen1A block 0 write is
+  `NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD`, and
+  `NFC_FOUNDRY_HARDWARE_GEN1A_CONFIRM=I_OWN_THIS_CARD`, a Gen1A block 0 write is
   verified by reselection and read-back.
 - The phase note records the PC/SC coexistence behavior and any hardware
   checks that could not be run.

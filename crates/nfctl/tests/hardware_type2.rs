@@ -3,13 +3,13 @@
 //! Read-only:
 //!
 //! ```sh
-//! NFCX_HARDWARE=1 \
-//! NFCX_DEVICE=acr122_usb:001:017 \
+//! NFC_FOUNDRY_HARDWARE=1 \
+//! NFC_FOUNDRY_DEVICE=acr122_usb:001:017 \
 //! cargo test -p nfctl --features hardware -- --ignored
 //! ```
 //!
 //! The NDEF round trip additionally requires the `hardware-write` feature and
-//! `NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD`. The original user memory is restored
+//! `NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD`. The original user memory is restored
 //! from a project backup at the end of the test.
 
 #![cfg(feature = "hardware")]
@@ -40,12 +40,12 @@ fn lock_hardware() -> MutexGuard<'static, ()> {
 
 fn conn_string() -> String {
     assert_eq!(
-        env::var("NFCX_HARDWARE").as_deref(),
+        env::var("NFC_FOUNDRY_HARDWARE").as_deref(),
         Ok("1"),
-        "set NFCX_HARDWARE=1 to run hardware tests"
+        "set NFC_FOUNDRY_HARDWARE=1 to run hardware tests"
     );
-    env::var("NFCX_DEVICE")
-        .expect("set NFCX_DEVICE to the exact pn532_uart:<port> or acr122_usb:<bus>:<addr>")
+    env::var("NFC_FOUNDRY_DEVICE")
+        .expect("set NFC_FOUNDRY_DEVICE to the exact pn532_uart:<port> or acr122_usb:<bus>:<addr>")
 }
 
 fn service(conn_string: &str) -> Service {
@@ -95,12 +95,12 @@ fn reads_and_reports_ndef_state() {
 
 #[cfg(feature = "hardware-write")]
 #[test]
-#[ignore = "requires an owned Type 2 tag and NFCX_HARDWARE_WRITE"]
+#[ignore = "requires an owned Type 2 tag and NFC_FOUNDRY_HARDWARE_WRITE"]
 fn ndef_write_read_and_restore_round_trip() {
     assert_eq!(
-        env::var("NFCX_HARDWARE_WRITE").as_deref(),
+        env::var("NFC_FOUNDRY_HARDWARE_WRITE").as_deref(),
         Ok("I_OWN_THIS_CARD"),
-        "set NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD to allow writes"
+        "set NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD to allow writes"
     );
     let _guard = lock_hardware();
     let conn_string = conn_string();
@@ -115,7 +115,7 @@ fn ndef_write_read_and_restore_round_trip() {
         "the original image must be complete before a write"
     );
 
-    let backup_dir = env::var_os("NFCX_HARDWARE_BACKUP_DIR")
+    let backup_dir = env::var_os("NFC_FOUNDRY_HARDWARE_BACKUP_DIR")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::env::temp_dir().join("nfc-foundry-hardware"));
     let backup = BackupStore::new(&backup_dir);
@@ -164,17 +164,18 @@ fn ndef_write_read_and_restore_round_trip() {
 #[ignore = "requires an owned NTAG with a known password"]
 fn password_configuration_writes_and_verifies() {
     assert_eq!(
-        env::var("NFCX_HARDWARE_WRITE").as_deref(),
+        env::var("NFC_FOUNDRY_HARDWARE_WRITE").as_deref(),
         Ok("I_OWN_THIS_CARD"),
-        "set NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD to allow configuration writes"
+        "set NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD to allow configuration writes"
     );
     let password = parse_password(
-        &env::var("NFCX_TYPE2_PASSWORD").expect("set NFCX_TYPE2_PASSWORD to 8 hex digits"),
+        &env::var("NFC_FOUNDRY_TYPE2_PASSWORD")
+            .expect("set NFC_FOUNDRY_TYPE2_PASSWORD to 8 hex digits"),
     );
     let _guard = lock_hardware();
     let conn_string = conn_string();
     let mut service = service(&conn_string);
-    let backup_dir = env::var_os("NFCX_HARDWARE_BACKUP_DIR")
+    let backup_dir = env::var_os("NFC_FOUNDRY_HARDWARE_BACKUP_DIR")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::env::temp_dir().join("nfc-foundry-hardware"));
     let backup = BackupStore::new(&backup_dir);
@@ -192,7 +193,11 @@ fn parse_password(value: &str) -> [u8; 4] {
         .chars()
         .filter(|character| !character.is_ascii_whitespace())
         .collect();
-    assert_eq!(compact.len(), 8, "NFCX_TYPE2_PASSWORD must be 8 hex digits");
+    assert_eq!(
+        compact.len(),
+        8,
+        "NFC_FOUNDRY_TYPE2_PASSWORD must be 8 hex digits"
+    );
     let bytes = compact.as_bytes();
     let mut password = [0u8; 4];
     for (index, byte) in password.iter_mut().enumerate() {
@@ -200,7 +205,7 @@ fn parse_password(value: &str) -> [u8; 4] {
             b'0'..=b'9' => character - b'0',
             b'a'..=b'f' => character - b'a' + 10,
             b'A'..=b'F' => character - b'A' + 10,
-            _ => panic!("NFCX_TYPE2_PASSWORD contains a non-hexadecimal character"),
+            _ => panic!("NFC_FOUNDRY_TYPE2_PASSWORD contains a non-hexadecimal character"),
         };
         *byte = (digit(bytes[index * 2]) << 4) | digit(bytes[index * 2 + 1]);
     }

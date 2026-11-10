@@ -3,15 +3,16 @@
 NFC Foundry is a Linux-only NFC reader workbench for MIFARE Classic and NFC
 Forum Type 2 / NDEF cards, written in Rust.
 
-This repository is the clean Rust rewrite. The previous Go/C implementation is
-kept as a behavioral oracle and hardware-regression reference; it is not a
-dependency of this project.
-
 ## Status
 
-**Phase 10 complete: the Classic 1K NDEF format/write/read/restore round trip
-passed on PN532 UART. The ACR122U record and the ACR122U Type 2 record remain
-pending.**
+**Release 0.1.0: the AUR source package, GitHub CI binary tarball, source
+archive, and hardware matrix are in place.** PN532 UART passed every operation
+in its certified scope. The ACR122U passed its certified scope: selection,
+Classic reads, Type 2 reads, raw REQA, Gen1A same-value block 0 write, and
+recovery. ACR122U Classic data writes, ACR122U Type 2 write/NDEF, ACR122U
+Classic NDEF, one-way locks, passwords, trailer writes, Classic 4K, and Type 4
+are not advertised because no release hardware record exists. See
+[Hardware matrix](docs/hardware-matrix.md).
 Both first-release readers are implemented: PN532 UART
 and ACR122U direct USB/CCID. The ACR122U path claims the CCID interface with
 `nusb`, carries PN532 commands in the ACR122 pseudo-APDU, and supports
@@ -124,6 +125,28 @@ gui/* -> nfc-app -> nfc-recover / nfc-classic / nfc-type2 / nfc-classic-ndef
 nfc-drivers -> nfc-transport
 ```
 
+## Install
+
+Arch Linux AUR source package:
+
+```sh
+cd packaging/aur
+makepkg -sri
+```
+
+Binary tarball, from a release tag or a local build:
+
+```sh
+make dist
+tar -xzf dist/nfc-foundry-0.1.0-x86_64.tar.gz
+./nfc-foundry-0.1.0-x86_64/bin/nfctl diag
+```
+
+The package and tarball install `nfc-foundry`, `nfctl`, the ACR122U udev rule,
+the hardnested tables, licenses, notices, and documentation. All paths use the
+`nfc-foundry` namespace, so another NFC reader application can stay installed;
+only one process may own a reader at a time. See [Packaging](docs/packaging.md).
+
 ## Build
 
 ```sh
@@ -211,7 +234,7 @@ cargo run -p nfctl -- --device pn532_uart:/dev/ttyUSB0 \
 PN532 UART firmware identification, Classic 1K selection/authentication/read,
 Type 2 selection/read, raw 7-bit REQA, Classic dump, key scan, temporary block
 write, and restore are hardware-validated. Writes remain gated by
-`NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD`; see [Testing](docs/testing.md), the
+`NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD`; see [Testing](docs/testing.md), the
 [phase 02 note](docs/notes/02-pn532-uart.md), and the
 [phase 04 note](docs/notes/04-classic-workflows.md) for the records.
 
@@ -238,7 +261,7 @@ darkside` reports a no-sample failure when the card does not expose eight
 probes against one tag nonce. Use only cards you own.
 
 Hardnested tables are read from `/usr/share/nfc-foundry/hardnested_tables`, the
-checkout's `resources/hardnested_tables`, or `NFCX_HARDNESTED_TABLES` (also
+checkout's `resources/hardnested_tables`, or `NFC_FOUNDRY_HARDNESTED_TABLES` (also
 `--hardnested-tables`).
 
 `pcscd` holds the same CCID interface, so stop it before using the direct USB
@@ -305,6 +328,7 @@ policy as `nfctl`.
 - [Recovery](docs/recovery.md)
 - [NDEF](docs/ndef.md)
 - [Testing](docs/testing.md)
+- [Hardware matrix](docs/hardware-matrix.md)
 - [Packaging](docs/packaging.md)
 - [ADRs](docs/adr/)
 

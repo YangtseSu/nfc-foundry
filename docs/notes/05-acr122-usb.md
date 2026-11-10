@@ -116,7 +116,7 @@ Date: 2026-11-10
   capability and the gated hardware test establish the path; the UID/clone
   workflow and its Advanced-mode confirmation rules remain future work.
 - The hardware run used the user-approved same-value write. A UID-changing
-  write was not performed; `NFCX_TEST_UID` supports it, and the test restores
+  write was not performed; `NFC_FOUNDRY_TEST_UID` supports it, and the test restores
   the original block when the UID changes.
 - Type 2 is exercised through raw `READ` only; the Type 2 page model and
   workflow arrive in phase 09.

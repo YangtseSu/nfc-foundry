@@ -3,8 +3,8 @@
 //! Read-only:
 //!
 //! ```sh
-//! NFCX_HARDWARE=1 \
-//! NFCX_DEVICE=pn532_uart:/dev/ttyUSB0 \
+//! NFC_FOUNDRY_HARDWARE=1 \
+//! NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
 //! cargo test -p nfctl --features hardware -- --ignored
 //! ```
 //!
@@ -12,10 +12,10 @@
 //! restores the original dump. It requires both write tokens:
 //!
 //! ```sh
-//! NFCX_HARDWARE=1 \
-//! NFCX_DEVICE=pn532_uart:/dev/ttyUSB0 \
-//! NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD \
-//! NFCX_HARDWARE_NDEF_FORMAT=I_OWN_THIS_CARD \
+//! NFC_FOUNDRY_HARDWARE=1 \
+//! NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
+//! NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD \
+//! NFC_FOUNDRY_HARDWARE_NDEF_FORMAT=I_OWN_THIS_CARD \
 //! cargo test -p nfctl --features hardware-write -- --ignored
 //! ```
 
@@ -45,11 +45,11 @@ fn lock_hardware() -> MutexGuard<'static, ()> {
 
 fn conn_string() -> String {
     assert_eq!(
-        env::var("NFCX_HARDWARE").as_deref(),
+        env::var("NFC_FOUNDRY_HARDWARE").as_deref(),
         Ok("1"),
-        "set NFCX_HARDWARE=1 to run hardware tests"
+        "set NFC_FOUNDRY_HARDWARE=1 to run hardware tests"
     );
-    env::var("NFCX_DEVICE").expect("set NFCX_DEVICE to the exact reader connstring")
+    env::var("NFC_FOUNDRY_DEVICE").expect("set NFC_FOUNDRY_DEVICE to the exact reader connstring")
 }
 
 fn service(conn_string: &str) -> Service {
@@ -103,20 +103,20 @@ fn reads_the_classic_ndef_mapping() {
 #[ignore = "requires an owned Classic card, both write tokens, and a reader"]
 fn formats_writes_reads_and_restores_a_classic_card() {
     assert_eq!(
-        env::var("NFCX_HARDWARE_WRITE").as_deref(),
+        env::var("NFC_FOUNDRY_HARDWARE_WRITE").as_deref(),
         Ok("I_OWN_THIS_CARD"),
-        "set NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD to allow writes"
+        "set NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD to allow writes"
     );
     assert_eq!(
-        env::var("NFCX_HARDWARE_NDEF_FORMAT").as_deref(),
+        env::var("NFC_FOUNDRY_HARDWARE_NDEF_FORMAT").as_deref(),
         Ok("I_OWN_THIS_CARD"),
-        "set NFCX_HARDWARE_NDEF_FORMAT=I_OWN_THIS_CARD to allow a full format"
+        "set NFC_FOUNDRY_HARDWARE_NDEF_FORMAT=I_OWN_THIS_CARD to allow a full format"
     );
     let _guard = lock_hardware();
     let mut service = service(&conn_string());
     assert_classic(&mut service);
     let store = KeyStore::new();
-    let backup = env::var("NFCX_HARDWARE_BACKUP_DIR")
+    let backup = env::var("NFC_FOUNDRY_HARDWARE_BACKUP_DIR")
         .map(std::path::PathBuf::from)
         .map(BackupStore::new)
         .unwrap_or_default();

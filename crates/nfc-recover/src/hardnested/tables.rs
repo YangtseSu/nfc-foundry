@@ -226,14 +226,14 @@ fn load_table(dir: &Path, odd_even: usize, bitflip: u16) -> Result<Option<(BitSe
 }
 
 /// Finds the table directory without relying on the process working
-/// directory. An explicit path wins, then `NFCX_HARDNESTED_TABLES`, the
+/// directory. An explicit path wins, then `NFC_FOUNDRY_HARDNESTED_TABLES`, the
 /// installed resource directory, and finally a development checkout.
 pub fn resolve_dir(explicit: Option<&Path>) -> Result<PathBuf> {
     let mut candidates = Vec::new();
     if let Some(path) = explicit {
         candidates.push(path.to_path_buf());
     }
-    if let Some(path) = std::env::var_os("NFCX_HARDNESTED_TABLES") {
+    if let Some(path) = std::env::var_os("NFC_FOUNDRY_HARDNESTED_TABLES") {
         candidates.push(PathBuf::from(path));
     }
     if let Some(path) = std::env::var_os("NFC_FOUNDRY_RESOURCES") {
@@ -262,7 +262,7 @@ pub fn resolve_dir(explicit: Option<&Path>) -> Result<PathBuf> {
         }
     }
     Err(NfcError::Io(
-        "hardnested tables not found; install /usr/share/nfc-foundry/hardnested_tables or set NFCX_HARDNESTED_TABLES"
+        "hardnested tables not found; install /usr/share/nfc-foundry/hardnested_tables or set NFC_FOUNDRY_HARDNESTED_TABLES"
             .to_owned(),
     ))
 }

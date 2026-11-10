@@ -61,7 +61,7 @@ added in this phase.
   authentication/read/write is unavailable while raw mode is enabled.
 - Writes are never retried by the framing layer; callers must read back.
 - Hardware write tests require the `hardware-write` feature and
-  `NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD`, write the original value back, refuse
+  `NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD`, write the original value back, refuse
   block 0 and sector trailers, and read back.
 
 ## Acceptance
@@ -76,9 +76,9 @@ added in this phase.
   frames, checksums, firmware validation, card selection, authentication,
   block read/write, retries, timeouts, disconnects, raw bytes, raw bits, and
   raw-mode gating.
-- Hardware: with `NFCX_HARDWARE=1` and an exact `NFCX_DEVICE`, a PN532 reads a
+- Hardware: with `NFC_FOUNDRY_HARDWARE=1` and an exact `NFC_FOUNDRY_DEVICE`, a PN532 reads a
   MIFARE Classic block and a Type 2 page. A same-value Classic write runs only
-  with `NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD`.
+  with `NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD`.
 
 ## Current validation status
 

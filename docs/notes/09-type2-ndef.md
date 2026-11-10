@@ -86,7 +86,7 @@ firmware 1.6), NTAG215 UID `04 52 F5 67 D3 2A 81`:
   496-byte NDEF data area, 491-byte NDEF capacity, no warnings;
 - original NDEF: one URI record, `https://www.m5stack.com`;
 - locks `00 00` / `00 00 00`; AUTH0 `FF`, ACCESS `00`, CFGLCK off, AUTHLIM 0;
-- authorized write round trip with `NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD`:
+- authorized write round trip with `NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD`:
   formatted NDEF, wrote a 33-byte Text record, read it back as the expected
   message, then restored the original user memory from a project backup;
 - post-restore read: the original URI record and page image are back;

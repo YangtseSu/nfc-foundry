@@ -136,5 +136,5 @@ oracle code is copied, the combined work remains GPL-3.0-or-later.
   `mfkey64`, and `nonce2key`; each is a golden Rust test.
 - The PM3 C tools were run as development oracles for common-prefix state
   counts and the nested state input.
-- Hardware tests on PN532 UART and ACR122U, gated by `NFCX_HARDWARE=1` and
-  `NFCX_DEVICE`. `cargo test --workspace` never touches hardware.
+- Hardware tests on PN532 UART and ACR122U, gated by `NFC_FOUNDRY_HARDWARE=1` and
+  `NFC_FOUNDRY_DEVICE`. `cargo test --workspace` never touches hardware.

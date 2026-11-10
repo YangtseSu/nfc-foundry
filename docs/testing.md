@@ -20,48 +20,48 @@ Hardware tests are compiled only with the `hardware` feature and run only when
 the environment selects them:
 
 ```sh
-NFCX_HARDWARE=1 \
-NFCX_DEVICE=pn532_uart:/dev/ttyUSB0 \
+NFC_FOUNDRY_HARDWARE=1 \
+NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
 cargo test -p nfc-drivers --features hardware -- --ignored
 ```
 
 Required gates:
 
-- `NFCX_HARDWARE=1`: enable hardware tests.
-- `NFCX_DEVICE`: exact connstring.
-- `NFCX_HARDWARE_KEY`: 12-hex MIFARE Classic key; defaults to
+- `NFC_FOUNDRY_HARDWARE=1`: enable hardware tests.
+- `NFC_FOUNDRY_DEVICE`: exact connstring.
+- `NFC_FOUNDRY_HARDWARE_KEY`: 12-hex MIFARE Classic key; defaults to
   `FFFFFFFFFFFF`.
-- `NFCX_HARDWARE_KEY_TYPE`: `A` or `B`; defaults to `A`.
-- `NFCX_HARDWARE_BLOCK`: Classic block for read/write tests; defaults to `4`.
-- `NFCX_HARDWARE_SECTOR0_KEY`: optional 12-hex Key A for manufacturer block 0
-  when it differs from `NFCX_HARDWARE_KEY`.
-- `NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD`: allow any write. The phase 02 test
+- `NFC_FOUNDRY_HARDWARE_KEY_TYPE`: `A` or `B`; defaults to `A`.
+- `NFC_FOUNDRY_HARDWARE_BLOCK`: Classic block for read/write tests; defaults to `4`.
+- `NFC_FOUNDRY_HARDWARE_SECTOR0_KEY`: optional 12-hex Key A for manufacturer block 0
+  when it differs from `NFC_FOUNDRY_HARDWARE_KEY`.
+- `NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD`: allow any write. The phase 02 test
   writes the original value back and refuses block 0 and sector trailers. The
   phase 04 workflow test changes one ordinary data block temporarily and writes
   the original back.
-- `NFCX_HARDWARE_RECOVERY=I_OWN_THIS_CARD`: allow active recovery testing.
-- `NFCX_HARDWARE_NDEF_FORMAT=I_OWN_THIS_CARD`: allow the Classic NDEF
+- `NFC_FOUNDRY_HARDWARE_RECOVERY=I_OWN_THIS_CARD`: allow active recovery testing.
+- `NFC_FOUNDRY_HARDWARE_NDEF_FORMAT=I_OWN_THIS_CARD`: allow the Classic NDEF
   format/write/restore hardware round trip. It also requires
-  `NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD`.
-- `NFCX_HARDWARE_BACKUP_DIR`: preserve backups.
+  `NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD`.
+- `NFC_FOUNDRY_HARDWARE_BACKUP_DIR`: preserve backups.
 
 The PN532 read test is ignored unless selected:
 
 ```sh
-NFCX_HARDWARE=1 \
-NFCX_DEVICE=pn532_uart:/dev/ttyUSB0 \
+NFC_FOUNDRY_HARDWARE=1 \
+NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
 cargo test -p nfc-drivers --features hardware -- --ignored
 ```
 
 Run it once with a MIFARE Classic card and once with a Type 2 tag; it reads the
 selected card and reports the block or pages. The same-value write test is
 compiled only with the additional `hardware-write` feature and requires
-`NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD`:
+`NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD`:
 
 ```sh
-NFCX_HARDWARE=1 \
-NFCX_DEVICE=pn532_uart:/dev/ttyUSB0 \
-NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD \
+NFC_FOUNDRY_HARDWARE=1 \
+NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
+NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD \
 cargo test -p nfc-drivers --features hardware-write -- --ignored
 ```
 
@@ -135,8 +135,8 @@ The gated Type 4 hardware test lives in `nfctl/tests/hardware_type4.rs`. The
 read-only check needs a Type 4 / ISO-DEP tag:
 
 ```sh
-NFCX_HARDWARE=1 \
-NFCX_DEVICE=pn532_uart:/dev/ttyUSB0 \
+NFC_FOUNDRY_HARDWARE=1 \
+NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
 cargo test -p nfctl --features hardware --test hardware_type4 -- --ignored
 ```
 
@@ -144,10 +144,10 @@ The write/read/restore round trip needs the write gate and restores the
 original NDEF message or empty state afterwards:
 
 ```sh
-NFCX_HARDWARE=1 \
-NFCX_DEVICE=acr122_usb:001:017 \
-NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD \
-NFCX_HARDWARE_BACKUP_DIR=/tmp/nfc-type4-backups \
+NFC_FOUNDRY_HARDWARE=1 \
+NFC_FOUNDRY_DEVICE=acr122_usb:001:017 \
+NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD \
+NFC_FOUNDRY_HARDWARE_BACKUP_DIR=/tmp/nfc-type4-backups \
 cargo test -p nfctl --features hardware-write --test hardware_type4 -- --ignored
 ```
 
@@ -158,8 +158,8 @@ The gated Classic NDEF hardware test lives in
 card:
 
 ```sh
-NFCX_HARDWARE=1 \
-NFCX_DEVICE=pn532_uart:/dev/ttyUSB0 \
+NFC_FOUNDRY_HARDWARE=1 \
+NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
 cargo test -p nfctl --features hardware -- --ignored
 ```
 
@@ -168,10 +168,10 @@ the original dump afterwards. It passed on PN532 UART on 2026-11-10 with a
 blank Classic 1K, UID `6A 31 5E 28`; the restored dump matched byte-for-byte:
 
 ```sh
-NFCX_HARDWARE=1 \
-NFCX_DEVICE=pn532_uart:/dev/ttyUSB0 \
-NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD \
-NFCX_HARDWARE_NDEF_FORMAT=I_OWN_THIS_CARD \
+NFC_FOUNDRY_HARDWARE=1 \
+NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
+NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD \
+NFC_FOUNDRY_HARDWARE_NDEF_FORMAT=I_OWN_THIS_CARD \
 cargo test -p nfctl --features hardware-write -- --ignored
 ```
 
@@ -179,8 +179,8 @@ The gated Type 2 hardware tests live in `nfctl/tests/hardware_type2.rs`. The
 read-only check needs a Type 2 tag:
 
 ```sh
-NFCX_HARDWARE=1 \
-NFCX_DEVICE=acr122_usb:001:017 \
+NFC_FOUNDRY_HARDWARE=1 \
+NFC_FOUNDRY_DEVICE=acr122_usb:001:017 \
 cargo test -p nfctl --features hardware -- --ignored
 ```
 
@@ -189,14 +189,14 @@ image, formats, writes a Text record, verifies it, and restores the original
 user memory from a backup:
 
 ```sh
-NFCX_HARDWARE=1 \
-NFCX_DEVICE=acr122_usb:001:017 \
-NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD \
-NFCX_HARDWARE_BACKUP_DIR=/tmp/nfc-type2-backups \
+NFC_FOUNDRY_HARDWARE=1 \
+NFC_FOUNDRY_DEVICE=acr122_usb:001:017 \
+NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD \
+NFC_FOUNDRY_HARDWARE_BACKUP_DIR=/tmp/nfc-type2-backups \
 cargo test -p nfctl --features hardware-write -- --ignored
 ```
 
-The password test additionally requires `NFCX_TYPE2_PASSWORD` (8 hex digits)
+The password test additionally requires `NFC_FOUNDRY_TYPE2_PASSWORD` (8 hex digits)
 and writes AUTH0/ACCESS/PWD/PACK on an owned tag. The read and NDEF round-trip
 tests passed on a PN532 UART with an NTAG215 on 2026-11-10; the ACR122U and
 password records remain pending.
@@ -204,8 +204,8 @@ password records remain pending.
 Hardware workflow checks:
 
 ```sh
-NFCX_HARDWARE=1 \
-NFCX_DEVICE=pn532_uart:/dev/ttyUSB0 \
+NFC_FOUNDRY_HARDWARE=1 \
+NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
 cargo test -p nfctl --features hardware -- --ignored
 ```
 
@@ -213,11 +213,11 @@ The read-only test dumps the card and scans Key A per sector. The temporary
 write test requires the additional feature and gate:
 
 ```sh
-NFCX_HARDWARE=1 \
-NFCX_DEVICE=pn532_uart:/dev/ttyUSB0 \
-NFCX_HARDWARE_KEY=FFFFFFFFFFFF \
-NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD \
-NFCX_HARDWARE_BLOCK=4 \
+NFC_FOUNDRY_HARDWARE=1 \
+NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
+NFC_FOUNDRY_HARDWARE_KEY=FFFFFFFFFFFF \
+NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD \
+NFC_FOUNDRY_HARDWARE_BLOCK=4 \
 cargo test -p nfctl --features hardware-write -- --ignored
 ```
 
@@ -229,25 +229,25 @@ Stop `pcscd` first because it holds the same CCID interface:
 
 ```sh
 sudo systemctl stop pcscd
-NFCX_HARDWARE=1 \
-NFCX_DEVICE=acr122_usb:001:017 \
+NFC_FOUNDRY_HARDWARE=1 \
+NFC_FOUNDRY_DEVICE=acr122_usb:001:017 \
 cargo test -p nfc-drivers --features hardware -- --ignored
 ```
 
 The Gen1A write additionally requires `hardware-write` and two confirmations:
 
 ```sh
-NFCX_HARDWARE=1 \
-NFCX_DEVICE=acr122_usb:001:017 \
-NFCX_HARDWARE_KEY=<sector-key> \
-NFCX_HARDWARE_SECTOR0_KEY=<sector-0-key> \
-NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD \
-NFCX_HARDWARE_GEN1A_CONFIRM=I_OWN_THIS_CARD \
+NFC_FOUNDRY_HARDWARE=1 \
+NFC_FOUNDRY_DEVICE=acr122_usb:001:017 \
+NFC_FOUNDRY_HARDWARE_KEY=<sector-key> \
+NFC_FOUNDRY_HARDWARE_SECTOR0_KEY=<sector-0-key> \
+NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD \
+NFC_FOUNDRY_HARDWARE_GEN1A_CONFIRM=I_OWN_THIS_CARD \
 cargo test -p nfc-drivers --features hardware-write -- --ignored
 ```
 
 The test writes the current manufacturer block back unchanged unless
-`NFCX_TEST_UID` is set, then reselects and verifies block 0. It refuses a card
+`NFC_FOUNDRY_TEST_UID` is set, then reselects and verifies block 0. It refuses a card
 that is not a four-byte UID MIFARE Classic 1K and a block with an invalid BCC.
 Restart `pcscd` afterwards when the PC/SC alias is needed.
 
@@ -285,7 +285,7 @@ future hardware checks.
 Recovery hardware checks are read-only and require an owned card:
 
 ```sh
-NFCX_HARDWARE=1 NFCX_DEVICE=acr122_usb:001:017 NFCX_HARDWARE_KEY=D3F7D3F7D3F7 cargo test -p nfc-recover --test hardware_recovery -- --ignored --nocapture
+NFC_FOUNDRY_HARDWARE=1 NFC_FOUNDRY_DEVICE=acr122_usb:001:017 NFC_FOUNDRY_HARDWARE_KEY=D3F7D3F7D3F7 cargo test -p nfc-recover --test hardware_recovery -- --ignored --nocapture
 ```
 
 The suite checks parity-disabled partial authentication, software Crypto1
@@ -293,15 +293,15 @@ authentication, nested nonce distance, nested recovery of a known target key,
 static-nested recovery, hardnested acquisition and key recovery, and darkside
 repeated-nonce collection. The hardnested case is the long one: it loads the
 PM3 tables, collects until all 256 first nonce bytes are present, and runs the
-bit-sliced solver. `NFCX_HARDNESTED_MAX_NONCES` caps the acquisition (default
-4000) and `NFCX_HARDNESTED_TABLES` selects a table directory. Place a
+bit-sliced solver. `NFC_FOUNDRY_HARDNESTED_MAX_NONCES` caps the acquisition (default
+4000) and `NFC_FOUNDRY_HARDNESTED_TABLES` selects a table directory. Place a
 MIFARE Classic 1K card on the reader. The current test fixture uses block 4 Key
 A `D3F7D3F7D3F7` and target block 0 Key A `A0A1A2A3A4A5`.
 
 Both transports complete full software authentication. The tests need the key
 that actually belongs to the card in the reader: the two test cards share UID
-`FA B9 CF F4` but use different sector keys. Set `NFCX_HARDWARE_KEY` and
-`NFCX_HARDWARE_TARGET_KEY` for the card under test. Darkside collection over
+`FA B9 CF F4` but use different sector keys. Set `NFC_FOUNDRY_HARDWARE_KEY` and
+`NFC_FOUNDRY_HARDWARE_TARGET_KEY` for the card under test. Darkside collection over
 either host-driven reader normally finds no eight-observation repeated-nonce
 group and must report that result; it does not fabricate a key.
 

@@ -16,7 +16,7 @@ Status legend: `done`, `in progress`, `pending`, `optional`, `blocked`.
 | 09 | Type 2 / NTAG read/write/NDEF + GUI | in progress |
 | 10 | Classic NDEF: MAD/GPB/format + GUI | done |
 | 11 | Type 4 / ISO-DEP NDEF adapter | in progress |
-| 12 | Packaging, CI, hardware certification, release | pending |
+| 12 | Packaging, CI, hardware certification, release | done |
 | 13 | RF and transport completion: Type B, high rate, auto-poll, diagnostics | pending |
 | 14 | Read-only protocol adapters: Type 4B/Type 3, EMV, T-Union, FMCOS/Calypso | optional |
 | 15 | Read-only eMRTD reader (passport, compatible permits) | optional |
@@ -346,13 +346,26 @@ Deliver:
 - AUR source package and GitHub CI binary tarball.
 - udev rules, license/notices, source archive.
 - Hardware matrix and validation records.
-- Migration note from the Go/C implementation.
 
 Acceptance:
 
 - Clean install on Arch Linux.
 - PN532 UART and ACR122U pass the documented matrix.
 - `cargo fmt`, clippy, tests, GPUI UI tests, REUSE, packaging checks pass.
+
+Status: complete. `packaging/aur` contains the `nfc-foundry` source package and
+`.SRCINFO`; `packaging/release` builds the relocatable binary tarball, the
+dependency license bundle, and the GPL source archive. The release workflow
+builds on Arch Linux, runs the full check set, and publishes the assets on a
+`v*` tag. `docs/hardware-matrix.md` records the certified PN532 UART and
+ACR122U scope; ACR122U writes for Classic data blocks, Type 2 NDEF, and Classic
+NDEF, one-way locks, passwords, trailer writes, Classic 4K, and Type 4 remain
+unrecorded and are not advertised. Version reporting is unified
+in `Cargo.toml`, `nfctl --version`, `nfctl diag`, and the GUI window title.
+Local package build, package file list, tarball extraction, source archive,
+`namcap`, and `.SRCINFO` checks passed on 2026-11-10. The GitHub release is
+published from the `v*` tag; the AUR upload remains a separate manual step. See
+`docs/specs/12-release.md` and `docs/notes/12-release.md`.
 
 Priority after release: phase 13 first. Phases 14 and 15 are optional and
 depend on phase 13; phase 16 stays blocked; phase 17 is optional and

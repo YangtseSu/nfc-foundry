@@ -1,0 +1,103 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version; defaults to [workspace.package].version
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    container: archlinux:base-devel
+    steps:
+      - name: Install build dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            git github-cli namcap python reuse rust \
+            fontconfig freetype2 libx11 libxcb libxkbcommon libxkbcommon-x11 \
+            systemd-libs vulkan-icd-loader wayland
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve and verify the version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
+          if [ -n "$INPUT_VERSION" ]; then
+            version="$INPUT_VERSION"
+          fi
+          if [ "$version" != "$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)" ]; then
+            echo "version $version does not match Cargo.toml" >&2
+            exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "tag $GITHUB_REF_NAME does not match v$version" >&2
+            exit 1
+          fi
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+
+      - name: Checks
+        run: make check
+
+      - name: Build release binaries
+        run: |
+          export RUSTFLAGS="--remap-path-prefix=$PWD=/build/nfc-foundry"
+          export RUSTFLAGS="$RUSTFLAGS --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/build/cargo"
+          cargo build --release --locked --workspace
+
+      - name: Build release assets
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          packaging/release/package.sh "$VERSION" dist
+          packaging/release/source-archive.sh "$VERSION" dist "$GITHUB_SHA"
+          (cd dist && sha256sum "nfc-foundry-$VERSION-x86_64.tar.gz" \
+            "nfc-foundry-$VERSION-source.tar.gz" >SHA256SUMS)
+          ls -lh dist
+
+      - name: Inspect the AUR metadata
+        run: |
+          namcap packaging/aur/PKGBUILD
+          useradd -m builder
+          chown -R builder "$GITHUB_WORKSPACE"
+          runuser -u builder -- env WORKSPACE="$GITHUB_WORKSPACE" bash -c \
+            'cd "$WORKSPACE/packaging/aur" && makepkg --printsrcinfo' >/tmp/SRCINFO
+          diff -u packaging/aur/.SRCINFO /tmp/SRCINFO
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nfc-foundry-${{ steps.version.outputs.version }}
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Publish the GitHub release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          tag="v$VERSION"
+          assets=(
+            "dist/nfc-foundry-$VERSION-x86_64.tar.gz"
+            "dist/nfc-foundry-$VERSION-source.tar.gz"
+            "dist/SHA256SUMS"
+          )
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "${assets[@]}" --clobber
+          else
+            gh release create "$tag" --title "NFC Foundry $VERSION" \
+              --generate-notes "${assets[@]}"
+          fi

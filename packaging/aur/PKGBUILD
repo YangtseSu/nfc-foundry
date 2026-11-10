@@ -1,0 +1,84 @@
+# Maintainer: Yangtse Su <yangtsesu at gmail dot com>
+# Upstream: https://github.com/YangtseSu/nfc-foundry-rs
+
+pkgname=nfc-foundry
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='NFC reader workbench for MIFARE Classic and NFC Forum Type 2/NDEF cards'
+arch=('x86_64')
+url='https://github.com/YangtseSu/nfc-foundry-rs'
+license=('GPL-3.0-or-later')
+# Runtime libraries: direct NEEDED entries plus the GPUI libraries loaded
+# dynamically. libm and the loader are glibc; libudev is systemd-libs; the XKB
+# and XCB libraries come from GPUI's Linux backend.
+depends=(
+  glibc
+  libgcc
+  libglvnd
+  libxcb
+  libxkbcommon
+  libxkbcommon-x11
+  systemd-libs
+  vulkan-icd-loader
+  wayland
+)
+makedepends=(
+  cargo
+  git
+  python
+  rust
+)
+source=("$pkgname-$pkgver::git+$url.git#tag=v$pkgver")
+sha256sums=('SKIP')
+# Cargo's release profile owns Rust LTO. Disable makepkg's C LTO flags so the
+# wayland-backend log shim stays a plain object for the final link.
+options=('!debug' '!lto')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  cargo fetch --locked
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$PWD=/build/nfc-foundry"
+  export RUSTFLAGS="$RUSTFLAGS --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/build/cargo"
+  cargo build --release --locked --offline --workspace
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  cargo test --workspace --offline
+  cargo check -p nfc-foundry --offline
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+
+  install -Dm755 target/release/nfc-foundry "$pkgdir/usr/bin/nfc-foundry"
+  install -Dm755 target/release/nfctl "$pkgdir/usr/bin/nfctl"
+  install -Dm644 resources/udev/70-nfc-foundry.rules \
+    "$pkgdir/usr/lib/udev/rules.d/70-nfc-foundry.rules"
+
+  install -d "$pkgdir/usr/share/nfc-foundry"
+  cp -a resources/hardnested_tables "$pkgdir/usr/share/nfc-foundry/"
+
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  cp -a LICENSES "$pkgdir/usr/share/licenses/$pkgname/LICENSES"
+  install -Dm644 NOTICE "$pkgdir/usr/share/licenses/$pkgname/NOTICE"
+  install -Dm644 THIRD_PARTY_NOTICES.md \
+    "$pkgdir/usr/share/licenses/$pkgname/THIRD_PARTY_NOTICES.md"
+  install -Dm644 packaging/release/standard-license-texts.md \
+    "$pkgdir/usr/share/licenses/$pkgname/STANDARD_LICENSE_TEXTS.md"
+  python packaging/release/collect-licenses.py --root . \
+    --output "$pkgdir/usr/share/licenses/$pkgname/dependencies"
+
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  for document in architecture hardware hardware-matrix testing packaging recovery ndef; do
+    install -Dm644 "docs/$document.md" "$pkgdir/usr/share/doc/$pkgname/$document.md"
+  done
+  install -Dm644 docs/plan/README.md "$pkgdir/usr/share/doc/$pkgname/plan.md"
+  cp -a docs/adr "$pkgdir/usr/share/doc/$pkgname/adr"
+}
+
+# vim:set ts=2 sw=2 et:

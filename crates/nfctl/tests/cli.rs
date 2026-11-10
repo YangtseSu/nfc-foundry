@@ -616,3 +616,21 @@ fn classic_ndef_format_can_set_read_only() {
     assert!(text.contains("read-only"), "{text}");
     assert!(text.contains("NDEF: empty"), "{text}");
 }
+
+#[test]
+fn version_and_diag_report_the_release_version() {
+    let version = env!("CARGO_PKG_VERSION");
+
+    let output = nfctl(&["--version"]);
+    assert_success(&output);
+    assert_eq!(stdout(&output).trim(), format!("nfctl {version}"));
+
+    let output = nfctl(&["diag"]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains(&format!("NFC Foundry {version}")), "{text}");
+    assert!(text.contains(&format!("nfctl {version}")), "{text}");
+    assert!(text.contains("pn532_uart:"), "{text}");
+    assert!(text.contains("acr122_usb:"), "{text}");
+    assert!(!text.contains("skeleton"), "{text}");
+}

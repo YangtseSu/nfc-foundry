@@ -1,9 +1,9 @@
 //! Environment-gated recovery acquisition checks.
 //!
 //! ```sh
-//! NFCX_HARDWARE=1 \
-//! NFCX_DEVICE=pn532_uart:/dev/ttyUSB0 \
-//! NFCX_HARDWARE_KEY=D3F7D3F7D3F7 \
+//! NFC_FOUNDRY_HARDWARE=1 \
+//! NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
+//! NFC_FOUNDRY_HARDWARE_KEY=D3F7D3F7D3F7 \
 //! cargo test -p nfc-recover --test hardware_recovery -- --ignored --nocapture
 //! ```
 
@@ -25,32 +25,33 @@ fn lock_hardware() -> MutexGuard<'static, ()> {
 
 fn device_connstring() -> String {
     assert_eq!(
-        env::var("NFCX_HARDWARE").as_deref(),
+        env::var("NFC_FOUNDRY_HARDWARE").as_deref(),
         Ok("1"),
-        "set NFCX_HARDWARE=1 to run hardware tests"
+        "set NFC_FOUNDRY_HARDWARE=1 to run hardware tests"
     );
-    env::var("NFCX_DEVICE").expect("set NFCX_DEVICE to an exact reader connstring")
+    env::var("NFC_FOUNDRY_DEVICE").expect("set NFC_FOUNDRY_DEVICE to an exact reader connstring")
 }
 
 fn classic_key() -> Key {
-    let value = env::var("NFCX_HARDWARE_KEY").unwrap_or_else(|_| "FFFFFFFFFFFF".to_owned());
-    Key::from_hex(&value).expect("NFCX_HARDWARE_KEY must be 12 hex digits")
+    let value = env::var("NFC_FOUNDRY_HARDWARE_KEY").unwrap_or_else(|_| "FFFFFFFFFFFF".to_owned());
+    Key::from_hex(&value).expect("NFC_FOUNDRY_HARDWARE_KEY must be 12 hex digits")
 }
 
 fn target_block() -> u8 {
-    env::var("NFCX_HARDWARE_TARGET_BLOCK")
+    env::var("NFC_FOUNDRY_HARDWARE_TARGET_BLOCK")
         .ok()
         .and_then(|value| value.parse::<u8>().ok())
         .unwrap_or(0)
 }
 
 fn target_key() -> Key {
-    let value = env::var("NFCX_HARDWARE_TARGET_KEY").unwrap_or_else(|_| classic_key().to_hex());
-    Key::from_hex(&value).expect("NFCX_HARDWARE_TARGET_KEY must be 12 hex digits")
+    let value =
+        env::var("NFC_FOUNDRY_HARDWARE_TARGET_KEY").unwrap_or_else(|_| classic_key().to_hex());
+    Key::from_hex(&value).expect("NFC_FOUNDRY_HARDWARE_TARGET_KEY must be 12 hex digits")
 }
 
 fn classic_key_type() -> KeyType {
-    match env::var("NFCX_HARDWARE_KEY_TYPE").as_deref() {
+    match env::var("NFC_FOUNDRY_HARDWARE_KEY_TYPE").as_deref() {
         Ok("B" | "b") => KeyType::B,
         _ => KeyType::A,
     }
@@ -78,7 +79,7 @@ fn software_authentication_matches_the_card() {
         ),
         "place a MIFARE Classic card on the reader"
     );
-    let block = env::var("NFCX_HARDWARE_BLOCK")
+    let block = env::var("NFC_FOUNDRY_HARDWARE_BLOCK")
         .ok()
         .and_then(|value| value.parse::<u8>().ok())
         .unwrap_or(4);
@@ -109,7 +110,7 @@ fn software_authentication_matches_the_card() {
 fn nested_calibration_reports_distance() {
     let _guard = lock_hardware();
     let mut reader = open_reader();
-    let block = env::var("NFCX_HARDWARE_BLOCK")
+    let block = env::var("NFC_FOUNDRY_HARDWARE_BLOCK")
         .ok()
         .and_then(|value| value.parse::<u8>().ok())
         .unwrap_or(4);
@@ -159,7 +160,7 @@ fn nested_recovers_a_known_test_key() {
     let mut reader = open_reader();
     let known_key = classic_key();
     let request = NestedRequest {
-        known_block: env::var("NFCX_HARDWARE_BLOCK")
+        known_block: env::var("NFC_FOUNDRY_HARDWARE_BLOCK")
             .ok()
             .and_then(|value| value.parse::<u8>().ok())
             .unwrap_or(4),
@@ -209,7 +210,7 @@ fn hardnested_recovers_a_known_test_key() {
 
     let mut reader = open_reader();
     let request = HardnestedRequest {
-        known_block: env::var("NFCX_HARDWARE_BLOCK")
+        known_block: env::var("NFC_FOUNDRY_HARDWARE_BLOCK")
             .ok()
             .and_then(|value| value.parse::<u8>().ok())
             .unwrap_or(4),
@@ -217,8 +218,8 @@ fn hardnested_recovers_a_known_test_key() {
         known_key: classic_key(),
         target_block: target_block(),
         target_key_type: classic_key_type(),
-        tables_dir: env::var_os("NFCX_HARDNESTED_TABLES").map(std::path::PathBuf::from),
-        max_nonces: env::var("NFCX_HARDNESTED_MAX_NONCES")
+        tables_dir: env::var_os("NFC_FOUNDRY_HARDNESTED_TABLES").map(std::path::PathBuf::from),
+        max_nonces: env::var("NFC_FOUNDRY_HARDNESTED_MAX_NONCES")
             .ok()
             .and_then(|value| value.parse().ok())
             .unwrap_or(4000),
@@ -260,7 +261,7 @@ fn nested_target_distance_probe() {
     let mut reader = open_reader();
     let known_key = classic_key();
     let target_key = target_key();
-    let known_block = env::var("NFCX_HARDWARE_BLOCK")
+    let known_block = env::var("NFC_FOUNDRY_HARDWARE_BLOCK")
         .ok()
         .and_then(|value| value.parse::<u8>().ok())
         .unwrap_or(4);
@@ -332,7 +333,7 @@ fn prng_classification_probes_the_card() {
 
     let _guard = lock_hardware();
     let mut reader = open_reader();
-    let block = env::var("NFCX_HARDWARE_BLOCK")
+    let block = env::var("NFC_FOUNDRY_HARDWARE_BLOCK")
         .ok()
         .and_then(|value| value.parse::<u8>().ok())
         .unwrap_or(4);

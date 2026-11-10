@@ -1,5 +1,9 @@
 # Hardware scope and transport requirements
 
+The release certificate is [Hardware matrix](hardware-matrix.md). This document
+describes the transport behavior; the matrix records what each reader has
+passed.
+
 ## Supported targets
 
 | Target | Connstring | Backend | First-release scope |

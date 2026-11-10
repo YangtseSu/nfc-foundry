@@ -107,7 +107,7 @@ Date: 2026-11-10
   - Both readers classified their card as `PrngProfile::Weak`,
     `darkside_vulnerable=true`, with no known key supplied to the classifier.
 - `cargo test --workspace` never opens a reader; all hardware runs used
-  `NFCX_HARDWARE=1` and explicit `NFCX_DEVICE`.
+  `NFC_FOUNDRY_HARDWARE=1` and explicit `NFC_FOUNDRY_DEVICE`.
 
 ## Problems and resolutions
 

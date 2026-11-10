@@ -3,13 +3,13 @@
 //! Read-only:
 //!
 //! ```sh
-//! NFCX_HARDWARE=1 \
-//! NFCX_DEVICE=pn532_uart:/dev/ttyUSB0 \
+//! NFC_FOUNDRY_HARDWARE=1 \
+//! NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
 //! cargo test -p nfctl --features hardware --test hardware_type4 -- --ignored
 //! ```
 //!
 //! The write round trip additionally requires the `hardware-write` feature and
-//! `NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD`. The original NDEF message is restored
+//! `NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD`. The original NDEF message is restored
 //! at the end of the test.
 
 #![cfg(feature = "hardware")]
@@ -39,12 +39,12 @@ fn lock_hardware() -> MutexGuard<'static, ()> {
 
 fn conn_string() -> String {
     assert_eq!(
-        env::var("NFCX_HARDWARE").as_deref(),
+        env::var("NFC_FOUNDRY_HARDWARE").as_deref(),
         Ok("1"),
-        "set NFCX_HARDWARE=1 to run hardware tests"
+        "set NFC_FOUNDRY_HARDWARE=1 to run hardware tests"
     );
-    env::var("NFCX_DEVICE")
-        .expect("set NFCX_DEVICE to the exact pn532_uart:<port> or acr122_usb:<bus>:<addr>")
+    env::var("NFC_FOUNDRY_DEVICE")
+        .expect("set NFC_FOUNDRY_DEVICE to the exact pn532_uart:<port> or acr122_usb:<bus>:<addr>")
 }
 
 fn service(conn_string: &str) -> Service {
@@ -98,12 +98,12 @@ fn reads_and_reports_cc_and_ndef_state() {
 
 #[cfg(feature = "hardware-write")]
 #[test]
-#[ignore = "requires an owned Type 4 tag and NFCX_HARDWARE_WRITE"]
+#[ignore = "requires an owned Type 4 tag and NFC_FOUNDRY_HARDWARE_WRITE"]
 fn ndef_write_read_and_restore_round_trip() {
     assert_eq!(
-        env::var("NFCX_HARDWARE_WRITE").as_deref(),
+        env::var("NFC_FOUNDRY_HARDWARE_WRITE").as_deref(),
         Ok("I_OWN_THIS_CARD"),
-        "set NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD to allow writes"
+        "set NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD to allow writes"
     );
     let _guard = lock_hardware();
     let conn_string = conn_string();
@@ -119,7 +119,7 @@ fn ndef_write_read_and_restore_round_trip() {
         original.read_only_reason()
     );
 
-    let backup_dir = env::var_os("NFCX_HARDWARE_BACKUP_DIR")
+    let backup_dir = env::var_os("NFC_FOUNDRY_HARDWARE_BACKUP_DIR")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::env::temp_dir().join("nfc-foundry-hardware"));
     let backup = BackupStore::new(&backup_dir);

@@ -18,8 +18,13 @@ include the complete dependency license texts and any required notices.
 | `lz4_flex` | 0.14.x | MIT |
 
 Transitive dependencies and their exact versions are recorded in
-`Cargo.lock`. Before a release, generate and review the full notice bundle with
-the selected dependency-license tooling.
+`Cargo.lock`. A release copies each dependency's published license files into
+`dependencies/` and writes `dependencies/manifest.tsv` with the declared SPDX
+expression and the copied file names. Some crates declare an expression but
+publish no license file, mostly platform-specific dependencies that are not
+linked on Linux. The standard texts in `LICENSES/MIT.txt`,
+`LICENSES/Apache-2.0.txt`, `LICENSES/Zlib.txt`, and `LICENSES/MPL-2.0.txt`
+cover those expressions; `STANDARD_LICENSE_TEXTS.md` records the mapping.
 
 Proxmark3-derived recovery code retains its GPL-3.0-or-later notices:
 

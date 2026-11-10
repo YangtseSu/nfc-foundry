@@ -107,12 +107,22 @@ fn main() {
                 .as_ref()
                 .and_then(|path| KeyStore::load_or_default(path).ok())
                 .unwrap_or_default();
-            gpui_kit::open_window(WindowOptions::default(), cx, move |window, cx| {
-                let service = service.clone();
-                let keys = keys.clone();
-                let key_store_path = key_store_path.clone();
-                cx.new(|cx| AppShell::new(window, cx, service, keys, key_store_path))
-            })
+            gpui_kit::open_window(
+                WindowOptions {
+                    titlebar: Some(TitlebarOptions {
+                        title: Some(format!("NFC Foundry {}", env!("CARGO_PKG_VERSION")).into()),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+                cx,
+                move |window, cx| {
+                    let service = service.clone();
+                    let keys = keys.clone();
+                    let key_store_path = key_store_path.clone();
+                    cx.new(|cx| AppShell::new(window, cx, service, keys, key_store_path))
+                },
+            )
             .expect("failed to open the NFC Foundry window");
         });
 }

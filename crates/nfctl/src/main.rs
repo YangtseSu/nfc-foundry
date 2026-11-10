@@ -414,10 +414,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::Type2 { command } => type2(&cli, &mut service, command),
         Command::Ndef { command } => ndef(&cli, &mut service, command),
         Command::Recover { command } => recovery(&cli, &mut service, command),
-        Command::Diag => {
-            println!("nfctl {} (skeleton)", env!("CARGO_PKG_VERSION"));
-            Ok(())
-        }
+        Command::Diag => diag(),
     }
 }
 
@@ -1717,6 +1714,22 @@ fn mock_classic_card() -> (CardInfo, Vec<(u8, [u8; BLOCK_SIZE])>) {
         blocks.push((block, data));
     }
     (card, blocks)
+}
+
+fn diag() -> Result<()> {
+    let version = env!("CARGO_PKG_VERSION");
+    println!("NFC Foundry {version}");
+    println!("nfctl {version}");
+    println!(
+        "drivers: {}<port>, {}<bus>:<address>",
+        nfc_drivers::PN532_UART_PREFIX,
+        nfc_drivers::ACR122_USB_PREFIX
+    );
+    match nfc_recover::hardnested::tables::resolve_dir(None) {
+        Ok(path) => println!("hardnested tables: {}", path.display()),
+        Err(error) => println!("hardnested tables: not found ({error})"),
+    }
+    Ok(())
 }
 
 fn list(service: &mut Service) -> Result<()> {

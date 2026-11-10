@@ -134,18 +134,18 @@ No Type 4 hardware record exists yet. The read and write tests are in
 Read-only (a Type 4 card on either supported reader):
 
 ```sh
-NFCX_HARDWARE=1 \
-NFCX_DEVICE=pn532_uart:/dev/ttyUSB0 \
+NFC_FOUNDRY_HARDWARE=1 \
+NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
 cargo test -p nfctl --features hardware --test hardware_type4 -- --ignored
 ```
 
 Write and restore an original NDEF message:
 
 ```sh
-NFCX_HARDWARE=1 \
-NFCX_DEVICE=acr122_usb:001:017 \
-NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD \
-NFCX_HARDWARE_BACKUP_DIR=/tmp/nfc-type4-backups \
+NFC_FOUNDRY_HARDWARE=1 \
+NFC_FOUNDRY_DEVICE=acr122_usb:001:017 \
+NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD \
+NFC_FOUNDRY_HARDWARE_BACKUP_DIR=/tmp/nfc-type4-backups \
 cargo test -p nfctl --features hardware-write --test hardware_type4 -- --ignored
 ```
 

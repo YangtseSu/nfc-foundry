@@ -3,14 +3,14 @@
 //! Read-only:
 //!
 //! ```sh
-//! NFCX_HARDWARE=1 \
-//! NFCX_DEVICE=pn532_uart:/dev/ttyUSB0 \
-//! NFCX_HARDWARE_KEY=FFFFFFFFFFFF \
+//! NFC_FOUNDRY_HARDWARE=1 \
+//! NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
+//! NFC_FOUNDRY_HARDWARE_KEY=FFFFFFFFFFFF \
 //! cargo test -p nfctl --features hardware -- --ignored
 //! ```
 //!
 //! The temporary write/restore additionally requires the `hardware-write`
-//! feature and `NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD`.
+//! feature and `NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD`.
 
 #![cfg(feature = "hardware")]
 
@@ -40,17 +40,17 @@ fn lock_hardware() -> MutexGuard<'static, ()> {
 
 fn conn_string() -> String {
     assert_eq!(
-        env::var("NFCX_HARDWARE").as_deref(),
+        env::var("NFC_FOUNDRY_HARDWARE").as_deref(),
         Ok("1"),
-        "set NFCX_HARDWARE=1 to run hardware tests"
+        "set NFC_FOUNDRY_HARDWARE=1 to run hardware tests"
     );
-    env::var("NFCX_DEVICE")
-        .expect("set NFCX_DEVICE to the exact pn532_uart:<serial-port> connstring")
+    env::var("NFC_FOUNDRY_DEVICE")
+        .expect("set NFC_FOUNDRY_DEVICE to the exact pn532_uart:<serial-port> connstring")
 }
 
 fn key() -> Key {
-    let value = env::var("NFCX_HARDWARE_KEY").unwrap_or_else(|_| "FFFFFFFFFFFF".to_owned());
-    Key::from_hex(&value).expect("NFCX_HARDWARE_KEY must be 12 hex digits")
+    let value = env::var("NFC_FOUNDRY_HARDWARE_KEY").unwrap_or_else(|_| "FFFFFFFFFFFF".to_owned());
+    Key::from_hex(&value).expect("NFC_FOUNDRY_HARDWARE_KEY must be 12 hex digits")
 }
 
 fn service(conn_string: &str) -> Service {
@@ -63,7 +63,7 @@ fn service(conn_string: &str) -> Service {
 }
 
 fn key_type() -> KeyType {
-    match env::var("NFCX_HARDWARE_KEY_TYPE").as_deref() {
+    match env::var("NFC_FOUNDRY_HARDWARE_KEY_TYPE").as_deref() {
         Ok("B" | "b") => KeyType::B,
         _ => KeyType::A,
     }
@@ -105,7 +105,7 @@ fn dumps_and_scans_a_classic_card() {
     let readability = read.dump.readability();
     assert!(
         readability.readable_sectors > 0,
-        "no sector authenticated with NFCX_HARDWARE_KEY"
+        "no sector authenticated with NFC_FOUNDRY_HARDWARE_KEY"
     );
     println!(
         "{} uid={} readable={}/{} sectors",
@@ -137,19 +137,19 @@ fn dumps_and_scans_a_classic_card() {
 
 #[cfg(feature = "hardware-write")]
 #[test]
-#[ignore = "requires an owned MIFARE Classic card and NFCX_HARDWARE_WRITE"]
+#[ignore = "requires an owned MIFARE Classic card and NFC_FOUNDRY_HARDWARE_WRITE"]
 fn writes_and_restores_one_data_block() {
     assert_eq!(
-        env::var("NFCX_HARDWARE_WRITE").as_deref(),
+        env::var("NFC_FOUNDRY_HARDWARE_WRITE").as_deref(),
         Ok("I_OWN_THIS_CARD"),
-        "set NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD to allow a write"
+        "set NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD to allow a write"
     );
     let _guard = lock_hardware();
     let conn_string = conn_string();
     let mut service = service(&conn_string);
     let key = key();
     let store = key_store(key);
-    let block = env::var("NFCX_HARDWARE_BLOCK")
+    let block = env::var("NFC_FOUNDRY_HARDWARE_BLOCK")
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
         .unwrap_or(4);
@@ -161,9 +161,9 @@ fn writes_and_restores_one_data_block() {
     };
     assert!(
         block != 0 && !layout.is_trailer(block).expect("block in layout"),
-        "NFCX_HARDWARE_BLOCK={block} must be an ordinary data block"
+        "NFC_FOUNDRY_HARDWARE_BLOCK={block} must be an ordinary data block"
     );
-    let directory = env::var("NFCX_HARDWARE_BACKUP_DIR")
+    let directory = env::var("NFC_FOUNDRY_HARDWARE_BACKUP_DIR")
         .map(std::path::PathBuf::from)
         .map(BackupStore::new)
         .unwrap_or_default();

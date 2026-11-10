@@ -80,7 +80,7 @@ Software checks run in this phase:
 - `cargo clippy --workspace --all-targets -- -D warnings` passes.
 - The gated hardware test is `nfctl/tests/hardware_classic_ndef.rs`. Its
   read-only check reports the mapping; the write path requires both
-  `NFCX_HARDWARE_WRITE` and `NFCX_HARDWARE_NDEF_FORMAT` and restores the
+  `NFC_FOUNDRY_HARDWARE_WRITE` and `NFC_FOUNDRY_HARDWARE_NDEF_FORMAT` and restores the
   original dump after the round trip.
 
 ## Hardware

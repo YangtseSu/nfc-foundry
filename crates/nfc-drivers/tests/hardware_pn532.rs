@@ -3,13 +3,13 @@
 //! Read-only:
 //!
 //! ```sh
-//! NFCX_HARDWARE=1 \
-//! NFCX_DEVICE=pn532_uart:/dev/ttyUSB0 \
+//! NFC_FOUNDRY_HARDWARE=1 \
+//! NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
 //! cargo test -p nfc-drivers --features hardware -- --ignored
 //! ```
 //!
 //! The same-value write additionally requires the `hardware-write` feature and
-//! `NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD`.
+//! `NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD`.
 
 #![cfg(feature = "hardware")]
 
@@ -30,12 +30,12 @@ fn lock_hardware() -> MutexGuard<'static, ()> {
 
 fn device_connstring() -> String {
     assert_eq!(
-        env::var("NFCX_HARDWARE").as_deref(),
+        env::var("NFC_FOUNDRY_HARDWARE").as_deref(),
         Ok("1"),
-        "set NFCX_HARDWARE=1 to run hardware tests"
+        "set NFC_FOUNDRY_HARDWARE=1 to run hardware tests"
     );
-    env::var("NFCX_DEVICE")
-        .expect("set NFCX_DEVICE to the exact pn532_uart:<serial-port> connstring")
+    env::var("NFC_FOUNDRY_DEVICE")
+        .expect("set NFC_FOUNDRY_DEVICE to the exact pn532_uart:<serial-port> connstring")
 }
 
 fn open_reader(conn_string: &str) -> Pn532Uart {
@@ -60,19 +60,19 @@ fn selected_card(reader: &mut Pn532Uart) -> CardInfo {
 }
 
 fn classic_block() -> u8 {
-    env::var("NFCX_HARDWARE_BLOCK")
+    env::var("NFC_FOUNDRY_HARDWARE_BLOCK")
         .ok()
         .and_then(|value| value.parse::<u8>().ok())
         .unwrap_or(4)
 }
 
 fn classic_key() -> Key {
-    let value = env::var("NFCX_HARDWARE_KEY").unwrap_or_else(|_| "FFFFFFFFFFFF".to_owned());
-    Key::from_hex(&value).expect("NFCX_HARDWARE_KEY must be 12 hex digits")
+    let value = env::var("NFC_FOUNDRY_HARDWARE_KEY").unwrap_or_else(|_| "FFFFFFFFFFFF".to_owned());
+    Key::from_hex(&value).expect("NFC_FOUNDRY_HARDWARE_KEY must be 12 hex digits")
 }
 
 fn classic_key_type() -> KeyType {
-    match env::var("NFCX_HARDWARE_KEY_TYPE").as_deref() {
+    match env::var("NFC_FOUNDRY_HARDWARE_KEY_TYPE").as_deref() {
         Ok("B" | "b") => KeyType::B,
         _ => KeyType::A,
     }
@@ -100,7 +100,7 @@ fn read_classic(reader: &mut Pn532Uart, card: &CardInfo) {
     let block = classic_block();
     reader
         .authenticate(block, classic_key_type(), classic_key())
-        .expect("authenticate with NFCX_HARDWARE_KEY");
+        .expect("authenticate with NFC_FOUNDRY_HARDWARE_KEY");
     let data = reader.read_block(block).expect("read the classic block");
     println!("classic uid={} block {block}: {data:02X?}", card.uid_hex());
 }
@@ -186,12 +186,12 @@ fn raw_bits_receive_atqa() {
 
 #[cfg(feature = "hardware-write")]
 #[test]
-#[ignore = "requires an owned MIFARE Classic card and NFCX_HARDWARE_WRITE"]
+#[ignore = "requires an owned MIFARE Classic card and NFC_FOUNDRY_HARDWARE_WRITE"]
 fn writes_a_classic_block_with_the_same_value() {
     assert_eq!(
-        env::var("NFCX_HARDWARE_WRITE").as_deref(),
+        env::var("NFC_FOUNDRY_HARDWARE_WRITE").as_deref(),
         Ok("I_OWN_THIS_CARD"),
-        "set NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD to allow a write"
+        "set NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD to allow a write"
     );
     let _guard = lock_hardware();
     let conn_string = device_connstring();
@@ -208,11 +208,11 @@ fn writes_a_classic_block_with_the_same_value() {
     let block = classic_block();
     assert!(
         is_ordinary_data_block(card.card_type, block),
-        "NFCX_HARDWARE_BLOCK={block} is block 0 or a sector trailer; choose a data block"
+        "NFC_FOUNDRY_HARDWARE_BLOCK={block} is block 0 or a sector trailer; choose a data block"
     );
     reader
         .authenticate(block, classic_key_type(), classic_key())
-        .expect("authenticate with NFCX_HARDWARE_KEY");
+        .expect("authenticate with NFC_FOUNDRY_HARDWARE_KEY");
     let original = reader.read_block(block).expect("read original block");
     reader
         .write_block(block, original)

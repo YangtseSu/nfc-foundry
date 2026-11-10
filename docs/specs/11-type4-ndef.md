@@ -72,9 +72,9 @@ yet.
   - Clearing requires an explicit confirmation at the service boundary.
 - Hardware:
   - `nfctl/tests/hardware_type4.rs` with read-only and write/restore tests.
-    Both are ignored by default and require `NFCX_HARDWARE=1`; the write test
+    Both are ignored by default and require `NFC_FOUNDRY_HARDWARE=1`; the write test
     additionally requires the `hardware-write` feature and
-    `NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD`.
+    `NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD`.
 
 ## Safety
 
