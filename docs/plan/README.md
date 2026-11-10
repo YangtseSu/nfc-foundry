@@ -3,9 +3,10 @@
 Status legend: `done`, `in progress`, `pending`, `optional`, `blocked`.
 
 GUI note: the GPUI Kit workspaces were removed on `feat/gtk4-ui`. Phase 19
-replaces them with the GTK4-rs workbench in `crates/gui`; phases 04/09/10/18
-describe the removed GPUI surfaces and remain historical for domain and CLI
-work.
+replaces them with the GTK4-rs workbench in `crates/gui`; phase 19a is the
+next Classic completion and Proxmark3-interchange work package. Phases
+04/09/10/18 describe the removed GPUI surfaces and remain historical for
+domain and CLI work.
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -29,6 +30,7 @@ work.
 | 17 | Amiibo / NTAG215 read, decrypt, encrypt, write (user keys/data) | optional |
 | 18 | Workbench UI redesign, bilingual UI, icon and desktop entry | done (GPUI; GUI superseded by 19) |
 | 19 | GTK4 workbench: shell, Classic slice, then parity screens | in progress |
+| 19a | Classic completion: PM3 interchange, keys, diff/restore, safety, UI tests | pending |
 
 ## Rules
 
@@ -638,3 +640,22 @@ Detailed plan: [19-gtk-ui.md](19-gtk-ui.md).
 
 Status: in progress. First Classic slice implemented on 2026-11-11. See
 `docs/specs/19-gtk-ui.md` and `docs/notes/19-gtk-ui.md`.
+
+### 19a: Classic completion and Proxmark3 interchange
+
+Goal: finish the Classic workbench and make dump/key interchange compatible
+with Proxmark3 without losing the lossless partial-image path.
+
+Scope: remove legacy `nfcx` naming; default complete dumps to PM3 raw `.bin`
+and partial dumps to project `.nfc-foundry.json`; add PM3 `.dic` key
+import/export; add the Keys, Diff, and Restore screens; complete the
+inspector; add the service-level write identity guard; add mock/Xvfb GTK UI
+tests.
+
+Non-goals: NDEF writes, Type 2/Type 4, localization, packaging, Windows/macOS,
+and a second frontend.
+
+Detailed plan: [19a-classic-pm3.md](19a-classic-pm3.md). Spec:
+[19a-classic-pm3.md](../specs/19a-classic-pm3.md).
+
+Status: pending. Start at commit `403e0f7` on `feat/gtk4-ui`.
