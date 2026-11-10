@@ -32,6 +32,9 @@ domain and CLI work.
 | 19 | GTK4 workbench: shell, Classic slice, then parity screens | in progress |
 | 19a | Classic completion: PM3 interchange, keys, diff/restore, safety, UI tests | done |
 | 19b | NDEF write/format: composer, Classic NDEF, read-only gates | pending |
+| 19c | Type 2 / NTAG workbench and hardware-gated Type 4 read | pending |
+| 19d | Recovery, keyscan, diagnostics, activity, settings | pending |
+| 19e | Bilingual UI, parity audit, UI tests, packaging | pending |
 
 ## Rules
 
@@ -677,3 +680,28 @@ Detailed plan: [19b-ndef-write.md](19b-ndef-write.md). Spec:
 [19b-ndef-write.md](../specs/19b-ndef-write.md).
 
 Status: pending.
+
+### 19c: Type 2 / NTAG and Type 4 read
+
+Goal: add Type 2 user-memory and Advanced protection flows, reuse the 19b NDEF
+composer, and gate Type 4 read on a hardware record.
+
+Detailed plan: [19c-type2-type4.md](19c-type2-type4.md). Spec:
+[19c-type2-type4.md](../specs/19c-type2-type4.md). Status: pending.
+
+### 19d: Recovery and system surfaces
+
+Goal: expose keyscan, native recovery with progress/cancel, diagnostics,
+activity, and persisted settings without adding card writes.
+
+Detailed plan: [19d-recovery-system.md](19d-recovery-system.md). Spec:
+[19d-recovery-system.md](../specs/19d-recovery-system.md). Status: pending.
+
+### 19e: Completion
+
+Goal: complete the English/`zh-CN` catalog, close the CLI/GUI parity matrix,
+expand the Xvfb UI scenarios, and package both binaries with the icon and
+desktop entry.
+
+Detailed plan: [19e-completion.md](19e-completion.md). Spec:
+[19e-completion.md](../specs/19e-completion.md). Status: pending.

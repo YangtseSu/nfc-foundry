@@ -58,12 +58,14 @@ UI scenario.
 1. **19b NDEF write/format**: Text/URI/raw message composer, capacity and
    read-only gates, Classic NDEF write and format, post-write refresh. See
    [19b-ndef-write.md](19b-ndef-write.md).
-2. **19c Type 2 / Type 4**: memory, protection, NDEF, and Type 4 read.
+2. **19c Type 2 / Type 4**: memory, protection, NDEF, and gated Type 4 read.
+   See [19c-type2-type4.md](19c-type2-type4.md).
 3. **19d Recovery and system surfaces**: keyscan, recovery strategies,
-   progress/cancel, diagnostics, activity, and settings.
+   progress/cancel, diagnostics, activity, and settings. See
+   [19d-recovery-system.md](19d-recovery-system.md).
 4. **19e Completion**: bilingual catalog and language switch, broader GTK UI
-   tests, CLI/GUI parity audit, and packaging (GTK runtime, GUI binary, icon,
-   desktop, release tarball).
+   tests, CLI/GUI parity audit, and packaging. See
+   [19e-completion.md](19e-completion.md).
 5. Windows/macOS assessment after the Linux feature set, if it is still
    wanted.
 
