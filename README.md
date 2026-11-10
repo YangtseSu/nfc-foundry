@@ -54,11 +54,14 @@ reads and writes the mandatory NDEF Message TLV with access checks, and formats
 a blank card after a typed confirmation and backup. `nfctl classic ndef` uses
 the same services. The Classic mapping has no capability-container record; the
 GPB carries the mapping version and access state. The GPUI Kit shell was
-removed on `feat/gtk4-ui`. The GTK4 workbench in `crates/gui` now provides the
+removed on `feat/gtk4-ui`. The GTK4 workbench in `crates/gui` provides the
 shell, real reader selection, Classic read/table/inspector, verified block
-write, dump save/load, and a read-only Classic NDEF view. Remaining screens,
-NDEF mutations, the `zh-CN` catalog, GUI tests, and packaging are still in
-progress. The application icon and desktop entry are in `resources/`.
+write, dump save/load, Keys, Diff, Restore, a Classic NDEF composer with
+verified write and format, and Type 2 Memory/Protection with user-page and
+Advanced writes, locks, password configuration, project dump/restore, and Type 2
+NDEF write/format. Remaining work is the recovery and system surfaces, the
+Type 4 read surface (hardware-gated), the `zh-CN` catalog, and packaging. The
+application icon and desktop entry are in `resources/`.
 
 ## Product scope
 
@@ -324,12 +327,16 @@ still pending because no ACR122U was connected.
 
 The GTK4 workbench lives in `crates/gui`. It includes the shell, real reader
 selection, Classic read/table/inspector, verified block write, dump save/load
-with format selection, Keys, Diff, Restore, and a read-only Classic NDEF view.
-Writes and restores pass the loaded image's card identity to the service and
-are refused with `CardChanged` before any backup if the live card differs.
-Recovery, NDEF mutations, Type 2/Type 4 screens, the `zh-CN` catalog, and
-packaging remain in progress. The application icon and desktop entry are in
-`resources/` for the packaged application.
+with format selection, Keys, Diff, Restore, a family-aware NDEF composer with
+verified write and format, and Type 2 Memory/Protection screens. A Type 2 read
+shows page roles, locks, CC, configuration, and NDEF state; user pages and
+Advanced pages use the service write path, and locks/password/restore/format
+require the typed confirmation. Writes, restores, and NDEF mutations pass the
+loaded image's card identity to the service and are refused with `CardChanged`
+before any backup if the live card differs. Type 4 read stays out of the UI
+until a hardware record exists. Recovery and system surfaces, the `zh-CN`
+catalog, and packaging remain in progress. The application icon and desktop
+entry are in `resources/` for the packaged application.
 
 ## Documentation
 

@@ -11,8 +11,9 @@ GPUI rules for new UI work.
 - Left rail (fixed start pane, `GtkPaned`): reader menu with refresh, card
   identity/size/readability, key-store status, selected block, and an
   in-memory task/security log.
-- Content: `Card`, `NDEF`, `Keys`, `Diff`, and `Restore` tabs; the primary
-  action stays in the header.
+- Content: `Card`, `Type 2`, `NDEF`, `Keys`, `Diff`, and `Restore` tabs; the
+  primary action stays in the header. `Read card` detects the card family and
+  switches to `Card` or `Type 2`.
 - Status bar: operation text, spinner, and layout/card facts.
 
 ## Card
@@ -33,6 +34,31 @@ GPUI rules for new UI work.
     complements.
 - Empty state before a read: "No card loaded", reader + Read hint.
 - Busy state: spinner, disabled reader menu and Read, disabled writes.
+
+## Type 2
+
+- The `Type 2` tab has `Memory` and `Protection`. It is active after a Type 2
+  read or a loaded Type 2 project image; a Classic read clears it.
+- Memory: identity/product summary, partial-read warnings, `Advanced mode`
+  switch, page table (`Page`, `Role`, `Lock`, `Data`), page inspector, project
+  save/load, and restore options.
+- The default page filter shows manufacturer, user, and reserved pages. CC,
+  static/dynamic lock, configuration, and PWD/PACK pages appear only in Advanced
+  mode. Unknown pages show `—`.
+- Inspector: page, role, lock/access state, UID/BCC, CC version/size/access,
+  NDEF offset, configuration fields, hex/ASCII, write feedback, and
+  `Write page…`. PWD/PACK are labeled write-only.
+- User-page writes use the ordinary confirmation. Advanced pages require
+  Advanced mode and the typed `I_OWN_THIS_CARD` phrase.
+- Protection: parsed configuration, a page-list lock form with exact
+  static/dynamic lock byte preview, and AUTH0/ACCESS/PWD/PACK fields. Lock,
+  password, restore, and Advanced page writes use the typed phrase.
+- Restore defaults to user memory; configuration, capability container, and
+  lock bytes are opt-in. The live tag is backed up before the restore.
+- Advanced mode is off by default and resets on card read, reader change,
+  refresh, and loaded dump.
+- A partial image, locked page, read-only CC, or password-protected page is
+  refused with a specific feedback line. The service keeps its own gates.
 
 ## Write flow
 
@@ -95,11 +121,32 @@ GPUI rules for new UI work.
 
 ## NDEF
 
-- Read a card first.
-- Show the MAD sectors, mapping version, read/write state, capacity, message
-  bytes, Text/URI decoded records, and warnings.
-- Unformatted/no-MAD cards are stated directly.
-- No NDEF mutation control exists in this slice.
+- The tab shows the active card family. A Classic card shows the MAD sectors,
+  mapping version, read/write state, capacity, message bytes, decoded Text/URI
+  records, and warnings. A Type 2 card shows product/UID, CC bytes, data-area
+  size, capacity, NDEF state, locked pages, password protection, and warnings.
+- Unformatted cards state that Format is required before writing. A Type 2
+  format is destructive, removes proprietary TLVs, and uses the typed phrase.
+- Type 2 write is refused for a partial data area, read-only CC, locked data
+  page, password-protected data page, capacity overflow, or an unchanged
+  message. The service preserves other TLVs on a write.
+- Composer sources: `Text` (text and IANA language), `URI`, or a raw NDEF file
+  decoded through `NdefMessage::decode`. Exactly one source is active.
+- The preview shows the source summary, encoded message size against capacity,
+  and the first 48 encoded bytes. Malformed raw files report the decode error
+  and keep the previous source.
+- `Write NDEF` is enabled only for a live, complete read of a formatted,
+  writable NDEF area with an encodable message that fits the capacity display
+  and differs from the stored TLV. The confirmation names the current and new
+  message, the sizes, the project backup, and the read-back.
+- `Format NDEF area…` is destructive and names the area, the read-only choice,
+  the backup, and the read-back. `Leave the NDEF area read-only` maps to the
+  CLI `--read-only`.
+- A loaded dump, partial image, read-only area, capacity overflow, identity
+  mismatch, or busy operation disables mutation with a specific reason.
+- Success refreshes the block table, NDEF page, card summary, and log from the
+  service result without an extra card read. Failure keeps the previous image
+  and reports the error once in the toast and log.
 
 ## Actions menu
 

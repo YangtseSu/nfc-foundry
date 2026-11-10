@@ -4,10 +4,10 @@ Status legend: `done`, `in progress`, `pending`, `optional`, `blocked`.
 
 GUI note: the GPUI Kit workspaces were removed on `feat/gtk4-ui`. Phase 19
 is the GTK4-rs workbench umbrella in `crates/gui`, executed as slices.
-19a (Classic completion/PM3 interchange) is done; 19b–19e are the remaining
-work packages, in that order. There is no separate "19" implementation step
-outside those slices. Phases 04/09/10/18 describe the removed GPUI surfaces
-and remain historical for domain and CLI work.
+19a (Classic completion/PM3 interchange) and 19b (NDEF write/format) are done;
+19c–19e are the remaining work packages, in that order. There is no separate
+"19" implementation step outside those slices. Phases 04/09/10/18 describe
+the removed GPUI surfaces and remain historical for domain and CLI work.
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -32,8 +32,8 @@ and remain historical for domain and CLI work.
 | 18 | Workbench UI redesign, bilingual UI, icon and desktop entry | done (GPUI; GUI superseded by 19) |
 | 19 | GTK4 workbench: shell, Classic slice, then parity screens | in progress |
 | 19a | Classic completion: PM3 interchange, keys, diff/restore, safety, UI tests | done |
-| 19b | NDEF write/format: composer, Classic NDEF, read-only gates | pending |
-| 19c | Type 2 / NTAG workbench and hardware-gated Type 4 read | pending |
+| 19b | NDEF write/format: composer, Classic NDEF, read-only gates | done |
+| 19c | Type 2 / NTAG workbench and hardware-gated Type 4 read | done |
 | 19d | Recovery, keyscan, diagnostics, activity, settings | pending |
 | 19e | Bilingual UI, parity audit, UI tests, packaging | pending |
 
@@ -680,7 +680,8 @@ and packaging.
 Detailed plan: [19b-ndef-write.md](19b-ndef-write.md). Spec:
 [19b-ndef-write.md](../specs/19b-ndef-write.md).
 
-Status: pending.
+Status: complete 2026-11-11. Note:
+[19b-ndef-write.md](../notes/19b-ndef-write.md).
 
 ### 19c: Type 2 / NTAG and Type 4 read
 
@@ -688,7 +689,14 @@ Goal: add Type 2 user-memory and Advanced protection flows, reuse the 19b NDEF
 composer, and gate Type 4 read on a hardware record.
 
 Detailed plan: [19c-type2-type4.md](19c-type2-type4.md). Spec:
-[19c-type2-type4.md](../specs/19c-type2-type4.md). Status: pending.
+[19c-type2-type4.md](../specs/19c-type2-type4.md). Status: complete 2026-11-11.
+The service read returns card identity, all Type 2 mutations take an expected
+`CardInfo`, and `Service::read_card` dispatches Classic/Type 2 from one
+selection. The GUI adds Type 2 Memory/Protection, Advanced and typed
+confirmations, lock/password forms, dump/restore, and Type 2 NDEF write/format.
+CC writes keep the product and refresh the parsed CC. Type 4 remains out of the
+UI and CLI because no hardware record exists. See
+[docs/notes/19c-type2-type4.md](../notes/19c-type2-type4.md).
 
 ### 19d: Recovery and system surfaces
 

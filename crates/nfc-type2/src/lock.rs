@@ -82,8 +82,15 @@ impl LockBits {
                 "this page cannot be locked with a Type 2 lock byte",
             ));
         }
-        update.static_changed &= update.static_lock != self.static_lock;
-        update.dynamic_changed &= update.dynamic_lock != self.dynamic_lock;
+        update.static_changed &= [
+            self.static_lock[0] | update.static_lock[0],
+            self.static_lock[1] | update.static_lock[1],
+        ] != self.static_lock;
+        update.dynamic_changed &= [
+            self.dynamic_lock[0] | update.dynamic_lock[0],
+            self.dynamic_lock[1] | update.dynamic_lock[1],
+            self.dynamic_lock[2] | update.dynamic_lock[2],
+        ] != self.dynamic_lock;
         Ok(update)
     }
 
@@ -170,6 +177,30 @@ mod tests {
         assert!(update.dynamic_changed);
         assert!(!update.is_empty());
         assert!(locks.pending(&layout, &[2]).is_err());
+    }
+
+    #[test]
+    fn pending_lock_update_ignores_bits_that_are_already_set() {
+        let (layout, _) = ntag215();
+        let locks = LockBits {
+            static_lock: [0x08, 0x00],
+            dynamic_lock: [0x01, 0x00, 0x00],
+        };
+        assert!(
+            locks
+                .pending(&layout, &[3])
+                .expect("lock update")
+                .is_empty()
+        );
+        assert!(
+            locks
+                .pending(&layout, &[16])
+                .expect("lock update")
+                .is_empty()
+        );
+        let update = locks.pending(&layout, &[3, 4]).expect("lock update");
+        assert!(update.static_changed);
+        assert_eq!(update.static_lock, [0x18, 0x00]);
     }
 
     #[test]

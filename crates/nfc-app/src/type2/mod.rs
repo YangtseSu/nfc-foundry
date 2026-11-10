@@ -4,7 +4,7 @@
 //! user-memory default, Advanced confirmations, pre-mutation backups, and
 //! post-write identity checks. NDEF details live in `nfc-type2`.
 
-use nfc_core::{CancelToken, NfcError, PAGE_SIZE, Result};
+use nfc_core::{CancelToken, CardInfo, NfcError, PAGE_SIZE, Result};
 use nfc_ndef::NdefMessage;
 use nfc_type2::{
     LockUpdate, NdefState, RestoreOptions, Type2Image, Type2Ndef, WritePolicy, WriteSummary,
@@ -12,13 +12,15 @@ use nfc_type2::{
     write_ndef, write_page_verified,
 };
 
-use crate::classic::{BackupRecord, BackupStore};
+use crate::classic::backup::{BackupRecord, BackupStore};
+use crate::classic::write::check_expected_card;
 use crate::operation::Operation;
 
-/// A read with its image and explicit partial-read warnings.
+/// A read with its identity, image, and explicit partial-read warnings.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Type2ReadResult {
+    pub card: CardInfo,
     pub image: Type2Image,
     pub warnings: Vec<String>,
 }
@@ -27,6 +29,7 @@ pub struct Type2ReadResult {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Type2NdefResult {
+    pub card: CardInfo,
     pub image: Type2Image,
     pub ndef: Type2Ndef,
     pub warnings: Vec<String>,
@@ -39,6 +42,9 @@ pub struct Type2PageWrite<'a> {
     /// Advanced pages need an explicit confirmation at the service boundary.
     pub advanced: bool,
     pub confirm: bool,
+    /// Identity of the image the write was composed from. A live card with a
+    /// different UID, ATQA, or SAK is refused before the backup.
+    pub expected_card: Option<CardInfo>,
     pub backup: &'a BackupStore,
     pub cancel: CancelToken,
 }
@@ -50,6 +56,7 @@ impl<'a> Type2PageWrite<'a> {
             data,
             advanced: false,
             confirm: false,
+            expected_card: None,
             backup,
             cancel: CancelToken::new(),
         }
@@ -62,6 +69,11 @@ impl<'a> Type2PageWrite<'a> {
 
     pub fn confirm(mut self, confirm: bool) -> Self {
         self.confirm = confirm;
+        self
+    }
+
+    pub fn expected_card(mut self, card: CardInfo) -> Self {
+        self.expected_card = Some(card);
         self
     }
 
@@ -87,6 +99,8 @@ pub struct Type2PageResult {
 /// NDEF write or format request.
 pub struct Type2NdefWrite<'a> {
     pub message: NdefMessage,
+    /// Identity of the image the write was composed from.
+    pub expected_card: Option<CardInfo>,
     pub backup: &'a BackupStore,
     pub cancel: CancelToken,
 }
@@ -95,9 +109,15 @@ impl<'a> Type2NdefWrite<'a> {
     pub fn new(message: NdefMessage, backup: &'a BackupStore) -> Self {
         Self {
             message,
+            expected_card: None,
             backup,
             cancel: CancelToken::new(),
         }
+    }
+
+    pub fn expected_card(mut self, card: CardInfo) -> Self {
+        self.expected_card = Some(card);
+        self
     }
 
     pub fn cancel(mut self, cancel: CancelToken) -> Self {
@@ -109,6 +129,8 @@ impl<'a> Type2NdefWrite<'a> {
 /// Explicit NDEF format request.
 pub struct Type2Format<'a> {
     pub confirm: bool,
+    /// Identity of the image the format was composed from.
+    pub expected_card: Option<CardInfo>,
     pub backup: &'a BackupStore,
     pub cancel: CancelToken,
 }
@@ -117,6 +139,7 @@ impl<'a> Type2Format<'a> {
     pub fn new(backup: &'a BackupStore) -> Self {
         Self {
             confirm: false,
+            expected_card: None,
             backup,
             cancel: CancelToken::new(),
         }
@@ -124,6 +147,11 @@ impl<'a> Type2Format<'a> {
 
     pub fn confirm(mut self, confirm: bool) -> Self {
         self.confirm = confirm;
+        self
+    }
+
+    pub fn expected_card(mut self, card: CardInfo) -> Self {
+        self.expected_card = Some(card);
         self
     }
 
@@ -148,6 +176,8 @@ pub struct Type2Restore<'a> {
     pub source: Type2Image,
     pub options: RestoreOptions,
     pub confirm: bool,
+    /// Identity of the card the restore targets.
+    pub expected_card: Option<CardInfo>,
     pub backup: &'a BackupStore,
     pub cancel: CancelToken,
 }
@@ -161,6 +191,7 @@ impl<'a> Type2Restore<'a> {
                 ..RestoreOptions::default()
             },
             confirm: false,
+            expected_card: None,
             backup,
             cancel: CancelToken::new(),
         }
@@ -176,6 +207,11 @@ impl<'a> Type2Restore<'a> {
         self
     }
 
+    pub fn expected_card(mut self, card: CardInfo) -> Self {
+        self.expected_card = Some(card);
+        self
+    }
+
     pub fn cancel(mut self, cancel: CancelToken) -> Self {
         self.cancel = cancel;
         self
@@ -186,6 +222,8 @@ impl<'a> Type2Restore<'a> {
 pub struct Type2Lock<'a> {
     pub pages: Vec<u8>,
     pub confirm: bool,
+    /// Identity of the card the lock applies to.
+    pub expected_card: Option<CardInfo>,
     pub backup: &'a BackupStore,
     pub cancel: CancelToken,
 }
@@ -195,6 +233,7 @@ impl<'a> Type2Lock<'a> {
         Self {
             pages,
             confirm: false,
+            expected_card: None,
             backup,
             cancel: CancelToken::new(),
         }
@@ -202,6 +241,11 @@ impl<'a> Type2Lock<'a> {
 
     pub fn confirm(mut self, confirm: bool) -> Self {
         self.confirm = confirm;
+        self
+    }
+
+    pub fn expected_card(mut self, card: CardInfo) -> Self {
+        self.expected_card = Some(card);
         self
     }
 
@@ -228,6 +272,8 @@ pub struct Type2Password<'a> {
     pub password: [u8; PAGE_SIZE],
     pub pack: [u8; 2],
     pub confirm: bool,
+    /// Identity of the card the configuration applies to.
+    pub expected_card: Option<CardInfo>,
     pub backup: &'a BackupStore,
     pub cancel: CancelToken,
 }
@@ -246,6 +292,7 @@ impl<'a> Type2Password<'a> {
             password,
             pack,
             confirm: false,
+            expected_card: None,
             backup,
             cancel: CancelToken::new(),
         }
@@ -253,6 +300,11 @@ impl<'a> Type2Password<'a> {
 
     pub fn confirm(mut self, confirm: bool) -> Self {
         self.confirm = confirm;
+        self
+    }
+
+    pub fn expected_card(mut self, card: CardInfo) -> Self {
+        self.expected_card = Some(card);
         self
     }
 
@@ -267,6 +319,7 @@ pub fn read(operation: &mut Operation<'_>, cancel: &CancelToken) -> Result<Type2
     let result = read_current(operation, cancel)?;
     operation.check_card()?;
     Ok(Type2ReadResult {
+        card: operation.card().clone(),
         image: result.image,
         warnings: result.warnings,
     })
@@ -281,6 +334,7 @@ pub fn read_ndef_state(
     let ndef = read_ndef(&result.image)?;
     operation.check_card()?;
     Ok(Type2NdefResult {
+        card: operation.card().clone(),
         image: result.image,
         ndef,
         warnings: result.warnings,
@@ -298,6 +352,7 @@ pub fn write_page(
             "this Type 2 page is Advanced and needs explicit confirmation".to_owned(),
         ));
     }
+    check_expected_card(operation.card(), request.expected_card.as_ref())?;
     let policy = if request.advanced {
         WritePolicy::advanced()
     } else {
@@ -346,6 +401,7 @@ pub fn write_ndef_message(
     request: Type2NdefWrite<'_>,
 ) -> Result<Type2MutationResult> {
     request.cancel.check()?;
+    check_expected_card(operation.card(), request.expected_card.as_ref())?;
     let read = read_current(operation, &request.cancel)?;
     let mut image = read.image;
     ensure_ndef_writable(&image)?;
@@ -376,6 +432,7 @@ pub fn format_ndef_area(
             "formatting the NDEF data area needs explicit confirmation".to_owned(),
         ));
     }
+    check_expected_card(operation.card(), request.expected_card.as_ref())?;
     let read = read_current(operation, &request.cancel)?;
     let mut image = read.image;
     ensure_ndef_writable(&image)?;
@@ -401,6 +458,7 @@ pub fn restore(
             "restoring a Type 2 image needs explicit confirmation".to_owned(),
         ));
     }
+    check_expected_card(operation.card(), request.expected_card.as_ref())?;
     let read = read_current(operation, &request.cancel)?;
     let mut image = read.image;
     let backup = save_backup(&image, request.backup, "restore")?;
@@ -433,6 +491,7 @@ pub fn lock(operation: &mut Operation<'_>, request: Type2Lock<'_>) -> Result<Typ
             "select at least one page to lock".to_owned(),
         ));
     }
+    check_expected_card(operation.card(), request.expected_card.as_ref())?;
     let read = read_current(operation, &request.cancel)?;
     let mut image = read.image;
     let backup = save_backup(&image, request.backup, "lock")?;
@@ -462,6 +521,7 @@ pub fn password(
             "changing Type 2 password configuration needs explicit confirmation".to_owned(),
         ));
     }
+    check_expected_card(operation.card(), request.expected_card.as_ref())?;
     let read = read_current(operation, &request.cancel)?;
     let mut image = read.image;
     let backup = save_backup(&image, request.backup, "password")?;

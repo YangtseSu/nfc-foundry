@@ -20,8 +20,10 @@ nfc-core.workspace = true
 nfc-drivers.workspace = true
 nfc-ndef.workspace = true
 nfc-transport.workspace = true
+nfc-type2.workspace = true
 
 [dev-dependencies]
+nfc-classic-ndef.workspace = true
 tempfile = "3"
 
 [lints]

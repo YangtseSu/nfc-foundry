@@ -25,7 +25,7 @@ pub use nfc_classic_ndef::{
     ClassicNdefInfo, ClassicNdefLayout, MappingVersion, NdefState as ClassicNdefState,
 };
 pub use operation::{Operation, OperationKind};
-pub use service::Service;
+pub use service::{CardReadResult, Service};
 pub use type2::{
     Type2Format, Type2Lock, Type2LockResult, Type2MutationResult, Type2NdefResult, Type2NdefWrite,
     Type2PageResult, Type2PageWrite, Type2Password, Type2ReadResult, Type2Restore,

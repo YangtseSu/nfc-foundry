@@ -1,7 +1,8 @@
 # Phase 19c plan: Type 2 / NTAG and Type 4 read
 
-Status: pending. Depends on 19b's shared NDEF draft/composer and 19a's mock/Xvfb
-test harness.
+Status: complete 2026-11-11. Depends on 19b's shared NDEF draft/composer and
+19a's mock/Xvfb test harness. Type 4 read is left out because no reader/card
+hardware record exists.
 
 Goal: add the second card family to the workbench. The default path is
 user-memory access; configuration, locks, password, and one-way changes are
@@ -88,8 +89,24 @@ Advanced and confirmation-gated. Type 4 stays read-only and hardware-gated.
 
 ## First files
 
-- `crates/gui/src/app.rs` — Type 2 pages, Advanced state, NDEF tab.
-- `crates/gui/src/classic.rs` — page/role/format helpers.
+- `crates/gui/src/app.rs` — Type 2 pages, Advanced state, family-aware NDEF tab.
+- `crates/gui/src/type2.rs` — page/role/lock/NDEF presentation helpers.
 - `crates/nfc-app/src/type2/mod.rs` — service entry points and result types.
 - `crates/nfc-type2` — page/CC/lock/config model.
 - `docs/design/workbench.md` — Type 2 screen contract.
+
+## Result
+
+The Type 2 service read carries card identity, all Type 2 mutation requests take
+an optional expected `CardInfo`, and `Service::read_card` dispatches Classic or
+Type 2 from one selection. Capability-container writes validate the resulting
+product and refresh the parsed CC after verification.
+
+The GTK workbench adds the Type 2 Memory/Protection tab and makes the NDEF tab
+family-aware. Advanced mode, typed confirmations, lock/password forms,
+dump/restore, and the NDEF write/format gates are implemented. The gated GTK
+scenario covers the new surfaces against a scripted NTAG213.
+
+Type 4 read remains out of the UI and has no `nfctl` command because no
+reader/card hardware record exists. The Type 4 service and tests stay
+hardware-free. See `docs/notes/19c-type2-type4.md`.

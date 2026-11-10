@@ -4,6 +4,7 @@ use adw::prelude::*;
 
 mod app;
 mod classic;
+mod type2;
 
 fn main() -> glib::ExitCode {
     let application = adw::Application::builder()

@@ -1,12 +1,16 @@
-//! Presentation data for the Classic block table and inspector.
+//! Presentation data for the Classic block table, inspector, and NDEF composer.
 //!
 //! The GTK view never reads a card itself. These helpers turn a [`Dump`] into
-//! rows and parse the hex editor; `nfc-app` owns the actual operations.
+//! rows, parse the hex editor, and encode a composed NDEF message; `nfc-app`
+//! owns the actual operations.
+
+use std::path::{Path, PathBuf};
 
 use nfc_classic::{
     AccessBits, BccStatus, Block, BlockKind, BlockStatus, DiffState, Dump, DumpDiff, KeyMask,
     Layout, value,
 };
+use nfc_ndef::{NdefMessage, TextRecord, UriRecord};
 
 /// One row in the Classic block table. Rows are immutable snapshots; a write
 /// replaces the row with a fresh snapshot from the service result.
@@ -425,6 +429,145 @@ pub fn restore_ready(live: bool, busy: bool, loaded: bool) -> bool {
     live && !busy && loaded
 }
 
+/// Composer source for one NDEF message. Exactly one source is encoded.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum NdefSource {
+    #[default]
+    Text,
+    Uri,
+    Raw,
+}
+
+impl NdefSource {
+    pub const ALL: [Self; 3] = [Self::Text, Self::Uri, Self::Raw];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Text => "Text",
+            Self::Uri => "URI",
+            Self::Raw => "Raw NDEF file",
+        }
+    }
+
+    pub const fn stack_name(self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::Uri => "uri",
+            Self::Raw => "raw",
+        }
+    }
+}
+
+/// A raw message decoded from a file. The encoded message is the wire form;
+/// the path is kept for the preview and the log.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RawNdef {
+    pub path: PathBuf,
+    pub message: NdefMessage,
+}
+
+/// A message being composed. Text and URI sources encode on demand so the
+/// preview and the write use identical bytes; a raw source is decoded once
+/// when the file is chosen.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NdefDraft {
+    pub source: NdefSource,
+    pub language: String,
+    pub text: String,
+    pub uri: String,
+    pub raw: Option<RawNdef>,
+}
+
+impl Default for NdefDraft {
+    fn default() -> Self {
+        Self {
+            source: NdefSource::Text,
+            language: "en".to_owned(),
+            text: String::new(),
+            uri: String::new(),
+            raw: None,
+        }
+    }
+}
+
+impl NdefDraft {
+    /// Encode the active source through the NDEF codec.
+    pub fn message(&self) -> Result<NdefMessage, String> {
+        match self.source {
+            NdefSource::Text => TextRecord::new(self.text.clone(), self.language.clone())
+                .and_then(|record| record.to_record())
+                .and_then(NdefMessage::single)
+                .map_err(|error| error.to_string()),
+            NdefSource::Uri => UriRecord::new(self.uri.clone())
+                .and_then(|record| record.to_record())
+                .and_then(NdefMessage::single)
+                .map_err(|error| error.to_string()),
+            NdefSource::Raw => self
+                .raw
+                .as_ref()
+                .map(|raw| raw.message.clone())
+                .ok_or_else(|| "choose a raw NDEF file first".to_owned()),
+        }
+    }
+
+    /// One-line description of the active source.
+    pub fn summary(&self) -> String {
+        match self.source {
+            NdefSource::Text => format!("Text · language {}", self.language),
+            NdefSource::Uri => format!("URI · {}", self.uri),
+            NdefSource::Raw => match &self.raw {
+                Some(raw) => format!(
+                    "Raw NDEF · {} record(s) · {}",
+                    raw.message.records().len(),
+                    raw.path.display()
+                ),
+                None => "Raw NDEF · no file chosen".to_owned(),
+            },
+        }
+    }
+
+    /// Read and decode a raw message. The previous draft is unchanged when the
+    /// file cannot be read or decoded.
+    pub fn load_raw(&mut self, path: &Path) -> Result<(), String> {
+        let bytes = std::fs::read(path)
+            .map_err(|error| format!("could not read {}: {error}", path.display()))?;
+        self.load_raw_bytes(path, bytes)
+    }
+
+    pub fn load_raw_bytes(&mut self, path: &Path, bytes: Vec<u8>) -> Result<(), String> {
+        let message = NdefMessage::decode(&bytes)
+            .map_err(|error| format!("{} is not a valid NDEF message: {error}", path.display()))?;
+        self.raw = Some(RawNdef {
+            path: path.to_path_buf(),
+            message,
+        });
+        self.source = NdefSource::Raw;
+        Ok(())
+    }
+}
+
+/// Capacity refusal for a composed message. The service remains authoritative.
+pub fn ndef_capacity_error(bytes: usize, capacity: usize) -> Option<String> {
+    (bytes > capacity).then(|| {
+        format!("The message needs {bytes} bytes; the NDEF area holds at most {capacity}.")
+    })
+}
+
+/// Hex preview with a byte limit; the ellipsis marks truncated output.
+pub fn hex_preview(bytes: &[u8], limit: usize) -> String {
+    let shown = bytes
+        .iter()
+        .take(limit)
+        .map(|byte| format!("{byte:02X}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    if bytes.len() > limit {
+        format!("{shown} …")
+    } else {
+        shown
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -550,6 +693,88 @@ mod tests {
             nfc_classic::DumpFormat::Auto.default_file_name(),
             "card-dump.bin"
         );
+    }
+
+    #[test]
+    fn ndef_draft_encodes_text_and_uri() {
+        let text = NdefDraft {
+            source: NdefSource::Text,
+            language: "en".to_owned(),
+            text: "Hello".to_owned(),
+            ..NdefDraft::default()
+        };
+        let message = text.message().expect("text message");
+        assert_eq!(message.records().len(), 1);
+        let record = TextRecord::from_record(&message.records()[0]).expect("text record");
+        assert_eq!(record.text, "Hello");
+        assert_eq!(record.language, "en");
+        assert_eq!(
+            text.message()
+                .expect("message")
+                .encoded_len()
+                .expect("size"),
+            message.encoded_len().expect("size")
+        );
+
+        let uri = NdefDraft {
+            source: NdefSource::Uri,
+            uri: "https://example.com/a".to_owned(),
+            ..NdefDraft::default()
+        };
+        let message = uri.message().expect("URI message");
+        let record = UriRecord::from_record(&message.records()[0]).expect("URI record");
+        assert_eq!(record.uri, "https://example.com/a");
+
+        let invalid = NdefDraft {
+            source: NdefSource::Uri,
+            uri: String::new(),
+            ..NdefDraft::default()
+        };
+        assert!(invalid.message().is_err());
+    }
+
+    #[test]
+    fn ndef_draft_decodes_raw_files_and_keeps_previous_on_error() {
+        let message = NdefMessage::single(
+            TextRecord::new("raw", "en")
+                .expect("text")
+                .to_record()
+                .expect("record"),
+        )
+        .expect("message");
+        let mut draft = NdefDraft::default();
+        draft
+            .load_raw_bytes(Path::new("message.ndef"), message.encode().expect("encode"))
+            .expect("decode raw");
+        assert_eq!(draft.source, NdefSource::Raw);
+        assert_eq!(draft.message().expect("message"), message);
+        assert_eq!(
+            draft
+                .message()
+                .expect("message")
+                .encoded_len()
+                .expect("size"),
+            message.encoded_len().expect("size")
+        );
+
+        let before = draft.raw.clone();
+        assert!(
+            draft
+                .load_raw_bytes(Path::new("bad.ndef"), vec![0xD1, 0x01])
+                .is_err()
+        );
+        assert_eq!(draft.raw, before);
+        assert_eq!(draft.source, NdefSource::Raw);
+    }
+
+    #[test]
+    fn ndef_capacity_and_preview_follow_the_bytes() {
+        assert_eq!(ndef_capacity_error(93, 93), None);
+        let error = ndef_capacity_error(94, 93).expect("overflow");
+        assert!(error.contains("94"));
+        assert!(error.contains("93"));
+        assert_eq!(hex_preview(&[0xD1, 0x01], 4), "D1 01");
+        assert_eq!(hex_preview(&[0xD1, 0x01, 0x02], 2), "D1 01 …");
     }
 
     #[test]

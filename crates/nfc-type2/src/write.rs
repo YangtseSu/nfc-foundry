@@ -133,6 +133,19 @@ pub fn write_page_verified(
             changed: false,
         });
     }
+    let expected_cc = if role == PageRole::CapabilityContainer {
+        let cc = crate::cc::CapabilityContainer::parse(&expected)?;
+        let layout = Type2Layout::from_cc(&cc)?;
+        if layout.product != image.layout.product {
+            return Err(NfcError::InvalidArgument(
+                "a capability container write cannot change the tag product or data-area size"
+                    .to_owned(),
+            ));
+        }
+        Some(cc)
+    } else {
+        None
+    };
     cancel.check()?;
     reader.write_page(page, data)?;
     cancel.check()?;
@@ -162,6 +175,9 @@ pub fn write_page_verified(
     let mut observed = read_back;
     if role == PageRole::DynamicLock {
         observed[3] = previous[3];
+    }
+    if let Some(cc) = expected_cc {
+        image.cc = cc;
     }
     image.set_page(page, observed)?;
     Ok(PageWriteResult {
@@ -548,6 +564,41 @@ mod tests {
         assert!(check_writable(&image, 40, WritePolicy::user()).is_err());
         assert!(check_writable(&image, 0, WritePolicy::advanced()).is_err());
         assert!(check_writable(&image, 3, WritePolicy::advanced()).is_ok());
+    }
+
+    #[test]
+    fn capability_container_write_updates_the_parsed_cc() {
+        let (mut reader, mut image) = image();
+        write_page_verified(
+            &mut reader,
+            &mut image,
+            3,
+            [0xE1, 0x10, 0x12, 0xF0],
+            WritePolicy::advanced(),
+            &CancelToken::new(),
+        )
+        .expect("CC write");
+        assert!(!image.cc.writable());
+        assert_eq!(image.page(3), Some(&[0xE1, 0x10, 0x12, 0xF0]));
+        assert_eq!(reader.page(3), Some([0xE1, 0x10, 0x12, 0xF0]));
+    }
+
+    #[test]
+    fn capability_container_size_change_is_refused_before_the_write() {
+        let (mut reader, mut image) = image();
+        assert!(matches!(
+            write_page_verified(
+                &mut reader,
+                &mut image,
+                3,
+                [0xE1, 0x10, 0x3E, 0x00],
+                WritePolicy::advanced(),
+                &CancelToken::new(),
+            ),
+            Err(NfcError::InvalidArgument(_))
+        ));
+        assert_eq!(reader.page(3), Some([0xE1, 0x10, 0x12, 0x00]));
+        assert_eq!(image.cc.size, 144);
     }
 
     #[test]

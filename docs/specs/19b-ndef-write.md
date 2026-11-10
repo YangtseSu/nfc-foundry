@@ -1,6 +1,8 @@
 # Spec: phase 19b NDEF write and format
 
-Status: pending. Plan: [19b-ndef-write.md](../plan/19b-ndef-write.md).
+Status: complete 2026-11-11. Note:
+[19b-ndef-write.md](../notes/19b-ndef-write.md). Plan:
+[19b-ndef-write.md](../plan/19b-ndef-write.md).
 
 ## Surface
 

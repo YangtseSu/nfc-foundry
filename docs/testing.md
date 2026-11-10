@@ -368,8 +368,8 @@ For changed GTK screens, add GTK4 UI integration tests and a manual window
 check for keyboard, focus, theme, zoom, and CJK input. The GTK app needs
 `gtk4`/`libadwaita` development libraries to build; on a headless host, use a
 private Xvfb display (for example `Xvfb :99 -screen 0 1400x920x24` with
-`GDK_BACKEND=x11`). The phase 19a workbench scenarios use a scripted transport
-and are gated:
+`GDK_BACKEND=x11`). The phase 19a–19c workbench scenarios use a scripted
+transport (Classic and NTAG213) and are gated:
 
 ```sh
 env -u WAYLAND_DISPLAY NFC_FOUNDRY_GUI_TESTS=1 \

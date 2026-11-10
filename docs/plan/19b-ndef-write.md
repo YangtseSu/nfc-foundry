@@ -1,6 +1,7 @@
 # Phase 19b plan: NDEF write and format
 
-Status: pending. This is the next work package after phase 19a.
+Status: complete 2026-11-11. Implementation record:
+[notes/19b-ndef-write.md](../notes/19b-ndef-write.md).
 
 Starting point: `feat/gtk4-ui` at `e5d0995` (clean). Phase 19a completed the
 Classic workbench, PM3 interchange, Keys, Diff, Restore, identity checks, and

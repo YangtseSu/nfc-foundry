@@ -2,54 +2,62 @@
 
 ## Task
 
-Read an NTAG/Ultralight image, inspect pages, write NDEF, and manage one-way
-protection. The workbench shell owns the reader, tag identity, language, and
-status; these screens render the page only.
+Read an NTAG/Ultralight image, inspect pages, write user memory, write NDEF, and
+manage one-way protection. The workbench shell owns the reader, tag identity,
+language, and status; these screens render the page only.
 
 ## Layout
 
 ```text
-shell sidebar        reader · card · Memory · NDEF · Protection · System
-top bar              tag identity (type · family · UID · detail) · reader menu · language · settings
-page header          eyebrow · title · subtitle
-file row             dump path · Save · Load · Restore · include options (Memory only)
-Memory               metric strip · page table · fixed page inspector
-NDEF                 message/capacity · capability container · write/export/format
-Protection           lock state · lock form · configuration · password · action plan
-action bar           status · detail · last backup · Read tag
+shell sidebar        reader · card · Memory · Protection · System
+top bar              tag identity (product · UID · CC · NDEF) · reader menu · language · settings
+page header          eyebrow · title · subtitle · Advanced mode
+file row             project path · Save · Load · Restore · include options
+Memory               summary · page table · fixed page inspector
+Protection           configuration · lock form · password form
+action bar           status · detail · last backup · Read card
 ```
 
-- A presence scan detects the tag family; the shell shows the Type 2 task
-  group and routes Read tag to the Type 2 workspace automatically.
-- The page table is the master view; the inspector keeps its write actions
-  pinned at the bottom. Writes are disabled while the editor still matches the
-  current page.
-- Locked pages, manufacturer pages, and reserved pages cannot be written.
-  Configuration, password, and lock pages use the Advanced label.
-- Restore include options appear after a dump is loaded and only on Memory.
+- `Read card` detects the tag family and routes a Type 2 tag to the Type 2 tab.
+- The page table is the master view; the inspector holds the write action and
+  feedback. User memory is visible by default. CC, static/dynamic lock,
+  configuration, and PWD/PACK pages appear only in Advanced mode.
+- Manufacturer and reserved pages are read-only. Locked and
+  password-protected pages explain why the write is refused.
+- Restore include options appear after a project image is loaded and only on
+  Memory. User memory is on; configuration, CC, and lock bytes are opt-in.
 
 ## States
 
-- No tag: Memory and NDEF show the read/load empty state.
-- Partial read: unreadable pages show `—`; warnings stay in the status detail.
+- No tag: Memory and Protection show the read/load empty state.
+- Partial read: unreadable pages show `—`; warnings stay visible.
 - Read-only capability container: NDEF write and format are disabled.
 - Locked page: the inspector explains that the page cannot be written.
 - PWD/PACK pages never read back; the inspector says so.
-- Advanced actions: the inspector and the confirmation dialog name the pages,
-  old/new values, backup, and read-back plan.
+- Advanced actions: the dialog names the card identity, pages, old/new values,
+  backup, and read-back plan, and requires `I_OWN_THIS_CARD`.
 
 ## Safety
 
 - User memory is the default write scope.
-- Lock, configuration, and password actions require the typed dialog
-  `I_OWN_THIS_CARD`.
-- Restore uses the typed dialog and exposes configuration, capability
-  container, and lock-byte include options.
-- NDEF format uses the typed dialog. Every mutation keeps the service-level
-  backup, read-back verification, and identity check.
+- Lock, configuration, password, restore, Advanced page writes, and Type 2 NDEF
+  format require Advanced mode and the typed dialog.
+- Every mutation passes the session `CardInfo` as the expected identity; a card
+  change is refused before the backup or card I/O.
+- Advanced mode resets on card read, reader change, refresh, and loaded dump.
+- NDEF write preserves unknown/proprietary TLVs. Format removes them and is
+  destructive.
+- The service owns backups, read-back verification, CC-write validation, and
+  identity checks. The GUI reports the backup path.
 
 ## Tests
 
-`crates/gui/nfc-foundry/tests/ui.rs` covers read, page selection, inspector
-state, the Advanced page typed dialog, NDEF/Protection screen rendering, and
-the shared language switch.
+`crates/gui/src/app.rs` contains the gated `gtk_workbench_scenarios` entry
+point. `crates/gui/src/type2.rs` unit tests cover page rows, roles, lock
+previews, parsing, and NDEF gates. Run the GTK scenario under Xvfb with:
+
+```sh
+env -u WAYLAND_DISPLAY NFC_FOUNDRY_GUI_TESTS=1 \
+  xvfb-run -a env GDK_BACKEND=x11 \
+  cargo test -p nfc-foundry gtk_workbench_scenarios
+```

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use nfc_core::{BLOCK_SIZE, CancelToken, CardInfo, Result};
+use nfc_core::{BLOCK_SIZE, CancelToken, CardInfo, CardType, NfcError, Result};
 use nfc_transport::{DeviceInfo, Transport};
 
 use crate::classic::{
@@ -11,6 +11,15 @@ use crate::classic::{
 };
 use crate::device::DeviceManager;
 use crate::operation::{Operation, OperationKind};
+use crate::type2::Type2ReadResult;
+
+/// Result of reading whichever supported card family is selected.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum CardReadResult {
+    Classic(ClassicReadResult),
+    Type2(Type2ReadResult),
+}
 
 /// Application facade shared by the GUI and `nfctl`.
 #[derive(Default)]
@@ -53,6 +62,30 @@ impl Service {
     pub fn card_info(&mut self) -> Result<CardInfo> {
         let operation = self.begin_operation(OperationKind::CardInfo, CancelToken::new())?;
         Ok(operation.card().clone())
+    }
+
+    /// Reads whichever supported card family is selected: a full Classic dump
+    /// or a Type 2 image. The card is selected once for the whole read.
+    pub fn read_card(
+        &mut self,
+        keys: &KeyStore,
+        include_common_keys: bool,
+        cancel: CancelToken,
+    ) -> Result<CardReadResult> {
+        let mut operation = self.begin_operation(OperationKind::Read, cancel)?;
+        let cancel = operation.cancel().clone();
+        match operation.card().card_type {
+            CardType::Type2 => {
+                crate::type2::read(&mut operation, &cancel).map(CardReadResult::Type2)
+            }
+            CardType::MifareClassic1K | CardType::MifareClassic4K => {
+                crate::classic::read::read_dump(&mut operation, keys, include_common_keys)
+                    .map(CardReadResult::Classic)
+            }
+            _ => Err(NfcError::Unsupported(
+                "the selected card is not a supported Classic or Type 2 tag",
+            )),
+        }
     }
 
     /// Reads the whole card with candidate keys. Authentication failures
@@ -279,6 +312,86 @@ mod tests {
             Err(NfcError::VerificationFailed(_))
         ));
         assert_eq!(handle.block(1), Some([0xAA; 16]));
+    }
+
+    fn type2_card(uid: u8) -> CardInfo {
+        CardInfo::new(
+            vec![0x04, 0x5B, 0x1C, 0x2A, 0x3B, 0x4C, uid],
+            [0x00, 0x44],
+            0x00,
+            CardType::Type2,
+        )
+    }
+
+    fn seed_ntag(handle: &MockHandle) {
+        for page in 0..45u8 {
+            handle.set_page(page, [page; 4]);
+        }
+        handle.set_page(2, [0x80, 0x48, 0x00, 0x00]);
+        handle.set_page(3, [0xE1, 0x10, 0x12, 0x00]);
+        handle.set_page(40, [0x00, 0x00, 0x00, 0xBD]);
+        handle.set_page(41, [0x00, 0x00, 0x00, 0xFF]);
+        handle.set_page(42, [0x00, 0x00, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn read_card_dispatches_by_family() {
+        let transport = MockTransport::new();
+        let classic = transport.add(
+            DeviceInfo::new("Mock Classic", "mock:classic"),
+            Some(card(1)),
+        );
+        classic.set_block(0, [1; BLOCK_SIZE]);
+        let ntag = transport.add(
+            DeviceInfo::new("Mock NTAG", "mock:ntag"),
+            Some(type2_card(0x80)),
+        );
+        seed_ntag(&ntag);
+        let mut service = Service::with_transport(Arc::new(transport));
+        service.refresh_devices().expect("refresh");
+
+        service.select_device("mock:ntag").expect("select tag");
+        let read = service
+            .read_card(&KeyStore::new(), true, CancelToken::new())
+            .expect("type 2 read");
+        match read {
+            CardReadResult::Type2(read) => {
+                assert_eq!(read.card.card_type, CardType::Type2);
+                assert_eq!(read.image.layout.total_pages, 45);
+                assert!(read.image.is_complete());
+            }
+            other => panic!("unexpected read result: {other:?}"),
+        }
+
+        service
+            .select_device("mock:classic")
+            .expect("select classic");
+        let read = service
+            .read_card(&KeyStore::new(), true, CancelToken::new())
+            .expect("classic read");
+        assert!(matches!(read, CardReadResult::Classic(_)));
+    }
+
+    #[test]
+    fn type2_identity_mismatch_is_refused_before_the_backup() {
+        let (mut service, handle) = service_with_card(type2_card(0x80));
+        seed_ntag(&handle);
+        let backups = tempfile::tempdir().expect("backup dir");
+        let backup = BackupStore::new(backups.path());
+        handle.set_card(Some(type2_card(0x81)));
+        let request = crate::type2::Type2PageWrite::new(4, [0xAA; 4], &backup)
+            .expected_card(type2_card(0x80));
+        assert!(matches!(
+            service.type2_write_page(request),
+            Err(NfcError::CardChanged)
+        ));
+        assert_eq!(handle.page(4), Some([4; 4]));
+        assert_eq!(
+            std::fs::read_dir(backups.path())
+                .expect("backup dir")
+                .count(),
+            0
+        );
     }
 
     #[test]
