@@ -153,6 +153,18 @@ impl Reader for Acr122Usb {
         self.protocol()?.write_block(block, data)
     }
 
+    fn read_page_quad(&mut self, start_page: u8) -> Result<[u8; nfc_core::PAGE_QUAD_SIZE]> {
+        self.protocol()?.read_page_quad(start_page)
+    }
+
+    fn write_page(&mut self, page: u8, data: [u8; nfc_core::PAGE_SIZE]) -> Result<()> {
+        self.protocol()?.write_page(page, data)
+    }
+
+    fn password_auth(&mut self, password: [u8; nfc_core::PAGE_SIZE]) -> Result<[u8; 2]> {
+        self.protocol()?.password_auth(password)
+    }
+
     fn transceive_bytes(&mut self, tx: &[u8]) -> Result<Vec<u8>> {
         self.protocol()?.transceive_bytes(tx)
     }

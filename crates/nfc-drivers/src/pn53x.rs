@@ -39,6 +39,11 @@ pub(crate) const MIFARE_AUTH_B: u8 = 0x61;
 pub(crate) const MIFARE_READ: u8 = 0x30;
 pub(crate) const MIFARE_WRITE: u8 = 0xA0;
 
+pub(crate) const TYPE2_READ: u8 = 0x30;
+pub(crate) const TYPE2_WRITE: u8 = 0xA2;
+pub(crate) const TYPE2_PWD_AUTH: u8 = 0x1B;
+pub(crate) const TYPE2_ACK: u8 = 0x0A;
+
 pub(crate) const TARGET_NUMBER: u8 = 0x01;
 pub(crate) const ISO14443A_106_KBPS: u8 = 0x00;
 pub(crate) const MAX_RAW_PAYLOAD: usize = 252;
@@ -257,6 +262,47 @@ pub(crate) fn unwrap_parity_frame(
         }
     }
     Ok((data, data_bits, parity))
+}
+
+/// ISO/IEC 14443A CRC-A. Type 2 commands carry it because raw mode disables
+/// the PN532 hardware CRC.
+pub(crate) fn crc_a(data: &[u8]) -> [u8; 2] {
+    let mut crc: u16 = 0x6363;
+    for &byte in data {
+        let mut mixed = byte ^ crc as u8;
+        mixed ^= mixed << 4;
+        crc = (crc >> 8) ^ ((mixed as u16) << 8) ^ ((mixed as u16) << 3) ^ ((mixed as u16) >> 4);
+    }
+    [crc as u8, (crc >> 8) as u8]
+}
+
+/// Appends CRC-A to one Type 2 command.
+pub(crate) fn type2_command(command: &[u8]) -> Vec<u8> {
+    let mut frame = Vec::with_capacity(command.len() + 2);
+    frame.extend_from_slice(command);
+    frame.extend_from_slice(&crc_a(command));
+    frame
+}
+
+/// Checks and strips CRC-A from a Type 2 response. Some reader stacks already
+/// remove the received CRC, so an exact-length payload without CRC is accepted.
+pub(crate) fn type2_response(data: &[u8], expected: usize, source: &str) -> Result<Vec<u8>> {
+    if data.len() == expected {
+        return Ok(data.to_vec());
+    }
+    if data.len() != expected + 2 {
+        return Err(NfcError::Io(format!(
+            "{source} Type 2 response returned {} bytes, expected {expected} plus CRC",
+            data.len()
+        )));
+    }
+    let (payload, crc) = data.split_at(expected);
+    if crc_a(payload) != [crc[0], crc[1]] {
+        return Err(NfcError::Io(format!(
+            "{source} Type 2 response has an invalid CRC"
+        )));
+    }
+    Ok(payload.to_vec())
 }
 
 pub(crate) fn status_error(status: u8) -> NfcError {

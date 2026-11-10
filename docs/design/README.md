@@ -22,13 +22,19 @@ The implemented screen contract is [classic-workspace.md](classic-workspace.md).
 - Restore and trailer writes are confirmed; block 0 remains read-only in this
   phase. Clone/factory/UID actions are later Advanced work.
 
-## NDEF
+## Type 2 / NDEF
 
-- Type 2 memory table with CC, user pages, lock/config pages.
-- NDEF message editor: templates, raw, records, exact byte preview.
-- Classic NDEF: MAD/CC/sector mapping.
-- Protection: lock/config/PWD/PACK/AUTH0/ACCESS are Advanced.
-- Destructive actions show target, old/new, backup, read-back plan.
+The implemented screen contract is
+[type2-workspace.md](type2-workspace.md).
+
+- Type 2 memory table with page role, lock state, and data.
+- Page inspector with hex, ASCII, and a verified user-page editor.
+- NDEF tab: state, capacity, records, Text write, and Format.
+- Protection: static/dynamic locks, AUTH0/ACCESS/CFGLCK/AUTHLIM, lock form,
+  and password form.
+- Type 2 Advanced writes, locks, password configuration, and NDEF format
+  require confirmation; lock/config/password use typed confirmation.
+- Classic NDEF: MAD/CC/sector mapping remains phase 10.
 
 ## Rules
 

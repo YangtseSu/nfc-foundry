@@ -3,6 +3,10 @@ use crate::{NfcError, Result};
 pub const BLOCK_SIZE: usize = 16;
 pub const KEY_SIZE: usize = 6;
 pub const ATQA_LENGTH: usize = 2;
+/// NFC Forum Type 2 page size. A READ returns four pages at once.
+pub const PAGE_SIZE: usize = 4;
+/// Payload size of one NFC Forum Type 2 READ command.
+pub const PAGE_QUAD_SIZE: usize = PAGE_SIZE * 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyType {

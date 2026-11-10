@@ -9,7 +9,8 @@ dependency of this project.
 
 ## Status
 
-**Phase 08 complete.** Both first-release readers are implemented: PN532 UART
+**Phase 09 implementation complete; Type 2 hardware write validation pending.**
+Both first-release readers are implemented: PN532 UART
 and ACR122U direct USB/CCID. The ACR122U path claims the CCID interface with
 `nusb`, carries PN532 commands in the ACR122 pseudo-APDU, and supports
 selection, Classic authentication and block access, raw bytes/bits, and a
@@ -36,8 +37,14 @@ the originality-signature block as a known key when no supplied key works.
 The hardware-free NDEF core is complete: a strict message/record codec with
 short, normal, and chunked layouts; Type 2 TLV framing with unknown and
 proprietary preservation; Text, URI, Smart Poster, vCard, Wi-Fi WSC, Bluetooth
-LE OOB, and DPP templates; and message/TLV capacity checks. Type 2 and Classic
-NDEF tag adapters and editors follow in phases 09 and 10.
+LE OOB, and DPP templates; and message/TLV capacity checks. The Type 2 / NTAG
+adapter is implemented: CC and product layouts, static/dynamic locks, NTAG
+configuration, project dumps, NDEF TLV preservation, and verified page and
+NDEF writes over both readers. `nfctl type2|ndef` and the GPUI Kit Type 2
+workspace share the `nfc-app` services, with backups, read-back verification,
+and typed confirmations for one-way locks and configuration. Type 2 hardware
+write and NDEF round-trip validation is pending; the read path was validated
+earlier on both readers. Classic NDEF follows in phase 10.
 
 ## Product scope
 
@@ -86,6 +93,8 @@ crates/
   nfc-type4           # ISO-DEP/APDU NDEF adapter (later)
   nfc-app             # device manager, services, workflows, events
   nfctl               # CLI
+  gui/classic         # GPUI Kit Classic workspace
+  gui/type2           # GPUI Kit Type 2 / NDEF workspace
   gui/nfc-foundry     # GPUI Kit desktop shell
 ```
 
@@ -136,6 +145,17 @@ cargo run -p nfctl -- --mock --device mock:classic-1k \
   --backup-dir /tmp/nfc-backups classic write --block 4 \
   --data 000102030405060708090A0B0C0D0E0F
 cargo run -p nfctl -- --mock --device mock:classic-1k classic keyscan
+```
+
+The mock NTAG215 carries a complete 135-page NTAG215 image with an empty NDEF
+TLV:
+
+```sh
+cargo run -p nfctl -- --mock --device mock:ntag215 type2 info
+cargo run -p nfctl -- --mock --device mock:ntag215 type2 read --page 4
+cargo run -p nfctl -- --mock --device mock:ntag215 ndef write --text hello
+cargo run -p nfctl -- --mock --device mock:ntag215 ndef read
+cargo run -p nfctl -- --mock --device mock:ntag215 type2 dump --output ntag.json
 ```
 
 `nfctl classic keys list|import|add` manages the JSON key store. Pass
@@ -201,18 +221,36 @@ identification, Classic 1K read, Type 2 read, raw 7-bit REQA, and a same-value
 Gen1A manufacturer-block write; see the
 [phase 05 note](docs/notes/05-acr122-usb.md).
 
+Type 2 and NDEF commands share the same device selection:
+
+```sh
+cargo run -p nfctl -- --device acr122_usb:001:017 type2 info
+cargo run -p nfctl -- --device acr122_usb:001:017 type2 read --page 4
+cargo run -p nfctl -- --device acr122_usb:001:017 ndef write --text "hello"
+cargo run -p nfctl -- --device acr122_usb:001:017 ndef read
+cargo run -p nfctl -- --device acr122_usb:001:017 \
+  type2 lock --pages 4 --confirm I_OWN_THIS_CARD
+```
+
+Type 2 reads are hardware-validated. Write, NDEF, lock, and password paths are
+implemented with backups and read-back verification but still need the
+hardware record described in [Testing](docs/testing.md).
+
 ## GUI
 
-The GPUI Kit Classic workspace is the first feature screen:
+The GPUI Kit shell switches between the Classic and Type 2 workspaces:
 
 ```sh
 cargo run -p nfc-foundry
 ```
 
-It provides reader selection, card read, dump save/load, restore with
-confirmation, block write with trailer confirmation, key scan, key store
-management, a block inspector, and a two-dump diff. All operations use the same
-`nfc-app` services and safety policy as `nfctl`.
+The Classic workspace provides reader selection, card read, dump save/load,
+restore with confirmation, block write with trailer confirmation, key scan, key
+store management, a block inspector, and a two-dump diff. The Type 2 workspace
+provides a page table and inspector, verified user-page writes, dump
+save/load/restore, Text NDEF write and format, and protection actions with
+typed confirmation. All operations use the same `nfc-app` services and safety
+policy as `nfctl`.
 
 ## Documentation
 

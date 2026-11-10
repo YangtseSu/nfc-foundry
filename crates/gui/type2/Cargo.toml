@@ -1,0 +1,25 @@
+[package]
+name = "nfc-type2-gui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "nfc_type2_gui"
+path = "src/lib.rs"
+
+[dependencies]
+gpui-kit.workspace = true
+nfc-app.workspace = true
+nfc-core.workspace = true
+nfc-ndef.workspace = true
+nfc-type2.workspace = true
+
+[dev-dependencies]
+gpui-kit = { workspace = true, features = ["test-support"] }
+nfc-transport.workspace = true
+tempfile = "3"
+
+[lints]
+workspace = true

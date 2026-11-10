@@ -5,7 +5,7 @@ pub mod mock;
 
 pub use device::{DeviceInfo, ReaderCapabilities};
 
-use nfc_core::{BLOCK_SIZE, CardInfo, Key, KeyType, NfcError, Result};
+use nfc_core::{BLOCK_SIZE, CardInfo, Key, KeyType, NfcError, PAGE_QUAD_SIZE, PAGE_SIZE, Result};
 
 /// Recovery-specific transport facts. A driver only advertises parity
 /// exchange after the primitive works on hardware.
@@ -39,6 +39,27 @@ pub trait Reader: Send {
     fn transceive_bytes(&mut self, tx: &[u8]) -> Result<Vec<u8>>;
     fn transceive_bits(&mut self, tx: &[u8], tx_bits: usize) -> Result<(Vec<u8>, usize)>;
     fn set_raw_mode(&mut self, enabled: bool) -> Result<()>;
+
+    /// NFC Forum Type 2 READ (0x30). Returns the addressed page followed by
+    /// the next three pages. Drivers enter and leave their raw framing mode
+    /// around the command; callers never manage CRC for this path.
+    fn read_page_quad(&mut self, _start_page: u8) -> Result<[u8; PAGE_QUAD_SIZE]> {
+        Err(NfcError::Unsupported("this reader has no Type 2 page read"))
+    }
+
+    /// NFC Forum Type 2 WRITE (0xA2) for one page.
+    fn write_page(&mut self, _page: u8, _data: [u8; PAGE_SIZE]) -> Result<()> {
+        Err(NfcError::Unsupported(
+            "this reader has no Type 2 page write",
+        ))
+    }
+
+    /// NTAG PWD_AUTH (0x1B). Returns the two-byte PACK.
+    fn password_auth(&mut self, _password: [u8; PAGE_SIZE]) -> Result<[u8; 2]> {
+        Err(NfcError::Unsupported(
+            "this reader has no Type 2 password authentication",
+        ))
+    }
 
     /// Recovery parity exchange is opt-in; readers without it keep the default
     /// error instead of pretending to support active attacks.

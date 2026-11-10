@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use nfc_core::{BLOCK_SIZE, CardInfo, Key, KeyType, NfcError, Result};
+use nfc_core::{BLOCK_SIZE, CardInfo, Key, KeyType, NfcError, PAGE_QUAD_SIZE, PAGE_SIZE, Result};
 
 use crate::{DeviceInfo, ManufacturerWriter, Reader, TrailerWriter, Transport};
 
@@ -15,6 +15,9 @@ pub enum MockCall {
     ReadBlock,
     WriteBlock,
     Transceive,
+    ReadPageQuad,
+    WritePage,
+    PasswordAuth,
 }
 
 /// Injected behavior for the next matching call.
@@ -44,6 +47,8 @@ impl MockFault {
 struct MockState {
     card: Option<CardInfo>,
     blocks: HashMap<u8, [u8; BLOCK_SIZE]>,
+    pages: HashMap<u8, [u8; PAGE_SIZE]>,
+    password: Option<([u8; PAGE_SIZE], [u8; 2])>,
     raw_mode: bool,
     open: bool,
     open_count: usize,
@@ -94,6 +99,25 @@ impl MockHandle {
         self.lock().blocks.get(&block).copied()
     }
 
+    /// Store one Type 2 page.
+    pub fn set_page(&self, page: u8, data: [u8; PAGE_SIZE]) {
+        self.lock().pages.insert(page, data);
+    }
+
+    /// Remove every stored Type 2 page.
+    pub fn clear_pages(&self) {
+        self.lock().pages.clear();
+    }
+
+    pub fn page(&self, page: u8) -> Option<[u8; PAGE_SIZE]> {
+        self.lock().pages.get(&page).copied()
+    }
+
+    /// Configure the PWD_AUTH secret and expected PACK.
+    pub fn set_password(&self, password: [u8; PAGE_SIZE], pack: [u8; 2]) {
+        self.lock().password = Some((password, pack));
+    }
+
     /// Fail the next matching call. `WriteIgnored` applies to
     /// `MockCall::WriteBlock`.
     pub fn fail_next(&self, call: MockCall, fault: MockFault) {
@@ -140,6 +164,18 @@ impl MockReader {
 
     pub fn set_block(&mut self, block: u8, data: [u8; BLOCK_SIZE]) {
         self.state.set_block(block, data);
+    }
+
+    pub fn set_page(&mut self, page: u8, data: [u8; PAGE_SIZE]) {
+        self.state.set_page(page, data);
+    }
+
+    pub fn page(&self, page: u8) -> Option<[u8; PAGE_SIZE]> {
+        self.state.page(page)
+    }
+
+    pub fn set_password(&mut self, password: [u8; PAGE_SIZE], pack: [u8; 2]) {
+        self.state.set_password(password, pack);
     }
 
     pub fn fail_next(&mut self, call: MockCall, fault: MockFault) {
@@ -202,6 +238,43 @@ impl Reader for MockReader {
         state.present_card()?;
         state.blocks.insert(block, data);
         Ok(())
+    }
+
+    fn read_page_quad(&mut self, start_page: u8) -> Result<[u8; PAGE_QUAD_SIZE]> {
+        let mut state = self.state.lock();
+        state.check_call(MockCall::ReadPageQuad)?;
+        let mut output = [0u8; PAGE_QUAD_SIZE];
+        for offset in 0..4u8 {
+            let page = start_page.wrapping_add(offset);
+            let data = state.pages.get(&page).copied().ok_or_else(|| {
+                NfcError::InvalidArgument(format!("mock Type 2 page {page} is not loaded"))
+            })?;
+            let index = usize::from(offset) * PAGE_SIZE;
+            output[index..index + PAGE_SIZE].copy_from_slice(&data);
+        }
+        Ok(output)
+    }
+
+    fn write_page(&mut self, page: u8, data: [u8; PAGE_SIZE]) -> Result<()> {
+        let mut state = self.state.lock();
+        if let Some(fault) = state.take_fault(MockCall::WritePage) {
+            if matches!(fault, MockFault::WriteIgnored) {
+                return Ok(());
+            }
+            return Err(fault.into_error());
+        }
+        state.present_card()?;
+        state.pages.insert(page, data);
+        Ok(())
+    }
+
+    fn password_auth(&mut self, password: [u8; PAGE_SIZE]) -> Result<[u8; 2]> {
+        let mut state = self.state.lock();
+        state.check_call(MockCall::PasswordAuth)?;
+        match state.password {
+            Some((expected, pack)) if expected == password => Ok(pack),
+            _ => Err(NfcError::AuthenticationFailed),
+        }
     }
 
     fn transceive_bytes(&mut self, _tx: &[u8]) -> Result<Vec<u8>> {

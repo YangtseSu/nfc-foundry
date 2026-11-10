@@ -53,10 +53,16 @@ impl BackupStore {
     /// Unknown bytes and block statuses are preserved by the project format.
     pub fn save(&self, dump: &Dump, label: &str) -> Result<BackupRecord> {
         let bytes = exchange::export(dump, DumpFormat::Project)?;
+        self.save_bytes(label, &bytes)
+    }
+
+    /// Writes an already-encoded project snapshot atomically. Type 2 images
+    /// use their own JSON project format through this path.
+    pub fn save_bytes(&self, label: &str, bytes: &[u8]) -> Result<BackupRecord> {
         let path = self
             .directory
             .join(format!("{}-{}.json", sanitize(label), unique()));
-        write_atomic(&path, &bytes)?;
+        write_atomic(&path, bytes)?;
         Ok(BackupRecord {
             path,
             bytes: bytes.len(),

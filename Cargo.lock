@@ -4541,6 +4541,7 @@ dependencies = [
  "nfc-app",
  "nfc-classic-gui",
  "nfc-drivers",
+ "nfc-type2-gui",
 ]
 
 [[package]]
@@ -4573,8 +4574,24 @@ dependencies = [
 name = "nfc-type2"
 version = "0.1.0"
 dependencies = [
+ "nfc-core",
  "nfc-ndef",
  "nfc-transport",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "nfc-type2-gui"
+version = "0.1.0"
+dependencies = [
+ "gpui-kit",
+ "nfc-app",
+ "nfc-core",
+ "nfc-ndef",
+ "nfc-transport",
+ "nfc-type2",
+ "tempfile",
 ]
 
 [[package]]
@@ -4594,8 +4611,10 @@ dependencies = [
  "nfc-classic",
  "nfc-core",
  "nfc-drivers",
+ "nfc-ndef",
  "nfc-recover",
  "nfc-transport",
+ "nfc-type2",
  "tempfile",
 ]
 

@@ -10,13 +10,22 @@ use nfc_app::classic::{
     BackupStore, ClassicBlockWrite, ClassicKeyscan, ClassicRead, ClassicRestore, KeyEntry, KeyKind,
     KeySource, KeyStore, KeyTypes, common_keys,
 };
+use nfc_app::type2::{
+    Type2Format, Type2Lock, Type2NdefWrite, Type2PageWrite, Type2Password, Type2Restore,
+};
 use nfc_classic::{DumpFormat, Layout, bcc_for_uid, diff, exchange};
-use nfc_core::{BLOCK_SIZE, CancelToken, CardInfo, CardType, Key, KeyType, NfcError, Result};
+use nfc_core::{
+    BLOCK_SIZE, CancelToken, CardInfo, CardType, Key, KeyType, NfcError, PAGE_SIZE, Result,
+};
 use nfc_drivers::DriverRegistry;
+use nfc_ndef::{NdefMessage, NdefRecord, TextRecord, UriRecord};
 use nfc_recover::auto::RecoveryStrategy;
 use nfc_recover::{RecoveryProgress, RecoveryRequest};
 use nfc_transport::DeviceInfo;
 use nfc_transport::mock::MockTransport;
+use nfc_type2::{
+    Configuration, LockBits, NdefState, RestoreOptions, Type2Image, exchange as type2,
+};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -184,22 +193,95 @@ enum KeysCommand {
 
 #[derive(Clone, Debug, Subcommand)]
 enum Type2Command {
+    /// Show the page layout, CC, locks, configuration, and NDEF state.
     Info,
-    Read,
-    Write,
-    Dump,
-    Restore,
-    Copy,
-    Erase,
-    Lock,
-    Password,
+    /// Print every page, or one page with `--page`.
+    Read {
+        #[arg(long, value_name = "PAGE")]
+        page: Option<u8>,
+    },
+    /// Write one page after a backup and read-back verification.
+    Write {
+        #[arg(long, value_name = "PAGE")]
+        page: u8,
+        /// Eight hexadecimal digits.
+        #[arg(long, value_name = "HEX")]
+        data: String,
+        /// Allow a lock, configuration, password, or capability-container page.
+        #[arg(long)]
+        advanced: bool,
+        /// Required for Advanced pages; use I_OWN_THIS_CARD.
+        #[arg(long, value_name = "TOKEN")]
+        confirm: Option<String>,
+    },
+    /// Save a project JSON image.
+    Dump {
+        #[arg(long, short, value_name = "PATH")]
+        output: PathBuf,
+    },
+    /// Restore a project JSON image after confirmation.
+    Restore {
+        #[arg(long, short, value_name = "PATH")]
+        input: PathBuf,
+        /// Use I_OWN_THIS_CARD.
+        #[arg(long, value_name = "TOKEN")]
+        confirm: Option<String>,
+        #[arg(long)]
+        include_configuration: bool,
+        #[arg(long)]
+        include_capability_container: bool,
+        #[arg(long)]
+        include_locks: bool,
+    },
+    /// Set one-way lock bits for pages such as `4,8,16-20`.
+    Lock {
+        #[arg(long, value_name = "PAGES")]
+        pages: String,
+        /// Use I_OWN_THIS_CARD.
+        #[arg(long, value_name = "TOKEN")]
+        confirm: Option<String>,
+    },
+    /// Program PWD/PACK, AUTH0, and ACCESS.
+    Password {
+        #[arg(long, value_name = "PAGE")]
+        auth0: u8,
+        #[arg(long, value_name = "HEX")]
+        access: String,
+        #[arg(long, value_name = "HEX")]
+        pwd: String,
+        #[arg(long, value_name = "HEX")]
+        pack: String,
+        /// Use I_OWN_THIS_CARD.
+        #[arg(long, value_name = "TOKEN")]
+        confirm: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug, Subcommand)]
 enum NdefCommand {
-    Read,
-    Write,
-    Format,
+    /// Print the NDEF records; optionally write the raw message to a file.
+    Read {
+        #[arg(long, short, value_name = "PATH")]
+        output: Option<PathBuf>,
+    },
+    /// Write a raw NDEF file, a Text record, or a URI record.
+    Write {
+        #[arg(long, value_name = "PATH")]
+        file: Option<PathBuf>,
+        #[arg(long, value_name = "TEXT")]
+        text: Option<String>,
+        #[arg(long, value_name = "URI")]
+        uri: Option<String>,
+        /// IANA language code for `--text`.
+        #[arg(long, default_value = "en", value_name = "LANG")]
+        language: String,
+    },
+    /// Format the NDEF data area after confirmation.
+    Format {
+        /// Use I_OWN_THIS_CARD.
+        #[arg(long, value_name = "TOKEN")]
+        confirm: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug, Subcommand)]
@@ -289,22 +371,8 @@ fn run(cli: Cli) -> Result<()> {
             Ok(())
         }
         Command::Classic { command } => classic(&cli, &mut service, command),
-        Command::Type2 { command } => match command {
-            Type2Command::Info => Err(NfcError::NotImplemented("nfctl type2 info")),
-            Type2Command::Read => Err(NfcError::NotImplemented("nfctl type2 read")),
-            Type2Command::Write => Err(NfcError::NotImplemented("nfctl type2 write")),
-            Type2Command::Dump => Err(NfcError::NotImplemented("nfctl type2 dump")),
-            Type2Command::Restore => Err(NfcError::NotImplemented("nfctl type2 restore")),
-            Type2Command::Copy => Err(NfcError::NotImplemented("nfctl type2 copy")),
-            Type2Command::Erase => Err(NfcError::NotImplemented("nfctl type2 erase")),
-            Type2Command::Lock => Err(NfcError::NotImplemented("nfctl type2 lock")),
-            Type2Command::Password => Err(NfcError::NotImplemented("nfctl type2 password")),
-        },
-        Command::Ndef { command } => match command {
-            NdefCommand::Read => Err(NfcError::NotImplemented("nfctl ndef read")),
-            NdefCommand::Write => Err(NfcError::NotImplemented("nfctl ndef write")),
-            NdefCommand::Format => Err(NfcError::NotImplemented("nfctl ndef format")),
-        },
+        Command::Type2 { command } => type2(&cli, &mut service, command),
+        Command::Ndef { command } => ndef(&cli, &mut service, command),
         Command::Recover { command } => recovery(&cli, &mut service, command),
         Command::Diag => {
             println!("nfctl {} (skeleton)", env!("CARGO_PKG_VERSION"));
@@ -810,6 +878,396 @@ fn classic_diff(before: &Path, after: &Path) -> Result<()> {
     Ok(())
 }
 
+const CONFIRMATION: &str = "I_OWN_THIS_CARD";
+
+fn type2(cli: &Cli, service: &mut Service, command: Type2Command) -> Result<()> {
+    match command {
+        Type2Command::Info => {
+            prepare(service, cli.device.as_deref())?;
+            let read = service.type2_read(CancelToken::new())?;
+            print_type2_info(&read.image, &read.warnings);
+            Ok(())
+        }
+        Type2Command::Read { page } => {
+            prepare(service, cli.device.as_deref())?;
+            if let Some(page) = page {
+                let image = service.type2_read(CancelToken::new())?.image;
+                let data = image.page(page).ok_or_else(|| {
+                    NfcError::InvalidArgument(format!("page {page} is not readable"))
+                })?;
+                println!(
+                    "page {page} {:>14}: {}",
+                    image.role(page).label(),
+                    hex_bytes(data)
+                );
+                return Ok(());
+            }
+            let read = service.type2_read(CancelToken::new())?;
+            for (page, data) in read.image.pages() {
+                let data = data
+                    .map(|data| hex_bytes(data))
+                    .unwrap_or_else(|| "--".to_owned());
+                println!(
+                    "page {:<3} {:>14} {data}",
+                    page,
+                    read.image.role(page).label()
+                );
+            }
+            for warning in &read.warnings {
+                println!("warning: {warning}");
+            }
+            Ok(())
+        }
+        Type2Command::Write {
+            page,
+            data,
+            advanced,
+            confirm,
+        } => {
+            prepare(service, cli.device.as_deref())?;
+            let backup = backup_store(cli);
+            let data: [u8; PAGE_SIZE] = parse_hex_array(&data, "page data")?;
+            if advanced && confirm.as_deref() != Some(CONFIRMATION) {
+                return Err(NfcError::InvalidArgument(format!(
+                    "writing an Advanced page needs --confirm {CONFIRMATION}"
+                )));
+            }
+            let result = service.type2_write_page(
+                Type2PageWrite::new(page, data, &backup)
+                    .advanced(advanced)
+                    .confirm(confirm.as_deref() == Some(CONFIRMATION)),
+            )?;
+            if result.changed {
+                println!(
+                    "page {} written and verified: {}",
+                    result.page,
+                    hex_bytes(&result.written)
+                );
+                if let Some(backup) = result.backup {
+                    println!("backup: {}", backup.path.display());
+                }
+            } else {
+                println!("page {} already contains the requested value", result.page);
+            }
+            Ok(())
+        }
+        Type2Command::Dump { output } => {
+            prepare(service, cli.device.as_deref())?;
+            let read = service.type2_read(CancelToken::new())?;
+            let bytes = type2::export(&read.image)?;
+            write_output(&output, &bytes)?;
+            println!(
+                "{} {}: {}/{} pages written to {}",
+                read.image.layout.product.name(),
+                read.image.uid_hex(),
+                read.image.known_pages(),
+                read.image.layout.page_count(),
+                output.display()
+            );
+            for warning in &read.warnings {
+                println!("warning: {warning}");
+            }
+            Ok(())
+        }
+        Type2Command::Restore {
+            input,
+            confirm,
+            include_configuration,
+            include_capability_container,
+            include_locks,
+        } => {
+            prepare(service, cli.device.as_deref())?;
+            require_confirmation(confirm.as_deref(), "restoring a Type 2 image")?;
+            let source = type2::load(&read_input(&input)?)?;
+            let backup = backup_store(cli);
+            let result = service.type2_restore(
+                Type2Restore::new(source, &backup)
+                    .options(RestoreOptions {
+                        restore_user_memory: true,
+                        restore_capability_container: include_capability_container,
+                        restore_configuration: include_configuration,
+                        restore_lock_bytes: include_locks,
+                    })
+                    .confirm(true),
+            )?;
+            println!(
+                "restore complete: {} written, {} unchanged",
+                result.summary.written_pages, result.summary.unchanged_pages
+            );
+            println!("backup: {}", result.backup.path.display());
+            for warning in &result.warnings {
+                println!("warning: {warning}");
+            }
+            Ok(())
+        }
+        Type2Command::Lock { pages, confirm } => {
+            prepare(service, cli.device.as_deref())?;
+            require_confirmation(confirm.as_deref(), "locking Type 2 pages")?;
+            let pages = parse_page_list(&pages)?;
+            let backup = backup_store(cli);
+            let result = service.type2_lock(Type2Lock::new(pages, &backup).confirm(true))?;
+            if result.update.is_empty() {
+                println!("the requested pages are already locked");
+            } else {
+                println!("lock bits written and verified");
+            }
+            if let Some(backup) = result.backup {
+                println!("backup: {}", backup.path.display());
+            }
+            Ok(())
+        }
+        Type2Command::Password {
+            auth0,
+            access,
+            pwd,
+            pack,
+            confirm,
+        } => {
+            prepare(service, cli.device.as_deref())?;
+            require_confirmation(confirm.as_deref(), "changing Type 2 password configuration")?;
+            let access: [u8; 1] = parse_hex_array(&access, "ACCESS")?;
+            let password: [u8; PAGE_SIZE] = parse_hex_array(&pwd, "PWD")?;
+            let pack: [u8; 2] = parse_hex_array(&pack, "PACK")?;
+            let backup = backup_store(cli);
+            let result = service.type2_password(
+                Type2Password::new(auth0, access[0], password, pack, &backup).confirm(true),
+            )?;
+            println!("password configuration written and verified");
+            println!("backup: {}", result.backup.path.display());
+            Ok(())
+        }
+    }
+}
+
+fn ndef(cli: &Cli, service: &mut Service, command: NdefCommand) -> Result<()> {
+    prepare(service, cli.device.as_deref())?;
+    match command {
+        NdefCommand::Read { output } => {
+            let read = service.type2_ndef_read(CancelToken::new())?;
+            match &read.ndef.state {
+                NdefState::Unformatted => println!("NDEF: unformatted"),
+                NdefState::Empty => println!("NDEF: empty"),
+                NdefState::Message(message) => {
+                    println!(
+                        "NDEF: {} record(s), {} bytes, capacity {}",
+                        message.records().len(),
+                        read.ndef.message_bytes,
+                        read.ndef.capacity
+                    );
+                    for (index, record) in message.records().iter().enumerate() {
+                        print_ndef_record(index, record);
+                    }
+                    if let Some(path) = output {
+                        write_output(&path, &message.encode()?)?;
+                        println!("raw message written to {}", path.display());
+                    }
+                }
+            }
+            for warning in &read.warnings {
+                println!("warning: {warning}");
+            }
+            Ok(())
+        }
+        NdefCommand::Write {
+            file,
+            text,
+            uri,
+            language,
+        } => {
+            let message = build_ndef_message(file.as_deref(), text, uri, &language)?;
+            let backup = backup_store(cli);
+            let result = service.type2_ndef_write(Type2NdefWrite::new(message, &backup))?;
+            println!(
+                "NDEF written and verified: {} page(s) written, {} unchanged",
+                result.summary.written_pages, result.summary.unchanged_pages
+            );
+            println!("backup: {}", result.backup.path.display());
+            Ok(())
+        }
+        NdefCommand::Format { confirm } => {
+            require_confirmation(confirm.as_deref(), "formatting the NDEF data area")?;
+            let backup = backup_store(cli);
+            let result = service.type2_ndef_format(Type2Format::new(&backup).confirm(true))?;
+            println!(
+                "NDEF formatted: {} page(s) written, {} unchanged",
+                result.summary.written_pages, result.summary.unchanged_pages
+            );
+            println!("backup: {}", result.backup.path.display());
+            Ok(())
+        }
+    }
+}
+
+fn print_type2_info(image: &Type2Image, warnings: &[String]) {
+    println!("product: {}", image.layout.product.name());
+    println!("uid: {}", image.uid_hex());
+    println!(
+        "pages: {}/{} readable",
+        image.known_pages(),
+        image.layout.page_count()
+    );
+    println!(
+        "user memory: pages {}..={} ({} bytes)",
+        image.layout.user_first,
+        image.layout.user_last,
+        image.layout.user_bytes()
+    );
+    println!("capability container: {}", hex_bytes(&image.cc.to_bytes()));
+    println!("NDEF data area: {} bytes", image.cc.size);
+    println!("NDEF capacity: {} bytes", image.cc.ndef_capacity());
+    match nfc_type2::read_ndef(image) {
+        Ok(ndef) => {
+            let state = match &ndef.state {
+                NdefState::Unformatted => "unformatted".to_owned(),
+                NdefState::Empty => "empty".to_owned(),
+                NdefState::Message(message) => {
+                    format!(
+                        "{} record(s), {} bytes",
+                        message.records().len(),
+                        ndef.message_bytes
+                    )
+                }
+            };
+            println!("NDEF: {state}");
+            println!("NDEF read-only: {}", ndef.read_only);
+        }
+        Err(error) => println!("NDEF: invalid ({error})"),
+    }
+    match LockBits::from_image(image) {
+        Ok(locks) => {
+            println!(
+                "static lock: {}  dynamic lock: {}",
+                hex_bytes(&locks.static_lock),
+                hex_bytes(&locks.dynamic_lock)
+            );
+            let locked: Vec<String> = (0..image.layout.total_pages)
+                .filter(|page| locks.is_locked(&image.layout, *page))
+                .map(|page| page.to_string())
+                .collect();
+            if !locked.is_empty() {
+                println!("locked pages: {}", locked.join(", "));
+            }
+        }
+        Err(error) => println!("locks: unavailable ({error})"),
+    }
+    match Configuration::from_image(image) {
+        Ok(config) => {
+            println!(
+                "AUTH0: {:02X}  ACCESS: {:02X}  CFGLCK: {}  AUTHLIM: {}",
+                config.auth0,
+                config.access,
+                config.cfg_locked(),
+                config.auth_lim()
+            );
+        }
+        Err(error) => println!("configuration: {error}"),
+    }
+    for warning in warnings {
+        println!("warning: {warning}");
+    }
+}
+
+fn print_ndef_record(index: usize, record: &NdefRecord) {
+    if let Ok(text) = TextRecord::from_record(record) {
+        println!(
+            "record {index}: text {:?} (language {})",
+            text.text, text.language
+        );
+        return;
+    }
+    if let Ok(uri) = UriRecord::from_record(record) {
+        println!("record {index}: uri {}", uri.uri);
+        return;
+    }
+    println!(
+        "record {index}: tnf {:?} type {} payload {}",
+        record.tnf(),
+        hex_bytes(record.record_type()),
+        hex_bytes(record.payload())
+    );
+}
+
+fn build_ndef_message(
+    file: Option<&Path>,
+    text: Option<String>,
+    uri: Option<String>,
+    language: &str,
+) -> Result<NdefMessage> {
+    let supplied =
+        usize::from(file.is_some()) + usize::from(text.is_some()) + usize::from(uri.is_some());
+    if supplied != 1 {
+        return Err(NfcError::InvalidArgument(
+            "pass exactly one of --file, --text, or --uri".to_owned(),
+        ));
+    }
+    if let Some(path) = file {
+        return NdefMessage::decode(&read_input(path)?);
+    }
+    if let Some(text) = text {
+        let record = TextRecord::new(text, language)?.to_record()?;
+        return NdefMessage::single(record);
+    }
+    let uri = uri.expect("one NDEF source is present");
+    NdefMessage::single(UriRecord::new(uri)?.to_record()?)
+}
+
+fn require_confirmation(token: Option<&str>, action: &str) -> Result<()> {
+    if token == Some(CONFIRMATION) {
+        Ok(())
+    } else {
+        Err(NfcError::InvalidArgument(format!(
+            "{action} needs --confirm {CONFIRMATION}"
+        )))
+    }
+}
+
+fn parse_page_list(value: &str) -> Result<Vec<u8>> {
+    let mut pages = Vec::new();
+    for part in value.split([',', ' ']).filter(|part| !part.is_empty()) {
+        if let Some((first, last)) = part.split_once('-') {
+            let first: u8 = first
+                .parse()
+                .map_err(|_| NfcError::InvalidArgument(format!("invalid page {first:?}")))?;
+            let last: u8 = last
+                .parse()
+                .map_err(|_| NfcError::InvalidArgument(format!("invalid page {last:?}")))?;
+            if first > last {
+                return Err(NfcError::InvalidArgument(format!(
+                    "page range {part:?} is reversed"
+                )));
+            }
+            pages.extend(first..=last);
+        } else {
+            let page: u8 = part
+                .parse()
+                .map_err(|_| NfcError::InvalidArgument(format!("invalid page {part:?}")))?;
+            pages.push(page);
+        }
+    }
+    pages.sort_unstable();
+    pages.dedup();
+    Ok(pages)
+}
+
+fn parse_hex_array<const N: usize>(value: &str, label: &str) -> Result<[u8; N]> {
+    let compact: String = value
+        .chars()
+        .filter(|character| !character.is_ascii_whitespace() && *character != ':')
+        .collect();
+    if compact.len() != N * 2 {
+        return Err(NfcError::InvalidArgument(format!(
+            "{label} must contain {} hexadecimal digits",
+            N * 2
+        )));
+    }
+    let mut output = [0u8; N];
+    for (index, byte) in output.iter_mut().enumerate() {
+        *byte = (hex_digit(compact.as_bytes()[index * 2])? << 4)
+            | hex_digit(compact.as_bytes()[index * 2 + 1])?;
+    }
+    Ok(output)
+}
+
 fn management_store(cli: &Cli, create: bool) -> Result<(KeyStore, PathBuf)> {
     let path = cli
         .key_store
@@ -971,7 +1429,7 @@ fn mock_service() -> Service {
     for (block, data) in classic_blocks {
         handle.set_block(block, data);
     }
-    transport.add(
+    let ntag = transport.add(
         DeviceInfo::new("Mock NTAG215", "mock:ntag215"),
         Some(CardInfo::new(
             vec![0x04, 0x5B, 0x1C, 0x2A, 0x3B, 0x4C, 0x80],
@@ -980,6 +1438,16 @@ fn mock_service() -> Service {
             CardType::Type2,
         )),
     );
+    for page in 0..135u8 {
+        ntag.set_page(page, [0u8; PAGE_SIZE]);
+    }
+    ntag.set_page(0, [0x04, 0x5B, 0x1C, 0x2A]);
+    ntag.set_page(1, [0x3B, 0x4C, 0x80, 0x00]);
+    ntag.set_page(3, [0xE1, 0x10, 0x3E, 0x00]);
+    ntag.set_page(4, [0x03, 0x00, 0xFE, 0x00]);
+    ntag.set_page(130, [0x00, 0x00, 0x00, 0xBD]);
+    ntag.set_page(131, [0x00, 0x00, 0x00, 0xFF]);
+    ntag.set_page(132, [0x00, 0x00, 0x00, 0x00]);
     Service::with_transport(Arc::new(transport))
 }
 

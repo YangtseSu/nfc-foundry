@@ -12,7 +12,9 @@
 use std::thread;
 use std::time::Duration;
 
-use nfc_core::{BLOCK_SIZE, CardInfo, CardType, Key, KeyType, NfcError, Result};
+use nfc_core::{
+    BLOCK_SIZE, CardInfo, CardType, Key, KeyType, NfcError, PAGE_QUAD_SIZE, PAGE_SIZE, Result,
+};
 use nfc_transport::ParityFrame;
 
 use super::ccid::AcrLink;
@@ -22,8 +24,9 @@ use crate::pn53x::{
     MIFARE_AUTH_A, MIFARE_AUTH_B, MIFARE_READ, MIFARE_WRITE, PARITY_DISABLE, READ_REGISTER,
     REG_CIU_BIT_FRAMING, REG_CIU_CONTROL, REG_CIU_MANUAL_RCV, REG_CIU_RX_MODE, REG_CIU_STATUS2,
     REG_CIU_TX_MODE, RF_CONFIGURATION, RF_FIELD, RF_RETRY_SELECT, RX_LAST_BITS, SET_PARAMETERS,
-    TARGET_NUMBER, TX_RX_CRC_ENABLE, WRITE_REGISTER, parse_firmware, parse_passive_target,
-    parse_response, status_error, unwrap_parity_frame, wrap_parity_frame_bits,
+    TARGET_NUMBER, TX_RX_CRC_ENABLE, TYPE2_ACK, TYPE2_PWD_AUTH, TYPE2_READ, TYPE2_WRITE,
+    WRITE_REGISTER, parse_firmware, parse_passive_target, parse_response, status_error,
+    type2_command, type2_response, unwrap_parity_frame, wrap_parity_frame_bits,
 };
 
 #[cfg(test)]
@@ -342,6 +345,76 @@ impl Acr122Protocol {
         payload.push(block);
         payload.extend_from_slice(&data);
         self.data_exchange(&payload, self.config.command_timeout, Retry::No)?;
+        Ok(())
+    }
+
+    pub(crate) fn read_page_quad(&mut self, start_page: u8) -> Result<[u8; PAGE_QUAD_SIZE]> {
+        self.require_type2()?;
+        let data = self.with_raw(|this| {
+            let command = type2_command(&[TYPE2_READ, start_page]);
+            let response = this.in_communicate_thru(&command)?;
+            type2_response(&response, PAGE_QUAD_SIZE, "ACR122U")
+        })?;
+        let mut output = [0u8; PAGE_QUAD_SIZE];
+        output.copy_from_slice(&data);
+        Ok(output)
+    }
+
+    pub(crate) fn write_page(&mut self, page: u8, data: [u8; PAGE_SIZE]) -> Result<()> {
+        self.require_type2()?;
+        let mut payload = Vec::with_capacity(2 + PAGE_SIZE);
+        payload.push(TYPE2_WRITE);
+        payload.push(page);
+        payload.extend_from_slice(&data);
+        let command = type2_command(&payload);
+        let response = self.with_raw(|this| this.in_communicate_thru(&command))?;
+        if response.first() == Some(&TYPE2_ACK) {
+            Ok(())
+        } else {
+            Err(NfcError::Io(format!(
+                "ACR122U Type 2 write returned {:02X?} instead of an ACK",
+                response
+            )))
+        }
+    }
+
+    pub(crate) fn password_auth(&mut self, password: [u8; PAGE_SIZE]) -> Result<[u8; 2]> {
+        self.require_type2()?;
+        let mut payload = Vec::with_capacity(1 + PAGE_SIZE);
+        payload.push(TYPE2_PWD_AUTH);
+        payload.extend_from_slice(&password);
+        let command = type2_command(&payload);
+        let response = self.with_raw(|this| {
+            let response = this.in_communicate_thru(&command)?;
+            type2_response(&response, 2, "ACR122U")
+        })?;
+        let mut pack = [0u8; 2];
+        pack.copy_from_slice(&response);
+        Ok(pack)
+    }
+
+    fn with_raw<T>(&mut self, action: impl FnOnce(&mut Self) -> Result<T>) -> Result<T> {
+        let was_raw = self.raw_mode;
+        if !was_raw {
+            self.set_raw_mode(true)?;
+        }
+        let result = action(self);
+        if !was_raw {
+            let restored = self.set_raw_mode(false);
+            if result.is_ok() {
+                restored?;
+            }
+        }
+        result
+    }
+
+    fn require_type2(&self) -> Result<()> {
+        let card = self.selected.as_ref().ok_or(NfcError::NoCard)?;
+        if card.card_type != CardType::Type2 {
+            return Err(NfcError::Unsupported(
+                "the selected card is not an NFC Forum Type 2 tag",
+            ));
+        }
         Ok(())
     }
 
@@ -1308,6 +1381,41 @@ mod tests {
             protocol.write_block(4, [0x00; BLOCK_SIZE]),
             Err(NfcError::Timeout(_))
         ));
+    }
+
+    #[test]
+    fn type2_page_commands_add_crc_and_restore_raw_mode() {
+        let (link, steps, log) = ScriptedLink::scripted();
+        let mut protocol = test_protocol(link);
+        protocol.selected = Some(CardInfo::new(
+            vec![0x04, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66],
+            [0x00, 0x44],
+            0x00,
+            CardType::Type2,
+        ));
+        push(&steps, LinkStep::Apdu(response(SET_PARAMETERS, &[])));
+        for _ in 0..3 {
+            push(&steps, LinkStep::Apdu(response(WRITE_REGISTER, &[])));
+        }
+        let pages: [u8; PAGE_QUAD_SIZE] = core::array::from_fn(|index| index as u8);
+        let mut payload = vec![0x00];
+        payload.extend_from_slice(&type2_command(&pages));
+        push(
+            &steps,
+            LinkStep::Apdu(response(IN_COMMUNICATE_THRU, &payload)),
+        );
+        push(&steps, LinkStep::Apdu(response(SET_PARAMETERS, &[])));
+        for _ in 0..3 {
+            push(&steps, LinkStep::Apdu(response(WRITE_REGISTER, &[])));
+        }
+        assert_eq!(protocol.read_page_quad(4).expect("page read"), pages);
+        assert!(
+            log.lock()
+                .iter()
+                .any(|apdu| apdu.ends_with(&[0x42, 0x30, 0x04, 0x26, 0xEE])),
+            "Type 2 READ frame was not logged"
+        );
+        assert!(!protocol.raw_mode);
     }
 
     #[test]

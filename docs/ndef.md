@@ -54,22 +54,40 @@ a full format.
 
 ## Type 2 / NTAG
 
-Cover:
+Implemented in `nfc-type2`:
 
-- NTAG213/215/216 and MIFARE Ultralight.
-- Capability Container (CC), user memory, OTP, static and dynamic lock bytes.
-- Configuration pages: PWD/PACK, AUTH0, ACCESS, CFGLCK.
-- GET_VERSION, READ_CNT, fast read where supported.
-- NDEF TLV mapping, capacity, padding, read-only/lock state.
+- NTAG213/215/216, MIFARE Ultralight, and generic CC-sized Type 2 layouts.
+- Capability Container (CC) parsing and encoding, user memory, static and
+  dynamic lock bytes, and OTP/CC page roles.
+- NTAG configuration pages: PWD/PACK, AUTH0, ACCESS, CFGLCK, PROT, AUTHLIM,
+  MIRROR, and MIRROR_PAGE. PWD and PACK never read back.
+- NDEF TLV mapping with unformatted, empty, and message states; capacity,
+  Terminator and padding handling; unknown/proprietary TLV preservation; and
+  read-only state from the CC.
+- Project JSON that preserves partial images and rejects a page 3/CC mismatch.
+- Verified page, NDEF, format, restore, lock, and password writes over
+  `nfc-transport`. Read and write work through the DRIVER page primitives, not
+  a raw caller-managed command stream.
+- `nfctl type2|ndef` and the GPUI Kit Type 2 workspace.
+
+Not implemented yet:
+
+- `GET_VERSION`, `READ_CNT`, `FAST_READ`, and `READ_SIG`.
+- Password authentication for reads/writes after AUTH0 is set. The current
+  service programs and verifies PWD/PACK but does not expose an
+  authenticate-only request.
+- Card-to-card copy and whole-memory erase.
 
 Safety:
 
 - Default to user-memory reads and writes.
-- Lock bytes, configuration, PWD/PACK, AUTH0/ACCESS, and CFGLCK are Advanced.
-- Full-image backup before the first change.
-- Show exact pages, old/new values, backup path, and read-back plan.
-- Typed confirmation for one-way or potentially bricking actions.
+- Lock bytes, configuration, PWD/PACK, AUTH0/ACCESS, CFGLCK, and the CC are
+  Advanced and need typed confirmation.
+- Full-image project backup before the first change.
+- A lock update may set bits but never clear them.
+- PWD/PACK writes are verified with PWD_AUTH; secrets are not logged.
 - Genuine Type 2 UID pages are read-only.
+- A partial image is explicit and is never written as if complete.
 
 ## MIFARE Classic NDEF
 
@@ -99,7 +117,7 @@ Later phase:
 ## CLI
 
 ```text
-nfctl type2 info|read|write|dump|restore|copy|erase|lock|password
+nfctl type2 info|read|write|dump|restore|lock|password
 nfctl ndef read|write|format
 nfctl classic ndef read|write|format
 ```
@@ -111,9 +129,10 @@ output is English-only.
 
 GPUI Kit feature crates:
 
-- `gui/type2`: page table, CC, lock/config inspector, protection actions.
-- `gui/ndef`: template/raw/records editor, exact byte preview, read/write.
-- `gui/classic`: Classic NDEF view shares `gui/ndef` editor components.
+- `gui/type2`: page table, CC, lock/config inspector, protection actions, and
+  the Text/records NDEF view. Its NDEF view replaces the earlier separate
+  `gui/ndef` plan until a second family needs shared editor components.
+- `gui/classic`: Classic NDEF view remains phase 10.
 
 Use `DataTable` for memory, `TextArea`/`Input` for records, `Select` for
 templates, `AlertDialog` for destructive actions, and `Diff` for before/after

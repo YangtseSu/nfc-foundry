@@ -37,10 +37,11 @@ application shell, or a sibling feature.
 | `nfc-type2` | Type 2 / NTAG pages, CC, lock/config, NDEF TLV adapter | via transport |
 | `nfc-classic-ndef` | MAD1/MAD2, Classic CC, NDEF sectors, format | via transport |
 | `nfc-type4` | ISO-DEP/APDU NDEF adapter (later) | via transport |
-| `nfc-app` | Device manager, exclusive operations, Classic workflows, key store, backups | via transport |
+| `nfc-app` | Device manager, exclusive operations, Classic and Type 2 workflows, key store, backups | via transport |
 | `nfctl` | English-only CLI and JSON contract | via `nfc-app` |
 | `gui/nfc-foundry` | GPUI Kit shell | via `nfc-app` |
 | `gui/classic` | GPUI Kit Classic workspace (view, actions, UI tests) | via `nfc-app` |
+| `gui/type2` | GPUI Kit Type 2 / NDEF workspace (memory, NDEF, protection) | via `nfc-app` |
 
 ## Transport
 
@@ -58,6 +59,11 @@ trait Reader: Send {
     fn transceive_bytes(&mut self, tx: &[u8]) -> Result<Vec<u8>>;
     fn transceive_bits(&mut self, tx: &[u8], tx_bits: usize) -> Result<(Vec<u8>, usize)>;
     fn set_raw_mode(&mut self, enabled: bool) -> Result<()>;
+
+    // Type 2 primitives. Drivers manage CRC-A and raw mode internally.
+    fn read_page_quad(&mut self, start_page: u8) -> Result<[u8; 16]>;
+    fn write_page(&mut self, page: u8, data: [u8; 4]) -> Result<()>;
+    fn password_auth(&mut self, password: [u8; 4]) -> Result<[u8; 2]>;
 }
 ```
 
@@ -246,6 +252,41 @@ from becoming the NDEF implementation.
   are errors rather than silent repairs. No card or transport type enters the
   crate.
 
+## Type 2 / NTAG
+
+`nfc-type2` is the hardware-free Type 2 model plus reader-backed workflows. It
+owns:
+
+- CC validation: `E1` magic, version nibbles, `CC[2] * 8` data-area size, and
+  read/write access.
+- Product layouts for Ultralight, NTAG213/215/216, and generic CC-sized tags;
+  page roles; user-memory ranges; static and dynamic lock positions; and
+  configuration page addresses. NTAG215's 504-byte user area and 496-byte
+  NDEF data area stay distinct.
+- `Type2Image` with explicit unknown pages, page iteration, NDEF-area
+  extraction, and project JSON that preserves partial images.
+- Static/dynamic lock bits and pending one-way updates. Dynamic lock byte 3 is
+  RFUI and read-back compares only the first three bytes.
+- NTAG configuration (`MIRROR`, `AUTH0`, `ACCESS`, `CFGLCK`, `AUTHLIM`,
+  PWD/PACK). PWD and PACK always read as zero and are verified with PWD_AUTH.
+- NDEF state and mapping: unformatted, empty, and message; in-place NDEF TLV
+  replacement; unknown/proprietary TLV preservation; zero padding and
+  Terminator handling; exact capacity.
+- Verified page/NDEF/format/restore/lock/password functions. Restore rejects a
+  different layout or CC and writes user memory before configuration, the CC,
+  and lock bytes. PWD/PACK are never restored from a dump.
+
+`nfc-app::type2` adds the service policy: backups before mutation, user-memory
+defaults, Advanced confirmations for lock/config/CC/password, NDEF format and
+restore confirmation, read-back verification, and card identity checks. The
+CLI and GUI call those same services.
+
+Both drivers implement the Type 2 READ, WRITE, and PWD_AUTH primitives. They
+enter raw framing, append CRC-A, verify the response CRC when present, and
+restore the previous raw mode. The 16-byte READ always covers four pages;
+`quad_starts` adds an overlapping final read for products whose page count is
+not a multiple of four.
+
 ## Recovery
 
 `nfc-recover` is a library, not a process wrapper. It owns:
@@ -283,9 +324,14 @@ GPUI Kit is the only GUI dependency. The application shell composes feature
 crates:
 
 ```text
-gui/nfc-foundry     shell and reader wiring
+gui/nfc-foundry     shell, domain switch, and reader wiring
 gui/classic         Classic workspace and UI integration tests
+gui/type2           Type 2 / NDEF workspace and UI integration tests
 ```
+
+The shell switches between the Classic and Type 2 workspaces over the same
+`Service`. Both workspaces keep their own retained state and call the shared
+`nfc-app` services on a background executor.
 
 The Classic workspace is one window with a reader header, card/file toolbar,
 Blocks/Diff/Keys tabs, a block table, and a block inspector:

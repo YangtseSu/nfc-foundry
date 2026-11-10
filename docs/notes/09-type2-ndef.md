@@ -1,0 +1,130 @@
+# Phase 09 note: Type 2 / NDEF
+
+Date: 2026-11-10
+
+## Implemented
+
+- `nfc-core` / `nfc-transport`:
+  - `PAGE_SIZE` 4 and `PAGE_QUAD_SIZE` 16.
+  - `Reader::read_page_quad` (READ 0x30), `write_page` (WRITE 0xA2), and
+    `password_auth` (PWD_AUTH 0x1B). The defaults report `Unsupported`.
+  - `MockReader` stores Type 2 pages and a password/PACK pair, scripts
+    `ReadPageQuad`, `WritePage`, and `PasswordAuth` faults, and returns loaded
+    pages for each READ.
+- `nfc-drivers`:
+  - Shared Type 2 command constants, CRC-A, command framing, response CRC
+    verification, and exact-length and CRC-bearing response acceptance.
+  - PN532 UART and ACR122U page read/write/password methods. Each method
+    checks the selected card is Type 2, enters raw framing, sends the command,
+    restores the previous raw mode, and reports a non-ACK write response.
+  - Driver unit tests assert the READ frame CRC (`30 04 26 EE`) and that raw
+    mode is restored.
+- `nfc-type2`:
+  - CC model: `E1` magic, version nibbles, data size from byte 2, access
+    nibbles, and NDEF capacity. The level 1/2/3 version encoding is decoded
+    from CC[1].
+  - Products: Ultralight (48-byte area), NTAG213 (144), NTAG215 (496), NTAG216
+    (872), and generic CC-sized tags. NTAG215's 504 bytes of user memory are
+    modelled separately from its 496-byte NDEF data area.
+  - Page roles, static lock bit positions (page 3 at lock0 bit 3, pages 4..7 at
+    bits 4..7, pages 8..15 at lock1 bits 0..7), dynamic lock positions for the
+    three NTAG products, and configuration page addresses.
+  - `Type2Image` with unknown pages, `ndef_area`, `set_ndef_area`, and project
+    JSON.
+  - Lock model, pending one-way updates, irreversible-bit validation, and
+    RFUI handling for static and dynamic lock writes.
+  - Configuration parsing and page builders; PWD/PACK never read back.
+  - NDEF state (`Unformatted`, `Empty`, `Message`), message TLV preservation
+    in place, unknown/proprietary TLV preservation, format bytes, and exact
+    capacity handling without a Terminator when the area is full.
+  - Read, verified page write, NDEF write, format, restore, lock, and password
+    functions. Restore rejects a different layout or CC, writes user memory
+    before configuration, CC, and lock bytes, and never restores PWD/PACK.
+- `nfc-app`:
+  - `type2` workflow module and service methods. Mutations read the tag,
+    export a JSON backup through `BackupStore::save_bytes`, write, verify, and
+    recheck card identity.
+  - Advanced policies and explicit confirmations for lock, configuration,
+    password, capability container, format, and restore.
+- `nfctl`:
+  - `type2 info|read|write|dump|restore|lock|password` and
+    `ndef read|write|format`.
+  - Confirmation token `I_OWN_THIS_CARD`; Advanced page writes require it.
+  - Mock NTAG215 with a complete 135-page image and an empty NDEF TLV.
+- GPUI Kit:
+  - `nfc-type2-gui` with Memory, NDEF, and Protection tabs, page inspector,
+    verified writes, dump/restore, Text NDEF editor, lock and password forms,
+    and typed confirmation dialogs for one-way/Advanced actions.
+  - The desktop shell switches between the Classic and Type 2 workspaces.
+
+## Tested
+
+- `cargo fmt --all --check`
+- `cargo clippy --workspace --all-targets -- -D warnings`
+- `cargo test --workspace`
+- `cargo check -p nfc-foundry`
+- `reuse lint`
+- `nfc-type2`: 38 unit tests covering CC, layouts, locks, configuration, NDEF,
+  page images, project dumps, read coverage, verified writes, ignored writes,
+  locks, password verification, and restore validation.
+- `nfc-app`: 11 scripted Type 2 workflow tests covering complete/partial reads,
+  page writes and backups, Advanced gating, ignored writes, NDEF
+  write/read/format, unknown TLV preservation, lock denial, password
+  configuration, dump/restore, and CC mismatch rejection.
+- `nfctl`: 4 new CLI mock tests covering info, dump, page write, Advanced
+  confirmation, restore, lock, and NDEF write/read/format.
+- `nfc-type2-gui`: 5 UI integration tests covering read and page selection,
+  NDEF write/format, Advanced write confirmation, lock typed confirmation, and
+  protection controls.
+- Driver tests cover the Type 2 READ CRC and raw-mode restoration on both
+  transports.
+- No hardware was connected during implementation. The gated tests exist in
+  `nfctl/tests/hardware_type2.rs`:
+  - read-only NTAG read and NDEF state, enabled with `--features hardware`;
+  - NDEF write/read/restore and password configuration, enabled with
+    `--features hardware-write` and `NFCX_HARDWARE_WRITE`.
+  The Phase 09 acceptance hardware record is therefore pending.
+
+## Problems and resolutions
+
+- The first CC parser treated `E1` as the major version and `10` as the minor
+  version. The Type 2 CC stores the magic in byte 0 and the version nibbles in
+  byte 1; fixed. This also corrected `to_bytes`.
+- Dynamic lock byte 3 reads `BDh` on NTAG21x but RFUI must be written as zero.
+  Read-back now compares only the first three bytes and keeps the observed RFUI
+  byte in the image.
+- PWD and PACK read back as zero. The write path stores zeros in the image and
+  verifies the secret with a fresh PWD_AUTH instead of comparing memory.
+- Restoring configuration cannot restore PWD/PACK because dumps cannot read
+  them. Restore plan excludes those pages and only restores CFG0/CFG1.
+- The initial NDEF writer rebuilt the TLV stream and moved proprietary TLVs
+  after the NDEF TLV. The writer now replaces an existing NDEF TLV in place and
+  inserts one after leading Lock/Memory Control TLVs otherwise.
+- A GUI test fixture left every page number at zero while filling data; the
+  mock only exposed pages 0..4. The fixture now enumerates pages explicitly.
+- The NDEF tab test clicked format and confirmed with the dialog default OK
+  button; the dialog input is only used for typed one-way confirmations.
+
+## Deviations from the spec
+
+- `type2 copy` and `type2 erase` placeholders were removed. Neither operation
+  was specified with safe semantics; restore and format cover the useful
+  cases.
+- `GET_VERSION`, `FAST_READ`, `READ_CNT`, and `READ_SIG` are not implemented.
+  The CC is sufficient for layout selection and the phase plan did not require
+  these commands.
+- The GUI exposes programming PWD/PACK/ACCESS but not a PWD_AUTH prompt for
+  subsequent protected reads. The CLI and service API also have no
+  authenticate-only command yet.
+- NDEF write uses the Text record in the GUI; the CLI additionally supports
+  raw NDEF files and URI records. Template editors remain phase 10 work.
+- Dynamic lock block-locking bits are preserved and displayed but not exposed
+  as a separate Advanced action.
+
+## Remaining blockers
+
+- Hardware validation of NTAG215 read/write/NDEF round trip on ACR122U.
+- Hardware validation of lock and password paths on an owned tag.
+- `GET_VERSION`/`FAST_READ` for tags whose CC is absent or non-standard.
+- Type 2 password authentication for reads and writes after AUTH0 is set.
+- Classic MAD/CC NDEF belongs to phase 10.

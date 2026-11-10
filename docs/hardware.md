@@ -100,6 +100,16 @@ by reselection and read-back. A physical unplug/replug was not exercised;
 disconnect mapping is covered by scripted transport tests. See
 `docs/notes/05-acr122-usb.md`.
 
+### Type 2 write and NDEF status
+
+The Type 2 READ path is validated on both readers. The write path uses the same
+raw framing with READ (0x30), WRITE (0xA2), and PWD_AUTH (0x1B) commands,
+CRC-A, read-back verification, and restored raw mode. Driver unit tests cover
+the frames, but no Type 2 write, NDEF round trip, lock, or password action has
+been recorded on hardware yet. Run the gated checks in
+`docs/testing.md` before advertising those operations as hardware-validated.
+The phase 09 note records the pending status.
+
 Raw operations after a selected card require an RF field cycle to return the
 card to IDLE; `InRelease` alone did not produce a REQA response on this reader.
 `Acr122Usb::cycle_rf_field` performs that transition.

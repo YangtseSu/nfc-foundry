@@ -8,4 +8,4 @@ pub mod iso14443a;
 pub use cancel::CancelToken;
 pub use card::{CardInfo, CardType};
 pub use error::{NfcError, Result};
-pub use iso14443a::{BLOCK_SIZE, KEY_SIZE, Key, KeyType};
+pub use iso14443a::{BLOCK_SIZE, KEY_SIZE, Key, KeyType, PAGE_QUAD_SIZE, PAGE_SIZE};

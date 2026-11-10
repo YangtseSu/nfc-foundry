@@ -319,3 +319,187 @@ fn nested_recovery_without_parity_fails_honestly() {
         "{text}"
     );
 }
+
+#[test]
+fn type2_info_and_dump_describe_the_ntag() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let dump = directory.path().join("ntag.json");
+
+    let output = nfctl(&["--mock", "--device", "mock:ntag215", "type2", "info"]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("product: NTAG215"), "{text}");
+    assert!(text.contains("NDEF data area: 496 bytes"), "{text}");
+    assert!(text.contains("NDEF: empty"), "{text}");
+    assert!(text.contains("AUTH0: FF"), "{text}");
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:ntag215",
+        "type2",
+        "dump",
+        "--output",
+        dump.to_str().expect("path"),
+    ]);
+    assert_success(&output);
+    assert!(
+        stdout(&output).contains("135/135 pages"),
+        "{}",
+        stdout(&output)
+    );
+    assert!(dump.exists());
+}
+
+#[test]
+fn type2_page_write_is_verified_and_advanced_write_needs_confirmation() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backups = directory.path().join("backups");
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:ntag215",
+        "--backup-dir",
+        backups.to_str().expect("path"),
+        "type2",
+        "write",
+        "--page",
+        "8",
+        "--data",
+        "A1A2A3A4",
+    ]);
+    assert_success(&output);
+    assert!(
+        stdout(&output).contains("written and verified"),
+        "{}",
+        stdout(&output)
+    );
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:ntag215",
+        "type2",
+        "write",
+        "--page",
+        "3",
+        "--data",
+        "E1103E00",
+        "--advanced",
+    ]);
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("I_OWN_THIS_CARD"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn ndef_text_write_read_and_format_round_trip() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backups = directory.path().join("backups");
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:ntag215",
+        "--backup-dir",
+        backups.to_str().expect("path"),
+        "ndef",
+        "write",
+        "--text",
+        "hello",
+    ]);
+    assert_success(&output);
+    assert!(
+        stdout(&output).contains("NDEF written and verified"),
+        "{}",
+        stdout(&output)
+    );
+
+    // Each `--mock` invocation starts from the scripted blank tag.
+    let output = nfctl(&["--mock", "--device", "mock:ntag215", "ndef", "read"]);
+    assert_success(&output);
+    assert!(
+        stdout(&output).contains("NDEF: empty"),
+        "{}",
+        stdout(&output)
+    );
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:ntag215",
+        "--backup-dir",
+        backups.to_str().expect("path"),
+        "ndef",
+        "format",
+        "--confirm",
+        "I_OWN_THIS_CARD",
+    ]);
+    assert_success(&output);
+
+    let output = nfctl(&["--mock", "--device", "mock:ntag215", "ndef", "read"]);
+    assert_success(&output);
+    assert!(
+        stdout(&output).contains("NDEF: empty"),
+        "{}",
+        stdout(&output)
+    );
+}
+
+#[test]
+fn type2_dump_restore_and_lock_round_trip() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let dump = directory.path().join("ntag.json");
+    let backups = directory.path().join("backups");
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:ntag215",
+        "type2",
+        "dump",
+        "--output",
+        dump.to_str().expect("path"),
+    ]);
+    assert_success(&output);
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:ntag215",
+        "--backup-dir",
+        backups.to_str().expect("path"),
+        "type2",
+        "restore",
+        "--input",
+        dump.to_str().expect("path"),
+        "--confirm",
+        "I_OWN_THIS_CARD",
+    ]);
+    assert_success(&output);
+    assert!(stdout(&output).contains("unchanged"), "{}", stdout(&output));
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:ntag215",
+        "--backup-dir",
+        backups.to_str().expect("path"),
+        "type2",
+        "lock",
+        "--pages",
+        "4",
+        "--confirm",
+        "I_OWN_THIS_CARD",
+    ]);
+    assert_success(&output);
+    assert!(
+        stdout(&output).contains("lock bits written"),
+        "{}",
+        stdout(&output)
+    );
+}

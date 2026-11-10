@@ -94,6 +94,43 @@ records and TLVs. Property tests cover message and chunked encode/decode round
 trips, arbitrary-byte decode stability, TLV stream round trips, and unknown TLV
 preservation. The crate depends only on `nfc-core`; it never touches hardware.
 
+The phase 09 Type 2 tests are hardware-free. `nfc-type2` covers CC parsing,
+product layouts, static/dynamic lock positions, configuration, NDEF state and
+TLV preservation, project dumps, partial reads, verified writes, ignored
+writes, locks, PWD_AUTH verification, and restore validation. `nfc-app` adds
+scripted workflows for backups, Advanced confirmations, NDEF write/read/format,
+lock denial, password configuration, and CC mismatch. `nfctl` exercises
+`type2 info|write|dump|restore|lock` and `ndef write|read|format` against the
+mock NTAG215. `nfc-type2-gui` covers page selection, NDEF write/format,
+Advanced confirmation, lock typed confirmation, and protection controls. Driver
+unit tests assert the Type 2 READ CRC (`30 04 26 EE`) and raw-mode restoration
+for both transports.
+
+The gated Type 2 hardware tests live in `nfctl/tests/hardware_type2.rs`. The
+read-only check needs a Type 2 tag:
+
+```sh
+NFCX_HARDWARE=1 \
+NFCX_DEVICE=acr122_usb:001:017 \
+cargo test -p nfctl --features hardware -- --ignored
+```
+
+The NDEF round trip additionally needs the write gate. It reads the original
+image, formats, writes a Text record, verifies it, and restores the original
+user memory from a backup:
+
+```sh
+NFCX_HARDWARE=1 \
+NFCX_DEVICE=acr122_usb:001:017 \
+NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD \
+NFCX_HARDWARE_BACKUP_DIR=/tmp/nfc-type2-backups \
+cargo test -p nfctl --features hardware-write -- --ignored
+```
+
+The password test additionally requires `NFCX_TYPE2_PASSWORD` (8 hex digits)
+and writes AUTH0/ACCESS/PWD/PACK on an owned tag. No hardware was connected
+during phase 09 implementation, so those records remain pending.
+
 Hardware workflow checks:
 
 ```sh
@@ -269,6 +306,7 @@ workspace tests run headlessly:
 
 ```sh
 cargo test -p nfc-classic-gui --test ui
+cargo test -p nfc-type2-gui --test ui
 ```
 
 For hardware features:

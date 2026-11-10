@@ -13,6 +13,7 @@ members = [
     "crates/nfc-app",
     "crates/nfctl",
     "crates/gui/classic",
+    "crates/gui/type2",
     "crates/gui/nfc-foundry",
 ]
 default-members = [
@@ -48,6 +49,7 @@ nfc-classic-ndef = { path = "crates/nfc-classic-ndef" }
 nfc-type4 = { path = "crates/nfc-type4" }
 nfc-app = { path = "crates/nfc-app" }
 nfc-classic-gui = { path = "crates/gui/classic" }
+nfc-type2-gui = { path = "crates/gui/type2" }
 
 clap = { version = "4.6.7", features = ["derive"] }
 gpui-kit = "0.9.1"

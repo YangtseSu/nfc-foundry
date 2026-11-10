@@ -13,7 +13,7 @@ Status legend: `done`, `in progress`, `pending`, `optional`.
 | 06 | Native recovery: Crypto1, darkside, nested, staticnested | done |
 | 07 | Native hardnested and FM11RF08S/static encrypted | done |
 | 08 | NDEF core: records, TLV, templates, validation | done |
-| 09 | Type 2 / NTAG read/write/NDEF + GUI | pending |
+| 09 | Type 2 / NTAG read/write/NDEF + GUI | in progress |
 | 10 | Classic NDEF: MAD/CC/format + GUI | pending |
 | 11 | Type 4 / ISO-DEP NDEF adapter | optional |
 | 12 | Packaging, CI, hardware certification, release | pending |
@@ -252,6 +252,16 @@ Acceptance:
 - Lock/config/password actions are Advanced, backed up, confirmed, verified.
 - Partial reads are explicit; no fake success.
 - GUI and CLI parity.
+
+Status: implementation complete; hardware validation pending. `nfc-type2` owns
+CC/layout/lock/config parsing, project dumps, NDEF TLV preservation, and
+verified read/write workflows. PN532 UART and ACR122U issue READ, WRITE, and
+PWD_AUTH with CRC-A and restored raw mode. `nfc-app` adds backups,
+confirmations, and identity checks; `nfctl type2|ndef` and the
+`nfc-type2-gui` Memory/NDEF/Protection workspace use those services. Driver,
+model, workflow, CLI, and GPUI tests pass. The gated ACR122U NTAG215 hardware
+round trip has not been run because no reader was connected. See
+`docs/specs/09-type2-ndef.md` and `docs/notes/09-type2-ndef.md`.
 
 ### 10: Classic NDEF
 

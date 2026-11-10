@@ -10,6 +10,7 @@ mod fsutil;
 pub mod operation;
 pub mod recovery;
 pub mod service;
+pub mod type2;
 
 pub use classic::{
     BackupRecord, BackupStore, ClassicBlockWrite, ClassicKeyscan, ClassicKeyscanResult,
@@ -19,3 +20,7 @@ pub use classic::{
 pub use device::DeviceManager;
 pub use operation::{Operation, OperationKind};
 pub use service::Service;
+pub use type2::{
+    Type2Format, Type2Lock, Type2LockResult, Type2MutationResult, Type2NdefResult, Type2NdefWrite,
+    Type2PageResult, Type2PageWrite, Type2Password, Type2ReadResult, Type2Restore,
+};
