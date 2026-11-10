@@ -29,7 +29,8 @@ jobs:
             libx11-xcb-dev \
             libxcb1-dev \
             libxkbcommon-dev \
-            libxkbcommon-x11-dev
+            libxkbcommon-x11-dev \
+            desktop-file-utils
       - name: Format
         run: cargo fmt --all --check
       - name: Clippy
@@ -38,5 +39,7 @@ jobs:
         run: cargo test --workspace
       - name: GUI check
         run: cargo check -p nfc-foundry
+      - name: Desktop entry
+        run: desktop-file-validate resources/nfc-foundry.desktop
       - name: REUSE
         uses: fsfe/reuse-action@v6

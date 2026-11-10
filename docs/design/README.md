@@ -6,10 +6,14 @@ Guides.
 
 ## Shell
 
-- One window, persistent left navigation, workspace content, right inspector.
-- Top bar: product, reader/card state, language, diagnostics.
-- Bottom status: operation, progress, cancel, errors.
-- Two domain entries: **Classic** and **NDEF**.
+- One window, persistent left navigation, page content, fixed inspector actions.
+- Top bar: domain switch, card identity, reader menu, language switch, Read,
+  Settings.
+- Bottom status: operation, detail, cancel, last backup, version.
+- Two domain entries, **Classic** and **Type 2 / NDEF**, plus Diagnostics,
+  Activity, and Settings.
+- English is the base language; a complete `zh-CN` catalog is available from
+  the in-app switch. The CLI is English-only.
 
 ## Classic
 
@@ -34,7 +38,10 @@ The implemented screen contract is
   and password form.
 - Type 2 Advanced writes, locks, password configuration, and NDEF format
   require confirmation; lock/config/password use typed confirmation.
-- Classic NDEF: MAD/CC/sector mapping remains phase 10.
+- Classic NDEF: MAD/CC/sector mapping from phase 10 is presented as its own
+  screen.
+- Recovery, Diagnostics, Activity, and Settings are first-class shell screens.
+- Icon and desktop entry are part of the installed application identity.
 
 ## Prototypes
 
@@ -43,7 +50,8 @@ The implemented screen contract is
   diff, keys, native recovery, Type 2 memory, NDEF, protection, diagnostics,
   activity, and typed confirmation flows. It is a design sample, not a second
   implementation. The sample keeps English copy and shows the language-switch
-  placement; the complete `zh-CN` catalog is phase 18 work.
+  placement. Phase 18 added the complete `zh-CN` catalog and the persistent
+  workbench shell.
 - [02-workbench-ndef.html](02-workbench-ndef.html) is the earlier NDEF-only
   reference. It is retained for comparison and does not cover the expanded
   feature set.
@@ -72,5 +80,5 @@ Follow the GPUI Kit Design Guides:
 - `AlertDialog` for consequential actions; Escape dismisses topmost overlay.
 - Bounded 1K/4K block tables use the small Table with stable domain IDs; move
   to a virtualized table when a view can grow beyond a card image.
-- Interface copy is English in this phase. The application-wide localization
-  pass is a release requirement.
+- Interface copy is complete in English and Simplified Chinese. Protocol
+  names, hex, paths, and counts stay unlocalized.

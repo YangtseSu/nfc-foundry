@@ -15,6 +15,7 @@ nfc-app.workspace = true
 nfc-core.workspace = true
 nfc-ndef.workspace = true
 nfc-type2.workspace = true
+nfc-ui.workspace = true
 
 [dev-dependencies]
 gpui-kit = { workspace = true, features = ["test-support"] }

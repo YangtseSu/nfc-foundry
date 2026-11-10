@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=NFC Foundry
+GenericName=NFC Reader Workbench
+GenericName[zh_CN]=NFC 读卡工作台
+Comment=Read, inspect, back up, and write MIFARE Classic and NFC Forum Type 2/NDEF cards
+Comment[zh_CN]=读取、检查、备份和写入 MIFARE Classic 与 NFC Forum Type 2/NDEF 卡片
+Exec=nfc-foundry
+Icon=nfc-foundry
+Terminal=false
+Categories=Utility;
+Keywords=nfc;rfid;mifare;ndef;ntag;acr122u;pn532;
+StartupNotify=true
+StartupWMClass=nfc-foundry

@@ -3,12 +3,14 @@
 ## Supported outputs
 
 - Arch Linux AUR source package for `nfc-foundry`.
+- Local `nfc-foundry-git` package built from a checkout for testing; it is not
+  published.
 - GitHub CI binary tarball for Linux amd64 built on Ubuntu 26.04.
 - GitHub-generated source archives for the release tag.
 
 No Windows, macOS, Debian/RPM, AppImage, Flatpak, Snap, or container image is
-part of the product. The 0.1.0 package has no desktop entry or icon; phase 18
-adds them.
+part of the product. The installed application includes its desktop entry and
+hicolor icons.
 
 ## Version and tag
 
@@ -44,6 +46,11 @@ Package contents:
 /usr/bin/nfc-foundry
 /usr/bin/nfctl
 /usr/lib/udev/rules.d/70-nfc-foundry.rules
+/usr/share/applications/nfc-foundry.desktop
+/usr/share/icons/hicolor/scalable/apps/nfc-foundry.svg
+/usr/share/icons/hicolor/128x128/apps/nfc-foundry.png
+/usr/share/icons/hicolor/256x256/apps/nfc-foundry.png
+/usr/share/icons/hicolor/512x512/apps/nfc-foundry.png
 /usr/share/nfc-foundry/hardnested_tables
 /usr/share/licenses/nfc-foundry/LICENSE
 /usr/share/licenses/nfc-foundry/LICENSES/GPL-3.0-or-later.txt
@@ -62,8 +69,9 @@ Do not install:
 Runtime dependencies are the direct NEEDED libraries of the packaged ELF
 files (`glibc`, `libgcc`, `libxcb`, `libxkbcommon`, `libxkbcommon-x11`,
 `systemd-libs`) plus the GPUI runtime libraries it loads dynamically
-(`libglvnd` for EGL/GL, `vulkan-icd-loader`, and `wayland`). Build-only
-dependencies are `cargo`, `git`, and `rust`.
+(`libglvnd` for EGL/GL, `vulkan-icd-loader`, and `wayland`) and
+`hicolor-icon-theme` for the installed icon hierarchy. Build-only dependencies
+are `cargo`, `git`, and `rust`.
 
 ## Coexistence
 
@@ -164,11 +172,22 @@ cargo check -p nfc-foundry
 reuse lint
 ```
 
+A local `nfc-foundry-git` package can be built from a checkout with a
+temporary PKGBUILD whose `source` points at the local repository:
+
+```sh
+source=("nfc-foundry-git::git+file:///path/to/nfc-foundry-rs")
+```
+
+It uses the same build, check, and install paths as the AUR package. Do not
+publish a PKGBUILD containing a local absolute path.
+
 AUR-side checks, run outside GitHub CI:
 
 ```sh
 namcap packaging/aur/PKGBUILD
 (cd packaging/aur && makepkg --printsrcinfo > .SRCINFO)
+desktop-file-validate resources/nfc-foundry.desktop
 ```
 
 After a package build:
@@ -201,7 +220,8 @@ nfctl diag
 1. Update the workspace version and the phase notes.
 2. Update `docs/hardware-matrix.md` with only recorded hardware runs.
 3. Run the release checks above.
-4. Build and inspect the AUR package and binary tarball.
+4. Build and inspect the AUR package, the local `-git` package, and the binary
+   tarball.
 5. Tag `v<version>` and push the tag only with explicit approval.
 6. Let `.github/workflows/release.yml` publish the tarball and checksums; GitHub
    attaches its source archives to the release.

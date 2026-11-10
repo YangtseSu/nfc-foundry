@@ -22,7 +22,7 @@ Status legend: `done`, `in progress`, `pending`, `optional`, `blocked`.
 | 15 | Read-only eMRTD reader (passport, compatible permits) | optional |
 | 16 | Chinese resident ID read-only (authorized SAM) | blocked |
 | 17 | Amiibo / NTAG215 read, decrypt, encrypt, write (user keys/data) | optional |
-| 18 | Workbench UI redesign, bilingual UI, icon and desktop entry | pending |
+| 18 | Workbench UI redesign, bilingual UI, icon and desktop entry | done |
 
 ## Rules
 
@@ -608,4 +608,9 @@ Acceptance:
 
 Detailed plan: [18-workbench-ui.md](18-workbench-ui.md).
 
-Status: planning complete; implementation pending.
+Status: complete. The persistent workbench, English and complete `zh-CN`
+catalogs, language preference, recovery screen, diagnostics/activity/settings,
+GUI parity for every non-test `nfctl` operation, and icon/desktop installation
+are implemented. Shell UI tests, catalog tests, CLI locale tests, and desktop
+validation pass. See `docs/specs/18-workbench-ui.md` and
+`docs/notes/18-workbench-ui.md`.

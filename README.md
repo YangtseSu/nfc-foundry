@@ -54,7 +54,11 @@ reads and writes the mandatory NDEF Message TLV with access checks, and formats
 a blank card after a typed confirmation and backup. `nfctl classic ndef` and
 the Classic workspace NDEF tab share the same services. The Classic mapping
 has no capability-container record; the GPB carries the mapping version and
-access state.
+access state. The GUI is a persistent workbench with sidebar navigation,
+reader/card header, status bar, session activity, and settings. It is
+English-base with a complete Simplified Chinese (`zh-CN`) translation and an
+in-app language switch; `nfctl` stays English-only. The package ships the
+application icon and desktop entry.
 
 ## Product scope
 
@@ -112,9 +116,10 @@ crates/
   nfc-type4           # ISO-DEP/APDU CC and NDEF file read/write
   nfc-app             # device manager, services, workflows, events
   nfctl               # CLI
-  gui/classic         # GPUI Kit Classic workspace
-  gui/type2           # GPUI Kit Type 2 / NDEF workspace
-  gui/nfc-foundry     # GPUI Kit desktop shell
+  gui/ui              # shared language catalogs, preferences, presentation
+  gui/classic         # GPUI Kit Classic screens
+  gui/type2           # GPUI Kit Type 2 / NDEF screens
+  gui/nfc-foundry     # persistent GPUI Kit workbench shell
 ```
 
 Dependency direction:
@@ -141,7 +146,8 @@ tar -xzf nfc-foundry-0.1.0-x86_64.tar.gz
 ./nfc-foundry-0.1.0-x86_64/bin/nfctl diag
 ```
 
-The package and tarball install `nfc-foundry`, `nfctl`, the ACR122U udev rule,
+The package and tarball install `nfc-foundry`, `nfctl`, the desktop entry, the
+hicolor icons, the ACR122U udev rule,
 the hardnested tables, licenses, and notices. All paths use the
 `nfc-foundry` namespace, so another NFC reader application can stay installed;
 only one process may own a reader at a time. See [Packaging](docs/packaging.md).

@@ -1,79 +1,51 @@
-# Type 2 / NDEF workspace screen contract
+# Type 2 / NDEF screens contract
 
 ## Task
 
-Read an NFC Forum Type 2 / NTAG tag, inspect its pages, write user memory,
-edit NDEF, save or restore a project image, and manage one-way locks and NTAG
-password configuration. The card memory is the object; NDEF and protection are
-separate tabs over the same image.
+Read an NTAG/Ultralight image, inspect pages, write NDEF, and manage one-way
+protection. The workbench shell owns the reader, tag identity, language, and
+status; these screens render the page only.
 
 ## Layout
 
 ```text
-shell
-  domain tabs   MIFARE Classic · Type 2 / NDEF
-  workspace
-    header       product title, selected reader, Refresh
-    device row   one button per enumerated reader
-    toolbar      Read tag · Save dump · Load dump · Restore…   path · loaded
-    tabs         Memory · NDEF · Protection
-    content
-      Memory      page table                     page inspector
-      NDEF        state/capacity, records       Text write · Format…
-      Protection  lock/config summary           lock form · password form
-    status       operation, result, error, or backup path
+shell sidebar        Memory · NDEF · Protection
+top bar              domain switch · tag identity · reader menu · language · Read tag
+page header          eyebrow · title · subtitle
+file row             dump path · Save · Load · Restore · include options
+Memory               metric strip · page table · fixed page inspector
+NDEF                 message/capacity · capability container · write/export/format
+Protection           lock state · lock form · configuration · password · action plan
+status bar           operation · detail · cancel · last backup · version
 ```
 
-- The page table is the master view: page, role, lock state, and data.
-- The inspector is a fixed trailing pane with hex, ASCII, the page editor, and
-  the write action.
-- NDEF and Protection use full-width forms because they are not row-indexed.
-- Device buttons and toolbar actions wrap rather than clip.
+- The page table is the master view; the inspector keeps its write actions
+  pinned at the bottom.
+- Locked pages, manufacturer pages, and reserved pages cannot be written.
+  Configuration, password, and lock pages use the Advanced label.
 
 ## States
 
-- No reader: the device row explains how to connect one; actions stay
-  disabled.
-- No tag image: Memory shows the read empty state.
-- Reading, writing, formatting, locking, or restoring: actions are disabled
-  and the status line names the operation.
-- Partial read: unknown pages show `—`; warnings name the unreadable quads.
-- Unformatted/empty NDEF: the NDEF tab shows the state and offers Write or
-  Format.
-- CC read-only: Write NDEF and Format are disabled.
-- No loaded dump: Restore is disabled.
-- Errors stay in the status line and keep the previous image visible.
+- No tag: Memory and NDEF show the read/load empty state.
+- Partial read: unreadable pages show `—`; warnings stay in the status detail.
+- Read-only capability container: NDEF write and format are disabled.
+- Locked page: the inspector explains that the page cannot be written.
+- PWD/PACK pages never read back; the inspector says so.
+- Advanced actions: the inspector and the confirmation dialog name the pages,
+  old/new values, backup, and read-back plan.
 
 ## Safety
 
-- Read tag is the primary action and never mutates the tag.
-- Manufacturer pages cannot be written. The write button is disabled for them.
-- User-memory writes go through the shared service: backup, write, read-back,
-  identity check.
-- Lock, configuration, password, and capability-container writes are Advanced.
-  The write button opens a dialog that requires typing `I_OWN_THIS_CARD`.
-- Lock and password actions always open a typed-confirmation dialog, even when
-  the form is complete. Cancel leaves the tag unchanged.
-- NDEF format opens a danger dialog; the service writes a backup before the
-  first change.
-- Restore opens a danger dialog and defaults to user memory only. PWD/PACK are
-  never restored.
-- The status line reports the backup path after a mutation.
-- Locked pages show `locked` and cannot be written from the inspector.
-
-## Interaction
-
-- Tabs are keyboard reachable and use the component selection state.
-- Page rows use stable domain IDs (`type2-page-<number>`).
-- Selecting a page fills the hex editor with that page.
-- NDEF write uses the Text record with a language field, defaulting to `en`.
-- Protection shows static/dynamic lock bytes, the locked-page list, and
-  AUTH0/ACCESS/CFGLCK/AUTHLIM.
-- Long values use the theme monospace family.
+- User memory is the default write scope.
+- Lock, configuration, and password actions require the typed dialog
+  `I_OWN_THIS_CARD`.
+- Restore uses the typed dialog and exposes configuration, capability
+  container, and lock-byte include options.
+- NDEF format uses the typed dialog. Every mutation keeps the service-level
+  backup, read-back verification, and identity check.
 
 ## Tests
 
-`cargo test -p nfc-type2-gui --test ui` covers read and page selection, NDEF
-write and format, Advanced write confirmation, lock typed confirmation, and
-protection controls. A manual window check remains for keyboard traversal,
-theme and zoom, focus restoration after dialogs, and real hardware latency.
+`crates/gui/nfc-foundry/tests/ui.rs` covers read, page selection, inspector
+state, the Advanced page typed dialog, NDEF/Protection screen rendering, and
+the shared language switch.

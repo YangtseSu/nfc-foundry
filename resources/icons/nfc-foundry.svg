@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="NFC Foundry">
+  <rect width="512" height="512" rx="112" fill="#0d1522"/>
+  <rect x="150" y="150" width="212" height="212" rx="40" fill="none" stroke="#818cf8" stroke-width="26"/>
+  <rect x="216" y="216" width="80" height="80" rx="16" fill="none" stroke="#e0e7ff" stroke-width="22"/>
+  <path d="M150 198h-44M150 256h-44M150 314h-44M362 198h44M362 256h44M362 314h44M198 150v-44M256 150v-44M314 150v-44M198 362v44M256 362v44M314 362v44"
+        stroke="#a5b4fc" stroke-width="22" stroke-linecap="round"/>
+  <path d="M366 96a70 70 0 0 1 70 70" fill="none" stroke="#6366f1" stroke-width="18" stroke-linecap="round"/>
+  <path d="M366 46a120 120 0 0 1 120 120" fill="none" stroke="#6366f1" stroke-width="18" stroke-linecap="round" opacity=".6"/>
+</svg>

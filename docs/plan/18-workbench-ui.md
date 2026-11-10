@@ -1,6 +1,6 @@
 # Phase 18 plan: Workbench UI redesign and bilingual UI
 
-Status: planning complete, implementation pending.
+Status: complete. See `docs/notes/18-workbench-ui.md`.
 
 Design sample: [`docs/design/03-workbench.html`](../design/03-workbench.html).
 The sample is English-only and defines layout and interaction; the

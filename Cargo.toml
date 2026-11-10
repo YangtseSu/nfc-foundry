@@ -12,6 +12,7 @@ members = [
     "crates/nfc-type4",
     "crates/nfc-app",
     "crates/nfctl",
+    "crates/gui/ui",
     "crates/gui/classic",
     "crates/gui/type2",
     "crates/gui/nfc-foundry",
@@ -48,6 +49,7 @@ nfc-type2 = { path = "crates/nfc-type2" }
 nfc-classic-ndef = { path = "crates/nfc-classic-ndef" }
 nfc-type4 = { path = "crates/nfc-type4" }
 nfc-app = { path = "crates/nfc-app" }
+nfc-ui = { path = "crates/gui/ui" }
 nfc-classic-gui = { path = "crates/gui/classic" }
 nfc-type2-gui = { path = "crates/gui/type2" }
 

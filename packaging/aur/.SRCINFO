@@ -9,6 +9,7 @@ pkgbase = nfc-foundry
 	makedepends = git
 	makedepends = rust
 	depends = glibc
+	depends = hicolor-icon-theme
 	depends = libgcc
 	depends = libglvnd
 	depends = libxcb

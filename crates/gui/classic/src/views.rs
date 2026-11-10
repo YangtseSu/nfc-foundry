@@ -1,4 +1,4 @@
-//! Rendering for the Classic workspace.
+//! Rendering for the Classic screens.
 
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::{
@@ -6,885 +6,2091 @@ use gpui_kit::component::{
     button::{Button, ButtonVariants as _},
     checkbox::Checkbox,
     input::Input,
-    radio::RadioGroup,
-    tab::{Tab, TabBar},
-    table::{Table, TableBody, TableCell, TableHead, TableHeader, TableRow},
 };
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    AnyElement, App, Context, FontWeight, IntoElement, Render, Role, SharedString, TestSupportExt,
-    Window, div,
+    AnyElement, App, Context, FontWeight, IntoElement, Role, TestSupportExt as _, div, px,
 };
 use nfc_app::ClassicNdefState;
 use nfc_classic::{AccessCondition, BlockStatus, KeyMask};
 use nfc_ndef::{NdefRecord, TextRecord, UriRecord};
+use nfc_ui::{
+    Key, StatusKind, ascii, byte_grid, callout, card_head, empty_state, field, hex_bytes,
+    inspector, kv_row, metric, page_header, pill, section_title, text_value,
+};
 
-use crate::model::{StatusKind, WorkspaceTab};
-use crate::workspace::{ClassicWorkspace, hex};
-
-impl Render for ClassicWorkspace {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        v_flex()
-            .size_full()
-            .bg(cx.theme().background)
-            .text_color(cx.theme().foreground)
-            .child(self.render_header(cx))
-            .child(self.render_toolbar(cx))
-            .child(self.render_tabs(cx))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_h_0()
-                    .child(self.render_content(cx)),
-            )
-            .child(self.render_status(cx))
-    }
-}
+use crate::model::{
+    DUMP_FORMATS, NdefSource, STRATEGIES, dump_format_key, strategy_description_key, strategy_key,
+};
+use crate::workspace::ClassicWorkspace;
 
 impl ClassicWorkspace {
-    fn render_header(&self, cx: &mut Context<Self>) -> AnyElement {
-        let busy = self.busy.is_some();
-        let selected = self
-            .selected_device
-            .clone()
-            .unwrap_or_else(|| "No reader selected".to_owned());
-        let mut device_row = h_flex().gap_2().flex_wrap().px_4().pb_3();
-        if self.devices.is_empty() {
-            device_row = device_row.child(muted(
-                "No readers found. Connect a PN532 or ACR122U, then refresh.",
-                cx,
-            ));
-        } else {
-            for (index, device) in self.devices.iter().enumerate() {
-                let is_selected = self.selected_device.as_deref() == Some(&device.conn_string);
-                device_row = device_row.child(
-                    Button::new(("classic-device", index))
-                        .small()
-                        .label(device.name.clone())
-                        .disabled(busy)
-                        .when(is_selected, |button| button.primary())
-                        .when(!is_selected, |button| button.outline())
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.select_device(index, cx);
-                        })),
-                );
-            }
-        }
-
-        v_flex()
-            .border_b_1()
-            .border_color(cx.theme().border)
-            .child(
-                h_flex()
-                    .items_center()
-                    .justify_between()
-                    .gap_4()
-                    .p_4()
-                    .child(
-                        v_flex()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .text_lg()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child("MIFARE Classic"),
-                            )
-                            .child(muted(
-                                "Read, inspect, back up, and restore 1K and 4K cards.",
-                                cx,
-                            )),
-                    )
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .items_center()
-                            .child(muted(selected, cx))
-                            .child(Button::new("classic-refresh").label("Refresh").on_click(
-                                cx.listener(|this, _, _, cx| {
-                                    this.reload_devices(cx);
-                                }),
-                            )),
-                    ),
-            )
-            .child(device_row)
-            .into_any_element()
-    }
-
-    fn render_toolbar(&self, cx: &mut Context<Self>) -> AnyElement {
-        let busy = self.busy.is_some();
-        let has_dump = self.dump.is_some();
-        v_flex()
-            .gap_2()
-            .px_4()
-            .py_3()
-            .border_b_1()
-            .border_color(cx.theme().border)
-            .child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .flex_wrap()
-                    .child(
-                        Button::new("classic-read")
-                            .label("Read card")
-                            .primary()
-                            .disabled(busy)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.read_card(window, cx);
-                            })),
-                    )
-                    .child(
-                        Button::new("classic-scan-keys")
-                            .label("Scan keys")
-                            .disabled(busy)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.scan_keys(window, cx);
-                            })),
-                    )
-                    .child(div().flex_1())
-                    .child(muted(format!("{} keys", self.keys.len()), cx)),
-            )
-            .child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .flex_wrap()
-                    .child(Input::new(&self.path_input).id("classic-path").w_80())
-                    .child(
-                        Button::new("classic-save")
-                            .label("Save dump")
-                            .disabled(busy || !has_dump)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.save_dump(cx);
-                            })),
-                    )
-                    .child(
-                        Button::new("classic-load")
-                            .label("Load dump")
-                            .disabled(busy)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.load_dump(window, cx);
-                            })),
-                    )
-                    .child(
-                        Button::new("classic-restore")
-                            .label("Restore…")
-                            .danger()
-                            .disabled(busy || !has_dump)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.restore_loaded(window, cx);
-                            })),
-                    ),
-            )
-            .into_any_element()
-    }
-
-    fn render_tabs(&self, cx: &mut Context<Self>) -> AnyElement {
-        let diff_count = self.diff.as_ref().map_or(0, |diff| diff.changed_blocks);
-        let tab_entity = cx.entity();
-        v_flex()
-            .px_4()
-            .pt_2()
-            .child(
-                TabBar::new("classic-tabs")
-                    .underline()
-                    .selected_index(self.tab.index())
-                    .child(Tab::new().label("Blocks"))
-                    .child(Tab::new().label("NDEF"))
-                    .child(Tab::new().label(format!("Diff ({diff_count})")))
-                    .child(Tab::new().label(format!("Keys ({})", self.keys.len())))
-                    .on_click(move |index, _, cx| {
-                        tab_entity.update(cx, |this, cx| {
-                            this.select_tab(*index, cx);
-                        });
-                    }),
-            )
-            .into_any_element()
-    }
-
-    fn render_content(&self, cx: &mut Context<Self>) -> AnyElement {
-        match self.tab {
-            WorkspaceTab::Blocks => self.render_blocks(cx),
-            WorkspaceTab::Ndef => self.render_ndef(cx),
-            WorkspaceTab::Diff => self.render_diff(cx),
-            WorkspaceTab::Keys => self.render_keys(cx),
-        }
-    }
-
-    fn render_ndef(&self, cx: &mut Context<Self>) -> AnyElement {
-        let Some(dump) = &self.dump else {
-            return empty_state(
-                "No card image",
-                "Read a MIFARE Classic card or load a dump file.",
-                cx,
-            );
-        };
-        let mut content = v_flex()
-            .id("classic-ndef-scroll")
-            .gap_3()
-            .p_4()
-            .overflow_y_scroll();
-        content = content.child(
-            h_flex()
-                .gap_3()
-                .items_center()
-                .flex_wrap()
-                .child(div().text_lg().child("Classic NDEF"))
-                .child(muted(format!("{} · current image", dump.layout.name()), cx)),
-        );
-
-        if let Some(error) = &self.ndef_error {
-            content = content.child(muted(
-                format!("The NDEF mapping could not be parsed: {error}"),
-                cx,
-            ));
-        }
-
-        let writable = self
-            .ndef
+    pub fn render_blocks(&self, cx: &mut Context<Self>) -> AnyElement {
+        let translator = self.session.read(cx).translator;
+        let subtitle = self
+            .dump
             .as_ref()
-            .and_then(|info| info.layout.as_ref())
-            .is_some_and(|layout| layout.writable && !layout.read_only);
-        let formatted = self.ndef.as_ref().is_some_and(|info| {
-            info.layout
-                .as_ref()
-                .is_some_and(|layout| !layout.sectors.is_empty())
-        });
-        let read_only = self
-            .ndef
-            .as_ref()
-            .and_then(|info| info.layout.as_ref())
-            .is_some_and(|layout| layout.read_only);
-
-        if let Some(info) = &self.ndef {
-            match &info.layout {
-                Some(layout) => {
-                    content = content.child(info_block(
-                        "Mapping",
-                        format!(
-                            "version {}.{} · {} NFC sector(s) · {} data block(s), {} bytes · {}",
-                            layout.version.major,
-                            layout.version.minor,
-                            layout.sectors.len(),
-                            layout.data_blocks.len(),
-                            layout.data_len(),
-                            if layout.read_only {
-                                "read-only"
-                            } else if layout.writable {
-                                "read/write"
-                            } else {
-                                "not writable"
-                            }
-                        ),
-                        cx,
-                    ));
-                    content = content.child(info_block(
-                        "NFC sectors",
-                        layout
-                            .sectors
-                            .iter()
-                            .map(u8::to_string)
-                            .collect::<Vec<_>>()
-                            .join(", "),
-                        cx,
-                    ));
-                    for warning in &layout.warnings {
-                        content = content.child(muted(format!("Warning: {warning}"), cx));
-                    }
-                }
-                None => {
-                    content = content.child(muted(
-                        "No MAD is present. Format the card to create MAD1/MAD2 and NFC sectors.",
-                        cx,
-                    ));
-                }
-            }
-
-            match &info.ndef.state {
-                ClassicNdefState::Unformatted => {
-                    content = content.child(muted(
-                        "No mandatory NDEF Message TLV. Format the card first.",
-                        cx,
-                    ));
-                }
-                ClassicNdefState::Empty => {
-                    content = content.child(muted(
-                        format!(
-                            "Empty NDEF Message TLV · {} bytes of capacity",
-                            info.ndef.capacity
-                        ),
-                        cx,
-                    ));
-                }
-                ClassicNdefState::Message(message) => {
-                    let mut records = v_flex().gap_1();
-                    for (index, record) in message.records().iter().enumerate() {
-                        records = records.child(ndef_record_row(index, record, cx));
-                    }
-                    content = content
-                        .child(section("Records", cx))
-                        .child(records)
-                        .child(muted(
-                            format!(
-                                "{} / {} bytes used · TLV at byte {} · length field {} byte(s)",
-                                info.ndef.message_bytes,
-                                info.ndef.capacity,
-                                info.ndef.tlv_offset,
-                                info.ndef.length_field_bytes
-                            ),
-                            cx,
-                        ));
-                }
-            }
-        }
-
-        content = content
-            .child(section("Write Text record", cx))
-            .child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .flex_wrap()
-                    .child(Input::new(&self.ndef_text_input).id("classic-ndef-text").w_96())
-                    .child(
-                        Input::new(&self.ndef_language_input)
-                            .id("classic-ndef-language")
-                            .w_32(),
-                    )
-                    .child(
-                        Button::new("classic-ndef-write")
-                            .primary()
-                            .label("Write NDEF")
-                            .disabled(
-                                self.busy.is_some() || !writable || !formatted,
-                            )
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.write_ndef(window, cx);
-                            })),
-                    ),
-            )
-            .child(section("Format", cx))
-            .child(
-                h_flex()
-                    .gap_3()
-                    .items_center()
-                    .flex_wrap()
-                    .child(
-                        Checkbox::new("classic-ndef-read-only")
-                            .checked(self.format_read_only)
-                            .label("Read-only after format")
-                            .on_click(cx.listener(|this, checked, _, cx| {
-                                this.format_read_only = *checked;
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        Button::new("classic-ndef-format")
-                            .danger()
-                            .label("Format…")
-                            .disabled(self.busy.is_some() || read_only)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.confirm_format(window, cx);
-                            })),
-                    ),
-            )
-            .child(muted(
-                "Formatting rewrites every NFC sector and the MAD, then changes sector keys and access bits. A backup is written first.",
-                cx,
-            ));
-
-        if read_only {
-            content = content.child(muted(
-                "This tag is read-only for NDEF; writes and reformatting are blocked.",
-                cx,
-            ));
-        }
-        content.into_any_element()
-    }
-
-    fn render_blocks(&self, cx: &mut Context<Self>) -> AnyElement {
-        let Some(dump) = &self.dump else {
-            return empty_state(
-                "No card image",
-                "Read a MIFARE Classic card or load a dump file.",
-                cx,
-            );
-        };
-        let rows = dump
-            .blocks
-            .iter()
-            .map(|block| {
-                let number = block.number;
-                let selected = self.selected_block == Some(number);
-                let is_trailer = dump.layout.is_trailer(number).unwrap_or(false);
-                let kind = if number == 0 {
-                    "M"
-                } else if is_trailer {
-                    "T"
-                } else {
-                    "D"
-                };
-                let data = if block.complete() {
-                    hex(&block.data)
-                } else {
-                    "—".to_owned()
-                };
-                TableRow::new()
-                    .when(selected, |row| row.bg(cx.theme().accent))
-                    .child(
-                        TableCell::new().child(
-                            div()
-                                .id(("classic-block", number))
-                                .test_support()
-                                .flex()
-                                .items_center()
-                                .w_full()
-                                .h_full()
-                                .child(format!("{number}"))
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    this.select_block(number, window, cx);
-                                })),
-                        ),
-                    )
-                    .child(TableCell::new().child(format!("{}", block.sector)))
-                    .child(TableCell::new().child(kind))
-                    .child(TableCell::new().child(block_status(block.status)))
-                    .child(TableCell::new().child(format!("{}/16", block.known_mask.count_ones())))
-                    .child(TableCell::new().child(mono(data, cx)))
+            .map(|dump| {
+                let readability = dump.readability();
+                format!(
+                    "{} · {}/{} {} · {}/{} {}",
+                    dump.layout.name(),
+                    readability.readable_blocks,
+                    readability.total_blocks,
+                    translator.text(Key::BlocksUnit),
+                    readability.readable_sectors,
+                    readability.total_sectors,
+                    translator.text(Key::SectorsUnit)
+                )
             })
-            .collect::<Vec<_>>();
-
-        let table = Table::new()
-            .small()
-            .accessibility_label("MIFARE Classic blocks")
-            .child(
-                TableHeader::new().child(
-                    TableRow::new()
-                        .child(TableHead::new().child("Block"))
-                        .child(TableHead::new().child("Sector"))
-                        .child(TableHead::new().child("Type"))
-                        .child(TableHead::new().child("Status"))
-                        .child(TableHead::new().child("Known"))
-                        .child(TableHead::new().child("Data")),
-                ),
-            )
-            .child(TableBody::new().children(rows));
-
-        h_flex()
-            .items_stretch()
+            .unwrap_or_else(|| translator.text(Key::BlocksSubtitle).to_owned());
+        let header = page_header(
+            cx,
+            translator,
+            Key::EyebrowClassicMemory,
+            Key::BlocksTitle,
+            subtitle,
+            Vec::new(),
+        );
+        let mut page = v_flex()
+            .size_full()
+            .child(header)
+            .child(self.render_file_row(cx));
+        let Some(dump) = &self.dump else {
+            return page
+                .child(empty_state(
+                    cx,
+                    translator,
+                    Key::NoCardTitle,
+                    Key::NoCardBody,
+                ))
+                .into_any_element();
+        };
+        page = page.child(self.render_metrics(cx, dump));
+        let workbench = h_flex()
+            .items_start()
+            .gap_3()
             .flex_1()
             .min_h_0()
+            .child(self.render_block_table(cx, dump))
+            .child(self.render_block_inspector(cx));
+        page.child(workbench).into_any_element()
+    }
+
+    fn render_file_row(&self, cx: &mut Context<Self>) -> AnyElement {
+        let translator = self.session.read(cx).translator;
+        let busy = self.is_busy(cx);
+        h_flex()
+            .gap_2()
+            .items_center()
+            .flex_wrap()
+            .pb_3()
+            .child(Input::new(&self.path_input).id("classic-path").w(px(260.)))
+            .children(DUMP_FORMATS.iter().enumerate().map(|(index, format)| {
+                format_button(
+                    ("classic-format", index),
+                    translator.text(dump_format_key(*format)),
+                    index == self.dump_format,
+                    cx.listener(move |this, _, _, cx| this.select_dump_format(index, cx)),
+                )
+            }))
+            .child(
+                Button::new("classic-save")
+                    .small()
+                    .label(translator.text(Key::SaveDump))
+                    .disabled(busy || self.dump.is_none())
+                    .on_click(cx.listener(|this, _, _, cx| this.save_dump(cx))),
+            )
+            .child(
+                Button::new("classic-load")
+                    .small()
+                    .label(translator.text(Key::LoadDump))
+                    .disabled(busy)
+                    .on_click(cx.listener(|this, _, window, cx| this.load_dump(window, cx))),
+            )
+            .child(
+                Button::new("classic-restore")
+                    .small()
+                    .danger()
+                    .label(translator.text(Key::RestoreTag))
+                    .disabled(busy || self.dump.is_none())
+                    .on_click(cx.listener(|this, _, window, cx| this.restore_loaded(window, cx))),
+            )
+            .child(
+                Checkbox::new("classic-restore-continue")
+                    .checked(self.restore_continue)
+                    .label(translator.text(Key::ContinueOnError))
+                    .on_click(cx.listener(|this, checked, _, cx| {
+                        this.restore_continue = *checked;
+                        cx.notify();
+                    })),
+            )
+            .into_any_element()
+    }
+
+    fn render_metrics(&self, cx: &mut Context<Self>, dump: &nfc_classic::Dump) -> AnyElement {
+        let translator = self.session.read(cx).translator;
+        let readability = dump.readability();
+        let identity = dump
+            .card
+            .as_ref()
+            .map(|card| card.uid_hex())
+            .unwrap_or_else(|| "—".to_owned());
+        let last_backup = self
+            .session
+            .read(cx)
+            .last_backup
+            .as_ref()
+            .and_then(|path| path.file_name())
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| translator.text(Key::NoBackup).to_owned());
+        h_flex()
+            .gap_2()
+            .flex_wrap()
+            .pb_3()
+            .child(metric(
+                cx,
+                translator.text(Key::Readability),
+                format!(
+                    "{}/{}",
+                    readability.readable_blocks, readability.total_blocks
+                ),
+                format!(
+                    "{}/{} {}",
+                    readability.readable_sectors,
+                    readability.total_sectors,
+                    translator.text(Key::SectorsUnit)
+                ),
+            ))
+            .child(metric(
+                cx,
+                translator.text(Key::CardIdentity),
+                identity,
+                dump.card
+                    .as_ref()
+                    .map(|card| {
+                        format!(
+                            "ATQA {:02X} {:02X} · SAK {:02X}",
+                            card.atqa[0], card.atqa[1], card.sak
+                        )
+                    })
+                    .unwrap_or_default(),
+            ))
+            .child(metric(
+                cx,
+                translator.text(Key::KeyStoreTitle),
+                self.keys.len().to_string(),
+                translator.text(Key::KeysUnit),
+            ))
+            .child(metric(
+                cx,
+                translator.text(Key::LastBackup),
+                last_backup,
+                "",
+            ))
+            .into_any_element()
+    }
+
+    fn render_block_table(&self, cx: &mut Context<Self>, dump: &nfc_classic::Dump) -> AnyElement {
+        let translator = self.session.read(cx).translator;
+        let query = self
+            .block_search
+            .read(cx)
+            .value()
+            .trim()
+            .to_ascii_lowercase();
+        let filter = self.block_filter;
+        let rows: Vec<&nfc_classic::Block> = dump
+            .blocks
+            .iter()
+            .filter(|block| {
+                let is_trailer = dump.layout.is_trailer(block.number).unwrap_or(false);
+                let matches_filter = match filter {
+                    1 => block.number != 0 && !is_trailer,
+                    2 => is_trailer,
+                    3 => block.number == 0,
+                    _ => true,
+                };
+                if !matches_filter {
+                    return false;
+                }
+                if query.is_empty() {
+                    return true;
+                }
+                let data = if block.complete() {
+                    hex_bytes(&block.data)
+                } else {
+                    String::new()
+                };
+                format!(
+                    "{} {} {} {}",
+                    block.number,
+                    block.sector,
+                    block_status(block.status, translator),
+                    data
+                )
+                .to_ascii_lowercase()
+                .contains(&query)
+            })
+            .collect();
+
+        let mut body = v_flex().gap_1().p_2();
+        for block in &rows {
+            body = body.child(self.render_block_row(cx, dump, block));
+        }
+        if rows.is_empty() {
+            body = body.child(
+                div()
+                    .p_4()
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(translator.text(Key::NoDumpBody)),
+            );
+        }
+
+        v_flex()
+            .flex_1()
+            .h_full()
+            .min_w_0()
+            .min_h_0()
+            .bg(cx.theme().popover)
+            .border_1()
+            .border_color(cx.theme().border)
+            .rounded_lg()
+            .overflow_hidden()
+            .child(
+                h_flex()
+                    .items_center()
+                    .gap_2()
+                    .px_3()
+                    .py_2()
+                    .border_b_1()
+                    .border_color(cx.theme().border)
+                    .child(
+                        v_flex()
+                            .gap_0p5()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(translator.text(Key::CardMemory)),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(translator.text(Key::CardMemorySub)),
+                            ),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        Input::new(&self.block_search)
+                            .id("classic-block-search")
+                            .small()
+                            .w(px(120.)),
+                    )
+                    .children(
+                        [
+                            Key::AllTypes,
+                            Key::DataType,
+                            Key::Trailers,
+                            Key::ManufacturerType,
+                        ]
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, key)| {
+                            format_button(
+                                ("classic-filter", index),
+                                translator.text(key),
+                                index == filter,
+                                cx.listener(move |this, _, _, cx| {
+                                    this.select_block_filter(index, cx)
+                                }),
+                            )
+                        }),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .gap_2()
+                    .px_3()
+                    .py_1()
+                    .border_b_1()
+                    .border_color(cx.theme().border)
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(div().w(px(44.)).child(translator.text(Key::BlockLabel)))
+                    .child(div().w(px(44.)).child(translator.text(Key::SectorLabel)))
+                    .child(div().w(px(32.)).child(translator.text(Key::TypeLabel)))
+                    .child(div().w(px(74.)).child(translator.text(Key::StatusLabel)))
+                    .child(div().w(px(48.)).child(translator.text(Key::KnownLabel)))
+                    .child(div().flex_1().child(translator.text(Key::DataLabel))),
+            )
             .child(
                 div()
                     .id("classic-block-scroll")
                     .flex_1()
-                    .min_w_0()
-                    .h_full()
+                    .min_h_0()
                     .overflow_y_scroll()
-                    .child(table),
+                    .child(body),
             )
             .child(
-                div()
-                    .id("classic-inspector-scroll")
-                    .w_80()
-                    .flex_shrink_0()
-                    .h_full()
-                    .overflow_y_scroll()
-                    .border_l_1()
+                h_flex()
+                    .gap_3()
+                    .px_3()
+                    .py_1()
+                    .border_t_1()
                     .border_color(cx.theme().border)
-                    .child(self.render_inspector(cx)),
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(legend(
+                        cx,
+                        StatusKind::Success,
+                        translator.text(Key::ReadLegend),
+                    ))
+                    .child(legend(
+                        cx,
+                        StatusKind::Warning,
+                        translator.text(Key::UnreadableLegend),
+                    ))
+                    .child(legend(
+                        cx,
+                        StatusKind::Info,
+                        translator.text(Key::UnknownLegend),
+                    ))
+                    .child(div().flex_1())
+                    .child(format!(
+                        "{} {}",
+                        rows.len(),
+                        translator.text(Key::BlockCount)
+                    )),
             )
             .into_any_element()
     }
 
-    fn render_inspector(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn render_block_row(
+        &self,
+        cx: &mut Context<Self>,
+        dump: &nfc_classic::Dump,
+        block: &nfc_classic::Block,
+    ) -> AnyElement {
+        let translator = self.session.read(cx).translator;
+        let selected = self.selected_block == Some(block.number);
+        let is_trailer = dump.layout.is_trailer(block.number).unwrap_or(false);
+        let mark = if block.number == 0 {
+            "M"
+        } else if is_trailer {
+            "T"
+        } else {
+            "D"
+        };
+        let number = block.number;
+        let status = block_status(block.status, translator);
+        let known = block.known_mask.count_ones();
+        let data = if block.complete() {
+            hex_bytes(&block.data)
+        } else {
+            "—".to_owned()
+        };
+        h_flex()
+            .id(("classic-block", number))
+            .test_support()
+            .role(Role::Button)
+            .aria_label(format!(
+                "{} {number} · {} {}",
+                translator.text(Key::BlockLabel),
+                translator.text(Key::SectorLabel),
+                block.sector
+            ))
+            .gap_2()
+            .items_center()
+            .px_2()
+            .py_1()
+            .rounded_sm()
+            .when(selected, |row| row.bg(cx.theme().accent))
+            .when(!selected, |row| {
+                row.hover(|row| row.bg(cx.theme().secondary))
+            })
+            .text_xs()
+            .cursor_pointer()
+            .child(div().w(px(44.)).child(format!("{:02}", block.number)))
+            .child(div().w(px(44.)).child(block.sector.to_string()))
+            .child(div().w(px(32.)).child(mark))
+            .child(div().w(px(74.)).child(pill(
+                cx,
+                match block.status {
+                    BlockStatus::Read | BlockStatus::Verified => StatusKind::Success,
+                    BlockStatus::Unread | BlockStatus::Synthetic => StatusKind::Info,
+                    _ => StatusKind::Warning,
+                },
+                status,
+            )))
+            .child(div().w(px(48.)).child(format!("{known}/16")))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .font_family(cx.theme().mono_font_family.clone())
+                    .child(data),
+            )
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.select_block(number, window, cx);
+            }))
+            .into_any_element()
+    }
+
+    fn render_block_inspector(&self, cx: &mut Context<Self>) -> AnyElement {
+        let translator = self.session.read(cx).translator;
         let Some(dump) = &self.dump else {
             return div().into_any_element();
         };
         let Some(number) = self.selected_block else {
-            return empty_state("No block selected", "Select a block in the table.", cx);
+            return div()
+                .w(px(360.))
+                .child(empty_state(
+                    cx,
+                    translator,
+                    Key::SelectBlock,
+                    Key::NoDumpBody,
+                ))
+                .into_any_element();
         };
         let Some(block) = dump.blocks.get(number) else {
-            return empty_state("Block unavailable", "Select another block.", cx);
+            return div().into_any_element();
         };
         let is_trailer = dump.layout.is_trailer(number).unwrap_or(false);
         let kind = if number == 0 {
-            "Manufacturer"
+            translator.text(Key::ManufacturerType)
         } else if is_trailer {
-            "Sector trailer"
+            translator.text(Key::Trailers)
         } else {
-            "Data"
+            translator.text(Key::DataType)
         };
-
-        let mut inspector = v_flex()
-            .id("classic-inspector")
-            .role(Role::Group)
-            .test_support()
-            .aria_label(format!("Block {number} · sector {} · {kind}", block.sector))
-            .gap_2()
-            .p_4()
+        let mut body = v_flex()
+            .gap_1()
             .child(
                 h_flex()
-                    .items_center()
-                    .justify_between()
-                    .child(
-                        div()
-                            .text_lg()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(format!("Block {number}")),
-                    )
-                    .child(muted(kind, cx)),
+                    .gap_1()
+                    .flex_wrap()
+                    .child(pill(
+                        cx,
+                        StatusKind::Info,
+                        format!("{} {}", translator.text(Key::SectorLabel), block.sector),
+                    ))
+                    .child(pill(
+                        cx,
+                        StatusKind::Info,
+                        format!(
+                            "{}/16 {}",
+                            block.known_mask.count_ones(),
+                            translator.text(Key::KnownBytes)
+                        ),
+                    ))
+                    .when(number == 0, |body| {
+                        body.child(pill(cx, StatusKind::Error, translator.text(Key::ReadOnly)))
+                    }),
             )
-            .child(muted(
-                format!(
-                    "Sector {} · {} · {}/16 bytes known",
-                    block.sector,
-                    block_status(block.status),
-                    block.known_mask.count_ones()
-                ),
-                cx,
-            ));
-
+            .child(section_title(cx, translator.text(Key::InspectorHex)));
         if block.complete() {
-            inspector = inspector
-                .child(section("Hex", cx))
-                .child(mono(hex(&block.data), cx))
-                .child(section("ASCII", cx))
-                .child(mono(ascii(&block.data), cx));
-            if !is_trailer && let Ok(value) = nfc_classic::value::decode(block.data) {
-                inspector = inspector.child(section("Value block", cx)).child(mono(
-                    format!("value {} · address {}", value.value, value.address),
-                    cx,
-                ));
-            }
-        } else if let Some(error) = &block.error {
-            inspector = inspector.child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().danger)
-                    .child(error.clone()),
+            body = body
+                .child(byte_grid(cx, &block.data, 8))
+                .child(section_title(cx, translator.text(Key::InspectorAscii)))
+                .child(
+                    div()
+                        .rounded_sm()
+                        .bg(cx.theme().secondary)
+                        .flex_shrink_0()
+                        .px_2()
+                        .py_1()
+                        .text_sm()
+                        .text_color(cx.theme().foreground)
+                        .font_family(cx.theme().mono_font_family.clone())
+                        .child(ascii(&block.data)),
+                );
+        } else {
+            body = body.child(
+                div().text_xs().text_color(cx.theme().danger).child(
+                    block
+                        .error
+                        .clone()
+                        .unwrap_or_else(|| block_status(block.status, translator).to_owned()),
+                ),
             );
         }
-
+        if block.complete()
+            && !is_trailer
+            && let Ok(value) = nfc_classic::value::decode(block.data)
+        {
+            body = body
+                .child(section_title(cx, translator.text(Key::ValueBlockTitle)))
+                .child(kv_row(
+                    cx,
+                    translator.text(Key::ValueLabel),
+                    value.value.to_string(),
+                ))
+                .child(kv_row(
+                    cx,
+                    translator.text(Key::AddressLabel),
+                    value.address.to_string(),
+                ));
+        }
+        if is_trailer && block.complete() {
+            body = body
+                .child(section_title(cx, translator.text(Key::TrailerFields)))
+                .child(kv_row(
+                    cx,
+                    translator.text(Key::KeyTypeA),
+                    hex_bytes(&block.data[0..6]),
+                ))
+                .child(kv_row(
+                    cx,
+                    translator.text(Key::AccessLabel),
+                    hex_bytes(&block.data[6..10]),
+                ))
+                .child(kv_row(
+                    cx,
+                    translator.text(Key::KeyTypeB),
+                    hex_bytes(&block.data[10..16]),
+                ));
+        }
         if let Ok(access) = dump.access_bits(block.sector) {
             let group = dump.layout.access_group_for_block(number).unwrap_or(3);
             let condition = access.groups[group];
-            inspector = inspector
-                .child(section("Access", cx))
-                .child(mono(access_line(group, condition), cx));
+            body = body
+                .child(section_title(cx, translator.text(Key::AccessConditions)))
+                .child(kv_row(
+                    cx,
+                    translator.text(Key::AccessRead),
+                    access_line(group, condition, false),
+                ))
+                .child(kv_row(
+                    cx,
+                    translator.text(Key::AccessWrite),
+                    access_line(group, condition, true),
+                ));
         }
-
-        inspector = inspector
-            .child(
-                div()
-                    .mt_3()
-                    .text_sm()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child("Write block"),
-            )
-            .child(Input::new(&self.block_input).id("classic-block-data"))
-            .child(
-                Button::new("classic-write-block")
-                    .label(if is_trailer {
-                        "Write trailer…"
-                    } else {
-                        "Write block"
-                    })
-                    .when(is_trailer, |button| button.danger())
-                    .disabled(number == 0 || self.busy.is_some())
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.confirm_write_selected(window, cx);
-                    })),
-            );
         if number == 0 {
-            inspector = inspector.child(muted("Block 0 is read-only in this build.", cx));
-        }
-        inspector.into_any_element()
-    }
-
-    fn render_diff(&self, cx: &mut Context<Self>) -> AnyElement {
-        let Some(diff) = &self.diff else {
-            return empty_state(
-                "No comparison yet",
-                "Read or load two card images to see changed blocks.",
+            body = body.child(callout(
                 cx,
-            );
-        };
-        let mut content = v_flex()
-            .gap_3()
-            .p_4()
+                StatusKind::Warning,
+                translator.text(Key::BlockZeroReadOnly),
+            ));
+        }
+        let busy = self.is_busy(cx);
+        let actions = v_flex()
+            .gap_2()
+            .child(field(
+                cx,
+                translator.text(Key::NewBlockData),
+                None,
+                Input::new(&self.block_input)
+                    .id("classic-block-data")
+                    .into_any_element(),
+            ))
             .child(
                 h_flex()
-                    .gap_3()
-                    .items_center()
-                    .flex_wrap()
-                    .child(div().text_lg().child(diff.layout.name().to_owned()))
-                    .child(muted(
-                        format!(
-                            "{} changed · {} equal · {} unknown · {} trailer changes",
-                            diff.changed_blocks,
-                            diff.equal_blocks,
-                            diff.unknown_blocks,
-                            diff.trailer_changes
-                        ),
-                        cx,
-                    )),
+                    .gap_2()
+                    .child(
+                        Button::new("classic-read-block")
+                            .small()
+                            .label(translator.text(Key::ReadBlock))
+                            .disabled(busy)
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.read_block(window, cx)),
+                            ),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        Button::new("classic-write-block")
+                            .small()
+                            .when(is_trailer, |button| button.danger())
+                            .when(!is_trailer, |button| button.primary())
+                            .label(if is_trailer {
+                                translator.text(Key::WriteTrailer)
+                            } else {
+                                translator.text(Key::WriteBlock)
+                            })
+                            .disabled(busy || number == 0)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.write_selected_block(window, cx);
+                            })),
+                    ),
             )
-            .child(if diff.identity_changed {
+            .child(
                 div()
-                    .text_sm()
-                    .text_color(cx.theme().warning)
-                    .child("Card identity changed between the two images.")
-                    .into_any_element()
-            } else {
-                div().into_any_element()
-            });
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(translator.text(Key::ReadBackPlan)),
+            )
+            .into_any_element();
+        div()
+            .id("classic-inspector")
+            .test_support()
+            .w(px(360.))
+            .h_full()
+            .flex_shrink_0()
+            .role(Role::Group)
+            .aria_label(format!("Block {number} · sector {} · {kind}", block.sector))
+            .child(inspector(
+                cx,
+                translator.fmt2(Key::BlockKicker, number, block.sector),
+                kind,
+                Some(pill(
+                    cx,
+                    if is_trailer {
+                        StatusKind::Warning
+                    } else {
+                        StatusKind::Success
+                    },
+                    if is_trailer {
+                        translator.text(Key::Trailers)
+                    } else {
+                        translator.text(Key::ReadLegend)
+                    },
+                )),
+                body.into_any_element(),
+                Some(actions),
+            ))
+            .into_any_element()
+    }
 
+    pub fn render_ndef(&self, cx: &mut Context<Self>) -> AnyElement {
+        let translator = self.session.read(cx).translator;
+        let busy = self.is_busy(cx);
+        let header = page_header(
+            cx,
+            translator,
+            Key::EyebrowClassicNdef,
+            Key::ClassicNdefTitle,
+            self.ndef
+                .as_ref()
+                .and_then(|info| info.layout.as_ref())
+                .map(|layout| {
+                    format!(
+                        "MAD {}.{} · {} NFC {}",
+                        layout.version.major,
+                        layout.version.minor,
+                        layout.sectors.len(),
+                        translator.text(Key::SectorsUnit)
+                    )
+                })
+                .unwrap_or_else(|| translator.text(Key::ClassicNdefSubtitle).to_owned()),
+            vec![],
+        );
+        let page = v_flex()
+            .size_full()
+            .child(header)
+            .child(self.render_file_row(cx));
+        let Some(info) = &self.ndef else {
+            return page
+                .child(empty_state(
+                    cx,
+                    translator,
+                    Key::NoCardTitle,
+                    Key::NoCardBody,
+                ))
+                .into_any_element();
+        };
+        let writable = info
+            .layout
+            .as_ref()
+            .is_some_and(|layout| layout.writable && !layout.read_only);
+        let formatted = info
+            .layout
+            .as_ref()
+            .is_some_and(|layout| !layout.sectors.is_empty());
+        let read_only = info.layout.as_ref().is_some_and(|layout| layout.read_only);
+
+        let message = match &info.ndef.state {
+            ClassicNdefState::Unformatted => v_flex().gap_2().child(callout(
+                cx,
+                StatusKind::Warning,
+                translator.text(Key::NdefUnformatted),
+            )),
+            ClassicNdefState::Empty => v_flex().gap_2().child(div().text_sm().child(format!(
+                "{} · {} {}",
+                translator.text(Key::NdefEmpty),
+                info.ndef.capacity,
+                translator.text(Key::BytesUnit)
+            ))),
+            ClassicNdefState::Message(message) => {
+                let mut list = v_flex().gap_2();
+                for (index, record) in message.records().iter().enumerate() {
+                    list = list.child(record_row(cx, index, record, translator));
+                }
+                list
+            }
+        };
+        let used = info.ndef.message_bytes;
+        let capacity = info.ndef.capacity.max(1);
+        let percent = (used.saturating_mul(100) / capacity).min(100);
+        let mut left = v_flex().gap_3().flex_1().min_w_0().child(
+            v_flex()
+                .gap_2()
+                .bg(cx.theme().popover)
+                .border_1()
+                .border_color(cx.theme().border)
+                .rounded_lg()
+                .overflow_hidden()
+                .child(
+                    h_flex()
+                        .items_center()
+                        .gap_2()
+                        .px_4()
+                        .py_3()
+                        .border_b_1()
+                        .border_color(cx.theme().border)
+                        .child(
+                            div()
+                                .text_sm()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(translator.text(Key::NdefMessageTitle)),
+                        )
+                        .child(div().flex_1())
+                        .child(pill(
+                            cx,
+                            if read_only {
+                                StatusKind::Warning
+                            } else {
+                                StatusKind::Success
+                            },
+                            if read_only {
+                                translator.text(Key::NdefReadOnly)
+                            } else if writable {
+                                translator.text(Key::NdefReadWrite)
+                            } else {
+                                translator.text(Key::NdefNotWritable)
+                            },
+                        )),
+                )
+                .child(
+                    v_flex()
+                        .gap_2()
+                        .p_4()
+                        .child(
+                            div()
+                                .h(px(7.))
+                                .w_full()
+                                .rounded_full()
+                                .bg(cx.theme().secondary)
+                                .child(
+                                    div()
+                                        .h(px(7.))
+                                        .w(px(percent as f32 * 3.0))
+                                        .rounded_full()
+                                        .bg(cx.theme().primary),
+                                ),
+                        )
+                        .child(
+                            h_flex()
+                                .justify_between()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(format!("{used} {}", translator.text(Key::NdefUsed)))
+                                .child(format!(
+                                    "{capacity} {}",
+                                    translator.text(Key::CapacityBytes)
+                                )),
+                        )
+                        .child(message)
+                        .child(callout(cx, StatusKind::Info, translator.text(Key::TlvInfo))),
+                ),
+        );
+        if let Some(layout) = &info.layout {
+            left =
+                left.child(
+                    v_flex()
+                        .gap_2()
+                        .bg(cx.theme().popover)
+                        .border_1()
+                        .border_color(cx.theme().border)
+                        .rounded_lg()
+                        .overflow_hidden()
+                        .child(card_head(
+                            cx,
+                            translator.text(Key::MappingTitle),
+                            "MAD and NFC sector facts",
+                        ))
+                        .child(
+                            v_flex()
+                                .gap_1()
+                                .p_4()
+                                .child(kv_row(
+                                    cx,
+                                    translator.text(Key::MappingVersion),
+                                    format!("{}.{}", layout.version.major, layout.version.minor),
+                                ))
+                                .child(kv_row(
+                                    cx,
+                                    translator.text(Key::NfcSectors),
+                                    layout
+                                        .sectors
+                                        .iter()
+                                        .map(u8::to_string)
+                                        .collect::<Vec<_>>()
+                                        .join(", "),
+                                ))
+                                .child(kv_row(
+                                    cx,
+                                    translator.text(Key::DataBlocksLabel),
+                                    format!(
+                                        "{} · {} {}",
+                                        layout.data_blocks.len(),
+                                        layout.data_len(),
+                                        translator.text(Key::BytesUnit)
+                                    ),
+                                ))
+                                .child(kv_row(
+                                    cx,
+                                    translator.text(Key::AccessLabel),
+                                    if layout.read_only {
+                                        translator.text(Key::NdefReadOnly)
+                                    } else if layout.writable {
+                                        translator.text(Key::NdefReadWrite)
+                                    } else {
+                                        translator.text(Key::NdefNotWritable)
+                                    },
+                                ))
+                                .children(layout.warnings.iter().map(|warning| {
+                                    callout(cx, StatusKind::Warning, warning.clone())
+                                })),
+                        ),
+                );
+        }
+        if let Some(error) = &self.ndef_error {
+            left = left.child(callout(cx, StatusKind::Error, error.clone()));
+        }
+
+        let source = self.ndef_source;
+        let write_card = v_flex()
+            .gap_2()
+            .bg(cx.theme().popover)
+            .border_1()
+            .border_color(cx.theme().border)
+            .rounded_lg()
+            .overflow_hidden()
+            .child(card_head(
+                cx,
+                translator.text(Key::WriteNdef),
+                translator.text(Key::ClassicNdefWriteNote),
+            ))
+            .child(
+                v_flex()
+                    .gap_2()
+                    .p_4()
+                    .child(
+                        h_flex()
+                            .gap_1()
+                            .children(NdefSource::ALL.iter().enumerate().map(|(index, choice)| {
+                                format_button(
+                                    ("classic-ndef-source", index),
+                                    translator.text(choice.key()),
+                                    *choice == source,
+                                    cx.listener(move |this, _, _, cx| {
+                                        this.select_ndef_source(index, cx);
+                                    }),
+                                )
+                            })),
+                    )
+                    .child(match source {
+                        NdefSource::Text => v_flex()
+                            .gap_2()
+                            .child(field(
+                                cx,
+                                translator.text(Key::FieldValue),
+                                None,
+                                Input::new(&self.ndef_value_input)
+                                    .id("classic-ndef-text")
+                                    .into_any_element(),
+                            ))
+                            .child(field(
+                                cx,
+                                translator.text(Key::FieldLanguage),
+                                None,
+                                Input::new(&self.ndef_language_input)
+                                    .id("classic-ndef-language")
+                                    .into_any_element(),
+                            ))
+                            .into_any_element(),
+                        NdefSource::Uri => field(
+                            cx,
+                            translator.text(Key::FieldValue),
+                            None,
+                            Input::new(&self.ndef_value_input)
+                                .id("classic-ndef-uri")
+                                .into_any_element(),
+                        ),
+                        NdefSource::File => field(
+                            cx,
+                            translator.text(Key::FieldPath),
+                            None,
+                            Input::new(&self.ndef_file_input)
+                                .id("classic-ndef-file")
+                                .into_any_element(),
+                        ),
+                    })
+                    .child(
+                        Button::new("classic-ndef-write")
+                            .primary()
+                            .label(translator.text(Key::WriteNdef))
+                            .disabled(busy || !writable || !formatted)
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.write_ndef(window, cx)),
+                            ),
+                    ),
+            );
+        let export_card = v_flex()
+            .gap_2()
+            .bg(cx.theme().popover)
+            .border_1()
+            .border_color(cx.theme().border)
+            .rounded_lg()
+            .overflow_hidden()
+            .child(card_head(
+                cx,
+                translator.text(Key::ExportMessage),
+                translator.text(Key::MessageBytes),
+            ))
+            .child(
+                v_flex()
+                    .gap_2()
+                    .p_4()
+                    .child(
+                        Input::new(&self.ndef_export_input)
+                            .id("classic-ndef-export")
+                            .into_any_element(),
+                    )
+                    .child(
+                        Button::new("classic-ndef-export-action")
+                            .label(translator.text(Key::Export))
+                            .disabled(busy || self.ndef.is_none())
+                            .on_click(cx.listener(|this, _, _, cx| this.export_ndef(cx))),
+                    ),
+            );
+        let format_card = v_flex()
+            .gap_2()
+            .bg(cx.theme().popover)
+            .border_1()
+            .border_color(cx.theme().border)
+            .rounded_lg()
+            .overflow_hidden()
+            .child(card_head(
+                cx,
+                translator.text(Key::FormatCard),
+                translator.text(Key::AdvancedActions),
+            ))
+            .child(
+                v_flex()
+                    .gap_2()
+                    .p_4()
+                    .child(
+                        Checkbox::new("classic-ndef-read-only")
+                            .checked(self.format_read_only)
+                            .label(translator.text(Key::FormatReadOnly))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.toggle_format_read_only(cx);
+                            })),
+                    )
+                    .child(callout(
+                        cx,
+                        StatusKind::Warning,
+                        translator.text(Key::FormatClassicNote),
+                    ))
+                    .child(
+                        Button::new("classic-ndef-format")
+                            .danger()
+                            .label(translator.text(Key::FormatCard))
+                            .disabled(busy || read_only || self.dump.is_none())
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.confirm_format(window, cx);
+                            })),
+                    ),
+            );
+        page.child(
+            h_flex()
+                .items_start()
+                .gap_3()
+                .flex_1()
+                .min_h_0()
+                .child(left)
+                .child(
+                    v_flex()
+                        .w(px(360.))
+                        .flex_shrink_0()
+                        .gap_3()
+                        .child(write_card)
+                        .child(export_card)
+                        .child(format_card),
+                ),
+        )
+        .into_any_element()
+    }
+
+    pub fn render_diff(&self, cx: &mut Context<Self>) -> AnyElement {
+        let translator = self.session.read(cx).translator;
+        let header = page_header(
+            cx,
+            translator,
+            Key::EyebrowClassicCompare,
+            Key::DiffTitle,
+            translator.text(Key::DiffSubtitle),
+            vec![action(
+                "classic-compare",
+                translator.text(Key::Compare),
+                false,
+                true,
+                cx.listener(|this, _, _, cx| this.compare_files(cx)),
+            )],
+        );
+        let page = v_flex().size_full().child(header).child(
+            h_flex()
+                .gap_2()
+                .items_center()
+                .flex_wrap()
+                .pb_3()
+                .child(
+                    Input::new(&self.diff_before_input)
+                        .id("classic-diff-before")
+                        .w(px(260.)),
+                )
+                .child(
+                    Input::new(&self.diff_after_input)
+                        .id("classic-diff-after")
+                        .w(px(260.)),
+                )
+                .child(
+                    Button::new("classic-compare-action")
+                        .small()
+                        .label(translator.text(Key::Compare))
+                        .on_click(cx.listener(|this, _, _, cx| this.compare_files(cx))),
+                ),
+        );
+        let Some(diff) = self.diff() else {
+            return page
+                .child(empty_state(
+                    cx,
+                    translator,
+                    Key::NoDiffTitle,
+                    Key::NoDiffBody,
+                ))
+                .into_any_element();
+        };
         let changed: Vec<_> = diff
             .blocks
             .iter()
             .filter(|block| block.state != nfc_classic::DiffState::Equal)
             .collect();
-        if changed.is_empty() {
-            return content
-                .child(muted("The two images are identical.", cx))
-                .into_any_element();
-        }
-        let rows = changed
-            .iter()
-            .map(|block| {
-                TableRow::new()
-                    .child(TableCell::new().child(format!("{}", block.block)))
-                    .child(TableCell::new().child(format!("{}", block.sector)))
-                    .child(TableCell::new().child(match block.state {
-                        nfc_classic::DiffState::Equal => "Equal",
-                        nfc_classic::DiffState::Changed => "Changed",
-                        nfc_classic::DiffState::Unknown => "Unknown",
+        let mut table = v_flex().gap_1().p_2();
+        for block in &changed {
+            table = table.child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .px_2()
+                    .py_1()
+                    .text_xs()
+                    .child(div().w(px(44.)).child(format!("{:02}", block.block)))
+                    .child(div().w(px(44.)).child(block.sector.to_string()))
+                    .child(div().w(px(70.)).child(match block.state {
+                        nfc_classic::DiffState::Changed => {
+                            pill(cx, StatusKind::Warning, translator.text(Key::StateChanged))
+                        }
+                        nfc_classic::DiffState::Unknown => {
+                            pill(cx, StatusKind::Info, translator.text(Key::StateUnknown))
+                        }
+                        nfc_classic::DiffState::Equal => {
+                            pill(cx, StatusKind::Success, translator.text(Key::StateEqual))
+                        }
                     }))
-                    .child(TableCell::new().child(diff_detail(block, cx)))
-            })
-            .collect::<Vec<_>>();
-        content = content.child(
-            div()
-                .id("classic-diff-scroll")
-                .test_support()
-                .overflow_y_scroll()
+                    .child(div().flex_1().child(diff_detail(cx, block))),
+            );
+        }
+        let summary = v_flex()
+            .gap_2()
+            .child(
+                h_flex()
+                    .gap_2()
+                    .flex_wrap()
+                    .child(summary_tile(
+                        cx,
+                        translator.text(Key::ChangedBlocks),
+                        diff.changed_blocks,
+                        StatusKind::Warning,
+                    ))
+                    .child(summary_tile(
+                        cx,
+                        translator.text(Key::EqualBlocks),
+                        diff.equal_blocks,
+                        StatusKind::Success,
+                    ))
+                    .child(summary_tile(
+                        cx,
+                        translator.text(Key::UnknownBlocks),
+                        diff.unknown_blocks,
+                        StatusKind::Info,
+                    ))
+                    .child(summary_tile(
+                        cx,
+                        translator.text(Key::TrailerChanges),
+                        diff.trailer_changes,
+                        StatusKind::Warning,
+                    )),
+            )
+            .child(
+                h_flex()
+                    .items_center()
+                    .gap_2()
+                    .px_4()
+                    .py_3()
+                    .border_b_1()
+                    .border_color(cx.theme().border)
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(translator.text(Key::DiffSummary)),
+                    )
+                    .child(div().flex_1())
+                    .child(pill(
+                        cx,
+                        if diff.identity_changed {
+                            StatusKind::Warning
+                        } else {
+                            StatusKind::Success
+                        },
+                        if diff.identity_changed {
+                            translator.text(Key::IdentityChanged)
+                        } else {
+                            translator.text(Key::IdentityUnchanged)
+                        },
+                    )),
+            )
+            .child(
+                v_flex()
+                    .gap_1()
+                    .p_4()
+                    .child(kv_row(
+                        cx,
+                        translator.text(Key::LayoutLabel),
+                        diff.layout.name(),
+                    ))
+                    .child(callout(
+                        cx,
+                        StatusKind::Info,
+                        translator.text(Key::DiffDetail),
+                    )),
+            );
+        page.child(
+            h_flex()
+                .items_start()
+                .gap_3()
+                .flex_1()
+                .min_h_0()
                 .child(
-                    Table::new()
-                        .small()
-                        .accessibility_label("Changed blocks")
-                        .child(
-                            TableHeader::new().child(
-                                TableRow::new()
-                                    .child(TableHead::new().child("Block"))
-                                    .child(TableHead::new().child("Sector"))
-                                    .child(TableHead::new().child("State"))
-                                    .child(TableHead::new().child("Detail")),
+                    v_flex().flex_1().min_w_0().gap_3().child(summary).child(
+                        v_flex()
+                            .bg(cx.theme().popover)
+                            .border_1()
+                            .border_color(cx.theme().border)
+                            .rounded_lg()
+                            .overflow_hidden()
+                            .child(card_head(
+                                cx,
+                                translator.text(Key::ChangedBlocks),
+                                translator.text(Key::OnlyDifferences),
+                            ))
+                            .child(
+                                div()
+                                    .id("classic-diff-scroll")
+                                    .test_support()
+                                    .max_h(px(420.))
+                                    .overflow_y_scroll()
+                                    .child(table),
                             ),
-                        )
-                        .child(TableBody::new().children(rows)),
+                    ),
+                )
+                .child(
+                    v_flex()
+                        .w(px(300.))
+                        .flex_shrink_0()
+                        .bg(cx.theme().popover)
+                        .border_1()
+                        .border_color(cx.theme().border)
+                        .rounded_lg()
+                        .child(card_head(
+                            cx,
+                            translator.text(Key::DiffSummary),
+                            diff.layout.name(),
+                        ))
+                        .child(
+                            v_flex()
+                                .gap_1()
+                                .p_4()
+                                .children(self.previous_dump.as_ref().map(|before| {
+                                    kv_row(
+                                        cx,
+                                        translator.text(Key::Before),
+                                        before
+                                            .card
+                                            .as_ref()
+                                            .map(|card| card.uid_hex())
+                                            .unwrap_or_else(|| "—".to_owned()),
+                                    )
+                                }))
+                                .children(self.dump.as_ref().map(|after| {
+                                    kv_row(
+                                        cx,
+                                        translator.text(Key::After),
+                                        after
+                                            .card
+                                            .as_ref()
+                                            .map(|card| card.uid_hex())
+                                            .unwrap_or_else(|| "—".to_owned()),
+                                    )
+                                })),
+                        ),
                 ),
-        );
-        content.into_any_element()
+        )
+        .into_any_element()
     }
 
-    fn render_keys(&self, cx: &mut Context<Self>) -> AnyElement {
-        let rows = self
-            .keys
-            .entries()
-            .iter()
-            .enumerate()
-            .map(|(index, entry)| {
-                TableRow::new()
-                    .child(TableCell::new().child(entry.sector_label()))
-                    .child(TableCell::new().child(entry.kind.label().to_owned()))
-                    .child(TableCell::new().child(mono(entry.key.to_hex(), cx)))
-                    .child(TableCell::new().child(entry.source.label().to_owned()))
-                    .child(
-                        TableCell::new().child(
+    pub fn render_keys(&self, cx: &mut Context<Self>) -> AnyElement {
+        let translator = self.session.read(cx).translator;
+        let busy = self.is_busy(cx);
+        let header = page_header(
+            cx,
+            translator,
+            Key::EyebrowClassicKeys,
+            Key::KeysTitle,
+            translator.text(Key::KeysSubtitle),
+            vec![action(
+                "classic-keys-import-action",
+                translator.text(Key::ImportKeys),
+                busy,
+                false,
+                cx.listener(|this, _, _, cx| this.import_keys(cx)),
+            )],
+        );
+        let mut rows = v_flex().gap_1().p_2();
+        if self.keys.is_empty() {
+            rows = rows.child(
+                div()
+                    .p_4()
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(translator.text(Key::KeyStoreSub)),
+            );
+        } else {
+            for (index, entry) in self.keys.entries().iter().enumerate() {
+                let key = if self.reveal_keys {
+                    entry.key.to_hex()
+                } else {
+                    translator.text(Key::KeyMasked).to_owned()
+                };
+                rows = rows.child(
+                    h_flex()
+                        .gap_2()
+                        .items_center()
+                        .px_2()
+                        .py_1()
+                        .text_xs()
+                        .child(div().w(px(80.)).child(entry.sector_label()))
+                        .child(div().w(px(52.)).child(entry.kind.label()))
+                        .child(
+                            div()
+                                .flex_1()
+                                .font_family(cx.theme().mono_font_family.clone())
+                                .child(key),
+                        )
+                        .child(div().w(px(64.)).child(entry.source.label()))
+                        .child(
                             Button::new(("classic-remove-key", index))
-                                .small()
+                                .xsmall()
                                 .ghost()
-                                .label("Remove")
-                                .disabled(self.busy.is_some())
+                                .label(translator.text(Key::Remove))
+                                .disabled(busy)
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     this.remove_key(index, cx);
                                 })),
                         ),
-                    )
-            })
-            .collect::<Vec<_>>();
-
-        let mut content = v_flex()
-            .gap_3()
-            .p_4()
-            .child(div().text_lg().child("Key store"))
+                );
+            }
+        }
+        let table = v_flex()
+            .flex_1()
+            .h_full()
+            .min_w_0()
+            .min_h_0()
+            .bg(cx.theme().popover)
+            .border_1()
+            .border_color(cx.theme().border)
+            .rounded_lg()
+            .overflow_hidden()
             .child(
                 h_flex()
+                    .items_center()
                     .gap_2()
-                    .items_end()
-                    .flex_wrap()
+                    .px_3()
+                    .py_2()
+                    .border_b_1()
+                    .border_color(cx.theme().border)
                     .child(
                         v_flex()
-                            .gap_1()
-                            .child(label("Key"))
-                            .child(Input::new(&self.key_hex_input).id("classic-key-hex").w_48()),
+                            .gap_0p5()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(translator.text(Key::KeyStoreTitle)),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(translator.text(Key::KeyStoreSub)),
+                            ),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        Button::new("classic-reveal-keys")
+                            .xsmall()
+                            .outline()
+                            .label(if self.reveal_keys {
+                                translator.text(Key::HideKeys)
+                            } else {
+                                translator.text(Key::RevealKeys)
+                            })
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_reveal(cx))),
+                    )
+                    .children(
+                        [Key::KeyTypesAB, Key::KeyTypesA, Key::KeyTypesB]
+                            .into_iter()
+                            .enumerate()
+                            .map(|(index, key)| {
+                                format_button(
+                                    ("classic-scan-types", index),
+                                    translator.text(key),
+                                    self.scan_types.key() == key,
+                                    cx.listener(move |this, _, _, cx| {
+                                        this.select_scan_types(index, cx);
+                                    }),
+                                )
+                            }),
                     )
                     .child(
-                        v_flex().gap_1().child(label("Sector")).child(
-                            Input::new(&self.key_sector_input)
-                                .id("classic-key-sector")
-                                .w_48(),
-                        ),
-                    )
+                        Button::new("classic-scan-keys")
+                            .xsmall()
+                            .label(translator.text(Key::ScanKeys))
+                            .disabled(busy)
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.scan_keys(window, cx)),
+                            ),
+                    ),
+            )
+            .child(
+                div()
+                    .id("classic-keys-scroll")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .child(rows),
+            )
+            .child(
+                h_flex()
+                    .px_3()
+                    .py_2()
+                    .border_t_1()
+                    .border_color(cx.theme().border)
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(translator.text(Key::KeyScanNote))
+                    .child(div().flex_1())
+                    .child(format!(
+                        "{} {}",
+                        self.keys.len(),
+                        translator.text(Key::KeyEntryCount)
+                    )),
+            );
+        let add_card = v_flex()
+            .gap_2()
+            .w(px(320.))
+            .flex_shrink_0()
+            .bg(cx.theme().popover)
+            .border_1()
+            .border_color(cx.theme().border)
+            .rounded_lg()
+            .overflow_hidden()
+            .child(card_head(
+                cx,
+                translator.text(Key::AddKey),
+                translator.text(Key::AddKeyNote),
+            ))
+            .child(
+                v_flex()
+                    .gap_2()
+                    .p_4()
+                    .child(field(
+                        cx,
+                        translator.text(Key::FieldKey),
+                        None,
+                        Input::new(&self.key_hex_input)
+                            .id("classic-key-hex")
+                            .into_any_element(),
+                    ))
+                    .child(field(
+                        cx,
+                        translator.text(Key::FieldSector),
+                        None,
+                        Input::new(&self.key_sector_input)
+                            .id("classic-key-sector")
+                            .into_any_element(),
+                    ))
                     .child(
-                        v_flex().gap_1().child(label("Type")).child(
-                            RadioGroup::new("classic-key-kind")
-                                .children(["Key A", "Key B", "Any"])
-                                .selected_index(Some(self.key_kind))
-                                .on_change(cx.listener(|this, index, _, cx| {
-                                    this.key_kind = *index;
-                                    cx.notify();
-                                })),
+                        h_flex().gap_1().children(
+                            [Key::KeyTypeA, Key::KeyTypeB, Key::TypeAny]
+                                .into_iter()
+                                .enumerate()
+                                .map(|(index, key)| {
+                                    format_button(
+                                        ("classic-key-kind", index),
+                                        translator.text(key),
+                                        self.key_kind == index,
+                                        cx.listener(move |this, _, _, cx| {
+                                            this.select_key_kind(index, cx);
+                                        }),
+                                    )
+                                }),
                         ),
                     )
                     .child(
                         Button::new("classic-add-key")
                             .primary()
-                            .label("Add key")
-                            .disabled(self.busy.is_some())
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.add_key(window, cx);
-                            })),
+                            .label(translator.text(Key::AddKey))
+                            .disabled(busy)
+                            .on_click(cx.listener(|this, _, window, cx| this.add_key(window, cx))),
+                    )
+                    .child(section_title(cx, translator.text(Key::ImportKeys)))
+                    .child(
+                        Input::new(&self.import_input)
+                            .id("classic-import-path")
+                            .into_any_element(),
+                    )
+                    .child(
+                        Button::new("classic-import-keys")
+                            .label(translator.text(Key::ImportKeys))
+                            .disabled(busy)
+                            .on_click(cx.listener(|this, _, _, cx| this.import_keys(cx))),
                     ),
             );
-
-        if rows.is_empty() {
-            content = content.child(muted("No stored keys. Add a key or scan the card.", cx));
-        } else {
-            content = content.child(
-                div().id("classic-keys-scroll").overflow_y_scroll().child(
-                    Table::new()
-                        .small()
-                        .accessibility_label("Stored keys")
-                        .child(
-                            TableHeader::new().child(
-                                TableRow::new()
-                                    .child(TableHead::new().child("Sector"))
-                                    .child(TableHead::new().child("Type"))
-                                    .child(TableHead::new().child("Key"))
-                                    .child(TableHead::new().child("Source"))
-                                    .child(TableHead::new().child("Action")),
-                            ),
-                        )
-                        .child(TableBody::new().children(rows)),
-                ),
-            );
-        }
-        content.into_any_element()
-    }
-
-    fn render_status(&self, cx: &mut Context<Self>) -> AnyElement {
-        let (text, color) = if let Some(busy) = &self.busy {
-            (
-                SharedString::from(format!("{busy}…")),
-                cx.theme().muted_foreground,
-            )
-        } else if let Some(status) = &self.status {
-            let color = match status.kind {
-                StatusKind::Info => cx.theme().muted_foreground,
-                StatusKind::Success => cx.theme().success,
-                StatusKind::Warning => cx.theme().warning,
-                StatusKind::Error => cx.theme().danger,
-            };
-            (status.text.clone(), color)
-        } else {
-            (SharedString::from("Ready"), cx.theme().muted_foreground)
-        };
-        h_flex()
-            .px_4()
-            .py_2()
-            .border_t_1()
-            .border_color(cx.theme().border)
+        v_flex()
+            .size_full()
+            .child(header)
             .child(
-                div()
-                    .id("classic-status")
-                    .role(Role::Status)
-                    .aria_label(text.clone())
-                    .test_support()
-                    .text_sm()
-                    .text_color(color)
-                    .child(text),
+                h_flex()
+                    .items_start()
+                    .gap_3()
+                    .flex_1()
+                    .min_h_0()
+                    .child(table)
+                    .child(add_card),
             )
             .into_any_element()
     }
+
+    pub fn render_recovery(&self, cx: &mut Context<Self>) -> AnyElement {
+        let translator = self.session.read(cx).translator;
+        let running = self.recovery.running;
+        let busy = self.is_busy(cx);
+        let header = page_header(
+            cx,
+            translator,
+            Key::EyebrowClassicRecovery,
+            Key::RecoveryTitle,
+            translator.text(Key::RecoverySubtitle),
+            vec![pill(
+                cx,
+                StatusKind::Success,
+                translator.text(Key::RecoveryNoWrites),
+            )],
+        );
+        let mut strategies = v_flex().gap_2().p_4();
+        for (index, strategy) in STRATEGIES.iter().enumerate() {
+            strategies = strategies.child(
+                v_flex()
+                    .gap_1()
+                    .child(
+                        Button::new(("recovery-strategy", index))
+                            .w_full()
+                            .when(index == self.recovery.strategy, |button| button.primary())
+                            .when(index != self.recovery.strategy, |button| button.outline())
+                            .label(translator.text(strategy_key(*strategy)))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.recovery.strategy = index;
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        div()
+                            .px_1()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(translator.text(strategy_description_key(*strategy))),
+                    ),
+            );
+        }
+        let candidates = self.recovery_candidates_for_display(cx);
+        let mut candidate_rows = v_flex().gap_1();
+        for (kind, key) in &candidates {
+            candidate_rows = candidate_rows.child(
+                h_flex()
+                    .gap_2()
+                    .text_xs()
+                    .px_2()
+                    .py_1()
+                    .rounded_sm()
+                    .bg(cx.theme().secondary)
+                    .child(pill(cx, StatusKind::Info, kind.label()))
+                    .child(
+                        div()
+                            .font_family(cx.theme().mono_font_family.clone())
+                            .child(key.to_hex()),
+                    ),
+            );
+        }
+        let target = v_flex()
+            .gap_2()
+            .p_4()
+            .child(
+                h_flex()
+                    .gap_2()
+                    .child(field(
+                        cx,
+                        translator.text(Key::FieldKnownBlock),
+                        None,
+                        Input::new(&self.recovery.known_block)
+                            .id("recovery-known-block")
+                            .into_any_element(),
+                    ))
+                    .child(field(
+                        cx,
+                        translator.text(Key::FieldTargetBlock),
+                        None,
+                        Input::new(&self.recovery.target_block)
+                            .id("recovery-target-block")
+                            .into_any_element(),
+                    )),
+            )
+            .child(field(
+                cx,
+                translator.text(Key::FieldKnownKey),
+                None,
+                Input::new(&self.recovery.known_key)
+                    .id("recovery-known-key")
+                    .into_any_element(),
+            ))
+            .child(
+                h_flex()
+                    .gap_2()
+                    .child(field(
+                        cx,
+                        translator.text(Key::FieldTargetType),
+                        None,
+                        h_flex()
+                            .gap_1()
+                            .child(format_button(
+                                "recovery-type-a",
+                                translator.text(Key::KeyTypeA),
+                                self.recovery.target_type == 0,
+                                cx.listener(|this, _, _, cx| {
+                                    this.recovery.target_type = 0;
+                                    cx.notify();
+                                }),
+                            ))
+                            .child(format_button(
+                                "recovery-type-b",
+                                translator.text(Key::KeyTypeB),
+                                self.recovery.target_type == 1,
+                                cx.listener(|this, _, _, cx| {
+                                    this.recovery.target_type = 1;
+                                    cx.notify();
+                                }),
+                            ))
+                            .into_any_element(),
+                    ))
+                    .child(field(
+                        cx,
+                        translator.text(Key::FieldMaxNonces),
+                        None,
+                        Input::new(&self.recovery.max_nonces)
+                            .id("recovery-max-nonces")
+                            .into_any_element(),
+                    )),
+            )
+            .child(field(
+                cx,
+                translator.text(Key::FieldTables),
+                None,
+                text_value(
+                    cx,
+                    self.settings
+                        .tables_dir
+                        .as_ref()
+                        .map(|path| path.display().to_string())
+                        .unwrap_or_else(|| translator.text(Key::DefaultTables).to_owned()),
+                ),
+            ));
+
+        let view = &self.recovery.view;
+        let percent = view.percent;
+        let mut stages = v_flex().gap_1();
+        for (index, key) in [
+            Key::StageAcquire,
+            Key::StageFilter,
+            Key::StageSolve,
+            Key::StageVerify,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let active = matches!(
+                (index, view.stage),
+                (0, nfc_ui::RecoveryStage::Acquire)
+                    | (1, nfc_ui::RecoveryStage::Filter)
+                    | (2, nfc_ui::RecoveryStage::Solve)
+                    | (3, nfc_ui::RecoveryStage::Verify)
+            );
+            stages = stages.child(
+                h_flex()
+                    .gap_2()
+                    .text_xs()
+                    .when(active, |row| row.text_color(cx.theme().foreground))
+                    .when(!active, |row| row.text_color(cx.theme().muted_foreground))
+                    .child(div().w(px(18.)).child(format!("{}", index + 1)))
+                    .child(translator.text(key)),
+            );
+        }
+        let mut result = v_flex().gap_1();
+        if !self.recovery.verified.is_empty() {
+            result = result.child(callout(
+                cx,
+                StatusKind::Success,
+                translator.text(Key::VerifiedKey),
+            ));
+            for key in &self.recovery.verified {
+                result = result.child(text_value(cx, key.clone()));
+            }
+            result = result.child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(translator.text(Key::VerifiedKeyDetail)),
+            );
+        } else if view.failed {
+            result = result.child(callout(cx, StatusKind::Error, view.detail.clone()));
+        } else if view.cancelled {
+            result = result.child(callout(
+                cx,
+                StatusKind::Warning,
+                translator.text(Key::RecoveryCancelled),
+            ));
+        }
+        if !self.recovery.profile.is_empty() {
+            result = result.child(kv_row(
+                cx,
+                translator.text(Key::RecoveryProfile),
+                self.recovery.profile.clone(),
+            ));
+        }
+        if !self.recovery.note.is_empty() {
+            result = result.child(kv_row(
+                cx,
+                translator.text(Key::RecoveryNote),
+                self.recovery.note.clone(),
+            ));
+        }
+        let run_card = v_flex()
+            .gap_2()
+            .w(px(360.))
+            .flex_shrink_0()
+            .bg(cx.theme().popover)
+            .border_1()
+            .border_color(cx.theme().border)
+            .rounded_lg()
+            .overflow_hidden()
+            .child(card_head(
+                cx,
+                translator.text(Key::RunTitle),
+                translator.text(Key::RunSub),
+            ))
+            .child(
+                v_flex()
+                    .gap_2()
+                    .p_4()
+                    .child(stages)
+                    .child(
+                        div()
+                            .h(px(6.))
+                            .w_full()
+                            .rounded_full()
+                            .bg(cx.theme().secondary)
+                            .child(
+                                div()
+                                    .h(px(6.))
+                                    .w(px(percent as f32 * 2.6))
+                                    .rounded_full()
+                                    .bg(cx.theme().primary),
+                            ),
+                    )
+                    .child(
+                        h_flex()
+                            .justify_between()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(translator.text(view.stage.key()))
+                            .child(format!("{percent}%")),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(
+                                Button::new("recovery-start")
+                                    .primary()
+                                    .label(translator.text(Key::StartRecovery))
+                                    .disabled(busy || running)
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.start_recovery(window, cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("recovery-cancel")
+                                    .label(translator.text(Key::CancelRecovery))
+                                    .disabled(!running)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.cancel_recovery(cx);
+                                    })),
+                            ),
+                    )
+                    .child(callout(
+                        cx,
+                        StatusKind::Warning,
+                        translator.text(Key::RecoveryScopeNote),
+                    ))
+                    .child(result),
+            );
+        v_flex()
+            .size_full()
+            .child(header)
+            .child(
+                h_flex()
+                    .items_start()
+                    .gap_3()
+                    .flex_1()
+                    .min_h_0()
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .gap_3()
+                            .child(
+                                v_flex()
+                                    .bg(cx.theme().popover)
+                                    .border_1()
+                                    .border_color(cx.theme().border)
+                                    .rounded_lg()
+                                    .overflow_hidden()
+                                    .child(card_head(
+                                        cx,
+                                        translator.text(Key::RecoveryStrategy),
+                                        translator.text(Key::RecoveryStrategySub),
+                                    ))
+                                    .child(strategies),
+                            )
+                            .child(
+                                v_flex()
+                                    .bg(cx.theme().popover)
+                                    .border_1()
+                                    .border_color(cx.theme().border)
+                                    .rounded_lg()
+                                    .overflow_hidden()
+                                    .child(card_head(
+                                        cx,
+                                        translator.text(Key::TargetTitle),
+                                        translator.text(Key::TargetSub),
+                                    ))
+                                    .child(target),
+                            )
+                            .child(
+                                v_flex()
+                                    .bg(cx.theme().popover)
+                                    .border_1()
+                                    .border_color(cx.theme().border)
+                                    .rounded_lg()
+                                    .overflow_hidden()
+                                    .child(card_head(
+                                        cx,
+                                        translator.text(Key::CandidateKeys),
+                                        format!(
+                                            "{} {}",
+                                            candidates.len(),
+                                            translator.text(Key::CandidateCount)
+                                        ),
+                                    ))
+                                    .child(
+                                        div()
+                                            .id("recovery-candidates")
+                                            .max_h(px(200.))
+                                            .overflow_y_scroll()
+                                            .p_3()
+                                            .child(candidate_rows),
+                                    ),
+                            ),
+                    )
+                    .child(run_card),
+            )
+            .into_any_element()
+    }
+
+    fn recovery_candidates_for_display(&self, cx: &App) -> Vec<(nfc_core::KeyType, nfc_core::Key)> {
+        let mut candidates = Vec::new();
+        for entry in self.keys.entries() {
+            for key_type in [nfc_core::KeyType::A, nfc_core::KeyType::B] {
+                if entry.kind.includes(key_type) {
+                    candidates.push((key_type, entry.key));
+                }
+            }
+        }
+        if self.settings.use_common_keys {
+            for key in nfc_app::classic::common_keys() {
+                for key_type in [nfc_core::KeyType::A, nfc_core::KeyType::B] {
+                    candidates.push((key_type, key));
+                }
+            }
+        }
+        let manual = self.recovery.known_key.read(cx).value().trim().to_owned();
+        if let Ok(key) = nfc_core::Key::from_hex(&manual) {
+            candidates.push((nfc_core::KeyType::A, key));
+        }
+        candidates.sort_by_key(|(kind, key)| (kind.label(), key.to_hex()));
+        candidates.dedup();
+        candidates
+    }
 }
 
-fn ndef_record_row(index: usize, record: &NdefRecord, cx: &App) -> AnyElement {
-    let detail = if let Ok(text) = TextRecord::from_record(record) {
-        format!(
-            "{} · text {:?} · language {}",
-            index, text.text, text.language
+fn action(
+    id: impl Into<gpui_kit::ElementId>,
+    label: &'static str,
+    disabled: bool,
+    primary: bool,
+    handler: impl Fn(&gpui_kit::ClickEvent, &mut gpui_kit::Window, &mut App) + 'static,
+) -> AnyElement {
+    Button::new(id)
+        .label(label)
+        .when(primary, |button| button.primary())
+        .disabled(disabled)
+        .on_click(handler)
+        .into_any_element()
+}
+
+fn format_button(
+    id: impl Into<gpui_kit::ElementId>,
+    label: &'static str,
+    selected: bool,
+    handler: impl Fn(&gpui_kit::ClickEvent, &mut gpui_kit::Window, &mut App) + 'static,
+) -> AnyElement {
+    Button::new(id)
+        .xsmall()
+        .when(selected, |button| button.primary())
+        .when(!selected, |button| button.outline())
+        .label(label)
+        .on_click(handler)
+        .into_any_element()
+}
+
+fn legend(cx: &App, kind: StatusKind, label: &'static str) -> AnyElement {
+    let color = match kind {
+        StatusKind::Info => cx.theme().muted_foreground,
+        StatusKind::Success => cx.theme().success,
+        StatusKind::Warning => cx.theme().warning,
+        StatusKind::Error => cx.theme().danger,
+    };
+    h_flex()
+        .gap_1()
+        .child(div().size(px(5.)).rounded_full().bg(color))
+        .child(label)
+        .into_any_element()
+}
+
+fn summary_tile(cx: &App, label: &'static str, count: usize, kind: StatusKind) -> AnyElement {
+    let color = match kind {
+        StatusKind::Info => cx.theme().muted_foreground,
+        StatusKind::Success => cx.theme().success,
+        StatusKind::Warning => cx.theme().warning,
+        StatusKind::Error => cx.theme().danger,
+    };
+    v_flex()
+        .gap_0p5()
+        .px_3()
+        .py_2()
+        .bg(cx.theme().popover)
+        .border_1()
+        .border_color(cx.theme().border)
+        .rounded_md()
+        .child(
+            div()
+                .text_lg()
+                .font_weight(FontWeight::BOLD)
+                .text_color(color)
+                .child(count.to_string()),
+        )
+        .child(
+            div()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child(label),
+        )
+        .into_any_element()
+}
+
+fn block_status(status: BlockStatus, translator: nfc_ui::Translator) -> &'static str {
+    translator.text(match status {
+        BlockStatus::Unread => Key::BlockStatusUnread,
+        BlockStatus::Read => Key::BlockStatusRead,
+        BlockStatus::AuthFailed => Key::BlockStatusAuthFailed,
+        BlockStatus::ReadFailed => Key::BlockStatusReadFailed,
+        BlockStatus::Synthetic => Key::BlockStatusSynthetic,
+        BlockStatus::Verified => Key::BlockStatusVerified,
+    })
+}
+
+fn access_line(group: usize, condition: AccessCondition, write: bool) -> String {
+    if write {
+        key_mask(if group == 3 {
+            condition.full_trailer_write_keys()
+        } else {
+            condition.data_write_keys()
+        })
+        .to_owned()
+    } else {
+        key_mask(if group == 3 {
+            condition.trailer_access().read_keys
+        } else {
+            condition.data_read_keys()
+        })
+        .to_owned()
+    }
+}
+
+fn key_mask(mask: KeyMask) -> &'static str {
+    match mask {
+        KeyMask::ANY => "A / B",
+        KeyMask::A => "A",
+        KeyMask::B => "B",
+        _ => "—",
+    }
+}
+
+fn record_row(
+    cx: &App,
+    index: usize,
+    record: &NdefRecord,
+    translator: nfc_ui::Translator,
+) -> AnyElement {
+    let (kind, name, detail) = if let Ok(text) = TextRecord::from_record(record) {
+        (
+            translator.text(Key::RecordText),
+            text.text.clone(),
+            format!(
+                "{} {} · {} {}",
+                translator.text(Key::RecordLanguage),
+                text.language,
+                translator.text(Key::RecordPayload),
+                hex_bytes(record.payload())
+            ),
         )
     } else if let Ok(uri) = UriRecord::from_record(record) {
-        format!("{} · uri {}", index, uri.uri)
+        (
+            translator.text(Key::RecordUri),
+            uri.uri.clone(),
+            format!(
+                "{} {}",
+                translator.text(Key::RecordPayload),
+                hex_bytes(record.payload())
+            ),
+        )
     } else {
-        format!(
-            "{} · {:?} · type {} · payload {}",
-            index,
-            record.tnf(),
-            hex(record.record_type()),
-            hex(record.payload())
+        (
+            translator.text(Key::RecordFile),
+            hex_bytes(record.record_type()),
+            format!("{:?}", record.tnf()),
         )
     };
-    div()
-        .id(("classic-ndef-record", index))
-        .test_support()
-        .child(mono(detail, cx))
-        .into_any_element()
-}
-
-fn info_block(title: &'static str, value: String, cx: &App) -> AnyElement {
     v_flex()
         .gap_1()
-        .child(label(title))
-        .child(mono(value, cx))
+        .p_2()
+        .rounded_md()
+        .border_1()
+        .border_color(cx.theme().border)
+        .bg(cx.theme().secondary)
+        .child(
+            h_flex()
+                .gap_2()
+                .items_center()
+                .child(pill(cx, StatusKind::Info, kind))
+                .child(
+                    div()
+                        .text_sm()
+                        .font_weight(FontWeight::MEDIUM)
+                        .truncate()
+                        .child(name),
+                )
+                .child(div().flex_1())
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(translator.fmt1(Key::RecordIndex, index + 1)),
+                ),
+        )
+        .child(
+            div()
+                .text_xs()
+                .font_family(cx.theme().mono_font_family.clone())
+                .text_color(cx.theme().muted_foreground)
+                .child(detail),
+        )
         .into_any_element()
 }
 
-fn diff_detail(block: &nfc_classic::BlockDiff, cx: &App) -> AnyElement {
+fn diff_detail(cx: &App, block: &nfc_classic::BlockDiff) -> AnyElement {
     if let Some(trailer) = &block.trailer {
         let mut parts = Vec::new();
         if trailer.key_a_changed {
-            parts.push("Key A".to_owned());
+            parts.push("Key A");
         }
         if trailer.key_b_changed {
-            parts.push("Key B".to_owned());
+            parts.push("Key B");
         }
         if trailer.access_changed {
-            parts.push("access bits".to_owned());
+            parts.push("access bits");
         }
         if trailer.gpb_changed {
-            parts.push("GPB".to_owned());
+            parts.push("GPB");
         }
         if !trailer.valid {
-            parts.push("invalid trailer".to_owned());
+            parts.push("invalid trailer");
         }
-        return mono(
+        return text_value(
+            cx,
             if parts.is_empty() {
                 "trailer changed".to_owned()
             } else {
                 parts.join(", ")
             },
-            cx,
         );
     }
-    if block.bytes.is_empty() {
-        return mono("known state changed".to_owned(), cx);
-    }
-    mono(
+    text_value(
+        cx,
         block
             .bytes
             .iter()
@@ -907,113 +2113,5 @@ fn diff_detail(block: &nfc_classic::BlockDiff, cx: &App) -> AnyElement {
             })
             .collect::<Vec<_>>()
             .join("  "),
-        cx,
     )
-}
-
-fn access_line(group: usize, condition: AccessCondition) -> String {
-    if group == 3 {
-        let permissions = condition.trailer_access();
-        format!(
-            "group 3 · C1 {} C2 {} C3 {} · read {} · trailer write {}",
-            condition.c1 as u8,
-            condition.c2 as u8,
-            condition.c3 as u8,
-            key_mask(permissions.read_keys),
-            key_mask(condition.full_trailer_write_keys())
-        )
-    } else {
-        format!(
-            "group {group} · C1 {} C2 {} C3 {} · read {} · write {}",
-            condition.c1 as u8,
-            condition.c2 as u8,
-            condition.c3 as u8,
-            key_mask(condition.data_read_keys()),
-            key_mask(condition.data_write_keys())
-        )
-    }
-}
-
-fn key_mask(mask: KeyMask) -> &'static str {
-    match mask {
-        KeyMask::ANY => "A or B",
-        KeyMask::A => "A",
-        KeyMask::B => "B",
-        _ => "none",
-    }
-}
-
-fn block_status(status: BlockStatus) -> &'static str {
-    match status {
-        BlockStatus::Unread => "unread",
-        BlockStatus::Read => "read",
-        BlockStatus::AuthFailed => "auth failed",
-        BlockStatus::ReadFailed => "read failed",
-        BlockStatus::Synthetic => "synthetic",
-        BlockStatus::Verified => "verified",
-    }
-}
-
-fn ascii(bytes: &[u8]) -> String {
-    bytes
-        .iter()
-        .map(|byte| {
-            if byte.is_ascii_graphic() || *byte == b' ' {
-                char::from(*byte)
-            } else {
-                '.'
-            }
-        })
-        .collect()
-}
-
-fn muted(text: impl Into<SharedString>, cx: &App) -> AnyElement {
-    div()
-        .text_sm()
-        .text_color(cx.theme().muted_foreground)
-        .child(text.into())
-        .into_any_element()
-}
-
-fn label(text: &'static str) -> AnyElement {
-    div()
-        .text_sm()
-        .font_weight(FontWeight::MEDIUM)
-        .child(text)
-        .into_any_element()
-}
-
-fn section(text: &'static str, cx: &App) -> AnyElement {
-    div()
-        .mt_2()
-        .text_sm()
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(cx.theme().muted_foreground)
-        .child(text)
-        .into_any_element()
-}
-
-fn mono(text: impl Into<SharedString>, cx: &App) -> AnyElement {
-    div()
-        .text_xs()
-        .font_family(cx.theme().mono_font_family.clone())
-        .child(text.into())
-        .into_any_element()
-}
-
-fn empty_state(title: &'static str, detail: &'static str, cx: &App) -> AnyElement {
-    v_flex()
-        .size_full()
-        .items_center()
-        .justify_center()
-        .gap_2()
-        .p_8()
-        .child(
-            div()
-                .text_lg()
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(title),
-        )
-        .child(muted(detail, cx))
-        .into_any_element()
 }

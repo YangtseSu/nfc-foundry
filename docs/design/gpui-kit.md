@@ -20,9 +20,11 @@ gpui_kit::application()
 Rules:
 
 - `Root` is mounted by `open_window`; overlays use `WindowExt`.
-- Feature crates own model, views, commands, dialogs, and workflow.
+- The shell owns navigation, reader selection, language, status, and activity.
+- Feature crates own screen model, views, commands, dialogs, and workflow.
 - `RenderOnce` for value-like UI, `Entity<T>` for retained state.
 - No business logic or hardware I/O in `render`.
-- Theme tokens only; no raw colors in application code.
+- Theme tokens only; no raw colors in application code. The workbench dark
+  rail is installed by setting the sidebar theme tokens once at startup.
 - Stable domain IDs for repeated elements and tables.
 - Test keyboard, focus, overlays, empty/loading/error states.

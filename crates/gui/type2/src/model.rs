@@ -1,81 +1,82 @@
-use gpui_kit::SharedString;
+//! Retained Type 2 screen state and presentation enums.
 
-/// Tabs in the Type 2 workspace.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum WorkspaceTab {
-    #[default]
-    Memory,
-    Ndef,
-    Protection,
+use nfc_app::classic::BackupStore;
+use nfc_type2::PageRole;
+use nfc_ui::Key;
+
+/// Settings the shell shares with the Type 2 screens.
+#[derive(Clone, Debug, Default)]
+pub struct Type2Settings {
+    pub backup: BackupStore,
 }
 
-impl WorkspaceTab {
-    pub const fn index(self) -> usize {
+/// NDEF source written by the Type 2 NDEF screen.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum NdefSource {
+    #[default]
+    Text,
+    Uri,
+    File,
+}
+
+impl NdefSource {
+    pub const ALL: [Self; 3] = [Self::Text, Self::Uri, Self::File];
+
+    pub const fn key(self) -> Key {
         match self {
-            Self::Memory => 0,
-            Self::Ndef => 1,
-            Self::Protection => 2,
-        }
-    }
-
-    pub const fn from_index(index: usize) -> Self {
-        match index {
-            1 => Self::Ndef,
-            2 => Self::Protection,
-            _ => Self::Memory,
+            Self::Text => Key::WriteTextRecord,
+            Self::Uri => Key::WriteUriRecord,
+            Self::File => Key::WriteRawFile,
         }
     }
 }
 
-/// Reader summary shown in the workspace.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DeviceSummary {
-    pub name: String,
-    pub conn_string: String,
-}
-
+/// Page table filter.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum StatusKind {
+pub enum PageFilter {
     #[default]
-    Info,
-    Success,
-    Warning,
-    Error,
+    All,
+    User,
+    Configuration,
+    Lock,
 }
 
-/// One status message in the workspace footer.
-#[derive(Clone, Debug)]
-pub struct StatusMessage {
-    pub text: SharedString,
-    pub kind: StatusKind,
+impl PageFilter {
+    pub const ALL: [Self; 4] = [Self::All, Self::User, Self::Configuration, Self::Lock];
+
+    pub const fn key(self) -> Key {
+        match self {
+            Self::All => Key::AllRoles,
+            Self::User => Key::UserMemoryFilter,
+            Self::Configuration => Key::ConfigurationFilter,
+            Self::Lock => Key::LockFilter,
+        }
+    }
+
+    pub const fn matches(self, role: PageRole) -> bool {
+        match self {
+            Self::All => true,
+            Self::User => matches!(role, PageRole::UserMemory),
+            Self::Configuration => matches!(
+                role,
+                PageRole::Configuration | PageRole::Password | PageRole::PasswordAck
+            ),
+            Self::Lock => matches!(role, PageRole::StaticLock | PageRole::DynamicLock),
+        }
+    }
 }
 
-impl StatusMessage {
-    pub fn info(text: impl Into<SharedString>) -> Self {
-        Self {
-            text: text.into(),
-            kind: StatusKind::Info,
-        }
-    }
-
-    pub fn success(text: impl Into<SharedString>) -> Self {
-        Self {
-            text: text.into(),
-            kind: StatusKind::Success,
-        }
-    }
-
-    pub fn warning(text: impl Into<SharedString>) -> Self {
-        Self {
-            text: text.into(),
-            kind: StatusKind::Warning,
-        }
-    }
-
-    pub fn error(text: impl Into<SharedString>) -> Self {
-        Self {
-            text: text.into(),
-            kind: StatusKind::Error,
-        }
+/// Localized role label.
+pub const fn role_key(role: PageRole) -> Key {
+    match role {
+        PageRole::Manufacturer => Key::RoleManufacturer,
+        PageRole::StaticLock => Key::RoleStaticLock,
+        PageRole::CapabilityContainer => Key::RoleCapability,
+        PageRole::UserMemory => Key::RoleUserMemory,
+        PageRole::DynamicLock => Key::RoleDynamicLock,
+        PageRole::Configuration => Key::RoleConfiguration,
+        PageRole::Password => Key::RolePassword,
+        PageRole::PasswordAck => Key::RolePasswordAck,
+        PageRole::Reserved => Key::RoleReserved,
     }
 }

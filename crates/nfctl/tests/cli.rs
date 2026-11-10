@@ -10,6 +10,35 @@ fn nfctl(args: &[&str]) -> Output {
         .expect("run nfctl")
 }
 
+fn nfctl_chinese_locale(args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_nfctl"))
+        .args(args)
+        .env("LANG", "zh_CN.UTF-8")
+        .env("LC_ALL", "zh_CN.UTF-8")
+        .env("LC_MESSAGES", "zh_CN.UTF-8")
+        .output()
+        .expect("run nfctl under a Chinese locale")
+}
+
+#[test]
+fn help_and_errors_stay_english_under_a_chinese_locale() {
+    let output = nfctl_chinese_locale(&["--help"]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(
+        text.contains("NFC Foundry command-line workbench"),
+        "{text}"
+    );
+    assert!(text.contains("Usage:"), "{text}");
+    assert!(!text.contains('读'), "{text}");
+
+    let output = nfctl_chinese_locale(&["--mock", "--device", "mock:missing", "scan"]);
+    assert!(!output.status.success());
+    let text = stderr(&output);
+    assert!(text.contains("invalid argument"), "{text}");
+    assert!(!text.contains('读'), "{text}");
+}
+
 fn assert_success(output: &Output) {
     assert!(
         output.status.success(),

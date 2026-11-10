@@ -1,96 +1,146 @@
-use gpui_kit::SharedString;
+//! Retained Classic screen state and small presentation enums.
 
-/// Tabs in the Classic workspace.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum WorkspaceTab {
-    #[default]
-    Blocks,
-    Ndef,
-    Diff,
-    Keys,
+use std::path::PathBuf;
+
+use nfc_app::classic::{BackupStore, KeyTypes};
+use nfc_classic::DumpFormat;
+use nfc_recover::auto::RecoveryStrategy;
+use nfc_ui::Key;
+
+/// Settings the shell shares with the Classic screens.
+#[derive(Clone, Debug)]
+pub struct ClassicSettings {
+    pub key_store_path: Option<PathBuf>,
+    pub backup: BackupStore,
+    pub tables_dir: Option<PathBuf>,
+    pub default_dump_format: DumpFormat,
+    pub use_common_keys: bool,
 }
 
-impl WorkspaceTab {
-    pub const ALL: [Self; 4] = [Self::Blocks, Self::Ndef, Self::Diff, Self::Keys];
+impl Default for ClassicSettings {
+    fn default() -> Self {
+        Self {
+            key_store_path: None,
+            backup: BackupStore::default(),
+            tables_dir: None,
+            default_dump_format: DumpFormat::Project,
+            use_common_keys: true,
+        }
+    }
+}
+
+/// Dump formats in presentation order.
+pub const DUMP_FORMATS: [DumpFormat; 4] = [
+    DumpFormat::Project,
+    DumpFormat::Raw,
+    DumpFormat::Mct,
+    DumpFormat::Proxmark3,
+];
+
+pub const fn dump_format_key(format: DumpFormat) -> Key {
+    match format {
+        DumpFormat::Project => Key::FormatProject,
+        DumpFormat::Raw => Key::FormatRaw,
+        DumpFormat::Mct => Key::FormatMct,
+        DumpFormat::Proxmark3 => Key::FormatProxmark,
+    }
+}
+
+pub fn dump_format_index(format: DumpFormat) -> usize {
+    DUMP_FORMATS
+        .iter()
+        .position(|candidate| *candidate == format)
+        .unwrap_or(0)
+}
+
+/// NDEF message source written by the NDEF screens.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum NdefSource {
+    #[default]
+    Text,
+    Uri,
+    File,
+}
+
+impl NdefSource {
+    pub const ALL: [Self; 3] = [Self::Text, Self::Uri, Self::File];
 
     pub const fn index(self) -> usize {
         match self {
-            Self::Blocks => 0,
-            Self::Ndef => 1,
-            Self::Diff => 2,
-            Self::Keys => 3,
+            Self::Text => 0,
+            Self::Uri => 1,
+            Self::File => 2,
         }
     }
 
-    pub const fn from_index(index: usize) -> Self {
-        match index {
-            1 => Self::Ndef,
-            2 => Self::Diff,
-            3 => Self::Keys,
-            _ => Self::Blocks,
-        }
-    }
-
-    pub const fn label(self) -> &'static str {
+    pub const fn key(self) -> Key {
         match self {
-            Self::Blocks => "Blocks",
-            Self::Ndef => "NDEF",
-            Self::Diff => "Diff",
-            Self::Keys => "Keys",
+            Self::Text => Key::WriteTextRecord,
+            Self::Uri => Key::WriteUriRecord,
+            Self::File => Key::WriteRawFile,
         }
     }
 }
 
-/// Reader summary shown in the workspace; driver types stay below `nfc-app`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DeviceSummary {
-    pub name: String,
-    pub conn_string: String,
-}
-
-/// Severity of the workspace status line.
+/// Key-type scan choice.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum StatusKind {
+pub enum ScanTypes {
     #[default]
-    Info,
-    Success,
-    Warning,
-    Error,
+    Ab,
+    A,
+    B,
 }
 
-/// One status message in the workspace footer.
-#[derive(Clone, Debug)]
-pub struct StatusMessage {
-    pub text: SharedString,
-    pub kind: StatusKind,
+impl ScanTypes {
+    pub const ALL: [Self; 3] = [Self::Ab, Self::A, Self::B];
+
+    pub const fn key(self) -> Key {
+        match self {
+            Self::Ab => Key::KeyTypesAB,
+            Self::A => Key::KeyTypesA,
+            Self::B => Key::KeyTypesB,
+        }
+    }
+
+    pub const fn key_types(self) -> KeyTypes {
+        match self {
+            Self::Ab => KeyTypes::ALL,
+            Self::A => KeyTypes::a_only(),
+            Self::B => KeyTypes::b_only(),
+        }
+    }
 }
 
-impl StatusMessage {
-    pub fn info(text: impl Into<SharedString>) -> Self {
-        Self {
-            text: text.into(),
-            kind: StatusKind::Info,
-        }
-    }
+/// Recovery strategies in presentation order.
+pub const STRATEGIES: [RecoveryStrategy; 6] = [
+    RecoveryStrategy::Auto,
+    RecoveryStrategy::Nested,
+    RecoveryStrategy::StaticNested,
+    RecoveryStrategy::HardNested,
+    RecoveryStrategy::DarkSide,
+    RecoveryStrategy::Fm11rf08s,
+];
 
-    pub fn success(text: impl Into<SharedString>) -> Self {
-        Self {
-            text: text.into(),
-            kind: StatusKind::Success,
-        }
+pub const fn strategy_key(strategy: RecoveryStrategy) -> Key {
+    match strategy {
+        RecoveryStrategy::Auto => Key::StrategyAuto,
+        RecoveryStrategy::Dictionary => Key::StrategyAuto,
+        RecoveryStrategy::Nested => Key::StrategyNested,
+        RecoveryStrategy::StaticNested => Key::StrategyStaticNested,
+        RecoveryStrategy::HardNested => Key::StrategyHardNested,
+        RecoveryStrategy::DarkSide => Key::StrategyDarkside,
+        RecoveryStrategy::Fm11rf08s => Key::StrategyFm11rf08s,
     }
+}
 
-    pub fn warning(text: impl Into<SharedString>) -> Self {
-        Self {
-            text: text.into(),
-            kind: StatusKind::Warning,
-        }
-    }
-
-    pub fn error(text: impl Into<SharedString>) -> Self {
-        Self {
-            text: text.into(),
-            kind: StatusKind::Error,
-        }
+pub const fn strategy_description_key(strategy: RecoveryStrategy) -> Key {
+    match strategy {
+        RecoveryStrategy::Auto => Key::StrategyAutoDesc,
+        RecoveryStrategy::Dictionary => Key::StrategyAutoDesc,
+        RecoveryStrategy::Nested => Key::StrategyNestedDesc,
+        RecoveryStrategy::StaticNested => Key::StrategyStaticNestedDesc,
+        RecoveryStrategy::HardNested => Key::StrategyHardNestedDesc,
+        RecoveryStrategy::DarkSide => Key::StrategyDarksideDesc,
+        RecoveryStrategy::Fm11rf08s => Key::StrategyFm11rf08sDesc,
     }
 }

@@ -1,55 +1,58 @@
-//! Retained Type 2 memory, NDEF, and protection workspace state.
+//! Retained state and actions for the Type 2 screens.
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use gpui_kit::component::{WindowExt, button::ButtonVariant, input::InputState};
-use gpui_kit::{
-    App, AppContext as _, Context, Entity, ParentElement as _, SharedString, WeakEntity, Window,
-};
+use gpui_kit::component::{WindowExt, input::InputState};
+use gpui_kit::{App, AppContext as _, Context, Entity, ParentElement as _, WeakEntity, Window};
 use nfc_app::Service;
-use nfc_app::classic::BackupStore;
 use nfc_app::type2::{
     Type2Format, Type2Lock, Type2NdefWrite, Type2PageWrite, Type2Password, Type2Restore,
 };
 use nfc_core::{CancelToken, NfcError, PAGE_SIZE, Result as NfcResult};
-use nfc_ndef::{NdefMessage, TextRecord};
-use nfc_type2::{
-    Configuration, LockBits, NdefState, PageRole, RestoreOptions, Type2Image, Type2Ndef, read_ndef,
+use nfc_ndef::{NdefMessage, TextRecord, UriRecord};
+use nfc_type2::{PageRole, RestoreOptions, Type2Image, Type2Ndef, read_ndef};
+use nfc_ui::{
+    ActivityEntry, CardIdentity, Key, Session, StatusKind, StatusMessage, error_key,
+    parse_hex_array, parse_page_list, write_private,
 };
 
-use crate::model::{DeviceSummary, StatusMessage, WorkspaceTab};
+use crate::model::{NdefSource, PageFilter, Type2Settings};
 
-const CONFIRMATION: &str = "I_OWN_THIS_CARD";
+pub(crate) const CONFIRMATION: &str = "I_OWN_THIS_CARD";
 
-/// GPUI Kit Type 2 / NDEF workspace.
+/// GPUI Kit Type 2 / NDEF screens.
 ///
 /// All card work runs through the shared [`Service`] on a background executor.
 /// The view never performs reader I/O in `render`.
 pub struct Type2Workspace {
     pub(crate) service: Arc<Mutex<Service>>,
-    pub(crate) backup: BackupStore,
-    pub(crate) devices: Vec<DeviceSummary>,
-    pub(crate) selected_device: Option<String>,
-    pub(crate) tab: WorkspaceTab,
+    pub(crate) settings: Type2Settings,
+    pub(crate) session: Entity<Session>,
     pub(crate) image: Option<Type2Image>,
     pub(crate) loaded: Option<Type2Image>,
     pub(crate) ndef: Option<Type2Ndef>,
     pub(crate) selected_page: Option<u8>,
-    pub(crate) busy: Option<SharedString>,
-    pub(crate) status: Option<StatusMessage>,
-    pub(crate) page_data_input: Entity<InputState>,
+    pub(crate) page_input: Entity<InputState>,
     pub(crate) path_input: Entity<InputState>,
-    pub(crate) ndef_text_input: Entity<InputState>,
+    pub(crate) ndef_value_input: Entity<InputState>,
     pub(crate) ndef_language_input: Entity<InputState>,
+    pub(crate) ndef_file_input: Entity<InputState>,
+    pub(crate) ndef_export_input: Entity<InputState>,
     pub(crate) lock_pages_input: Entity<InputState>,
     pub(crate) auth0_input: Entity<InputState>,
     pub(crate) access_input: Entity<InputState>,
     pub(crate) pwd_input: Entity<InputState>,
     pub(crate) pack_input: Entity<InputState>,
     pub(crate) confirm_input: Entity<InputState>,
-    pub(crate) last_backup: Option<PathBuf>,
+    pub(crate) page_search: Entity<InputState>,
+    pub(crate) page_filter: PageFilter,
+    pub(crate) ndef_source: NdefSource,
+    pub(crate) restore_configuration: bool,
+    pub(crate) restore_cc: bool,
+    pub(crate) restore_locks: bool,
 }
 
 impl Type2Workspace {
@@ -57,46 +60,53 @@ impl Type2Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
         service: Arc<Mutex<Service>>,
-        backup: BackupStore,
+        settings: Type2Settings,
+        session: Entity<Session>,
     ) -> Self {
-        let page_data_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("8 hexadecimal digits"));
-        let path_input = cx.new(|cx| InputState::new(window, cx).placeholder("Project JSON path"));
-        let ndef_text_input = cx.new(|cx| InputState::new(window, cx).placeholder("NDEF text"));
-        let ndef_language_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Language (en)"));
-        let lock_pages_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Pages, for example 4,8,16-20"));
-        let auth0_input = cx.new(|cx| InputState::new(window, cx).placeholder("AUTH0 page (FF)"));
-        let access_input = cx.new(|cx| InputState::new(window, cx).placeholder("ACCESS hex"));
-        let pwd_input = cx.new(|cx| InputState::new(window, cx).placeholder("PWD (8 hex)"));
-        let pack_input = cx.new(|cx| InputState::new(window, cx).placeholder("PACK (4 hex)"));
+        let page_input = cx.new(|cx| InputState::new(window, cx).placeholder("00 11 22 33"));
+        let path_input = cx.new(|cx| InputState::new(window, cx).placeholder("/path/to/tag.json"));
+        let ndef_value_input = cx.new(|cx| InputState::new(window, cx).placeholder("NDEF"));
+        let ndef_language_input = cx.new(|cx| InputState::new(window, cx).placeholder("en"));
+        let ndef_file_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("/path/to/message.ndef"));
+        let ndef_export_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("/path/to/export.ndef"));
+        let lock_pages_input = cx.new(|cx| InputState::new(window, cx).placeholder("4,8,16-20"));
+        let auth0_input = cx.new(|cx| InputState::new(window, cx).placeholder("FF"));
+        let access_input = cx.new(|cx| InputState::new(window, cx).placeholder("00"));
+        let pwd_input = cx.new(|cx| InputState::new(window, cx).placeholder("00000000"));
+        let pack_input = cx.new(|cx| InputState::new(window, cx).placeholder("0000"));
         let confirm_input = cx.new(|cx| InputState::new(window, cx).placeholder(CONFIRMATION));
-        let mut workspace = Self {
+        let page_search = cx.new(|cx| InputState::new(window, cx).placeholder("0..134"));
+        let workspace = Self {
             service,
-            backup,
-            devices: Vec::new(),
-            selected_device: None,
-            tab: WorkspaceTab::Memory,
+            settings,
+            session,
             image: None,
             loaded: None,
             ndef: None,
             selected_page: None,
-            busy: None,
-            status: None,
-            page_data_input,
+            page_input,
             path_input,
-            ndef_text_input,
+            ndef_value_input,
             ndef_language_input,
+            ndef_file_input,
+            ndef_export_input,
             lock_pages_input,
             auth0_input,
             access_input,
             pwd_input,
             pack_input,
             confirm_input,
-            last_backup: None,
+            page_search,
+            page_filter: PageFilter::All,
+            ndef_source: NdefSource::Text,
+            restore_configuration: false,
+            restore_cc: false,
+            restore_locks: false,
         };
-        workspace.reload_devices(cx);
+        cx.observe(&workspace.session, |_, _, cx| cx.notify())
+            .detach();
         workspace
     }
 
@@ -116,115 +126,54 @@ impl Type2Workspace {
         self.selected_page
     }
 
-    pub fn tab(&self) -> WorkspaceTab {
-        self.tab
-    }
-
-    pub fn status(&self) -> Option<&StatusMessage> {
-        self.status.as_ref()
-    }
-
-    pub fn busy(&self) -> Option<&SharedString> {
-        self.busy.as_ref()
-    }
-
-    pub fn last_backup(&self) -> Option<&Path> {
-        self.last_backup.as_deref()
-    }
-
-    pub(crate) fn reload_devices(&mut self, cx: &mut Context<Self>) {
-        let mut failure = None;
-        let (devices, selected) = {
-            let mut service = lock_service(&self.service);
-            if let Err(error) = service.refresh_devices() {
-                failure = Some(error);
-            }
-            let mut selected = service.selected_device().map(str::to_owned);
-            if failure.is_none()
-                && selected.is_none()
-                && let Some(first) = service
-                    .devices()
-                    .first()
-                    .map(|device| device.conn_string.clone())
-            {
-                match service.select_device(&first) {
-                    Ok(()) => selected = Some(first),
-                    Err(error) => failure = Some(error),
-                }
-            }
-            let devices = service
-                .devices()
-                .iter()
-                .map(|device| DeviceSummary {
-                    name: device.name.clone(),
-                    conn_string: device.conn_string.clone(),
-                })
-                .collect();
-            (devices, selected)
-        };
-        self.devices = devices;
-        self.selected_device = selected;
-        if let Some(error) = failure {
-            self.status = Some(StatusMessage::error(format!("Reader list failed: {error}")));
-        } else if self.status.is_none() {
-            self.status = Some(StatusMessage::info(
-                "Select a reader and read a Type 2 tag.",
-            ));
-        }
+    pub fn set_settings(&mut self, settings: Type2Settings, cx: &mut Context<Self>) {
+        self.settings = settings;
         cx.notify();
     }
 
-    pub(crate) fn select_device(&mut self, index: usize, cx: &mut Context<Self>) {
-        let Some(device) = self.devices.get(index).cloned() else {
-            return;
-        };
-        let result = lock_service(&self.service).select_device(&device.conn_string);
-        match result {
-            Ok(()) => {
-                self.selected_device = Some(device.conn_string);
-                self.image = None;
-                self.loaded = None;
-                self.ndef = None;
-                self.selected_page = None;
-                self.status = Some(StatusMessage::info(format!("Selected {}", device.name)));
-            }
-            Err(error) => {
-                self.status = Some(StatusMessage::error(format!(
-                    "Couldn't select reader: {error}"
-                )));
-            }
-        }
+    pub fn reset_card(&mut self, cx: &mut Context<Self>) {
+        self.image = None;
+        self.loaded = None;
+        self.ndef = None;
+        self.selected_page = None;
         cx.notify();
     }
 
-    pub(crate) fn read_card(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.busy.is_some() {
+    pub fn read_card(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.is_busy(cx) {
             return;
         }
-        self.busy = Some(SharedString::from("Reading tag"));
-        cx.notify();
+        self.begin(Key::StatusReadingTag, cx);
         spawn_service(
             cx.weak_entity(),
             self.service.clone(),
             window,
             cx,
-            |service: &mut Service| service.type2_read(CancelToken::new()),
+            |service| service.type2_read(CancelToken::new()),
             |this, result, window, cx| match result {
                 Ok(read) => {
-                    let warnings = read.warnings;
-                    this.apply_image(read.image.clone(), window, cx);
-                    this.status = Some(if warnings.is_empty() {
-                        StatusMessage::success("Tag read")
-                    } else {
-                        StatusMessage::warning(format!(
-                            "Tag read with {} warning(s): {}",
-                            warnings.len(),
-                            warnings.join("; ")
-                        ))
-                    });
+                    let warnings = read.warnings.len();
+                    this.apply_image(read.image, window, cx);
+                    this.finish(cx);
+                    this.set_status(
+                        if warnings == 0 {
+                            StatusKind::Success
+                        } else {
+                            StatusKind::Warning
+                        },
+                        if warnings == 0 {
+                            Key::StatusTagRead
+                        } else {
+                            Key::StatusTagReadWarnings
+                        },
+                        (warnings > 0).then(|| format!("{warnings} warning(s)")),
+                        cx,
+                    );
+                    this.activity(StatusKind::Success, Key::ReadTag, this.card_detail(cx), cx);
                 }
                 Err(error) => {
-                    this.status = Some(StatusMessage::error(format!("Read failed: {error}")));
+                    this.finish(cx);
+                    this.fail(Key::StatusReadFailed, &error, cx);
                 }
             },
         );
@@ -236,438 +185,97 @@ impl Type2Workspace {
         cx.notify();
     }
 
-    pub(crate) fn select_tab(&mut self, index: usize, cx: &mut Context<Self>) {
-        self.tab = WorkspaceTab::from_index(index);
+    pub(crate) fn select_filter(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.page_filter = PageFilter::ALL
+            .get(index)
+            .copied()
+            .unwrap_or(PageFilter::All);
         cx.notify();
     }
 
-    pub(crate) fn confirm_write_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.busy.is_some() {
+    pub(crate) fn select_ndef_source(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.ndef_source = NdefSource::ALL
+            .get(index)
+            .copied()
+            .unwrap_or(NdefSource::Text);
+        cx.notify();
+    }
+
+    pub(crate) fn write_selected_page(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.is_busy(cx) {
             return;
         }
         let Some(image) = self.image.as_ref() else {
-            self.status = Some(StatusMessage::error("Read a Type 2 tag first."));
-            cx.notify();
+            self.set_status(StatusKind::Error, Key::StatusNoCard, None, cx);
             return;
         };
         let Some(page) = self.selected_page else {
-            self.status = Some(StatusMessage::error("Select a page first."));
-            cx.notify();
+            self.set_status(StatusKind::Error, Key::StatusNoPages, None, cx);
             return;
         };
-        let data = match parse_hex_array::<PAGE_SIZE>(&self.page_data_input.read(cx).value()) {
+        let data = match parse_hex_array::<PAGE_SIZE>(&self.page_input.read(cx).value()) {
             Ok(data) => data,
             Err(error) => {
-                self.status = Some(StatusMessage::error(format!("Page data: {error}")));
-                cx.notify();
+                self.fail(Key::StatusInvalidInput, &error, cx);
                 return;
             }
         };
         let role = image.role(page);
         if matches!(role, PageRole::Manufacturer | PageRole::Reserved) {
-            self.status = Some(StatusMessage::error(format!(
-                "Page {page} is {} and cannot be written.",
-                role.label()
-            )));
-            cx.notify();
+            self.set_status(StatusKind::Error, Key::PageNotReadable, None, cx);
             return;
         }
-        if role.is_advanced() {
-            let summary = format!(
-                "Page {page} is {}. This is an Advanced write. Type {CONFIRMATION} to continue.",
-                role.label()
-            );
-            let this = cx.weak_entity();
-            let service = self.service.clone();
-            let backup = self.backup.clone();
-            let token = self.confirm_input.clone();
-            window.open_alert_dialog(cx, move |alert, _, _| {
-                let this = this.clone();
-                let service = service.clone();
-                let backup = backup.clone();
-                let token = token.clone();
-                alert
-                    .title("Write Advanced page?")
-                    .description(summary.clone())
-                    .content({
-                        let token = token.clone();
-                        move |content, _, _| {
-                            content.child(
-                                gpui_kit::component::input::Input::new(&token)
-                                    .id("type2-confirm-token"),
-                            )
-                        }
-                    })
-                    .show_cancel(true)
-                    .ok_text("Write page")
-                    .ok_variant(ButtonVariant::Danger)
-                    .on_ok(move |_, window, cx| {
-                        if token.read(cx).value().trim() != CONFIRMATION {
-                            return false;
-                        }
-                        start_page_write(
-                            this.clone(),
-                            service.clone(),
-                            PendingPageWrite {
-                                page,
-                                data,
-                                advanced: true,
-                                backup: backup.clone(),
-                            },
-                            window,
-                            cx,
-                        );
-                        true
-                    })
-            });
-        } else {
-            start_page_write(
-                cx.weak_entity(),
-                self.service.clone(),
+        let advanced = role.is_advanced();
+        let translator = self.translator(cx);
+        let backup = self.settings.backup.clone();
+        let service = self.service.clone();
+        let session = self.session.clone();
+        let this = cx.weak_entity();
+        let start = Rc::new(move |window: &mut Window, cx: &mut App| {
+            let this = this.clone();
+            let service = service.clone();
+            let backup = backup.clone();
+            let session = session.clone();
+            spawn_page_write(
+                this,
+                session,
+                service,
+                window,
+                cx,
                 PendingPageWrite {
                     page,
                     data,
-                    advanced: false,
-                    backup: self.backup.clone(),
+                    advanced,
+                    backup,
                 },
+            );
+        });
+        if advanced {
+            let role_label = translator.text(crate::model::role_key(role)).to_owned();
+            let body = translator.fmt2(Key::ConfirmWriteAdvancedBody, page, role_label);
+            confirm_with_token(
                 window,
                 cx,
+                self.confirm_input.clone(),
+                translator.text(Key::ConfirmWriteAdvancedTitle).to_owned(),
+                body,
+                translator.text(Key::WritePage).to_owned(),
+                start,
             );
-        }
-    }
-
-    pub(crate) fn write_ndef(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.busy.is_some() {
-            return;
-        }
-        if self.image.is_none() {
-            self.status = Some(StatusMessage::error("Read a Type 2 tag first."));
-            cx.notify();
-            return;
-        }
-        let text = self.ndef_text_input.read(cx).value().trim().to_owned();
-        let language = self.ndef_language_input.read(cx).value().trim().to_owned();
-        let language = if language.is_empty() {
-            "en".to_owned()
         } else {
-            language
-        };
-        if text.is_empty() {
-            self.status = Some(StatusMessage::error("Enter NDEF text first."));
-            cx.notify();
-            return;
+            start(window, cx);
         }
-        let message = match TextRecord::new(text, language)
-            .and_then(|record| record.to_record())
-            .and_then(NdefMessage::single)
-        {
-            Ok(message) => message,
-            Err(error) => {
-                self.status = Some(StatusMessage::error(format!("NDEF text: {error}")));
-                cx.notify();
-                return;
-            }
-        };
-        self.busy = Some(SharedString::from("Writing NDEF"));
-        cx.notify();
-        let backup = self.backup.clone();
-        spawn_service(
-            cx.weak_entity(),
-            self.service.clone(),
-            window,
-            cx,
-            move |service: &mut Service| {
-                service.type2_ndef_write(Type2NdefWrite::new(message, &backup))
-            },
-            |this, result, window, cx| match result {
-                Ok(write) => {
-                    this.apply_image(write.image, window, cx);
-                    this.last_backup = Some(write.backup.path.clone());
-                    this.status = Some(StatusMessage::success(format!(
-                        "NDEF written and verified: {} page(s) written · backup {}",
-                        write.summary.written_pages,
-                        write.backup.path.display()
-                    )));
-                }
-                Err(error) => {
-                    this.status = Some(StatusMessage::error(format!("NDEF write failed: {error}")));
-                }
-            },
-        );
-    }
-
-    pub(crate) fn confirm_format(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.busy.is_some() {
-            return;
-        }
-        if self.image.is_none() {
-            self.status = Some(StatusMessage::error("Read a Type 2 tag first."));
-            cx.notify();
-            return;
-        }
-        let this = cx.weak_entity();
-        let service = self.service.clone();
-        let backup = self.backup.clone();
-        window.open_alert_dialog(cx, move |alert, _, _| {
-            let this = this.clone();
-            let service = service.clone();
-            let backup = backup.clone();
-            alert
-                .title("Format NDEF?")
-                .description(
-                    "The NDEF data area is replaced with an empty formatted tag. A project backup is written first.",
-                )
-                .show_cancel(true)
-                .ok_text("Format")
-                .ok_variant(ButtonVariant::Danger)
-                .on_ok(move |_, window, cx| {
-                    let this = this.clone();
-                    let service = service.clone();
-                    let backup = backup.clone();
-                    let _ = this.update(cx, |this, cx| {
-                        this.busy = Some(SharedString::from("Formatting NDEF"));
-                        cx.notify();
-                    });
-                    spawn_service(
-                        this,
-                        service,
-                        window,
-                        cx,
-                        move |service: &mut Service| {
-                            service.type2_ndef_format(Type2Format::new(&backup).confirm(true))
-                        },
-                        |this, result, window, cx| match result {
-                            Ok(write) => {
-                                this.apply_image(write.image, window, cx);
-                                this.last_backup = Some(write.backup.path.clone());
-                                this.status = Some(StatusMessage::success(format!(
-                                    "NDEF formatted: {} page(s) written · backup {}",
-                                    write.summary.written_pages,
-                                    write.backup.path.display()
-                                )));
-                            }
-                            Err(error) => {
-                                this.status = Some(StatusMessage::error(format!(
-                                    "Format failed: {error}"
-                                )));
-                            }
-                        },
-                    );
-                    true
-                })
-        });
-    }
-
-    pub(crate) fn confirm_lock(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.busy.is_some() {
-            return;
-        }
-        if self.image.is_none() {
-            self.status = Some(StatusMessage::error("Read a Type 2 tag first."));
-            cx.notify();
-            return;
-        }
-        let pages = match parse_page_list(&self.lock_pages_input.read(cx).value()) {
-            Ok(pages) if !pages.is_empty() => pages,
-            Ok(_) => {
-                self.status = Some(StatusMessage::error("Enter pages to lock."));
-                cx.notify();
-                return;
-            }
-            Err(error) => {
-                self.status = Some(StatusMessage::error(format!("Pages: {error}")));
-                cx.notify();
-                return;
-            }
-        };
-        let this = cx.weak_entity();
-        let service = self.service.clone();
-        let backup = self.backup.clone();
-        let token = self.confirm_input.clone();
-        let summary = format!(
-            "Lock bits are one-way. Pages {} become read-only after this write. Type {CONFIRMATION} to continue.",
-            pages
-                .iter()
-                .map(u8::to_string)
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-        window.open_alert_dialog(cx, move |alert, _, _| {
-            let this = this.clone();
-            let service = service.clone();
-            let backup = backup.clone();
-            let token = token.clone();
-            let pages = pages.clone();
-            alert
-                .title("Lock pages?")
-                .description(summary.clone())
-                .content({
-                    let token = token.clone();
-                    move |content, _, _| {
-                        content.child(
-                            gpui_kit::component::input::Input::new(&token)
-                                .id("type2-confirm-token"),
-                        )
-                    }
-                })
-                .show_cancel(true)
-                .ok_text("Lock pages")
-                .ok_variant(ButtonVariant::Danger)
-                .on_ok(move |_, window, cx| {
-                    if token.read(cx).value().trim() != CONFIRMATION {
-                        return false;
-                    }
-                    let this = this.clone();
-                    let service = service.clone();
-                    let backup = backup.clone();
-                    let pages = pages.clone();
-                    let _ = this.update(cx, |this, cx| {
-                        this.busy = Some(SharedString::from("Locking pages"));
-                        cx.notify();
-                    });
-                    spawn_service(
-                        this,
-                        service,
-                        window,
-                        cx,
-                        move |service: &mut Service| {
-                            service.type2_lock(Type2Lock::new(pages, &backup).confirm(true))
-                        },
-                        |this, result, window, cx| match result {
-                            Ok(lock) => {
-                                this.apply_image(lock.image, window, cx);
-                                this.last_backup =
-                                    lock.backup.as_ref().map(|backup| backup.path.clone());
-                                this.status =
-                                    Some(StatusMessage::success("Lock bits written and verified"));
-                            }
-                            Err(error) => {
-                                this.status =
-                                    Some(StatusMessage::error(format!("Lock failed: {error}")));
-                            }
-                        },
-                    );
-                    true
-                })
-        });
-    }
-
-    pub(crate) fn confirm_password(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.busy.is_some() {
-            return;
-        }
-        if self.image.is_none() {
-            self.status = Some(StatusMessage::error("Read a Type 2 tag first."));
-            cx.notify();
-            return;
-        }
-        let auth0 = match self.auth0_input.read(cx).value().trim().parse::<u8>() {
-            Ok(value) => value,
-            Err(_) => {
-                self.status = Some(StatusMessage::error("AUTH0 must be a page number."));
-                cx.notify();
-                return;
-            }
-        };
-        let access = match parse_hex_array::<1>(&self.access_input.read(cx).value()) {
-            Ok(value) => value[0],
-            Err(error) => {
-                self.status = Some(StatusMessage::error(format!("ACCESS: {error}")));
-                cx.notify();
-                return;
-            }
-        };
-        let password = match parse_hex_array::<PAGE_SIZE>(&self.pwd_input.read(cx).value()) {
-            Ok(value) => value,
-            Err(error) => {
-                self.status = Some(StatusMessage::error(format!("PWD: {error}")));
-                cx.notify();
-                return;
-            }
-        };
-        let pack = match parse_hex_array::<2>(&self.pack_input.read(cx).value()) {
-            Ok(value) => value,
-            Err(error) => {
-                self.status = Some(StatusMessage::error(format!("PACK: {error}")));
-                cx.notify();
-                return;
-            }
-        };
-        let this = cx.weak_entity();
-        let service = self.service.clone();
-        let backup = self.backup.clone();
-        let token = self.confirm_input.clone();
-        let summary = format!(
-            "PWD/PACK, AUTH0 {auth0:02X}, and ACCESS {access:02X} are written permanently. Type {CONFIRMATION} to continue."
-        );
-        window.open_alert_dialog(cx, move |alert, _, _| {
-            let this = this.clone();
-            let service = service.clone();
-            let backup = backup.clone();
-            let token = token.clone();
-            alert
-                .title("Change password configuration?")
-                .description(summary.clone())
-                .content({
-                    let token = token.clone();
-                    move |content, _, _| {
-                        content.child(
-                            gpui_kit::component::input::Input::new(&token)
-                                .id("type2-confirm-token"),
-                        )
-                    }
-                })
-                .show_cancel(true)
-                .ok_text("Set password")
-                .ok_variant(ButtonVariant::Danger)
-                .on_ok(move |_, window, cx| {
-                    if token.read(cx).value().trim() != CONFIRMATION {
-                        return false;
-                    }
-                    let this = this.clone();
-                    let service = service.clone();
-                    let backup = backup.clone();
-                    let _ = this.update(cx, |this, cx| {
-                        this.busy = Some(SharedString::from("Writing password configuration"));
-                        cx.notify();
-                    });
-                    spawn_service(
-                        this,
-                        service,
-                        window,
-                        cx,
-                        move |service: &mut Service| {
-                            service.type2_password(
-                                Type2Password::new(auth0, access, password, pack, &backup)
-                                    .confirm(true),
-                            )
-                        },
-                        |this, result, window, cx| match result {
-                            Ok(write) => {
-                                this.apply_image(write.image, window, cx);
-                                this.last_backup = Some(write.backup.path.clone());
-                                this.status = Some(StatusMessage::success(format!(
-                                    "Password configuration written and verified · backup {}",
-                                    write.backup.path.display()
-                                )));
-                            }
-                            Err(error) => {
-                                this.status = Some(StatusMessage::error(format!(
-                                    "Password configuration failed: {error}"
-                                )));
-                            }
-                        },
-                    );
-                    true
-                })
-        });
     }
 
     pub(crate) fn save_dump(&mut self, cx: &mut Context<Self>) {
         let path = self.path(cx);
         if path.is_empty() {
-            self.status = Some(StatusMessage::error("Enter a dump file path first."));
-            cx.notify();
+            self.set_status(
+                StatusKind::Error,
+                Key::StatusInvalidInput,
+                Some("enter a dump path".into()),
+                cx,
+            );
             return;
         }
         let result = self
@@ -675,21 +283,30 @@ impl Type2Workspace {
             .as_ref()
             .ok_or_else(|| NfcError::InvalidArgument("read a card first".to_owned()))
             .and_then(nfc_type2::exchange::export)
-            .and_then(|bytes| write_file(Path::new(&path), &bytes));
+            .and_then(|bytes| write_private(Path::new(&path), &bytes));
         match result {
-            Ok(()) => self.status = Some(StatusMessage::success(format!("Saved {path}"))),
-            Err(error) => {
-                self.status = Some(StatusMessage::error(format!("Couldn't save dump: {error}")));
+            Ok(()) => {
+                self.set_status(
+                    StatusKind::Success,
+                    Key::StatusDumpSaved,
+                    Some(path.clone()),
+                    cx,
+                );
+                self.activity(StatusKind::Success, Key::SaveDump, path, cx);
             }
+            Err(error) => self.fail(Key::StatusSaveFailed, &error, cx),
         }
-        cx.notify();
     }
 
     pub(crate) fn load_dump(&mut self, cx: &mut Context<Self>) {
         let path = self.path(cx);
         if path.is_empty() {
-            self.status = Some(StatusMessage::error("Enter a dump file path first."));
-            cx.notify();
+            self.set_status(
+                StatusKind::Error,
+                Key::StatusInvalidInput,
+                Some("enter a dump path".into()),
+                cx,
+            );
             return;
         }
         let result = fs::read(&path)
@@ -698,86 +315,474 @@ impl Type2Workspace {
         match result {
             Ok(image) => {
                 self.loaded = Some(image);
-                self.status = Some(StatusMessage::success(format!(
-                    "Loaded {path}; Restore… writes it to the selected tag"
-                )));
+                self.set_status(
+                    StatusKind::Success,
+                    Key::StatusDumpLoaded,
+                    Some(path.clone()),
+                    cx,
+                );
+                self.activity(StatusKind::Success, Key::LoadDump, path, cx);
             }
-            Err(error) => {
-                self.status = Some(StatusMessage::error(format!("Couldn't load dump: {error}")));
-            }
+            Err(error) => self.fail(Key::StatusLoadFailed, &error, cx),
         }
         cx.notify();
     }
 
-    pub(crate) fn confirm_restore(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.busy.is_some() {
+    pub(crate) fn restore_loaded(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.is_busy(cx) {
             return;
         }
         let Some(source) = self.loaded.clone() else {
-            self.status = Some(StatusMessage::error("Load a dump first."));
-            cx.notify();
+            self.set_status(StatusKind::Error, Key::StatusNoDump, None, cx);
             return;
         };
-        let this = cx.weak_entity();
+        let translator = self.translator(cx);
+        let backup = self.settings.backup.clone();
         let service = self.service.clone();
-        let backup = self.backup.clone();
-        window.open_alert_dialog(cx, move |alert, _, _| {
-            let this = this.clone();
-            let service = service.clone();
-            let backup = backup.clone();
-            let source = source.clone();
-            alert
-                .title("Restore this dump?")
-                .description(
-                    "User memory is overwritten with the loaded image. A project backup is written before the first change.",
-                )
-                .show_cancel(true)
-                .ok_text("Restore")
-                .ok_variant(ButtonVariant::Danger)
-                .on_ok(move |_, window, cx| {
-                    let this = this.clone();
-                    let service = service.clone();
-                    let backup = backup.clone();
-                    let source = source.clone();
-                    let _ = this.update(cx, |this, cx| {
-                        this.busy = Some(SharedString::from("Restoring tag"));
-                        cx.notify();
-                    });
-                    spawn_service(
-                        this,
-                        service,
-                        window,
-                        cx,
-                        move |service: &mut Service| {
-                            service.type2_restore(
-                                Type2Restore::new(source, &backup)
-                                    .options(RestoreOptions {
-                                        restore_user_memory: true,
-                                        ..RestoreOptions::default()
-                                    })
-                                    .confirm(true),
-                            )
-                        },
-                        |this, result, window, cx| match result {
-                            Ok(write) => {
-                                this.apply_image(write.image, window, cx);
-                                this.last_backup = Some(write.backup.path.clone());
-                                this.status = Some(StatusMessage::success(format!(
-                                    "Restore complete: {} written, {} unchanged · backup {}",
+        let session = self.session.clone();
+        let options = RestoreOptions {
+            restore_user_memory: true,
+            restore_capability_container: self.restore_cc,
+            restore_configuration: self.restore_configuration,
+            restore_lock_bytes: self.restore_locks,
+        };
+        let this = cx.weak_entity();
+        confirm_with_token(
+            window,
+            cx,
+            self.confirm_input.clone(),
+            translator.text(Key::RestoreTitle).to_owned(),
+            translator.text(Key::RestoreBody).to_owned(),
+            translator.text(Key::RestoreTag).to_owned(),
+            Rc::new(move |window, cx| {
+                let this = this.clone();
+                let service = service.clone();
+                let backup = backup.clone();
+                let session = session.clone();
+                let source = source.clone();
+                let _ = this.update(cx, |this, cx| this.begin(Key::BusyRestoring, cx));
+                spawn_service_with_session(
+                    this,
+                    session,
+                    service,
+                    window,
+                    cx,
+                    move |service| {
+                        service.type2_restore(
+                            Type2Restore::new(source, &backup)
+                                .options(options)
+                                .confirm(true),
+                        )
+                    },
+                    |this, result, window, cx| match result {
+                        Ok(write) => {
+                            this.finish(cx);
+                            this.apply_image(write.image, window, cx);
+                            this.last_backup(Some(write.backup.path.clone()), cx);
+                            this.set_status(
+                                StatusKind::Success,
+                                Key::StatusRestoreComplete,
+                                Some(format!(
+                                    "{} written · {} unchanged",
+                                    write.summary.written_pages, write.summary.unchanged_pages
+                                )),
+                                cx,
+                            );
+                            this.activity(
+                                StatusKind::Success,
+                                Key::StatusRestoreComplete,
+                                format!(
+                                    "{} written · {}",
                                     write.summary.written_pages,
-                                    write.summary.unchanged_pages,
                                     write.backup.path.display()
-                                )));
-                            }
-                            Err(error) => {
-                                this.status =
-                                    Some(StatusMessage::error(format!("Restore failed: {error}")));
-                            }
-                        },
+                                ),
+                                cx,
+                            );
+                        }
+                        Err(error) => {
+                            this.finish(cx);
+                            this.fail(Key::StatusRestoreFailed, &error, cx);
+                        }
+                    },
+                );
+            }),
+        );
+    }
+
+    pub(crate) fn write_ndef(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.is_busy(cx) {
+            return;
+        }
+        if self.image.is_none() {
+            self.set_status(StatusKind::Error, Key::StatusNoCard, None, cx);
+            return;
+        }
+        let message = match self.build_ndef_message(cx) {
+            Ok(message) => message,
+            Err(error) => {
+                self.fail(Key::StatusInvalidInput, &error, cx);
+                return;
+            }
+        };
+        self.begin(Key::BusyWritingNdef, cx);
+        let backup = self.settings.backup.clone();
+        let session = self.session.clone();
+        spawn_service_with_session(
+            cx.weak_entity(),
+            session,
+            self.service.clone(),
+            window,
+            cx,
+            move |service| service.type2_ndef_write(Type2NdefWrite::new(message, &backup)),
+            |this, result, window, cx| match result {
+                Ok(write) => {
+                    this.finish(cx);
+                    this.apply_image(write.image, window, cx);
+                    this.last_backup(Some(write.backup.path.clone()), cx);
+                    this.set_status(
+                        StatusKind::Success,
+                        Key::StatusNdefWritten,
+                        Some(format!("{} page(s)", write.summary.written_pages)),
+                        cx,
                     );
-                    true
-                })
-        });
+                    this.activity(
+                        StatusKind::Success,
+                        Key::WriteNdef,
+                        format!(
+                            "{} page(s) · {}",
+                            write.summary.written_pages,
+                            write.backup.path.display()
+                        ),
+                        cx,
+                    );
+                }
+                Err(error) => {
+                    this.finish(cx);
+                    this.fail(Key::StatusWriteFailed, &error, cx);
+                }
+            },
+        );
+    }
+
+    pub(crate) fn export_ndef(&mut self, cx: &mut Context<Self>) {
+        let path = self.ndef_export_input.read(cx).value().trim().to_owned();
+        if path.is_empty() {
+            self.set_status(
+                StatusKind::Error,
+                Key::StatusInvalidInput,
+                Some("enter an export path".into()),
+                cx,
+            );
+            return;
+        }
+        let Some(message) = self.ndef.as_ref().and_then(Type2Ndef::message) else {
+            self.set_status(StatusKind::Error, Key::NdefEmpty, None, cx);
+            return;
+        };
+        match message
+            .encode()
+            .and_then(|bytes| write_private(Path::new(&path), &bytes))
+        {
+            Ok(()) => self.set_status(StatusKind::Success, Key::ExportMessage, Some(path), cx),
+            Err(error) => self.fail(Key::StatusSaveFailed, &error, cx),
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn confirm_format(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.is_busy(cx) {
+            return;
+        }
+        if self.image.is_none() {
+            self.set_status(StatusKind::Error, Key::StatusNoCard, None, cx);
+            return;
+        }
+        let translator = self.translator(cx);
+        let backup = self.settings.backup.clone();
+        let service = self.service.clone();
+        let session = self.session.clone();
+        let this = cx.weak_entity();
+        confirm_with_token(
+            window,
+            cx,
+            self.confirm_input.clone(),
+            translator.text(Key::ConfirmFormatTitle).to_owned(),
+            translator.text(Key::FormatTagNote).to_owned(),
+            translator.text(Key::FormatTag).to_owned(),
+            Rc::new(move |window, cx| {
+                let this = this.clone();
+                let service = service.clone();
+                let backup = backup.clone();
+                let session = session.clone();
+                let _ = this.update(cx, |this, cx| this.begin(Key::BusyFormatting, cx));
+                spawn_service_with_session(
+                    this,
+                    session,
+                    service,
+                    window,
+                    cx,
+                    move |service| {
+                        service.type2_ndef_format(Type2Format::new(&backup).confirm(true))
+                    },
+                    |this, result, window, cx| match result {
+                        Ok(write) => {
+                            this.finish(cx);
+                            this.apply_image(write.image, window, cx);
+                            this.last_backup(Some(write.backup.path.clone()), cx);
+                            this.set_status(
+                                StatusKind::Success,
+                                Key::StatusNdefFormatted,
+                                Some(format!("{} page(s)", write.summary.written_pages)),
+                                cx,
+                            );
+                            this.activity(
+                                StatusKind::Success,
+                                Key::FormatTag,
+                                format!(
+                                    "{} page(s) · {}",
+                                    write.summary.written_pages,
+                                    write.backup.path.display()
+                                ),
+                                cx,
+                            );
+                        }
+                        Err(error) => {
+                            this.finish(cx);
+                            this.fail(Key::StatusFormatFailed, &error, cx);
+                        }
+                    },
+                );
+            }),
+        );
+    }
+
+    pub(crate) fn confirm_lock(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.is_busy(cx) {
+            return;
+        }
+        if self.image.is_none() {
+            self.set_status(StatusKind::Error, Key::StatusNoCard, None, cx);
+            return;
+        }
+        let pages = match parse_page_list(&self.lock_pages_input.read(cx).value()) {
+            Ok(pages) if !pages.is_empty() => pages,
+            Ok(_) => {
+                self.set_status(StatusKind::Error, Key::StatusNoPages, None, cx);
+                return;
+            }
+            Err(error) => {
+                self.fail(Key::StatusInvalidInput, &error, cx);
+                return;
+            }
+        };
+        let translator = self.translator(cx);
+        let backup = self.settings.backup.clone();
+        let service = self.service.clone();
+        let session = self.session.clone();
+        let this = cx.weak_entity();
+        let body = format!(
+            "{} {} · {} {}",
+            translator.text(Key::FieldPages),
+            pages
+                .iter()
+                .map(u8::to_string)
+                .collect::<Vec<_>>()
+                .join(", "),
+            translator.text(Key::LockNote),
+            translator.text(Key::AdvancedActionNote)
+        );
+        confirm_with_token(
+            window,
+            cx,
+            self.confirm_input.clone(),
+            translator.text(Key::LockPagesTitle).to_owned(),
+            body,
+            translator.text(Key::ApplyLocks).to_owned(),
+            Rc::new(move |window, cx| {
+                let this = this.clone();
+                let service = service.clone();
+                let backup = backup.clone();
+                let session = session.clone();
+                let pages = pages.clone();
+                let _ = this.update(cx, |this, cx| this.begin(Key::BusyFormatting, cx));
+                spawn_service_with_session(
+                    this,
+                    session,
+                    service,
+                    window,
+                    cx,
+                    move |service| service.type2_lock(Type2Lock::new(pages, &backup).confirm(true)),
+                    |this, result, window, cx| match result {
+                        Ok(lock) => {
+                            this.finish(cx);
+                            this.apply_image(lock.image, window, cx);
+                            this.last_backup(
+                                lock.backup.as_ref().map(|backup| backup.path.clone()),
+                                cx,
+                            );
+                            this.set_status(
+                                StatusKind::Success,
+                                if lock.update.is_empty() {
+                                    Key::StatusLocksAlreadySet
+                                } else {
+                                    Key::StatusLockWritten
+                                },
+                                None,
+                                cx,
+                            );
+                            this.activity(
+                                StatusKind::Success,
+                                Key::ApplyLocks,
+                                "lock bits".to_owned(),
+                                cx,
+                            );
+                        }
+                        Err(error) => {
+                            this.finish(cx);
+                            this.fail(Key::StatusWriteFailed, &error, cx);
+                        }
+                    },
+                );
+            }),
+        );
+    }
+
+    pub(crate) fn confirm_password(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.is_busy(cx) {
+            return;
+        }
+        if self.image.is_none() {
+            self.set_status(StatusKind::Error, Key::StatusNoCard, None, cx);
+            return;
+        }
+        let auth0 = match self.auth0_input.read(cx).value().trim().parse::<u8>() {
+            Ok(value) => value,
+            Err(_) => {
+                self.set_status(
+                    StatusKind::Error,
+                    Key::StatusInvalidInput,
+                    Some("AUTH0 must be a page".into()),
+                    cx,
+                );
+                return;
+            }
+        };
+        let access = match parse_hex_array::<1>(&self.access_input.read(cx).value()) {
+            Ok(value) => value[0],
+            Err(error) => {
+                self.fail(Key::StatusInvalidInput, &error, cx);
+                return;
+            }
+        };
+        let password = match parse_hex_array::<PAGE_SIZE>(&self.pwd_input.read(cx).value()) {
+            Ok(value) => value,
+            Err(error) => {
+                self.fail(Key::StatusInvalidInput, &error, cx);
+                return;
+            }
+        };
+        let pack = match parse_hex_array::<2>(&self.pack_input.read(cx).value()) {
+            Ok(value) => value,
+            Err(error) => {
+                self.fail(Key::StatusInvalidInput, &error, cx);
+                return;
+            }
+        };
+        let translator = self.translator(cx);
+        let backup = self.settings.backup.clone();
+        let service = self.service.clone();
+        let session = self.session.clone();
+        let this = cx.weak_entity();
+        let body = format!(
+            "AUTH0 {auth0:02X} · ACCESS {access:02X} · {}",
+            translator.text(Key::PasswordNote)
+        );
+        confirm_with_token(
+            window,
+            cx,
+            self.confirm_input.clone(),
+            translator.text(Key::PasswordConfigTitle).to_owned(),
+            body,
+            translator.text(Key::SetPassword).to_owned(),
+            Rc::new(move |window, cx| {
+                let this = this.clone();
+                let service = service.clone();
+                let backup = backup.clone();
+                let session = session.clone();
+                let _ = this.update(cx, |this, cx| this.begin(Key::BusyWritingBlock, cx));
+                spawn_service_with_session(
+                    this,
+                    session,
+                    service,
+                    window,
+                    cx,
+                    move |service| {
+                        service.type2_password(
+                            Type2Password::new(auth0, access, password, pack, &backup)
+                                .confirm(true),
+                        )
+                    },
+                    |this, result, window, cx| match result {
+                        Ok(write) => {
+                            this.finish(cx);
+                            this.apply_image(write.image, window, cx);
+                            this.last_backup(Some(write.backup.path.clone()), cx);
+                            this.set_status(
+                                StatusKind::Success,
+                                Key::StatusPasswordWritten,
+                                None,
+                                cx,
+                            );
+                            this.activity(
+                                StatusKind::Success,
+                                Key::SetPassword,
+                                write.backup.path.display().to_string(),
+                                cx,
+                            );
+                        }
+                        Err(error) => {
+                            this.finish(cx);
+                            this.fail(Key::StatusWriteFailed, &error, cx);
+                        }
+                    },
+                );
+            }),
+        );
+    }
+
+    fn build_ndef_message(&self, cx: &App) -> NfcResult<NdefMessage> {
+        let value = self.ndef_value_input.read(cx).value().trim().to_owned();
+        match self.ndef_source {
+            NdefSource::Text => {
+                if value.is_empty() {
+                    return Err(NfcError::InvalidArgument("enter NDEF text".to_owned()));
+                }
+                let language = self.ndef_language_input.read(cx).value().trim().to_owned();
+                let language = if language.is_empty() {
+                    "en".to_owned()
+                } else {
+                    language
+                };
+                NdefMessage::single(TextRecord::new(value, language)?.to_record()?)
+            }
+            NdefSource::Uri => {
+                if value.is_empty() {
+                    return Err(NfcError::InvalidArgument("enter a URI".to_owned()));
+                }
+                NdefMessage::single(UriRecord::new(value)?.to_record()?)
+            }
+            NdefSource::File => {
+                let path = self.ndef_file_input.read(cx).value().trim().to_owned();
+                if path.is_empty() {
+                    return Err(NfcError::InvalidArgument(
+                        "enter a raw NDEF file".to_owned(),
+                    ));
+                }
+                let bytes = fs::read(&path)
+                    .map_err(|error| NfcError::Io(format!("could not read {path}: {error}")))?;
+                NdefMessage::decode(&bytes)
+            }
+        }
     }
 
     fn apply_image(&mut self, image: Type2Image, window: &mut Window, cx: &mut Context<Self>) {
@@ -791,7 +796,11 @@ impl Type2Workspace {
         }
         self.image = Some(image);
         self.sync_page_input(window, cx);
-        cx.notify();
+        let identity = self.card_identity(self.translator(cx));
+        self.session.update(cx, |session, cx| {
+            session.type2_card = identity;
+            cx.notify();
+        });
     }
 
     fn sync_page_input(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -800,14 +809,98 @@ impl Type2Workspace {
             .as_ref()
             .zip(self.selected_page)
             .and_then(|(image, page)| image.page(page))
-            .map(|data| hex(data))
+            .map(|data| nfc_ui::hex_bytes(data))
             .unwrap_or_default();
-        self.page_data_input
+        self.page_input
             .update(cx, |state, cx| state.set_value(text, window, cx));
+    }
+
+    fn card_identity(&self, translator: nfc_ui::Translator) -> Option<CardIdentity> {
+        let image = self.image.as_ref()?;
+        let ndef = self.ndef.as_ref();
+        Some(CardIdentity {
+            card_type: image.layout.product.name().to_owned(),
+            uid: image.uid_hex(),
+            atqa: "—".to_owned(),
+            sak: "—".to_owned(),
+            detail: format!(
+                "{}/{} {} · NDEF {}/{} {}",
+                image.known_pages(),
+                image.layout.page_count(),
+                translator.text(Key::PagesUnit),
+                ndef.map_or(0, |ndef| ndef.message_bytes),
+                ndef.map_or(image.cc.ndef_capacity(), |ndef| ndef.capacity),
+                translator.text(Key::BytesUnit)
+            ),
+        })
+    }
+
+    fn card_detail(&self, cx: &App) -> String {
+        self.card_identity(self.translator(cx))
+            .map(|identity| identity.detail)
+            .unwrap_or_default()
     }
 
     fn path(&self, cx: &App) -> String {
         self.path_input.read(cx).value().trim().to_owned()
+    }
+
+    fn translator(&self, cx: &App) -> nfc_ui::Translator {
+        self.session.read(cx).translator
+    }
+
+    pub(crate) fn is_busy(&self, cx: &App) -> bool {
+        self.session.read(cx).is_busy()
+    }
+
+    fn begin(&self, label: Key, cx: &mut App) {
+        self.session.update(cx, |session, cx| {
+            session.begin(label);
+            cx.notify();
+        });
+    }
+
+    fn finish(&self, cx: &mut App) {
+        self.session.update(cx, |session, cx| {
+            session.finish();
+            cx.notify();
+        });
+    }
+
+    fn set_status(&self, kind: StatusKind, summary: Key, detail: Option<String>, cx: &mut App) {
+        self.session.update(cx, |session, cx| {
+            session.set_status(StatusMessage::new(kind, summary, detail));
+            cx.notify();
+        });
+    }
+
+    fn fail(&self, summary: Key, error: &NfcError, cx: &mut App) {
+        self.set_status(
+            StatusKind::Error,
+            summary,
+            Some(format!(
+                "{} · {error}",
+                self.translator(cx).text(error_key(error))
+            )),
+            cx,
+        );
+        self.activity(StatusKind::Error, summary, error.to_string(), cx);
+    }
+
+    fn activity(&self, kind: StatusKind, title: Key, detail: impl Into<String>, cx: &mut App) {
+        self.session.update(cx, |session, cx| {
+            session.record(ActivityEntry::new(kind, title, detail));
+            cx.notify();
+        });
+    }
+
+    fn last_backup(&self, path: Option<PathBuf>, cx: &mut App) {
+        if let Some(path) = path {
+            self.session.update(cx, |session, cx| {
+                session.set_last_backup(Some(path));
+                cx.notify();
+            });
+        }
     }
 }
 
@@ -815,15 +908,16 @@ struct PendingPageWrite {
     page: u8,
     data: [u8; PAGE_SIZE],
     advanced: bool,
-    backup: BackupStore,
+    backup: nfc_app::classic::BackupStore,
 }
 
-fn start_page_write(
+fn spawn_page_write(
     this: WeakEntity<Type2Workspace>,
+    session: Entity<Session>,
     service: Arc<Mutex<Service>>,
-    pending: PendingPageWrite,
     window: &Window,
     cx: &mut App,
+    pending: PendingPageWrite,
 ) {
     let PendingPageWrite {
         page,
@@ -831,16 +925,14 @@ fn start_page_write(
         advanced,
         backup,
     } = pending;
-    let _ = this.update(cx, |this, cx| {
-        this.busy = Some(SharedString::from("Writing page"));
-        cx.notify();
-    });
-    spawn_service(
+    let _ = this.update(cx, |this, cx| this.begin(Key::BusyWritingBlock, cx));
+    spawn_service_with_session(
         this,
+        session,
         service,
         window,
         cx,
-        move |service: &mut Service| {
+        move |service| {
             service.type2_write_page(
                 Type2PageWrite::new(page, data, &backup)
                     .advanced(advanced)
@@ -849,19 +941,75 @@ fn start_page_write(
         },
         |this, result, window, cx| match result {
             Ok(write) => {
+                this.finish(cx);
                 this.apply_image(write.image, window, cx);
-                this.last_backup = write.backup.as_ref().map(|record| record.path.clone());
-                this.status = Some(if write.changed {
-                    StatusMessage::success(format!("Page {} written and verified", write.page))
-                } else {
-                    StatusMessage::info(format!("Page {} already matches", write.page))
-                });
+                this.last_backup(write.backup.map(|backup| backup.path), cx);
+                this.set_status(
+                    if write.changed {
+                        StatusKind::Success
+                    } else {
+                        StatusKind::Info
+                    },
+                    if write.changed {
+                        Key::StatusPageWritten
+                    } else {
+                        Key::StatusPageUnchanged
+                    },
+                    Some(format!("page {}", write.page)),
+                    cx,
+                );
+                this.activity(
+                    StatusKind::Success,
+                    Key::WritePage,
+                    format!("page {}", write.page),
+                    cx,
+                );
             }
             Err(error) => {
-                this.status = Some(StatusMessage::error(format!("Write failed: {error}")));
+                this.finish(cx);
+                this.fail(Key::StatusWriteFailed, &error, cx);
             }
         },
     );
+}
+
+fn confirm_with_token(
+    window: &mut Window,
+    cx: &mut App,
+    token: Entity<InputState>,
+    title: String,
+    body: String,
+    ok_text: String,
+    action: nfc_ui::ConfirmAction,
+) {
+    window.open_alert_dialog(cx, move |alert, _, _| {
+        let token = token.clone();
+        let action = Rc::clone(&action);
+        let body = body.clone();
+        alert
+            .title(title.clone())
+            .description(body)
+            .content({
+                let token = token.clone();
+                move |content, _, _| {
+                    content.child(
+                        gpui_kit::component::input::Input::new(&token).id("type2-confirm-token"),
+                    )
+                }
+            })
+            .show_cancel(true)
+            .ok_text(ok_text.clone())
+            .ok_variant(gpui_kit::component::button::ButtonVariant::Danger)
+            .on_ok(move |_, window, cx| {
+                let value = token.read(cx).value().trim().to_owned();
+                if value != CONFIRMATION {
+                    return false;
+                }
+                token.update(cx, |state, cx| state.set_value("", window, cx));
+                action(window, cx);
+                true
+            })
+    });
 }
 
 fn spawn_service<T, F, D>(
@@ -885,7 +1033,39 @@ fn spawn_service<T, F, D>(
         .spawn(cx, async move |cx| {
             let result = background.await;
             let _ = this.update_in(cx, |this, window, cx| {
-                this.busy = None;
+                on_done(this, result, window, cx);
+                cx.notify();
+            });
+        })
+        .detach();
+}
+
+fn spawn_service_with_session<T, F, D>(
+    this: WeakEntity<Type2Workspace>,
+    session: Entity<Session>,
+    service: Arc<Mutex<Service>>,
+    window: &Window,
+    cx: &mut App,
+    task: F,
+    on_done: D,
+) where
+    T: Send + 'static,
+    F: FnOnce(&mut Service) -> NfcResult<T> + Send + 'static,
+    D: FnOnce(&mut Type2Workspace, NfcResult<T>, &mut Window, &mut Context<Type2Workspace>)
+        + 'static,
+{
+    let background = cx.background_spawn(async move {
+        let mut service = lock_service(&service);
+        task(&mut service)
+    });
+    window
+        .spawn(cx, async move |cx| {
+            let result = background.await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                session.update(cx, |session, cx| {
+                    session.finish();
+                    cx.notify();
+                });
                 on_done(this, result, window, cx);
                 cx.notify();
             });
@@ -895,126 +1075,4 @@ fn spawn_service<T, F, D>(
 
 fn lock_service(service: &Arc<Mutex<Service>>) -> MutexGuard<'_, Service> {
     service.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
-fn write_file(path: &Path, bytes: &[u8]) -> NfcResult<()> {
-    if let Some(parent) = path.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        fs::create_dir_all(parent).map_err(|error| {
-            NfcError::Io(format!("could not create {}: {error}", parent.display()))
-        })?;
-    }
-    fs::write(path, bytes)
-        .map_err(|error| NfcError::Io(format!("could not write {}: {error}", path.display())))?;
-    restrict_permissions(path);
-    Ok(())
-}
-
-fn restrict_permissions(path: &Path) {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
-    }
-}
-
-fn parse_page_list(value: &str) -> NfcResult<Vec<u8>> {
-    let mut pages = Vec::new();
-    for part in value.split([',', ' ']).filter(|part| !part.is_empty()) {
-        if let Some((first, last)) = part.split_once('-') {
-            let first: u8 = first
-                .parse()
-                .map_err(|_| NfcError::InvalidArgument(format!("invalid page {first:?}")))?;
-            let last: u8 = last
-                .parse()
-                .map_err(|_| NfcError::InvalidArgument(format!("invalid page {last:?}")))?;
-            if first > last {
-                return Err(NfcError::InvalidArgument(format!(
-                    "page range {part:?} is reversed"
-                )));
-            }
-            pages.extend(first..=last);
-        } else {
-            let page: u8 = part
-                .parse()
-                .map_err(|_| NfcError::InvalidArgument(format!("invalid page {part:?}")))?;
-            pages.push(page);
-        }
-    }
-    pages.sort_unstable();
-    pages.dedup();
-    Ok(pages)
-}
-
-fn parse_hex_array<const N: usize>(value: &str) -> NfcResult<[u8; N]> {
-    let compact: String = value
-        .chars()
-        .filter(|character| !character.is_ascii_whitespace() && *character != ':')
-        .collect();
-    if compact.len() != N * 2 {
-        return Err(NfcError::InvalidArgument(format!(
-            "expected {} hexadecimal digits",
-            N * 2
-        )));
-    }
-    let mut output = [0u8; N];
-    for (index, byte) in output.iter_mut().enumerate() {
-        *byte = (hex_digit(compact.as_bytes()[index * 2])? << 4)
-            | hex_digit(compact.as_bytes()[index * 2 + 1])?;
-    }
-    Ok(output)
-}
-
-fn hex_digit(character: u8) -> NfcResult<u8> {
-    match character {
-        b'0'..=b'9' => Ok(character - b'0'),
-        b'a'..=b'f' => Ok(character - b'a' + 10),
-        b'A'..=b'F' => Ok(character - b'A' + 10),
-        _ => Err(NfcError::InvalidArgument(
-            "value contains a non-hexadecimal character".to_owned(),
-        )),
-    }
-}
-
-pub(crate) fn hex(bytes: &[u8]) -> String {
-    bytes
-        .iter()
-        .map(|byte| format!("{byte:02X}"))
-        .collect::<Vec<_>>()
-        .join("")
-}
-
-pub(crate) fn ascii(bytes: &[u8]) -> String {
-    bytes
-        .iter()
-        .map(|byte| {
-            if byte.is_ascii_graphic() || *byte == b' ' {
-                char::from(*byte)
-            } else {
-                '.'
-            }
-        })
-        .collect()
-}
-
-/// Locked page list for the current image.
-pub(crate) fn locked_pages(image: &Type2Image, locks: &LockBits) -> Vec<u8> {
-    (0..image.layout.total_pages)
-        .filter(|page| locks.is_locked(&image.layout, *page))
-        .collect()
-}
-
-/// Optional configuration for the current image.
-pub(crate) fn configuration(image: &Type2Image) -> Option<Configuration> {
-    Configuration::from_image(image).ok()
-}
-
-/// NDEF state label used by the view and tests.
-pub(crate) fn ndef_label(state: &NdefState) -> String {
-    match state {
-        NdefState::Unformatted => "unformatted".to_owned(),
-        NdefState::Empty => "empty".to_owned(),
-        NdefState::Message(message) => format!("{} record(s)", message.records().len()),
-    }
 }

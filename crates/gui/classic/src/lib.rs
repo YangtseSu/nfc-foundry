@@ -1,11 +1,14 @@
-//! GPUI Kit MIFARE Classic workspace.
+//! GPUI Kit MIFARE Classic screens.
 //!
-//! The view owns presentation and retained UI state. All card and file
-//! workflows call `nfc-app` services that also back `nfctl`.
+//! The workspace owns presentation state. All card and file workflows call
+//! `nfc-app` services that also back `nfctl`.
 
 mod model;
 mod views;
 mod workspace;
 
-pub use model::{DeviceSummary, StatusKind, StatusMessage, WorkspaceTab};
+pub use model::{
+    ClassicSettings, DUMP_FORMATS, NdefSource, STRATEGIES, ScanTypes, dump_format_index,
+    dump_format_key, strategy_description_key, strategy_key,
+};
 pub use workspace::ClassicWorkspace;
