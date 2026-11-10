@@ -7,6 +7,7 @@
 pub mod backup;
 pub mod keys;
 pub(crate) mod keyscan;
+pub mod ndef;
 pub(crate) mod read;
 pub(crate) mod restore;
 pub(crate) mod write;
@@ -14,6 +15,10 @@ pub(crate) mod write;
 pub use backup::{BackupRecord, BackupStore};
 pub use keys::{COMMON_KEYS, KeyEntry, KeyKind, KeySource, KeyStore, common_keys};
 pub use keyscan::{ClassicKeyscan, ClassicKeyscanResult, KeyTypes, SectorKeys};
+pub use ndef::{
+    ClassicNdefFormat, ClassicNdefFormatResult, ClassicNdefRead, ClassicNdefReadResult,
+    ClassicNdefWrite, ClassicNdefWriteResult,
+};
 pub use read::{ClassicRead, ClassicReadResult};
 pub use restore::{ClassicRestore, ClassicRestoreResult};
 pub use write::{ClassicBlockWrite, ClassicWriteResult};

@@ -90,4 +90,15 @@ impl<'a> Operation<'a> {
         }
         Ok(())
     }
+
+    /// Writes a sector trailer without a read-back. Callers that change keys
+    /// must re-authenticate with the new key before verifying the block.
+    pub(crate) fn write_block_unverified(
+        &mut self,
+        block: u8,
+        data: [u8; BLOCK_SIZE],
+    ) -> Result<()> {
+        self.cancel.check()?;
+        self.reader.write_block(block, data)
+    }
 }

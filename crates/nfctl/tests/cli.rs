@@ -503,3 +503,116 @@ fn type2_dump_restore_and_lock_round_trip() {
         stdout(&output)
     );
 }
+
+#[test]
+fn classic_ndef_reads_reports_and_writes() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let output_file = directory.path().join("message.bin");
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-ndef",
+        "classic",
+        "ndef",
+        "info",
+    ]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("mapping: 1.0"), "{text}");
+    assert!(text.contains("NFC sectors: 1, 2, 3"), "{text}");
+    assert!(text.contains("NDEF: 1 record(s)"), "{text}");
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-ndef",
+        "classic",
+        "ndef",
+        "read",
+        "--output",
+        output_file.to_str().expect("path"),
+    ]);
+    assert_success(&output);
+    assert!(output_file.exists());
+    assert!(stdout(&output).contains("text"), "{}", stdout(&output));
+
+    let backups = directory.path().join("backups");
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-ndef",
+        "--backup-dir",
+        backups.to_str().expect("path"),
+        "classic",
+        "ndef",
+        "write",
+        "--text",
+        "updated",
+    ]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("NDEF written"), "{text}");
+    assert!(text.contains("backup"), "{text}");
+}
+
+#[test]
+fn classic_ndef_format_requires_the_explicit_token() {
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "classic",
+        "ndef",
+        "format",
+    ]);
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("I_OWN_THIS_CARD"),
+        "{}",
+        stderr(&output)
+    );
+
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backups = directory.path().join("backups");
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "--backup-dir",
+        backups.to_str().expect("path"),
+        "classic",
+        "ndef",
+        "format",
+        "--confirm",
+        "I_OWN_THIS_CARD",
+    ]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("NDEF: empty"), "{text}");
+    assert!(text.contains("16 trailer(s)"), "{text}");
+    assert!(text.contains("backup"), "{text}");
+}
+
+#[test]
+fn classic_ndef_format_can_set_read_only() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backups = directory.path().join("backups");
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "--backup-dir",
+        backups.to_str().expect("path"),
+        "classic",
+        "ndef",
+        "format",
+        "--confirm",
+        "I_OWN_THIS_CARD",
+        "--read-only",
+    ]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("read-only"), "{text}");
+    assert!(text.contains("NDEF: empty"), "{text}");
+}

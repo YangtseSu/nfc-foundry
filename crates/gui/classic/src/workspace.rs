@@ -8,11 +8,13 @@ use gpui_kit::component::{WindowExt, button::ButtonVariant, input::InputState};
 use gpui_kit::{App, AppContext as _, Context, Entity, SharedString, WeakEntity, Window};
 use nfc_app::Service;
 use nfc_app::classic::{
-    BackupStore, ClassicBlockWrite, ClassicKeyscan, ClassicRead, ClassicRestore, KeyEntry, KeyKind,
-    KeySource, KeyStore, KeyTypes,
+    BackupStore, ClassicBlockWrite, ClassicKeyscan, ClassicNdefFormat, ClassicNdefWrite,
+    ClassicRead, ClassicRestore, KeyEntry, KeyKind, KeySource, KeyStore, KeyTypes,
 };
+use nfc_app::{ClassicNdefInfo, ClassicNdefState};
 use nfc_classic::{BlockStatus, Dump, DumpDiff, DumpFormat, exchange};
 use nfc_core::{BLOCK_SIZE, NfcError, Result as NfcResult};
+use nfc_ndef::{NdefMessage, TextRecord};
 
 use crate::model::{DeviceSummary, StatusMessage, WorkspaceTab};
 
@@ -31,6 +33,8 @@ pub struct ClassicWorkspace {
     pub(crate) dump: Option<Dump>,
     pub(crate) previous_dump: Option<Dump>,
     pub(crate) diff: Option<DumpDiff>,
+    pub(crate) ndef: Option<ClassicNdefInfo>,
+    pub(crate) ndef_error: Option<String>,
     pub(crate) selected_block: Option<usize>,
     pub(crate) busy: Option<SharedString>,
     pub(crate) status: Option<StatusMessage>,
@@ -38,6 +42,9 @@ pub struct ClassicWorkspace {
     pub(crate) block_input: Entity<InputState>,
     pub(crate) key_hex_input: Entity<InputState>,
     pub(crate) key_sector_input: Entity<InputState>,
+    pub(crate) ndef_text_input: Entity<InputState>,
+    pub(crate) ndef_language_input: Entity<InputState>,
+    pub(crate) format_read_only: bool,
     pub(crate) key_kind: usize,
     pub(crate) last_backup: Option<PathBuf>,
 }
@@ -58,6 +65,9 @@ impl ClassicWorkspace {
             cx.new(|cx| InputState::new(window, cx).placeholder("12 hexadecimal digits"));
         let key_sector_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("Sector (blank = all)"));
+        let ndef_text_input = cx.new(|cx| InputState::new(window, cx).placeholder("NDEF text"));
+        let ndef_language_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Language (en)"));
         let mut workspace = Self {
             service,
             keys,
@@ -69,6 +79,8 @@ impl ClassicWorkspace {
             dump: None,
             previous_dump: None,
             diff: None,
+            ndef: None,
+            ndef_error: None,
             selected_block: None,
             busy: None,
             status: None,
@@ -76,6 +88,9 @@ impl ClassicWorkspace {
             block_input,
             key_hex_input,
             key_sector_input,
+            ndef_text_input,
+            ndef_language_input,
+            format_read_only: false,
             key_kind: 2,
             last_backup: None,
         };
@@ -169,6 +184,8 @@ impl ClassicWorkspace {
                 self.dump = None;
                 self.previous_dump = None;
                 self.diff = None;
+                self.ndef = None;
+                self.ndef_error = None;
                 self.selected_block = None;
                 self.status = Some(StatusMessage::info(format!("Selected {}", device.name)));
             }
@@ -208,6 +225,7 @@ impl ClassicWorkspace {
                     this.dump = Some(read.dump);
                     this.selected_block = Some(0);
                     this.sync_block_input(window, cx);
+                    this.refresh_ndef(cx);
                     this.status = Some(if warnings == 0 {
                         StatusMessage::success("Card read")
                     } else {
@@ -266,6 +284,7 @@ impl ClassicWorkspace {
                 self.dump = Some(load.dump);
                 self.selected_block = Some(0);
                 self.sync_block_input(window, cx);
+                self.refresh_ndef(cx);
                 self.status = Some(if warnings == 0 {
                     StatusMessage::success(format!("Loaded {path} ({})", load.format.name()))
                 } else {
@@ -462,6 +481,214 @@ impl ClassicWorkspace {
         }
     }
 
+    /// NDEF facts for the current dump.
+    pub fn ndef(&self) -> Option<&ClassicNdefInfo> {
+        self.ndef.as_ref()
+    }
+
+    /// Parsing failure for the current dump, if any.
+    pub fn ndef_error(&self) -> Option<&str> {
+        self.ndef_error.as_deref()
+    }
+
+    /// Whether a format request should set the read-only GPB.
+    pub fn format_read_only(&self) -> bool {
+        self.format_read_only
+    }
+
+    pub(crate) fn refresh_ndef(&mut self, cx: &mut Context<Self>) {
+        self.ndef = None;
+        self.ndef_error = None;
+        if let Some(dump) = &self.dump {
+            match lock_service(&self.service).classic_ndef_inspect(dump) {
+                Ok(info) => self.ndef = Some(info),
+                Err(error) => self.ndef_error = Some(error.to_string()),
+            }
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn write_ndef(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.busy.is_some() {
+            return;
+        }
+        let Some(info) = &self.ndef else {
+            self.status = Some(StatusMessage::error(
+                "Read a formatted Classic NDEF card first.",
+            ));
+            cx.notify();
+            return;
+        };
+        let Some(layout) = &info.layout else {
+            self.status = Some(StatusMessage::error(
+                "The card has no MAD; format it for Classic NDEF first.",
+            ));
+            cx.notify();
+            return;
+        };
+        if layout.read_only || !layout.writable {
+            self.status = Some(StatusMessage::error(
+                "The NFC sectors are read-only; NDEF writes are disabled.",
+            ));
+            cx.notify();
+            return;
+        }
+        if !matches!(
+            info.ndef.state,
+            ClassicNdefState::Empty | ClassicNdefState::Message(_)
+        ) {
+            self.status = Some(StatusMessage::error(
+                "The card has no mandatory NDEF TLV; format it first.",
+            ));
+            cx.notify();
+            return;
+        }
+        let text = self.ndef_text_input.read(cx).value().trim().to_owned();
+        if text.is_empty() {
+            self.status = Some(StatusMessage::error("Enter NDEF text first."));
+            cx.notify();
+            return;
+        }
+        let language = self.ndef_language_input.read(cx).value().trim().to_owned();
+        let language = if language.is_empty() {
+            "en".to_owned()
+        } else {
+            language
+        };
+        let message = match TextRecord::new(text, language)
+            .and_then(|record| record.to_record())
+            .and_then(NdefMessage::single)
+        {
+            Ok(message) => message,
+            Err(error) => {
+                self.status = Some(StatusMessage::error(format!("NDEF text: {error}")));
+                cx.notify();
+                return;
+            }
+        };
+        self.busy = Some(SharedString::from("Writing NDEF"));
+        cx.notify();
+        let keys = self.keys.clone();
+        let backup = self.backup.clone();
+        spawn_service(
+            cx.weak_entity(),
+            self.service.clone(),
+            window,
+            cx,
+            move |service: &mut Service| {
+                service.classic_ndef_write(ClassicNdefWrite::new(message, &keys, &backup))
+            },
+            |this, result, window, cx| match result {
+                Ok(write) => {
+                    this.apply_ndef_result(write.dump, write.info, window, cx);
+                    this.last_backup = Some(write.backup.path.clone());
+                    this.status = Some(StatusMessage::success(format!(
+                        "NDEF written and verified: {} block(s) · backup {}",
+                        write.written_blocks,
+                        write.backup.path.display()
+                    )));
+                }
+                Err(error) => {
+                    this.status = Some(StatusMessage::error(format!("NDEF write failed: {error}")));
+                }
+            },
+        );
+    }
+
+    pub(crate) fn confirm_format(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.busy.is_some() {
+            return;
+        }
+        if self.dump.is_none() {
+            self.status = Some(StatusMessage::error("Read or load a card first."));
+            cx.notify();
+            return;
+        }
+        let read_only = self.format_read_only;
+        let description = if read_only {
+            "Every NFC sector is rewritten, then the read-only GPB and access bits are set. Keys and access bits change permanently. A project backup is written first."
+        } else {
+            "Every NFC sector is rewritten with the public NDEF key and access bits. A project backup is written first."
+        };
+        let this = cx.weak_entity();
+        let service = self.service.clone();
+        let keys = self.keys.clone();
+        let backup = self.backup.clone();
+        window.open_alert_dialog(cx, move |alert, _, _| {
+            let this = this.clone();
+            let service = service.clone();
+            let keys = keys.clone();
+            let backup = backup.clone();
+            alert
+                .title("Format Classic NDEF?")
+                .description(description)
+                .show_cancel(true)
+                .ok_text("Format")
+                .ok_variant(ButtonVariant::Danger)
+                .on_ok(move |_, window, cx| {
+                    let this = this.clone();
+                    let service = service.clone();
+                    let keys = keys.clone();
+                    let backup = backup.clone();
+                    let _ = this.update(cx, |this, cx| {
+                        this.busy = Some(SharedString::from("Formatting NDEF"));
+                        cx.notify();
+                    });
+                    spawn_service(
+                        this,
+                        service,
+                        window,
+                        cx,
+                        move |service: &mut Service| {
+                            service.classic_ndef_format(
+                                ClassicNdefFormat::new(&keys, &backup)
+                                    .include_common_keys(true)
+                                    .read_only(read_only)
+                                    .confirm(true),
+                            )
+                        },
+                        |this, result, window, cx| match result {
+                            Ok(format) => {
+                                this.apply_ndef_result(format.dump, format.info, window, cx);
+                                this.last_backup = Some(format.backup.path.clone());
+                                this.status = Some(StatusMessage::success(format!(
+                                    "NDEF formatted: {} block(s), {} trailer(s) · backup {}",
+                                    format.written_blocks,
+                                    format.trailer_writes,
+                                    format.backup.path.display()
+                                )));
+                            }
+                            Err(error) => {
+                                this.status =
+                                    Some(StatusMessage::error(format!("Format failed: {error}")));
+                            }
+                        },
+                    );
+                    true
+                })
+        });
+    }
+
+    fn apply_ndef_result(
+        &mut self,
+        dump: Dump,
+        info: ClassicNdefInfo,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.previous_dump = self.dump.take();
+        self.diff = self
+            .previous_dump
+            .as_ref()
+            .and_then(|before| nfc_classic::diff::diff(before, &dump).ok());
+        self.dump = Some(dump);
+        self.selected_block = Some(0);
+        self.sync_block_input(window, cx);
+        self.ndef = Some(info);
+        self.ndef_error = None;
+        cx.notify();
+    }
+
     pub(crate) fn scan_keys(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.busy.is_some() {
             return;
@@ -656,6 +883,7 @@ fn spawn_write(
                     this.status = Some(StatusMessage::success(format!(
                         "Block {block} written and verified"
                     )));
+                    this.refresh_ndef(cx);
                 } else {
                     this.status = Some(StatusMessage::info(format!(
                         "Block {block} already matches"

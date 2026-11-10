@@ -7,13 +7,17 @@ use std::time::Duration;
 use clap::{Parser, Subcommand};
 use nfc_app::Service;
 use nfc_app::classic::{
-    BackupStore, ClassicBlockWrite, ClassicKeyscan, ClassicRead, ClassicRestore, KeyEntry, KeyKind,
-    KeySource, KeyStore, KeyTypes, common_keys,
+    BackupStore, ClassicBlockWrite, ClassicKeyscan, ClassicNdefFormat, ClassicNdefRead,
+    ClassicNdefWrite, ClassicRead, ClassicRestore, KeyEntry, KeyKind, KeySource, KeyStore,
+    KeyTypes, common_keys,
 };
 use nfc_app::type2::{
     Type2Format, Type2Lock, Type2NdefWrite, Type2PageWrite, Type2Password, Type2Restore,
 };
 use nfc_classic::{DumpFormat, Layout, bcc_for_uid, diff, exchange};
+use nfc_classic_ndef::{
+    ClassicNdefInfo, Mad, MadVersion, NdefState as ClassicNdefState, format_ndef_area,
+};
 use nfc_core::{
     BLOCK_SIZE, CancelToken, CardInfo, CardType, Key, KeyType, NfcError, PAGE_SIZE, Result,
 };
@@ -168,6 +172,42 @@ enum ClassicCommand {
         before: PathBuf,
         #[arg(value_name = "AFTER")]
         after: PathBuf,
+    },
+    /// Classic NDEF mapping, read, write, and format.
+    Ndef {
+        #[command(subcommand)]
+        command: ClassicNdefCommand,
+    },
+}
+
+#[derive(Clone, Debug, Subcommand)]
+enum ClassicNdefCommand {
+    /// Show the MAD, NFC sectors, and NDEF state.
+    Info,
+    /// Print the NDEF records; optionally write the raw message to a file.
+    Read {
+        #[arg(long, short, value_name = "PATH")]
+        output: Option<PathBuf>,
+    },
+    /// Write a raw NDEF file, a Text record, or a URI record.
+    Write {
+        #[arg(long, value_name = "PATH")]
+        file: Option<PathBuf>,
+        #[arg(long, value_name = "TEXT")]
+        text: Option<String>,
+        #[arg(long, value_name = "URI")]
+        uri: Option<String>,
+        #[arg(long, default_value = "en", value_name = "LANG")]
+        language: String,
+    },
+    /// Format the MAD and every NFC sector after confirmation.
+    Format {
+        /// Use I_OWN_THIS_CARD.
+        #[arg(long, value_name = "TOKEN")]
+        confirm: Option<String>,
+        /// Write the read-only GPB and access bits.
+        #[arg(long)]
+        read_only: bool,
     },
 }
 
@@ -605,6 +645,7 @@ fn classic(cli: &Cli, service: &mut Service, command: ClassicCommand) -> Result<
         }
         ClassicCommand::Keys { command } => classic_keys(cli, command),
         ClassicCommand::Diff { before, after } => classic_diff(&before, &after),
+        ClassicCommand::Ndef { command } => classic_ndef(cli, service, command),
     }
 }
 
@@ -876,6 +917,138 @@ fn classic_diff(before: &Path, after: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn classic_ndef(cli: &Cli, service: &mut Service, command: ClassicNdefCommand) -> Result<()> {
+    match command {
+        ClassicNdefCommand::Info => {
+            prepare(service, cli.device.as_deref())?;
+            let keys = load_key_store(cli)?;
+            let read = service.classic_ndef_read(
+                ClassicNdefRead::new(&keys).include_common_keys(!cli.no_common_keys),
+            )?;
+            for warning in &read.warnings {
+                eprintln!("warning: {warning}");
+            }
+            print_classic_ndef(&read.info);
+            Ok(())
+        }
+        ClassicNdefCommand::Read { output } => {
+            prepare(service, cli.device.as_deref())?;
+            let keys = load_key_store(cli)?;
+            let read = service.classic_ndef_read(
+                ClassicNdefRead::new(&keys).include_common_keys(!cli.no_common_keys),
+            )?;
+            for warning in &read.warnings {
+                eprintln!("warning: {warning}");
+            }
+            print_classic_ndef(&read.info);
+            match &read.info.ndef.state {
+                ClassicNdefState::Message(message) => {
+                    for (index, record) in message.records().iter().enumerate() {
+                        print_ndef_record(index, record);
+                    }
+                    if let Some(path) = output {
+                        let bytes = message.encode()?;
+                        write_output(&path, &bytes)?;
+                        println!("wrote {} ({} bytes)", path.display(), bytes.len());
+                    }
+                }
+                ClassicNdefState::Empty => println!("NDEF: empty"),
+                ClassicNdefState::Unformatted => println!("NDEF: unformatted"),
+            }
+            Ok(())
+        }
+        ClassicNdefCommand::Write {
+            file,
+            text,
+            uri,
+            language,
+        } => {
+            prepare(service, cli.device.as_deref())?;
+            let keys = load_key_store(cli)?;
+            let backup = backup_store(cli);
+            let message = build_ndef_message(file.as_deref(), text, uri, &language)?;
+            let result = service.classic_ndef_write(
+                ClassicNdefWrite::new(message, &keys, &backup)
+                    .include_common_keys(!cli.no_common_keys),
+            )?;
+            print_classic_ndef(&result.info);
+            println!(
+                "NDEF written: {} block(s), backup {}",
+                result.written_blocks,
+                result.backup.path.display()
+            );
+            Ok(())
+        }
+        ClassicNdefCommand::Format { confirm, read_only } => {
+            prepare(service, cli.device.as_deref())?;
+            if confirm.as_deref() != Some(CONFIRMATION) {
+                return Err(NfcError::InvalidArgument(format!(
+                    "formatting replaces sector keys and access bits; pass --confirm {CONFIRMATION}"
+                )));
+            }
+            let keys = load_key_store(cli)?;
+            let backup = backup_store(cli);
+            let result = service.classic_ndef_format(
+                ClassicNdefFormat::new(&keys, &backup)
+                    .include_common_keys(!cli.no_common_keys)
+                    .read_only(read_only)
+                    .confirm(true),
+            )?;
+            print_classic_ndef(&result.info);
+            println!(
+                "NDEF format: {} block(s) written, {} trailer(s), backup {}",
+                result.written_blocks,
+                result.trailer_writes,
+                result.backup.path.display()
+            );
+            Ok(())
+        }
+    }
+}
+
+fn print_classic_ndef(info: &ClassicNdefInfo) {
+    match &info.layout {
+        Some(layout) => {
+            println!("mapping: {}.{}", layout.version.major, layout.version.minor);
+            println!(
+                "NFC sectors: {}",
+                layout
+                    .sectors
+                    .iter()
+                    .map(u8::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            println!(
+                "data area: {} blocks, {} bytes, {}",
+                layout.data_blocks.len(),
+                layout.data_len(),
+                if layout.read_only {
+                    "read-only"
+                } else if layout.writable {
+                    "read/write"
+                } else {
+                    "not writable"
+                }
+            );
+            for warning in &layout.warnings {
+                eprintln!("warning: {warning}");
+            }
+        }
+        None => println!("MAD: absent"),
+    }
+    match &info.ndef.state {
+        ClassicNdefState::Unformatted => println!("NDEF: unformatted"),
+        ClassicNdefState::Empty => println!("NDEF: empty, capacity {} bytes", info.ndef.capacity),
+        ClassicNdefState::Message(message) => println!(
+            "NDEF: {} record(s), {} / {} bytes",
+            message.records().len(),
+            info.ndef.message_bytes,
+            info.ndef.capacity
+        ),
+    }
 }
 
 const CONFIRMATION: &str = "I_OWN_THIS_CARD";
@@ -1429,6 +1602,14 @@ fn mock_service() -> Service {
     for (block, data) in classic_blocks {
         handle.set_block(block, data);
     }
+    let (ndef_card, ndef_blocks) = mock_classic_ndef_card();
+    let ndef_handle = transport.add(
+        DeviceInfo::new("Mock Classic NDEF 1K", "mock:classic-ndef"),
+        Some(ndef_card),
+    );
+    for (block, data) in ndef_blocks {
+        ndef_handle.set_block(block, data);
+    }
     let ntag = transport.add(
         DeviceInfo::new("Mock NTAG215", "mock:ntag215"),
         Some(CardInfo::new(
@@ -1449,6 +1630,68 @@ fn mock_service() -> Service {
     ntag.set_page(131, [0x00, 0x00, 0x00, 0xFF]);
     ntag.set_page(132, [0x00, 0x00, 0x00, 0x00]);
     Service::with_transport(Arc::new(transport))
+}
+
+fn mock_classic_ndef_card() -> (CardInfo, Vec<(u8, [u8; BLOCK_SIZE])>) {
+    let (card, mut blocks) = mock_classic_card();
+    let mad = Mad::blank(
+        Layout::Classic1K,
+        MadVersion::Mad1,
+        &(1..=15).collect::<Vec<_>>(),
+    )
+    .expect("blank MAD");
+    let mut by_block: std::collections::BTreeMap<u8, [u8; BLOCK_SIZE]> = blocks.drain(..).collect();
+    for (block, data) in mad.encode(Layout::Classic1K).expect("encode MAD") {
+        by_block.insert(block as u8, data);
+    }
+    let mut mad_trailer = [0xFF; BLOCK_SIZE];
+    mad_trailer[..6].copy_from_slice(&[0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5]);
+    mad_trailer[6..9].copy_from_slice(&[0x78, 0x77, 0x88]);
+    mad_trailer[9] = 0xC1;
+    by_block.insert(3, mad_trailer);
+    for sector in 1..=15u8 {
+        let mut trailer = [0xFF; BLOCK_SIZE];
+        trailer[..6].copy_from_slice(&[0xD3, 0xF7, 0xD3, 0xF7, 0xD3, 0xF7]);
+        trailer[6..9].copy_from_slice(&[0x7F, 0x07, 0x88]);
+        trailer[9] = 0x40;
+        by_block.insert(sector * 4 + 3, trailer);
+    }
+    let message = NdefMessage::single(
+        TextRecord::new("classic mock", "en")
+            .expect("text")
+            .to_record()
+            .expect("record"),
+    )
+    .expect("message");
+    let area = format_ndef_area(45 * BLOCK_SIZE).expect("area");
+    let area = nfc_classic_ndef::layout::encode_ndef_area(
+        &nfc_classic_ndef::ClassicNdefLayout {
+            sectors: (1..=15).collect(),
+            data_blocks: (1..=15)
+                .flat_map(|sector| {
+                    let first = sector * 4;
+                    first..first + 3
+                })
+                .collect(),
+            version: nfc_classic_ndef::MappingVersion::V1_0,
+            read_only: false,
+            writable: true,
+            warnings: Vec::new(),
+        },
+        &area,
+        &message,
+    )
+    .expect("NDEF area");
+    let mut offset = 0;
+    for sector in 1..=15u8 {
+        for block in sector * 4..sector * 4 + 3 {
+            let chunk: [u8; BLOCK_SIZE] =
+                area[offset..offset + BLOCK_SIZE].try_into().expect("block");
+            by_block.insert(block, chunk);
+            offset += BLOCK_SIZE;
+        }
+    }
+    (card, by_block.into_iter().collect())
 }
 
 fn mock_classic_card() -> (CardInfo, Vec<(u8, [u8; BLOCK_SIZE])>) {

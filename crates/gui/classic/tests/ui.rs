@@ -164,7 +164,7 @@ fn a_second_read_produces_a_diff(cx: &mut TestAppContext) {
         assert_eq!(diff.blocks[4].state, nfc_classic::DiffState::Changed);
     });
     cx.update_window(window_handle, |_, window, cx| {
-        window.click(1usize, cx);
+        window.click(2usize, cx);
     })
     .expect("open diff tab");
     settle(cx, window_handle);
@@ -187,7 +187,7 @@ fn keys_tab_adds_and_removes_a_key(cx: &mut TestAppContext) {
     settle(cx, window_handle);
 
     cx.update_window(window_handle, |_, window, cx| {
-        window.click(2usize, cx);
+        window.click(3usize, cx);
     })
     .expect("open keys tab");
     settle(cx, window_handle);
@@ -343,4 +343,138 @@ fn scans_keys_from_the_toolbar(cx: &mut TestAppContext) {
                 .is_some_and(|status| status.text.contains("Key scan"))
         );
     });
+}
+
+#[gpui_kit::test]
+fn ndef_format_then_write_round_trips(cx: &mut TestAppContext) {
+    let (service, handle) = mock_service();
+    let directory = tempfile::tempdir().expect("temp dir");
+    let (window_handle, view) = open(
+        cx,
+        service,
+        KeyStore::new(),
+        BackupStore::new(directory.path()),
+    );
+    settle(cx, window_handle);
+    cx.update_window(window_handle, |_, window, cx| {
+        window.click("classic-read", cx);
+    })
+    .expect("read");
+    settle(cx, window_handle);
+
+    cx.update_window(window_handle, |_, window, cx| {
+        window.click(1usize, cx);
+    })
+    .expect("open NDEF tab");
+    settle(cx, window_handle);
+    cx.update(|cx| {
+        let workspace = view.read(cx);
+        assert!(workspace.ndef().is_some(), "NDEF facts after read");
+        assert!(
+            workspace
+                .ndef()
+                .and_then(|info| info.layout.as_ref())
+                .is_none()
+        );
+    });
+
+    cx.update_window(window_handle, |_, window, cx| {
+        window.click("classic-ndef-format", cx);
+    })
+    .expect("open format dialog");
+    settle(cx, window_handle);
+    cx.update_window(window_handle, |_, window, cx| {
+        assert!(window.has_active_dialog(cx));
+        window.click("ok", cx);
+    })
+    .expect("confirm format");
+    settle(cx, window_handle);
+
+    cx.update(|cx| {
+        let workspace = view.read(cx);
+        let info = workspace.ndef().expect("NDEF facts");
+        assert_eq!(info.ndef.state, nfc_app::ClassicNdefState::Empty);
+        assert_eq!(
+            info.layout.as_ref().expect("layout").sectors,
+            (1..=15u8).collect::<Vec<_>>()
+        );
+        assert!(
+            workspace
+                .status()
+                .is_some_and(|status| status.text.contains("NDEF formatted"))
+        );
+    });
+    assert!(handle.block(3).expect("trailer")[..6] == [0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5]);
+
+    cx.update_window(window_handle, |_, window, cx| {
+        window.click("classic-ndef-text", cx);
+        window.input("hello classic", cx);
+        window.click("classic-ndef-write", cx);
+    })
+    .expect("write NDEF");
+    settle(cx, window_handle);
+
+    cx.update(|cx| {
+        let workspace = view.read(cx);
+        let info = workspace.ndef().expect("NDEF facts");
+        assert!(matches!(
+            info.ndef.state,
+            nfc_app::ClassicNdefState::Message(_)
+        ));
+        assert!(
+            workspace
+                .status()
+                .is_some_and(|status| status.text.contains("NDEF written and verified"))
+        );
+    });
+}
+
+#[gpui_kit::test]
+fn ndef_format_can_set_read_only(cx: &mut TestAppContext) {
+    let (service, handle) = mock_service();
+    let directory = tempfile::tempdir().expect("temp dir");
+    let (window_handle, view) = open(
+        cx,
+        service,
+        KeyStore::new(),
+        BackupStore::new(directory.path()),
+    );
+    settle(cx, window_handle);
+    cx.update_window(window_handle, |_, window, cx| {
+        window.click("classic-read", cx);
+    })
+    .expect("read");
+    settle(cx, window_handle);
+    cx.update_window(window_handle, |_, window, cx| {
+        window.click(1usize, cx);
+        window.click("classic-ndef-read-only", cx);
+    })
+    .expect("open NDEF and toggle read-only");
+    settle(cx, window_handle);
+    cx.update(|cx| assert!(view.read(cx).format_read_only()));
+
+    cx.update_window(window_handle, |_, window, cx| {
+        window.click("classic-ndef-format", cx);
+    })
+    .expect("open format dialog");
+    settle(cx, window_handle);
+    cx.update_window(window_handle, |_, window, cx| {
+        window.click("ok", cx);
+    })
+    .expect("confirm format");
+    settle(cx, window_handle);
+
+    cx.update(|cx| {
+        let workspace = view.read(cx);
+        assert!(
+            workspace
+                .ndef()
+                .and_then(|info| info.layout.as_ref())
+                .is_some_and(|layout| layout.read_only)
+        );
+    });
+    assert_eq!(
+        &handle.block(7).expect("trailer")[6..9],
+        &[0x07, 0x8F, 0x0F]
+    );
 }

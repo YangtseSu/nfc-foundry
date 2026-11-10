@@ -4,6 +4,7 @@ use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::{
     ActiveTheme, Disableable, Sizable,
     button::{Button, ButtonVariants as _},
+    checkbox::Checkbox,
     input::Input,
     radio::RadioGroup,
     tab::{Tab, TabBar},
@@ -14,7 +15,9 @@ use gpui_kit::{
     AnyElement, App, Context, FontWeight, IntoElement, Render, Role, SharedString, TestSupportExt,
     Window, div,
 };
+use nfc_app::ClassicNdefState;
 use nfc_classic::{AccessCondition, BlockStatus, KeyMask};
+use nfc_ndef::{NdefRecord, TextRecord, UriRecord};
 
 use crate::model::{StatusKind, WorkspaceTab};
 use crate::workspace::{ClassicWorkspace, hex};
@@ -189,6 +192,7 @@ impl ClassicWorkspace {
                     .underline()
                     .selected_index(self.tab.index())
                     .child(Tab::new().label("Blocks"))
+                    .child(Tab::new().label("NDEF"))
                     .child(Tab::new().label(format!("Diff ({diff_count})")))
                     .child(Tab::new().label(format!("Keys ({})", self.keys.len())))
                     .on_click(move |index, _, cx| {
@@ -203,9 +207,201 @@ impl ClassicWorkspace {
     fn render_content(&self, cx: &mut Context<Self>) -> AnyElement {
         match self.tab {
             WorkspaceTab::Blocks => self.render_blocks(cx),
+            WorkspaceTab::Ndef => self.render_ndef(cx),
             WorkspaceTab::Diff => self.render_diff(cx),
             WorkspaceTab::Keys => self.render_keys(cx),
         }
+    }
+
+    fn render_ndef(&self, cx: &mut Context<Self>) -> AnyElement {
+        let Some(dump) = &self.dump else {
+            return empty_state(
+                "No card image",
+                "Read a MIFARE Classic card or load a dump file.",
+                cx,
+            );
+        };
+        let mut content = v_flex()
+            .id("classic-ndef-scroll")
+            .gap_3()
+            .p_4()
+            .overflow_y_scroll();
+        content = content.child(
+            h_flex()
+                .gap_3()
+                .items_center()
+                .flex_wrap()
+                .child(div().text_lg().child("Classic NDEF"))
+                .child(muted(format!("{} · current image", dump.layout.name()), cx)),
+        );
+
+        if let Some(error) = &self.ndef_error {
+            content = content.child(muted(
+                format!("The NDEF mapping could not be parsed: {error}"),
+                cx,
+            ));
+        }
+
+        let writable = self
+            .ndef
+            .as_ref()
+            .and_then(|info| info.layout.as_ref())
+            .is_some_and(|layout| layout.writable && !layout.read_only);
+        let formatted = self.ndef.as_ref().is_some_and(|info| {
+            info.layout
+                .as_ref()
+                .is_some_and(|layout| !layout.sectors.is_empty())
+        });
+        let read_only = self
+            .ndef
+            .as_ref()
+            .and_then(|info| info.layout.as_ref())
+            .is_some_and(|layout| layout.read_only);
+
+        if let Some(info) = &self.ndef {
+            match &info.layout {
+                Some(layout) => {
+                    content = content.child(info_block(
+                        "Mapping",
+                        format!(
+                            "version {}.{} · {} NFC sector(s) · {} data block(s), {} bytes · {}",
+                            layout.version.major,
+                            layout.version.minor,
+                            layout.sectors.len(),
+                            layout.data_blocks.len(),
+                            layout.data_len(),
+                            if layout.read_only {
+                                "read-only"
+                            } else if layout.writable {
+                                "read/write"
+                            } else {
+                                "not writable"
+                            }
+                        ),
+                        cx,
+                    ));
+                    content = content.child(info_block(
+                        "NFC sectors",
+                        layout
+                            .sectors
+                            .iter()
+                            .map(u8::to_string)
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                        cx,
+                    ));
+                    for warning in &layout.warnings {
+                        content = content.child(muted(format!("Warning: {warning}"), cx));
+                    }
+                }
+                None => {
+                    content = content.child(muted(
+                        "No MAD is present. Format the card to create MAD1/MAD2 and NFC sectors.",
+                        cx,
+                    ));
+                }
+            }
+
+            match &info.ndef.state {
+                ClassicNdefState::Unformatted => {
+                    content = content.child(muted(
+                        "No mandatory NDEF Message TLV. Format the card first.",
+                        cx,
+                    ));
+                }
+                ClassicNdefState::Empty => {
+                    content = content.child(muted(
+                        format!(
+                            "Empty NDEF Message TLV · {} bytes of capacity",
+                            info.ndef.capacity
+                        ),
+                        cx,
+                    ));
+                }
+                ClassicNdefState::Message(message) => {
+                    let mut records = v_flex().gap_1();
+                    for (index, record) in message.records().iter().enumerate() {
+                        records = records.child(ndef_record_row(index, record, cx));
+                    }
+                    content = content
+                        .child(section("Records", cx))
+                        .child(records)
+                        .child(muted(
+                            format!(
+                                "{} / {} bytes used · TLV at byte {} · length field {} byte(s)",
+                                info.ndef.message_bytes,
+                                info.ndef.capacity,
+                                info.ndef.tlv_offset,
+                                info.ndef.length_field_bytes
+                            ),
+                            cx,
+                        ));
+                }
+            }
+        }
+
+        content = content
+            .child(section("Write Text record", cx))
+            .child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .flex_wrap()
+                    .child(Input::new(&self.ndef_text_input).id("classic-ndef-text").w_96())
+                    .child(
+                        Input::new(&self.ndef_language_input)
+                            .id("classic-ndef-language")
+                            .w_32(),
+                    )
+                    .child(
+                        Button::new("classic-ndef-write")
+                            .primary()
+                            .label("Write NDEF")
+                            .disabled(
+                                self.busy.is_some() || !writable || !formatted,
+                            )
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.write_ndef(window, cx);
+                            })),
+                    ),
+            )
+            .child(section("Format", cx))
+            .child(
+                h_flex()
+                    .gap_3()
+                    .items_center()
+                    .flex_wrap()
+                    .child(
+                        Checkbox::new("classic-ndef-read-only")
+                            .checked(self.format_read_only)
+                            .label("Read-only after format")
+                            .on_click(cx.listener(|this, checked, _, cx| {
+                                this.format_read_only = *checked;
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        Button::new("classic-ndef-format")
+                            .danger()
+                            .label("Format…")
+                            .disabled(self.busy.is_some() || read_only)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.confirm_format(window, cx);
+                            })),
+                    ),
+            )
+            .child(muted(
+                "Formatting rewrites every NFC sector and the MAD, then changes sector keys and access bits. A backup is written first.",
+                cx,
+            ));
+
+        if read_only {
+            content = content.child(muted(
+                "This tag is read-only for NDEF; writes and reformatting are blocked.",
+                cx,
+            ));
+        }
+        content.into_any_element()
     }
 
     fn render_blocks(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -624,6 +820,38 @@ impl ClassicWorkspace {
             )
             .into_any_element()
     }
+}
+
+fn ndef_record_row(index: usize, record: &NdefRecord, cx: &App) -> AnyElement {
+    let detail = if let Ok(text) = TextRecord::from_record(record) {
+        format!(
+            "{} · text {:?} · language {}",
+            index, text.text, text.language
+        )
+    } else if let Ok(uri) = UriRecord::from_record(record) {
+        format!("{} · uri {}", index, uri.uri)
+    } else {
+        format!(
+            "{} · {:?} · type {} · payload {}",
+            index,
+            record.tnf(),
+            hex(record.record_type()),
+            hex(record.payload())
+        )
+    };
+    div()
+        .id(("classic-ndef-record", index))
+        .test_support()
+        .child(mono(detail, cx))
+        .into_any_element()
+}
+
+fn info_block(title: &'static str, value: String, cx: &App) -> AnyElement {
+    v_flex()
+        .gap_1()
+        .child(label(title))
+        .child(mono(value, cx))
+        .into_any_element()
 }
 
 fn diff_detail(block: &nfc_classic::BlockDiff, cx: &App) -> AnyElement {

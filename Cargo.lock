@@ -4503,6 +4503,7 @@ dependencies = [
  "nfc-app",
  "nfc-classic",
  "nfc-core",
+ "nfc-ndef",
  "nfc-transport",
  "tempfile",
 ]
@@ -4512,8 +4513,9 @@ name = "nfc-classic-ndef"
 version = "0.1.0"
 dependencies = [
  "nfc-classic",
+ "nfc-core",
  "nfc-ndef",
- "nfc-transport",
+ "proptest",
 ]
 
 [[package]]
@@ -4609,6 +4611,7 @@ dependencies = [
  "clap",
  "nfc-app",
  "nfc-classic",
+ "nfc-classic-ndef",
  "nfc-core",
  "nfc-drivers",
  "nfc-ndef",

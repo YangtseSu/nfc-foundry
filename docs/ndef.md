@@ -8,7 +8,7 @@ Classic block editor or the Type 2 page editor.
 ```text
 nfc-ndef            message/record/TLV/templates; no hardware
 nfc-type2           pages, CC, locks, config, NDEF TLV adapter
-nfc-classic-ndef    MAD, Classic CC, NDEF sectors, format
+nfc-classic-ndef    MAD, GPB mapping/access, NDEF sectors, format
 nfc-type4           ISO-DEP/APDU NDEF adapter (later)
 nfc-app             read/write/format workflows and safety gates
 ```
@@ -91,20 +91,29 @@ Safety:
 
 ## MIFARE Classic NDEF
 
-Cover:
+Implemented in `nfc-classic-ndef`:
 
-- MAD1 and MAD2 detection.
-- Capability Container in the MAD sector.
-- NDEF sector mapping and capacity.
-- Access-bit checks before write/format.
-- Blank-card format and read-only state.
+- MAD1 in sector 0 and MAD2 in sectors 0 and 16, with CRC-8/MIFARE-MAD.
+- NFC AID `03 E1`, contiguous NFC sectors, and the MAD2 sector-16 exception.
+- Mapping version and read/write access from each NFC sector GPB. The Classic
+  mapping has no capability-container record; the GPB is the capability.
+- Classic TLV framing and the mandatory NDEF Message TLV with capacity and
+  offset reporting.
+- Data-area encoding that preserves leading proprietary TLVs and writes the
+  Terminator; `03 00 FE` for a formatted empty area.
+- Read-only state from GPB access condition `11b` and access bits
+  `07 8F 0F`.
+- Blank format with MAD1 (1K) or MAD2 (4K), public NFC Key A, and read/write
+  or read-only sector trailers.
 
 Safety:
 
-- Format is Advanced and backed up.
-- Never write NDEF if the mapping is malformed or the sector access conditions
-  do not permit it.
-- Verify every written block/trailer by read-back.
+- Format is confirmed, backed up, complete-read-only, and verified.
+- Never write NDEF if the mapping is malformed, non-contiguous, partially
+  readable, read-only, or the current access bits do not permit the write.
+- Write the NDEF length field as zero, then the value and Terminator, then the
+  final length; verify every written block by read-back.
+- Never write manufacturer block 0 or a trailer during an NDEF message write.
 
 ## Type 4
 
@@ -132,7 +141,8 @@ GPUI Kit feature crates:
 - `gui/type2`: page table, CC, lock/config inspector, protection actions, and
   the Text/records NDEF view. Its NDEF view replaces the earlier separate
   `gui/ndef` plan until a second family needs shared editor components.
-- `gui/classic`: Classic NDEF view remains phase 10.
+- `gui/classic`: Blocks, NDEF, Diff, and Keys tabs; the NDEF tab shows the
+  Classic mapping and records and exposes Text write and confirmed format.
 
 Use `DataTable` for memory, `TextArea`/`Input` for records, `Select` for
 templates, `AlertDialog` for destructive actions, and `Diff` for before/after
@@ -146,4 +156,6 @@ payload comparison.
 - Unknown TLV preservation.
 - Lock/config transitions and read-only enforcement.
 - Malformed messages and error locations.
-- NDEF round trips on NTAG215/ACR122U and Classic 1K/ACR122U.
+- NDEF round trips on NTAG215/ACR122U and Classic 1K/PN532 UART. The Classic
+  1K/PN532 UART round trip passed on 2026-11-10; the ACR122U Classic record
+  remains pending.

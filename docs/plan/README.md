@@ -14,7 +14,7 @@ Status legend: `done`, `in progress`, `pending`, `optional`.
 | 07 | Native hardnested and FM11RF08S/static encrypted | done |
 | 08 | NDEF core: records, TLV, templates, validation | done |
 | 09 | Type 2 / NTAG read/write/NDEF + GUI | in progress |
-| 10 | Classic NDEF: MAD/CC/format + GUI | pending |
+| 10 | Classic NDEF: MAD/GPB/format + GUI | done |
 | 11 | Type 4 / ISO-DEP NDEF adapter | optional |
 | 12 | Packaging, CI, hardware certification, release | pending |
 
@@ -268,7 +268,8 @@ ACR122U variant remains to be recorded. See `docs/specs/09-type2-ndef.md` and
 
 Deliver:
 
-- MAD1/MAD2 detection, CC parsing, NDEF sector mapping.
+- MAD1/MAD2 detection, GPB mapping-version/access parsing, NDEF sector
+  mapping.
 - Classic NDEF read/write/format with access-bit checks.
 - CLI and GPUI Kit Classic NDEF view.
 
@@ -277,6 +278,19 @@ Acceptance:
 - Blank Classic 1K format + NDEF write/read on hardware.
 - No NDEF write to read-only or malformed mappings.
 - Backup and read-back verification.
+
+Status: complete. The Classic mapping has no capability-container record; the
+MAD and per-sector GPB supply the mapping version and access conditions.
+`nfc-classic-ndef` implements MAD1/MAD2, CRC validation, NFC sector mapping,
+TLV framing, and area encoding. `nfc-app` adds confirmed format, NDEF write,
+backups, key/access preflight, and read-back verification. `nfctl classic ndef
+info|read|write|format` and the GPUI Classic NDEF tab share those services.
+Unit, workflow, CLI, property, and UI tests pass. On 2026-11-10 the PN532 UART
+path formatted a blank Classic 1K (UID `6A 31 5E 28`), wrote and read back a
+Text record, restored the original dump with zero failures, and matched the
+pre-test dump byte-for-byte. The ACR122U Classic NDEF record remains pending
+because no ACR122U was connected. See `docs/specs/10-classic-ndef.md` and
+`docs/notes/10-classic-ndef.md`.
 
 ### 11: Type 4 NDEF (optional)
 

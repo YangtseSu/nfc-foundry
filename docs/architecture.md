@@ -35,7 +35,7 @@ application shell, or a sibling feature.
 | `nfc-recover` | Crypto1, darkside, nested, staticnested, hardnested, FM11RF08S, auto | via transport |
 | `nfc-ndef` | NDEF message/record, TLV, templates, validation | no |
 | `nfc-type2` | Type 2 / NTAG pages, CC, lock/config, NDEF TLV adapter | via transport |
-| `nfc-classic-ndef` | MAD1/MAD2, Classic CC, NDEF sectors, format | via transport |
+| `nfc-classic-ndef` | MAD1/MAD2, GPB mapping/access, NDEF sectors, format | no |
 | `nfc-type4` | ISO-DEP/APDU NDEF adapter (later) | via transport |
 | `nfc-app` | Device manager, exclusive operations, Classic and Type 2 workflows, key store, backups | via transport |
 | `nfctl` | English-only CLI and JSON contract | via `nfc-app` |
@@ -225,8 +225,9 @@ Classic block geometry and NDEF are separate models:
 - `nfc-ndef` knows messages, records, TLVs, and templates; it has no card
   knowledge.
 - `nfc-type2` maps NDEF TLVs onto Type 2 pages and CC/locks.
-- `nfc-classic-ndef` maps NDEF TLVs onto MAD/NDEF sectors and access
-  conditions.
+- `nfc-classic-ndef` maps NDEF TLVs onto MAD1/MAD2, NFC sectors, and the
+  per-sector GPB mapping version/access conditions. Classic has no capability
+  container; the GPB is its capability descriptor.
 - `nfc-app` composes family-specific workflows from these crates.
 
 This keeps NDEF testable without a reader and prevents a Classic page editor
@@ -334,7 +335,8 @@ The shell switches between the Classic and Type 2 workspaces over the same
 `nfc-app` services on a background executor.
 
 The Classic workspace is one window with a reader header, card/file toolbar,
-Blocks/Diff/Keys tabs, a block table, and a block inspector:
+Blocks/NDEF/Diff/Keys tabs, a block table, a block inspector, and a Classic NDEF
+view with mapping facts, records, Text write, and confirmed format:
 
 - `RenderOnce` for value-like presentation.
 - `Entity<T>` for input, tables, scrolling, focus, and async state.

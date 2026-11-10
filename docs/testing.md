@@ -40,6 +40,9 @@ Required gates:
   phase 04 workflow test changes one ordinary data block temporarily and writes
   the original back.
 - `NFCX_HARDWARE_RECOVERY=I_OWN_THIS_CARD`: allow active recovery testing.
+- `NFCX_HARDWARE_NDEF_FORMAT=I_OWN_THIS_CARD`: allow the Classic NDEF
+  format/write/restore hardware round trip. It also requires
+  `NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD`.
 - `NFCX_HARDWARE_BACKUP_DIR`: preserve backups.
 
 The PN532 read test is ignored unless selected:
@@ -105,6 +108,37 @@ mock NTAG215. `nfc-type2-gui` covers page selection, NDEF write/format,
 Advanced confirmation, lock typed confirmation, and protection controls. Driver
 unit tests assert the Type 2 READ CRC (`30 04 26 EE`) and raw-mode restoration
 for both transports.
+
+The phase 10 Classic NDEF tests are hardware-free. `nfc-classic-ndef` covers
+MAD1/MAD2 and CRC vectors, NFC AIDs, contiguity, GPB mapping version and
+read-only state, TLV framing/capacity, long messages, leading proprietary TLV
+preservation, and partial data areas. `nfc-app` adds scripted 1K and 4K format,
+NDEF write/read, confirmation, complete-read enforcement, Key B preservation,
+read-only refusal, unformatted refusal, and malformed MAD tests. `nfctl`
+exercises `classic ndef info|read|write|format`, and the GPUI Classic workspace
+covers format, NDEF write, and read-only format.
+
+The gated Classic NDEF hardware test lives in
+`nfctl/tests/hardware_classic_ndef.rs`. The read-only check needs a Classic
+card:
+
+```sh
+NFCX_HARDWARE=1 \
+NFCX_DEVICE=pn532_uart:/dev/ttyUSB0 \
+cargo test -p nfctl --features hardware -- --ignored
+```
+
+The format/write/read/restore round trip requires both write tokens and restores
+the original dump afterwards. It passed on PN532 UART on 2026-11-10 with a
+blank Classic 1K, UID `6A 31 5E 28`; the restored dump matched byte-for-byte:
+
+```sh
+NFCX_HARDWARE=1 \
+NFCX_DEVICE=pn532_uart:/dev/ttyUSB0 \
+NFCX_HARDWARE_WRITE=I_OWN_THIS_CARD \
+NFCX_HARDWARE_NDEF_FORMAT=I_OWN_THIS_CARD \
+cargo test -p nfctl --features hardware-write -- --ignored
+```
 
 The gated Type 2 hardware tests live in `nfctl/tests/hardware_type2.rs`. The
 read-only check needs a Type 2 tag:

@@ -5,8 +5,9 @@ use nfc_transport::{DeviceInfo, Transport};
 
 use crate::classic::{
     BackupRecord, BackupStore, ClassicBlockWrite, ClassicKeyscan, ClassicKeyscanResult,
-    ClassicRead, ClassicReadResult, ClassicRestore, ClassicRestoreResult, ClassicWriteResult,
-    KeyStore,
+    ClassicNdefFormat, ClassicNdefFormatResult, ClassicNdefRead, ClassicNdefReadResult,
+    ClassicNdefWrite, ClassicNdefWriteResult, ClassicRead, ClassicReadResult, ClassicRestore,
+    ClassicRestoreResult, ClassicWriteResult, KeyStore,
 };
 use crate::device::DeviceManager;
 use crate::operation::{Operation, OperationKind};
@@ -94,6 +95,44 @@ impl Service {
         let cancel = request.cancel.clone();
         let mut operation = self.begin_operation(OperationKind::Write, cancel)?;
         crate::classic::restore::restore(&mut operation, request)
+    }
+
+    /// Reads the card and parses the MAD, NFC sector map, and NDEF TLV.
+    pub fn classic_ndef_read(
+        &mut self,
+        request: ClassicNdefRead<'_>,
+    ) -> Result<ClassicNdefReadResult> {
+        let cancel = request.cancel.clone();
+        let mut operation = self.begin_operation(OperationKind::Read, cancel)?;
+        crate::classic::ndef::read(&mut operation, request)
+    }
+
+    /// Parses a Classic dump without reading hardware.
+    pub fn classic_ndef_inspect(
+        &self,
+        dump: &nfc_classic::Dump,
+    ) -> Result<nfc_classic_ndef::ClassicNdefInfo> {
+        crate::classic::ndef::inspect(dump)
+    }
+
+    /// Writes the mandatory NDEF Message TLV with a backup and verification.
+    pub fn classic_ndef_write(
+        &mut self,
+        request: ClassicNdefWrite<'_>,
+    ) -> Result<ClassicNdefWriteResult> {
+        let cancel = request.cancel.clone();
+        let mut operation = self.begin_operation(OperationKind::Write, cancel)?;
+        crate::classic::ndef::write(&mut operation, request)
+    }
+
+    /// Formats the MAD and NFC sectors with a backup and confirmation.
+    pub fn classic_ndef_format(
+        &mut self,
+        request: ClassicNdefFormat<'_>,
+    ) -> Result<ClassicNdefFormatResult> {
+        let cancel = request.cancel.clone();
+        let mut operation = self.begin_operation(OperationKind::Write, cancel)?;
+        crate::classic::ndef::format(&mut operation, request)
     }
 
     /// Scans candidate keys per sector. Authentication and trailer reads are

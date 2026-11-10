@@ -9,7 +9,9 @@ dependency of this project.
 
 ## Status
 
-**Phase 09 implementation complete; ACR122U Type 2 hardware record pending.**
+**Phase 10 complete: the Classic 1K NDEF format/write/read/restore round trip
+passed on PN532 UART. The ACR122U record and the ACR122U Type 2 record remain
+pending.**
 Both first-release readers are implemented: PN532 UART
 and ACR122U direct USB/CCID. The ACR122U path claims the CCID interface with
 `nusb`, carries PN532 commands in the ACR122 pseudo-APDU, and supports
@@ -45,7 +47,13 @@ workspace share the `nfc-app` services, with backups, read-back verification,
 and typed confirmations for one-way locks and configuration. A PN532 UART
 NTAG215 read plus authorized NDEF write/read/restore round trip is recorded for
 2026-11-10; the ACR122U record and lock/password paths remain pending. The read
-path was validated earlier on both readers. Classic NDEF follows in phase 10.
+path was validated earlier on both readers. Classic NDEF maps NDEF onto MAD1,
+MAD2, and NFC sectors: the adapter parses the directory and per-sector GPB,
+reads and writes the mandatory NDEF Message TLV with access checks, and formats
+a blank card after a typed confirmation and backup. `nfctl classic ndef` and
+the Classic workspace NDEF tab share the same services. The Classic mapping
+has no capability-container record; the GPB carries the mapping version and
+access state.
 
 ## Product scope
 
@@ -148,6 +156,14 @@ cargo run -p nfctl -- --mock --device mock:classic-1k \
 cargo run -p nfctl -- --mock --device mock:classic-1k classic keyscan
 ```
 
+The mock Classic NDEF 1K carries a valid MAD1 image and a Text record:
+
+```sh
+cargo run -p nfctl -- --mock --device mock:classic-ndef classic ndef info
+cargo run -p nfctl -- --mock --device mock:classic-ndef classic ndef read
+cargo run -p nfctl -- --mock --device mock:classic-ndef classic ndef write --text hello
+```
+
 The mock NTAG215 carries a complete 135-page NTAG215 image with an empty NDEF
 TLV:
 
@@ -239,6 +255,21 @@ and read-back verification. The ACR122U write record, one-way locks, and
 password configuration still need the hardware record described in
 [Testing](docs/testing.md).
 
+Classic NDEF commands use the same readers:
+
+```sh
+cargo run -p nfctl -- --device pn532_uart:/dev/ttyUSB0 classic ndef info
+cargo run -p nfctl -- --device pn532_uart:/dev/ttyUSB0 classic ndef write --text hello
+cargo run -p nfctl -- --device pn532_uart:/dev/ttyUSB0 \
+  classic ndef format --confirm I_OWN_THIS_CARD
+```
+
+Formatting replaces sector keys and access bits on every NFC sector. On
+2026-11-10 the PN532 UART path formatted a blank Classic 1K (UID `6A 31 5E 28`),
+wrote and read back a Text record, restored the original dump with zero
+failures, and matched the pre-test dump byte-for-byte. The ACR122U record is
+still pending because no ACR122U was connected.
+
 ## GUI
 
 The GPUI Kit shell switches between the Classic and Type 2 workspaces:
@@ -249,7 +280,9 @@ cargo run -p nfc-foundry
 
 The Classic workspace provides reader selection, card read, dump save/load,
 restore with confirmation, block write with trailer confirmation, key scan, key
-store management, a block inspector, and a two-dump diff. The Type 2 workspace
+store management, a block inspector, a two-dump diff, and a Classic NDEF tab
+with mapping facts, record display, Text writes, and a confirmed format action.
+The Type 2 workspace
 provides a page table and inspector, verified user-page writes, dump
 save/load/restore, Text NDEF write and format, and protection actions with
 typed confirmation. All operations use the same `nfc-app` services and safety

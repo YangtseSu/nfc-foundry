@@ -14,10 +14,15 @@ pub mod type2;
 
 pub use classic::{
     BackupRecord, BackupStore, ClassicBlockWrite, ClassicKeyscan, ClassicKeyscanResult,
-    ClassicRead, ClassicReadResult, ClassicRestore, ClassicRestoreResult, ClassicWriteResult,
-    KeyEntry, KeyKind, KeySource, KeyStore, KeyTypes, SectorKeys,
+    ClassicNdefFormat, ClassicNdefFormatResult, ClassicNdefRead, ClassicNdefReadResult,
+    ClassicNdefWrite, ClassicNdefWriteResult, ClassicRead, ClassicReadResult, ClassicRestore,
+    ClassicRestoreResult, ClassicWriteResult, KeyEntry, KeyKind, KeySource, KeyStore, KeyTypes,
+    SectorKeys,
 };
 pub use device::DeviceManager;
+pub use nfc_classic_ndef::{
+    ClassicNdefInfo, ClassicNdefLayout, MappingVersion, NdefState as ClassicNdefState,
+};
 pub use operation::{Operation, OperationKind};
 pub use service::Service;
 pub use type2::{
