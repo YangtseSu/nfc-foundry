@@ -24,7 +24,6 @@ jobs:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy, rustfmt
           targets: x86_64-unknown-linux-gnu
       - uses: Swatinem/rust-cache@v2.9.3
       - name: Install native build dependencies
@@ -58,12 +57,6 @@ jobs:
             exit 1
           fi
           echo "version=$version" >>"$GITHUB_OUTPUT"
-
-      - name: Checks
-        run: make fmt-check clippy test gui-check
-
-      - name: REUSE
-        uses: fsfe/reuse-action@v6
 
       - name: Build Linux amd64 binaries
         run: |

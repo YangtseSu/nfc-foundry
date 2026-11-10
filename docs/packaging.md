@@ -165,10 +165,11 @@ a bundled file; the expression names the license text to resolve.
 
 `.github/workflows/release.yml` runs on `v*` tags and on manual dispatch. It
 uses Ubuntu 26.04, installs the native build dependencies, verifies that the
-tag matches `Cargo.toml`, runs the checks, builds only
-`x86_64-unknown-linux-gnu`, creates the binary tarball, license bundle, and
-source archive, writes `SHA256SUMS`, and uploads the assets. A tag build
-publishes them to the GitHub release.
+tag matches `Cargo.toml`, builds only `x86_64-unknown-linux-gnu`, creates the
+binary tarball, license bundle, and source archive, writes `SHA256SUMS`, and
+uploads the assets. A tag build publishes them to the GitHub release. It does
+not re-run the check suite; branch and pull-request checks are handled by
+`check.yml`, and `check.yml` does not run on tag pushes.
 
 The workflow contains no Arch Linux, `makepkg`, or AUR step. The AUR package in
 `packaging/aur` is maintained for the AUR release path and is validated there,

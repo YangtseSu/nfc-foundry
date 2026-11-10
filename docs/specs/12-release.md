@@ -97,10 +97,13 @@ the `nfc-foundry-<version>/` prefix. It includes `Cargo.lock`,
 
 1. install the Linux build dependencies on Ubuntu 26.04;
 2. resolve the version and require `v<version>` to equal the tag;
-3. run `make fmt-check clippy test gui-check` and `reuse lint`;
-4. build only the `x86_64-unknown-linux-gnu` target;
-5. create the binary tarball, dependency license bundle, and source archive;
-6. upload the assets; a tag build publishes them to the GitHub release.
+3. build only the `x86_64-unknown-linux-gnu` target;
+4. create the binary tarball, dependency license bundle, and source archive;
+5. upload the assets; a tag build publishes them to the GitHub release.
+
+The release workflow does not re-run formatters, clippy, tests, or REUSE.
+`check.yml` runs that suite on branches and pull requests and does not run on
+tag pushes.
 
 The workflow contains no Arch Linux, `makepkg`, or AUR step. The AUR package is
 maintained for the AUR release path outside GitHub CI.
