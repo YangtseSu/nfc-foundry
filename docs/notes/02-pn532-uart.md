@@ -127,8 +127,9 @@ Date: 2026-11-09
   details. The rule to verify the reference path before reporting a hardware
   blocker is now in `AGENTS.md` and `docs/testing.md`.
 - `serialport::available_ports` cannot distinguish a PN532 from another UART
-  device without opening it. The driver lists every serial port as a candidate
-  and validates the firmware only after exact selection.
+  device without opening it. The driver lists serial ports as candidates, with
+  USB serial adapters first, and validates the firmware only after exact
+  selection.
 
 ## Deviations
 
@@ -137,8 +138,13 @@ Date: 2026-11-09
   from `CIU_Control`.
 - `Pn532Uart::cycle_rf_field` is a PN532-specific utility outside the `Reader`
   trait. It is used to return a selected card to IDLE before raw frames.
-- Enumeration does not filter platform `ttyS*` ports. Filtering by port type
-  would hide GPIO/UART adapters that can legitimately carry a PN532.
+- Enumeration skips legacy `ttyS*` nodes whose sysfs `type` is 0: the kernel
+  creates those nodes for every possible 8250 UART even when no hardware is
+  present. The check reads sysfs only and does not open the port. Detectable
+  UARTs, PCI/PNP ports, and GPIO adapters stay listed, and USB serial adapters
+  sort first so automatic selection picks the adapter the user plugged in.
+- A serial open that fails with `PermissionDenied` appends the group hint
+  (`uucp` on Arch, `dialout` on Debian) to the error detail.
 - Reconnection is manual: a failed open or I/O error is reported, and the next
   operation retries only after the manager releases the reader.
 - No cross-process reader lock is added in this phase.

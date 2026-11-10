@@ -27,7 +27,17 @@ impl SerialLink {
             .flow_control(serialport::FlowControl::None)
             .timeout(timeout)
             .open()
-            .map_err(|error| NfcError::Io(format!("cannot open serial port {path}: {error}")))?;
+            .map_err(|error| {
+                let hint = if matches!(
+                    error.kind(),
+                    serialport::ErrorKind::Io(io::ErrorKind::PermissionDenied)
+                ) {
+                    "; add the user to the serial group (uucp on Arch, dialout on Debian) or fix the device permissions"
+                } else {
+                    ""
+                };
+                NfcError::Io(format!("cannot open serial port {path}: {error}{hint}"))
+            })?;
         Ok(Self { port })
     }
 }

@@ -58,18 +58,13 @@ impl Pn532Uart {
         self.protocol()?.cycle_rf_field()
     }
 
-    /// List every serial port as a PN532 candidate. A UART adapter cannot be
-    /// identified as a PN532 without opening it, so selection stays explicit.
+    /// List serial ports as PN532 candidates with USB adapters first. A UART
+    /// adapter cannot be identified as a PN532 without opening it, so
+    /// selection stays explicit.
     pub fn enumerate() -> Result<Vec<DeviceInfo>> {
         let ports = serialport::available_ports()
             .map_err(|error| NfcError::Io(format!("serial port enumeration failed: {error}")))?;
-        let mut devices: Vec<DeviceInfo> = ports
-            .into_iter()
-            .map(|port| port_device(&port.port_name))
-            .collect();
-        devices.sort_by(|left, right| left.conn_string.cmp(&right.conn_string));
-        devices.dedup_by(|left, right| left.conn_string == right.conn_string);
-        Ok(devices)
+        Ok(candidates(ports))
     }
 
     fn open_path(conn_string: &str) -> Result<&str> {
@@ -95,6 +90,53 @@ impl Pn532Uart {
 
 fn port_device(port_name: &str) -> DeviceInfo {
     DeviceInfo::new(READER_NAME, format!("{PN532_UART_PREFIX}{port_name}"))
+}
+
+/// Convert enumerated ports into candidates, dropping legacy UART nodes with
+/// no detected hardware and ordering USB serial adapters first. Sorting is
+/// stable by connstring within each group so the automatic selection is
+/// deterministic.
+fn candidates(ports: Vec<serialport::SerialPortInfo>) -> Vec<DeviceInfo> {
+    let mut candidates: Vec<(bool, DeviceInfo)> = ports
+        .into_iter()
+        .filter(|port| !is_unbacked_legacy_uart(&port.port_name))
+        .map(|port| {
+            let usb = matches!(port.port_type, serialport::SerialPortType::UsbPort(_));
+            (usb, port_device(&port.port_name))
+        })
+        .collect();
+    candidates.sort_by(|(left_usb, left), (right_usb, right)| {
+        right_usb
+            .cmp(left_usb)
+            .then_with(|| left.conn_string.cmp(&right.conn_string))
+    });
+    candidates.dedup_by(|(_, left), (_, right)| left.conn_string == right.conn_string);
+    candidates.into_iter().map(|(_, device)| device).collect()
+}
+
+/// Legacy `/dev/ttyS*` nodes exist for every possible 8250 UART whether or not
+/// the machine has the port. The kernel reports `type` 0 (`PORT_UNKNOWN`) for
+/// those placeholders; a detected UART reports its real type. Checking sysfs
+/// keeps enumeration read-only instead of probing by opening the port.
+#[cfg(target_os = "linux")]
+fn is_unbacked_legacy_uart(port_name: &str) -> bool {
+    let Some(name) = std::path::Path::new(port_name)
+        .file_name()
+        .and_then(|name| name.to_str())
+    else {
+        return false;
+    };
+    if !name.starts_with("ttyS") {
+        return false;
+    }
+    std::fs::read_to_string(format!("/sys/class/tty/{name}/type"))
+        .map(|value| value.trim() == "0")
+        .unwrap_or(false)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn is_unbacked_legacy_uart(_port_name: &str) -> bool {
+    false
 }
 
 impl Reader for Pn532Uart {
@@ -229,6 +271,52 @@ mod tests {
         assert_eq!(
             port_device("ttyAMA0"),
             DeviceInfo::new(READER_NAME, "pn532_uart:ttyAMA0")
+        );
+    }
+
+    fn usb_port(port_name: &str) -> serialport::SerialPortInfo {
+        serialport::SerialPortInfo {
+            port_name: port_name.to_owned(),
+            port_type: serialport::SerialPortType::UsbPort(serialport::UsbPortInfo {
+                vid: 0x1A86,
+                pid: 0x7523,
+                serial_number: None,
+                manufacturer: None,
+                product: None,
+            }),
+        }
+    }
+
+    fn other_port(
+        port_name: &str,
+        port_type: serialport::SerialPortType,
+    ) -> serialport::SerialPortInfo {
+        serialport::SerialPortInfo {
+            port_name: port_name.to_owned(),
+            port_type,
+        }
+    }
+
+    #[test]
+    fn usb_serial_candidates_sort_first() {
+        let devices = candidates(vec![
+            other_port("/dev/ttyAMA0", serialport::SerialPortType::Unknown),
+            usb_port("/dev/ttyUSB1"),
+            usb_port("/dev/ttyACM0"),
+            other_port("/dev/ttyAMA1", serialport::SerialPortType::PciPort),
+        ]);
+        let conn_strings: Vec<_> = devices
+            .iter()
+            .map(|device| device.conn_string.as_str())
+            .collect();
+        assert_eq!(
+            conn_strings,
+            [
+                "pn532_uart:/dev/ttyACM0",
+                "pn532_uart:/dev/ttyUSB1",
+                "pn532_uart:/dev/ttyAMA0",
+                "pn532_uart:/dev/ttyAMA1",
+            ]
         );
     }
 

@@ -13,7 +13,8 @@ added in this phase.
 ## Deliverables
 
 - `nfc-drivers::pn532_uart`:
-  - serial port enumeration as `pn532_uart:<port>` candidates;
+  - serial port enumeration as `pn532_uart:<port>` candidates, with USB
+    serial adapters first and unresolved legacy `ttyS*` placeholders skipped;
   - serial open at 115200 8N1 with configurable read timeouts;
   - PN532 normal and extended frame encoding/decoding, ACK, NACK, application
     error frame, checksum validation, and junk resynchronization;

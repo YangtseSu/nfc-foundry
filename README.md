@@ -218,9 +218,10 @@ cargo run -p nfctl -- --mock --device mock:ntag215 type2 dump --output ntag.json
 
 ## Hardware reader
 
-Device selection is always an exact connstring. `nfctl list` reports every
-serial port as a `pn532_uart:` candidate because a UART adapter cannot be
-identified without opening it. Opening validates the PN532 firmware:
+Device selection is always an exact connstring. `nfctl list` reports serial
+ports as `pn532_uart:` candidates, with USB serial adapters first and legacy
+`/dev/ttyS*` nodes without detected hardware skipped, because a UART adapter
+cannot be identified without opening it. Opening validates the PN532 firmware:
 
 ```sh
 cargo run -p nfctl -- list
