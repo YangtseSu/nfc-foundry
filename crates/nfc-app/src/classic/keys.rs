@@ -152,15 +152,13 @@ impl KeyStore {
     /// Store used by the CLI and GUI. `None` when neither `XDG_CONFIG_HOME`
     /// nor `HOME` is available.
     pub fn default_path() -> Option<PathBuf> {
-        let base = std::env::var_os("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .filter(|path| !path.as_os_str().is_empty())
-            .or_else(|| {
-                std::env::var_os("HOME")
-                    .map(PathBuf::from)
-                    .map(|home| home.join(".config"))
-            })?;
-        Some(base.join("nfc-foundry").join("classic-keys.json"))
+        Some(config_dir()?.join("nfc-foundry").join("classic-keys.json"))
+    }
+
+    /// Key store written by the previous application. It is imported once,
+    /// when present, so existing keys survive the rewrite.
+    pub fn legacy_path() -> Option<PathBuf> {
+        Some(config_dir()?.join("NFC Foundry").join("keys.json"))
     }
 
     pub fn load(path: &Path) -> Result<Self> {
@@ -262,6 +260,9 @@ impl KeyStore {
     }
 
     pub fn import_text_str(&mut self, text: &str) -> Result<usize> {
+        if text.trim_start().starts_with('{') {
+            return self.import_json_str(text);
+        }
         let mut added = 0;
         for (index, line) in text.lines().enumerate() {
             let line = line.split('#').next().unwrap_or("").trim();
@@ -282,6 +283,43 @@ impl KeyStore {
                 NfcError::InvalidArgument(format!("key file line {}: {error}", index + 1))
             })?;
             if self.add(KeyEntry::new(None, KeyKind::Any, key, KeySource::KeyFile))? {
+                added += 1;
+            }
+        }
+        Ok(added)
+    }
+
+    /// Import a JSON key file. Accepts the previous application's
+    /// `{"keys":[{"value":"…"}]}` document and this store's own schema;
+    /// sector/type/provenance are preserved when present.
+    pub fn import_json_str(&mut self, text: &str) -> Result<usize> {
+        let document: ImportDocument = serde_json::from_str(text)
+            .map_err(|error| NfcError::InvalidArgument(format!("invalid key JSON: {error}")))?;
+        if document.keys.is_empty() {
+            return Err(NfcError::InvalidArgument(
+                "the JSON key file contains no keys".to_owned(),
+            ));
+        }
+        let mut added = 0;
+        for (index, stored) in document.keys.into_iter().enumerate() {
+            let hex = stored.value.or(stored.key).ok_or_else(|| {
+                NfcError::InvalidArgument(format!("key {index}: missing value or key"))
+            })?;
+            let kind = stored
+                .kind
+                .as_deref()
+                .map(KeyKind::parse)
+                .transpose()?
+                .unwrap_or(KeyKind::Any);
+            let source = stored
+                .source
+                .as_deref()
+                .map(parse_source)
+                .transpose()?
+                .unwrap_or(KeySource::KeyFile);
+            let key = Key::from_hex(&hex)
+                .map_err(|error| NfcError::InvalidArgument(format!("key {index}: {error}")))?;
+            if self.add(KeyEntry::new(stored.sector, kind, key, source))? {
                 added += 1;
             }
         }
@@ -381,6 +419,38 @@ struct StoreDocument {
     version: u32,
     #[serde(default)]
     keys: Vec<StoredKey>,
+}
+
+#[derive(Deserialize)]
+struct ImportDocument {
+    #[serde(default)]
+    keys: Vec<ImportedKey>,
+}
+
+#[derive(Deserialize)]
+struct ImportedKey {
+    #[serde(default)]
+    sector: Option<usize>,
+    #[serde(default)]
+    #[serde(rename = "type")]
+    kind: Option<String>,
+    #[serde(default)]
+    value: Option<String>,
+    #[serde(default)]
+    key: Option<String>,
+    #[serde(default)]
+    source: Option<String>,
+}
+
+fn config_dir() -> Option<PathBuf> {
+    std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .map(|home| home.join(".config"))
+        })
 }
 
 #[derive(Serialize, Deserialize)]
@@ -488,6 +558,33 @@ mod tests {
         assert_eq!(loaded, store);
         assert!(loaded.entries()[0].sector_label().contains("7"));
         assert_eq!(loaded.entries()[1].sector_label(), "all sectors");
+    }
+
+    #[test]
+    fn json_import_accepts_previous_and_structured_stores() {
+        let mut store = KeyStore::new();
+        let added = store
+            .import_text_str(
+                r#"{"version":1,"keys":[
+                    {"value":"D3F7D3F7D3F7","sources":["read_context"]},
+                    {"sector":2,"type":"B","key":"A0A1A2A3A4A5","source":"manual"}
+                ]}"#,
+            )
+            .expect("import");
+        assert_eq!(added, 2);
+        assert_eq!(store.entries()[0].sector, None);
+        assert_eq!(store.entries()[0].kind, KeyKind::Any);
+        assert_eq!(store.entries()[0].source, KeySource::KeyFile);
+        assert_eq!(store.entries()[1].sector, Some(2));
+        assert_eq!(store.entries()[1].kind, KeyKind::B);
+        assert_eq!(store.entries()[1].source, KeySource::Manual);
+        assert_eq!(store.len(), 2);
+
+        let duplicate = store
+            .import_text_str(r#"{"keys":[{"value":"D3F7D3F7D3F7"}]}"#)
+            .expect("reimport");
+        assert_eq!(duplicate, 0);
+        assert_eq!(store.len(), 2);
     }
 
     #[test]
