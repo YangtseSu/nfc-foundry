@@ -9,7 +9,7 @@
 //! ```
 //!
 //! The write round trip additionally requires the `hardware-write` feature and
-//! `NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD`. The original NDEF message is restored
+//! `NFC_FOUNDRY_HARDWARE_WRITE=yes`. The original NDEF message is restored
 //! at the end of the test.
 
 #![cfg(feature = "hardware")]
@@ -98,12 +98,12 @@ fn reads_and_reports_cc_and_ndef_state() {
 
 #[cfg(feature = "hardware-write")]
 #[test]
-#[ignore = "requires an owned Type 4 tag and NFC_FOUNDRY_HARDWARE_WRITE"]
+#[ignore = "requires a Type 4 tag and NFC_FOUNDRY_HARDWARE_WRITE=yes"]
 fn ndef_write_read_and_restore_round_trip() {
     assert_eq!(
         env::var("NFC_FOUNDRY_HARDWARE_WRITE").as_deref(),
-        Ok("I_OWN_THIS_CARD"),
-        "set NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD to allow writes"
+        Ok("yes"),
+        "set NFC_FOUNDRY_HARDWARE_WRITE=yes to allow writes"
     );
     let _guard = lock_hardware();
     let conn_string = conn_string();

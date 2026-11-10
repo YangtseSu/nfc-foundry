@@ -1354,7 +1354,7 @@ fn require_confirmation(yes: bool, action: &str) -> Result<()> {
             "{action} needs confirmation; pass --yes"
         )));
     }
-    eprint!("{action}. Continue? [y/N] ");
+    eprint!("{action}. Continue? [Y/n] ");
     io::stderr()
         .flush()
         .map_err(|error| NfcError::Io(error.to_string()))?;
@@ -1370,7 +1370,8 @@ fn require_confirmation(yes: bool, action: &str) -> Result<()> {
 }
 
 fn confirmation_answer(answer: &str) -> bool {
-    matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes")
+    let answer = answer.trim().to_ascii_lowercase();
+    answer.is_empty() || answer == "y" || answer == "yes"
 }
 
 fn parse_page_list(value: &str) -> Result<Vec<u8>> {
@@ -1781,10 +1782,10 @@ mod tests {
 
     #[test]
     fn confirmation_accepts_yes_in_any_case() {
-        for answer in ["y", "Y", "yes", "YES", " Yes ", "yEs"] {
+        for answer in ["", " ", "y", "Y", "yes", "YES", " Yes ", "yEs"] {
             assert!(confirmation_answer(answer), "{answer:?}");
         }
-        for answer in ["", "n", "N", "no", "1", "yeah"] {
+        for answer in ["n", "N", "no", "1", "yeah"] {
             assert!(!confirmation_answer(answer), "{answer:?}");
         }
     }

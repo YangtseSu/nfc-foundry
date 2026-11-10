@@ -9,7 +9,7 @@
 //! ```
 //!
 //! The same-value write additionally requires the `hardware-write` feature and
-//! `NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD`.
+//! `NFC_FOUNDRY_HARDWARE_WRITE=yes`.
 
 #![cfg(feature = "hardware")]
 
@@ -190,8 +190,8 @@ fn raw_bits_receive_atqa() {
 fn writes_a_classic_block_with_the_same_value() {
     assert_eq!(
         env::var("NFC_FOUNDRY_HARDWARE_WRITE").as_deref(),
-        Ok("I_OWN_THIS_CARD"),
-        "set NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD to allow a write"
+        Ok("yes"),
+        "set NFC_FOUNDRY_HARDWARE_WRITE=yes to allow a write"
     );
     let _guard = lock_hardware();
     let conn_string = device_connstring();

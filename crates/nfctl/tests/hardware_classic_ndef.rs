@@ -14,8 +14,8 @@
 //! ```sh
 //! NFC_FOUNDRY_HARDWARE=1 \
 //! NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
-//! NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD \
-//! NFC_FOUNDRY_HARDWARE_NDEF_FORMAT=I_OWN_THIS_CARD \
+//! NFC_FOUNDRY_HARDWARE_WRITE=yes \
+//! NFC_FOUNDRY_HARDWARE_NDEF_FORMAT=yes \
 //! cargo test -p nfctl --features hardware-write -- --ignored
 //! ```
 
@@ -100,17 +100,17 @@ fn reads_the_classic_ndef_mapping() {
 
 #[cfg(feature = "hardware-write")]
 #[test]
-#[ignore = "requires an owned Classic card, both write tokens, and a reader"]
+#[ignore = "requires a Classic card, both write gates, and a reader"]
 fn formats_writes_reads_and_restores_a_classic_card() {
     assert_eq!(
         env::var("NFC_FOUNDRY_HARDWARE_WRITE").as_deref(),
-        Ok("I_OWN_THIS_CARD"),
-        "set NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD to allow writes"
+        Ok("yes"),
+        "set NFC_FOUNDRY_HARDWARE_WRITE=yes to allow writes"
     );
     assert_eq!(
         env::var("NFC_FOUNDRY_HARDWARE_NDEF_FORMAT").as_deref(),
-        Ok("I_OWN_THIS_CARD"),
-        "set NFC_FOUNDRY_HARDWARE_NDEF_FORMAT=I_OWN_THIS_CARD to allow a full format"
+        Ok("yes"),
+        "set NFC_FOUNDRY_HARDWARE_NDEF_FORMAT=yes to allow a full format"
     );
     let _guard = lock_hardware();
     let mut service = service(&conn_string());

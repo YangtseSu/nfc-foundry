@@ -89,8 +89,8 @@ capability. Card-family workflows, NDEF, and recovery stay above this layer.
 - Hardware: with `NFC_FOUNDRY_HARDWARE=1` and an exact `NFC_FOUNDRY_DEVICE`, the ACR122U
   identifies its internal PN532, reads a Classic block and a Type 2 page, and
   returns a 16-bit ATQA from a raw 7-bit REQA. With `hardware-write`,
-  `NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD`, and
-  `NFC_FOUNDRY_HARDWARE_GEN1A_CONFIRM=I_OWN_THIS_CARD`, a Gen1A block 0 write is
+  `NFC_FOUNDRY_HARDWARE_WRITE=yes`, and
+  `NFC_FOUNDRY_HARDWARE_GEN1A_CONFIRM=yes`, a Gen1A block 0 write is
   verified by reselection and read-back.
 - The phase note records the PC/SC coexistence behavior and any hardware
   checks that could not be run.

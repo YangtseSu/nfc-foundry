@@ -240,7 +240,7 @@ cargo run -p nfctl -- --device pn532_uart:/dev/ttyUSB0 \
 PN532 UART firmware identification, Classic 1K selection/authentication/read,
 Type 2 selection/read, raw 7-bit REQA, Classic dump, key scan, temporary block
 write, and restore are hardware-validated. Writes remain gated by
-`NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD`; see [Testing](docs/testing.md), the
+`NFC_FOUNDRY_HARDWARE_WRITE=yes`; see [Testing](docs/testing.md), the
 [phase 02 note](docs/notes/02-pn532-uart.md), and the
 [phase 04 note](docs/notes/04-classic-workflows.md) for the records.
 
@@ -341,6 +341,7 @@ policy as `nfctl`.
 ## Safety
 
 Destructive operations require a backup, an explicit confirmation, and
-read-back verification. `nfctl` asks `Continue? [y/N]` and accepts `y` or
-`yes`; pass `--yes` for non-interactive use. NDEF lock, configuration,
-password, and capability writes are Advanced operations.
+read-back verification. `nfctl` asks `Continue? [Y/n]` and accepts `y` or
+`yes`; Enter also confirms, and `n` or `no` cancels. Pass `--yes` for
+non-interactive use. NDEF lock, configuration, password, and capability
+writes are Advanced operations.

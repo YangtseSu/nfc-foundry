@@ -10,7 +10,7 @@
 //! ```
 //!
 //! The temporary write/restore additionally requires the `hardware-write`
-//! feature and `NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD`.
+//! feature and `NFC_FOUNDRY_HARDWARE_WRITE=yes`.
 
 #![cfg(feature = "hardware")]
 
@@ -137,12 +137,12 @@ fn dumps_and_scans_a_classic_card() {
 
 #[cfg(feature = "hardware-write")]
 #[test]
-#[ignore = "requires an owned MIFARE Classic card and NFC_FOUNDRY_HARDWARE_WRITE"]
+#[ignore = "requires a MIFARE Classic card and NFC_FOUNDRY_HARDWARE_WRITE=yes"]
 fn writes_and_restores_one_data_block() {
     assert_eq!(
         env::var("NFC_FOUNDRY_HARDWARE_WRITE").as_deref(),
-        Ok("I_OWN_THIS_CARD"),
-        "set NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD to allow a write"
+        Ok("yes"),
+        "set NFC_FOUNDRY_HARDWARE_WRITE=yes to allow a write"
     );
     let _guard = lock_hardware();
     let conn_string = conn_string();

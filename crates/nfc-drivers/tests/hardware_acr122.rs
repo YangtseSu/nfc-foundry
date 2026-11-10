@@ -10,7 +10,7 @@
 //!
 //! The Gen1A manufacturer-block write additionally requires the
 //! `hardware-write` feature and both `NFC_FOUNDRY_HARDWARE_WRITE` and
-//! `NFC_FOUNDRY_HARDWARE_GEN1A_CONFIRM` set to `I_OWN_THIS_CARD`.
+//! `NFC_FOUNDRY_HARDWARE_GEN1A_CONFIRM` set to `yes`.
 
 #![cfg(feature = "hardware")]
 
@@ -231,13 +231,13 @@ fn read_manufacturer_block(reader: &mut Acr122Usb) -> ([u8; 16], CardInfo) {
 fn writes_and_restores_a_gen1a_manufacturer_block() {
     assert_eq!(
         env::var("NFC_FOUNDRY_HARDWARE_WRITE").as_deref(),
-        Ok("I_OWN_THIS_CARD"),
-        "set NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD to allow a write"
+        Ok("yes"),
+        "set NFC_FOUNDRY_HARDWARE_WRITE=yes to allow a write"
     );
     assert_eq!(
         env::var("NFC_FOUNDRY_HARDWARE_GEN1A_CONFIRM").as_deref(),
-        Ok("I_OWN_THIS_CARD"),
-        "set NFC_FOUNDRY_HARDWARE_GEN1A_CONFIRM=I_OWN_THIS_CARD to allow a Gen1A UID write"
+        Ok("yes"),
+        "set NFC_FOUNDRY_HARDWARE_GEN1A_CONFIRM=yes to allow a Gen1A UID write"
     );
     let _guard = lock_hardware();
     let conn_string = device_connstring();

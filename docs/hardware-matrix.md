@@ -84,7 +84,7 @@ PN532 UART, authorized temporary Classic write and restore:
 NFC_FOUNDRY_HARDWARE=1 \
 NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
 NFC_FOUNDRY_HARDWARE_KEY=FFFFFFFFFFFF \
-NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD \
+NFC_FOUNDRY_HARDWARE_WRITE=yes \
 NFC_FOUNDRY_HARDWARE_BLOCK=4 \
 cargo test -p nfctl --features hardware-write -- --ignored
 ```
@@ -94,7 +94,7 @@ PN532 UART, authorized NTAG215 NDEF round trip:
 ```sh
 NFC_FOUNDRY_HARDWARE=1 \
 NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
-NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD \
+NFC_FOUNDRY_HARDWARE_WRITE=yes \
 NFC_FOUNDRY_HARDWARE_BACKUP_DIR=/tmp/nfc-type2-backups \
 cargo test -p nfctl --features hardware-write -- --ignored
 ```
@@ -115,8 +115,8 @@ NFC_FOUNDRY_HARDWARE=1 \
 NFC_FOUNDRY_DEVICE=acr122_usb:001:017 \
 NFC_FOUNDRY_HARDWARE_KEY=<sector-key> \
 NFC_FOUNDRY_HARDWARE_SECTOR0_KEY=<sector-0-key> \
-NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD \
-NFC_FOUNDRY_HARDWARE_GEN1A_CONFIRM=I_OWN_THIS_CARD \
+NFC_FOUNDRY_HARDWARE_WRITE=yes \
+NFC_FOUNDRY_HARDWARE_GEN1A_CONFIRM=yes \
 cargo test -p nfc-drivers --features hardware-write -- --ignored
 ```
 

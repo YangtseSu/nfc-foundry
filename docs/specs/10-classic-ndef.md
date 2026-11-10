@@ -45,7 +45,7 @@ not invent an `E1 10` capability container on a Classic card.
   - Blank data area `03 00 FE`.
 - `nfc-app`:
   - Classic NDEF read, inspect, write, and format services.
-  - Format requires `I_OWN_THIS_CARD`, a complete card read, a pre-write
+  - Format requires confirmation, a complete card read, a pre-write
     project backup, and read-back verification.
   - Format writes all NFC data blocks first, then sector trailers; 1K uses
     MAD1 and 4K uses MAD2. An existing Key B is preserved; a masked Key B

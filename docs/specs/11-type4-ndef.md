@@ -74,7 +74,7 @@ yet.
   - `nfctl/tests/hardware_type4.rs` with read-only and write/restore tests.
     Both are ignored by default and require `NFC_FOUNDRY_HARDWARE=1`; the write test
     additionally requires the `hardware-write` feature and
-    `NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD`.
+    `NFC_FOUNDRY_HARDWARE_WRITE=yes`.
 
 ## Safety
 

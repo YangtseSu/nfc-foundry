@@ -35,14 +35,14 @@ Required gates:
 - `NFC_FOUNDRY_HARDWARE_BLOCK`: Classic block for read/write tests; defaults to `4`.
 - `NFC_FOUNDRY_HARDWARE_SECTOR0_KEY`: optional 12-hex Key A for manufacturer block 0
   when it differs from `NFC_FOUNDRY_HARDWARE_KEY`.
-- `NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD`: allow any write. The phase 02 test
+- `NFC_FOUNDRY_HARDWARE_WRITE=yes`: allow any write. The phase 02 test
   writes the original value back and refuses block 0 and sector trailers. The
   phase 04 workflow test changes one ordinary data block temporarily and writes
   the original back.
-- `NFC_FOUNDRY_HARDWARE_RECOVERY=I_OWN_THIS_CARD`: allow active recovery testing.
-- `NFC_FOUNDRY_HARDWARE_NDEF_FORMAT=I_OWN_THIS_CARD`: allow the Classic NDEF
+- `NFC_FOUNDRY_HARDWARE_RECOVERY=yes`: allow active recovery testing.
+- `NFC_FOUNDRY_HARDWARE_NDEF_FORMAT=yes`: allow the Classic NDEF
   format/write/restore hardware round trip. It also requires
-  `NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD`.
+  `NFC_FOUNDRY_HARDWARE_WRITE=yes`.
 - `NFC_FOUNDRY_HARDWARE_BACKUP_DIR`: preserve backups.
 
 The PN532 read test is ignored unless selected:
@@ -56,12 +56,12 @@ cargo test -p nfc-drivers --features hardware -- --ignored
 Run it once with a MIFARE Classic card and once with a Type 2 tag; it reads the
 selected card and reports the block or pages. The same-value write test is
 compiled only with the additional `hardware-write` feature and requires
-`NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD`:
+`NFC_FOUNDRY_HARDWARE_WRITE=yes`:
 
 ```sh
 NFC_FOUNDRY_HARDWARE=1 \
 NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
-NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD \
+NFC_FOUNDRY_HARDWARE_WRITE=yes \
 cargo test -p nfc-drivers --features hardware-write -- --ignored
 ```
 
@@ -146,7 +146,7 @@ original NDEF message or empty state afterwards:
 ```sh
 NFC_FOUNDRY_HARDWARE=1 \
 NFC_FOUNDRY_DEVICE=acr122_usb:001:017 \
-NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD \
+NFC_FOUNDRY_HARDWARE_WRITE=yes \
 NFC_FOUNDRY_HARDWARE_BACKUP_DIR=/tmp/nfc-type4-backups \
 cargo test -p nfctl --features hardware-write --test hardware_type4 -- --ignored
 ```
@@ -170,8 +170,8 @@ blank Classic 1K, UID `6A 31 5E 28`; the restored dump matched byte-for-byte:
 ```sh
 NFC_FOUNDRY_HARDWARE=1 \
 NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
-NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD \
-NFC_FOUNDRY_HARDWARE_NDEF_FORMAT=I_OWN_THIS_CARD \
+NFC_FOUNDRY_HARDWARE_WRITE=yes \
+NFC_FOUNDRY_HARDWARE_NDEF_FORMAT=yes \
 cargo test -p nfctl --features hardware-write -- --ignored
 ```
 
@@ -191,7 +191,7 @@ user memory from a backup:
 ```sh
 NFC_FOUNDRY_HARDWARE=1 \
 NFC_FOUNDRY_DEVICE=acr122_usb:001:017 \
-NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD \
+NFC_FOUNDRY_HARDWARE_WRITE=yes \
 NFC_FOUNDRY_HARDWARE_BACKUP_DIR=/tmp/nfc-type2-backups \
 cargo test -p nfctl --features hardware-write -- --ignored
 ```
@@ -216,7 +216,7 @@ write test requires the additional feature and gate:
 NFC_FOUNDRY_HARDWARE=1 \
 NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
 NFC_FOUNDRY_HARDWARE_KEY=FFFFFFFFFFFF \
-NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD \
+NFC_FOUNDRY_HARDWARE_WRITE=yes \
 NFC_FOUNDRY_HARDWARE_BLOCK=4 \
 cargo test -p nfctl --features hardware-write -- --ignored
 ```
@@ -241,8 +241,8 @@ NFC_FOUNDRY_HARDWARE=1 \
 NFC_FOUNDRY_DEVICE=acr122_usb:001:017 \
 NFC_FOUNDRY_HARDWARE_KEY=<sector-key> \
 NFC_FOUNDRY_HARDWARE_SECTOR0_KEY=<sector-0-key> \
-NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD \
-NFC_FOUNDRY_HARDWARE_GEN1A_CONFIRM=I_OWN_THIS_CARD \
+NFC_FOUNDRY_HARDWARE_WRITE=yes \
+NFC_FOUNDRY_HARDWARE_GEN1A_CONFIRM=yes \
 cargo test -p nfc-drivers --features hardware-write -- --ignored
 ```
 
