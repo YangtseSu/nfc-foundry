@@ -1139,6 +1139,8 @@ keys! {
     KeyTypesB => ("B only", "仅 B"),
     DictionaryPlaceholder => ("Optional Proxmark3 .dic dictionary", "可选的 Proxmark3 .dic 字典"),
     Choose => ("Choose…", "选择…"),
+    Copy => ("Copy", "复制"),
+    WifiSsid => ("SSID", "SSID"),
     StartScan => ("Start scan", "开始扫描"),
     Cancel => ("Cancel", "取消"),
     NoScanRunning => ("No scan running.", "没有正在运行的扫描。"),

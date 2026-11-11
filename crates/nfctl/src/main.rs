@@ -23,7 +23,7 @@ use nfc_core::{
     BLOCK_SIZE, CancelToken, CardInfo, CardType, Key, KeyType, NfcError, PAGE_SIZE, Result,
 };
 use nfc_drivers::DriverRegistry;
-use nfc_ndef::{NdefMessage, NdefRecord, TextRecord, UriRecord};
+use nfc_ndef::{NdefMessage, NdefRecord, TextRecord, UriRecord, WifiRecord};
 use nfc_recover::auto::RecoveryStrategy;
 use nfc_recover::{RecoveryProgress, RecoveryRequest};
 use nfc_transport::DeviceInfo;
@@ -1442,6 +1442,20 @@ fn print_ndef_record(index: usize, record: &NdefRecord) {
     }
     if let Ok(uri) = UriRecord::from_record(record) {
         println!("record {index}: uri {}", uri.uri);
+        return;
+    }
+    if let Ok(wifi) = WifiRecord::from_record(record) {
+        let ssid = String::from_utf8_lossy(&wifi.ssid);
+        let key = wifi
+            .network_key
+            .as_ref()
+            .map(|key| String::from_utf8_lossy(key).to_string());
+        println!(
+            "record {index}: wifi ssid {ssid:?} auth 0x{:04X} encryption 0x{:04X}{}",
+            wifi.authentication.bits(),
+            wifi.encryption.bits(),
+            key.map(|key| format!(" key {key:?}")).unwrap_or_default()
+        );
         return;
     }
     println!(

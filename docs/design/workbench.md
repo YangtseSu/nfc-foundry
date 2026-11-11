@@ -192,9 +192,14 @@ GPUI rules for new UI work.
 ## NDEF
 
 - The tab shows the active card family. A Classic card shows the MAD sectors,
-  mapping version, read/write state, capacity, message bytes, decoded Text/URI
-  records, and warnings. A Type 2 card shows product/UID, CC bytes, data-area
-  size, capacity, NDEF state, locked pages, password protection, and warnings.
+  mapping version, read/write state, capacity, message bytes, decoded Text/URI/
+  Wi-Fi WSC records, and warnings. A Type 2 card shows product/UID, CC bytes,
+  data-area size, capacity, NDEF state, locked pages, password protection, and
+  warnings.
+- Wi-Fi WSC media records decode SSID, authentication, encryption, and network
+  key. SSID and password render as selectable rows with a Copy action. Other
+  binary media payloads render as hex; they are never passed through a lossy
+  UTF-8 preview.
 - Unformatted cards state that Format is required before writing. A Type 2
   format is destructive, removes proprietary TLVs, and uses the typed phrase.
 - Type 2 write is refused for a partial data area, read-only CC, locked data

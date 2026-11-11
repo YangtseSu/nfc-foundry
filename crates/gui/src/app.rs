@@ -26,7 +26,10 @@ use nfc_app::{CardReadResult, ClassicNdefInfo, ClassicNdefState, Service};
 use nfc_classic::{Dump, DumpFormat, DumpLoad, diff, exchange};
 use nfc_core::{CancelToken, Key, NfcError, Result as NfcResult};
 use nfc_drivers::DriverRegistry;
-use nfc_ndef::{NdefMessage, NdefRecord, TextRecord, Tnf, UriRecord};
+use nfc_ndef::{
+    NdefMessage, NdefRecord, TextRecord, Tnf, UriRecord, WifiAuthentication, WifiEncryption,
+    WifiRecord,
+};
 use nfc_recover::auto::RecoveryStrategy;
 use nfc_recover::{ProgressSink, RecoveryProgress, RecoveryRequest, RecoveryResult};
 use nfc_transport::DeviceInfo;
@@ -3063,6 +3066,27 @@ fn record_card(index: usize, record: &NdefRecord) -> gtk::Box {
     card.append(&kicker);
     card.append(&title);
     card.append(&body);
+    for (field, value) in wifi_fields(record) {
+        let row = gtk::Box::new(Orientation::Horizontal, 6);
+        let field = i18n::translate_lines(field);
+        let text = gtk::Label::new(Some(&format!("{field}: {value}")));
+        text.set_xalign(0.0);
+        text.set_wrap(true);
+        text.set_selectable(true);
+        text.set_hexpand(true);
+        text.add_css_class("mono");
+        let copy = gtk::Button::new();
+        copy.set_localized("Copy");
+        copy.add_css_class("flat");
+        copy.set_valign(gtk::Align::Start);
+        let value = value.clone();
+        copy.connect_clicked(move |button| {
+            button.clipboard().set_text(&value);
+        });
+        row.append(&text);
+        row.append(&copy);
+        card.append(&row);
+    }
     card
 }
 
@@ -3077,6 +3101,19 @@ fn record_summary(record: &NdefRecord) -> (String, String) {
         return match UriRecord::from_record(record) {
             Ok(uri) => ("URI".to_owned(), uri.uri),
             Err(error) => ("URI (invalid)".to_owned(), error.to_string()),
+        };
+    }
+    if record.tnf() == Tnf::Media && record.record_type() == b"application/vnd.wfa.wsc" {
+        return match WifiRecord::from_record(record) {
+            Ok(wifi) => (
+                "Wi-Fi · WSC".to_owned(),
+                format!(
+                    "{} · {}",
+                    wifi_authentication_label(wifi.authentication),
+                    wifi_encryption_label(wifi.encryption)
+                ),
+            ),
+            Err(error) => ("Wi-Fi · WSC (invalid)".to_owned(), error.to_string()),
         };
     }
     let kind = match record.tnf() {
@@ -3097,14 +3134,97 @@ fn record_summary(record: &NdefRecord) -> (String, String) {
         Tnf::Unknown => "Unknown".to_owned(),
         Tnf::Unchanged => "Chunk".to_owned(),
     };
-    let payload = String::from_utf8_lossy(record.payload());
-    let preview: String = payload.chars().take(256).collect();
-    let suffix = if payload.chars().count() > 256 {
-        "…"
-    } else {
-        ""
+    let payload = record.payload();
+    let text = match std::str::from_utf8(payload) {
+        Ok(value)
+            if !value.chars().any(|character| {
+                character.is_control() && character != '\n' && character != '\t'
+            }) =>
+        {
+            let preview: String = value.chars().take(256).collect();
+            let suffix = if value.chars().count() > 256 {
+                "…"
+            } else {
+                ""
+            };
+            format!("{preview}{suffix}")
+        }
+        _ => classic::hex_preview(payload, 64),
     };
-    (kind, format!("{preview}{suffix}"))
+    (kind, text)
+}
+
+fn wifi_fields(record: &NdefRecord) -> Vec<(&'static str, String)> {
+    if record.tnf() != Tnf::Media || record.record_type() != b"application/vnd.wfa.wsc" {
+        return Vec::new();
+    }
+    let Ok(wifi) = WifiRecord::from_record(record) else {
+        return Vec::new();
+    };
+    let mut fields = vec![("SSID", wsc_text(&wifi.ssid))];
+    if let Some(key) = &wifi.network_key {
+        fields.push(("Password", wsc_text(key)));
+    }
+    fields
+}
+
+fn wsc_text(bytes: &[u8]) -> String {
+    match std::str::from_utf8(bytes) {
+        Ok(text) => text.to_owned(),
+        Err(_) => bytes
+            .iter()
+            .map(|byte| format!("{byte:02X}"))
+            .collect::<Vec<_>>()
+            .join(" "),
+    }
+}
+
+fn wifi_authentication_label(value: WifiAuthentication) -> String {
+    let mut parts = Vec::new();
+    if value.contains(WifiAuthentication::OPEN) {
+        parts.push("Open");
+    }
+    if value.contains(WifiAuthentication::WPA_PERSONAL) {
+        parts.push("WPA-Personal");
+    }
+    if value.contains(WifiAuthentication::WPA2_PERSONAL) {
+        parts.push("WPA2-Personal");
+    }
+    if value.contains(WifiAuthentication::SHARED) {
+        parts.push("Shared");
+    }
+    if value.contains(WifiAuthentication::WPA_ENTERPRISE) {
+        parts.push("WPA-Enterprise");
+    }
+    if value.contains(WifiAuthentication::WPA2_ENTERPRISE) {
+        parts.push("WPA2-Enterprise");
+    }
+    if parts.is_empty() {
+        format!("0x{:04X}", value.bits())
+    } else {
+        parts.join(" · ")
+    }
+}
+
+fn wifi_encryption_label(value: WifiEncryption) -> String {
+    let mut parts = Vec::new();
+    if value.contains(WifiEncryption::NONE) {
+        parts.push("None");
+    }
+    if value.contains(WifiEncryption::WEP) {
+        parts.push("WEP");
+    }
+    if value.contains(WifiEncryption::TKIP) {
+        parts.push("TKIP");
+    }
+    if value.contains(WifiEncryption::AES) {
+        parts.push("AES");
+    }
+    if parts.is_empty() {
+        format!("0x{:04X}", value.bits())
+    } else {
+        parts.join(" · ")
+    }
 }
 
 fn refresh_devices(ui: &Rc<Ui>) {
@@ -7720,6 +7840,39 @@ mod tests {
 
     fn emit_response(dialog: &adw::AlertDialog, response: &str) {
         dialog.emit_by_name::<()>("response", &[&response]);
+    }
+
+    #[test]
+    fn wifi_wsc_records_decode_and_binary_media_uses_hex() {
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&[0x10, 0x0E, 0x00, 0x36, 0x10, 0x26, 0x00, 0x01, 0x01]);
+        payload.extend_from_slice(&[0x10, 0x45, 0x00, 0x07]);
+        payload.extend_from_slice(b"TESTNET");
+        payload.extend_from_slice(&[0x10, 0x03, 0x00, 0x02, 0x00, 0x20]);
+        payload.extend_from_slice(&[0x10, 0x0F, 0x00, 0x02, 0x00, 0x0C]);
+        payload.extend_from_slice(&[0x10, 0x27, 0x00, 0x0C]);
+        payload.extend_from_slice(b"testpass1234");
+        payload.extend_from_slice(&[0x10, 0x20, 0x00, 0x06, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]);
+        let record =
+            NdefRecord::media(b"application/vnd.wfa.wsc".to_vec(), payload).expect("wsc record");
+        let (kind, content) = record_summary(&record);
+        assert!(kind.contains("Wi-Fi"), "{kind}");
+        assert!(content.contains("WPA2-Personal"), "{content}");
+        assert!(content.contains("AES"), "{content}");
+        assert_eq!(
+            wifi_fields(&record),
+            vec![
+                ("SSID", "TESTNET".to_owned()),
+                ("Password", "testpass1234".to_owned())
+            ]
+        );
+
+        let binary =
+            NdefRecord::media(b"application/octet-stream".to_vec(), vec![0x00, 0xFF, 0x10])
+                .expect("binary record");
+        let (_, preview) = record_summary(&binary);
+        assert_eq!(preview, "00 FF 10");
+        assert!(!preview.contains('\u{FFFD}'));
     }
 
     #[test]
