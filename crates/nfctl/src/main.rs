@@ -9,8 +9,9 @@ use clap::{Parser, Subcommand};
 use nfc_app::Service;
 use nfc_app::classic::{
     AuthenticatedKey, BackupStore, ClassicBlockWrite, ClassicKeyscan, ClassicNdefFormat,
-    ClassicNdefRead, ClassicNdefWrite, ClassicRead, ClassicRestore, KeyEntry, KeyKind, KeySource,
-    KeyStore, KeyTypes, common_keys,
+    ClassicNdefRead, ClassicNdefWrite, ClassicRead, ClassicWriteExecution, ClassicWritePlan,
+    ClassicWritePreflight, KeyEntry, KeyKind, KeySource, KeyStore, KeyTypes, RestoreSelection,
+    common_keys, parse_block_list,
 };
 use nfc_app::type2::{
     Type2Format, Type2Lock, Type2NdefWrite, Type2PageWrite, Type2Password, Type2Restore,
@@ -143,6 +144,9 @@ enum ClassicCommand {
         /// Required to replace a sector trailer.
         #[arg(long)]
         confirm_trailer: bool,
+        /// Print the write plan and exit without a backup or card write.
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Restore a dump after a backup.
     Restore {
@@ -153,6 +157,15 @@ enum ClassicCommand {
         /// Continue after a failed block instead of stopping.
         #[arg(long)]
         continue_on_error: bool,
+        /// Explicit block numbers, e.g. `1,4,5-7`.
+        #[arg(long, value_name = "BLOCKS", conflicts_with = "changes_only")]
+        blocks: Option<String>,
+        /// Write only blocks that differ from the loaded image baseline.
+        #[arg(long)]
+        changes_only: bool,
+        /// Print the write plan and exit without a backup or card write.
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Try candidate keys against every sector.
     Keyscan {
@@ -745,12 +758,27 @@ fn classic(cli: &Cli, service: &mut Service, command: ClassicCommand) -> Result<
             block,
             data,
             confirm_trailer,
-        } => classic_write(cli, service, block, &data, confirm_trailer),
+            dry_run,
+        } => classic_write(cli, service, block, &data, confirm_trailer, dry_run),
         ClassicCommand::Restore {
             input,
             format,
             continue_on_error,
-        } => classic_restore(cli, service, &input, format.as_deref(), continue_on_error),
+            blocks,
+            changes_only,
+            dry_run,
+        } => classic_restore(
+            cli,
+            service,
+            &input,
+            format.as_deref(),
+            continue_on_error,
+            RestorePlanOptions {
+                blocks,
+                changes_only,
+                dry_run,
+            },
+        ),
         ClassicCommand::Keyscan { save, types } => {
             classic_keyscan(cli, service, save.as_deref(), &types)
         }
@@ -824,11 +852,37 @@ fn classic_write(
     block: usize,
     data: &str,
     confirm_trailer: bool,
+    dry_run: bool,
 ) -> Result<()> {
     prepare(service, cli.device.as_deref())?;
     let keys = load_key_store(cli)?;
     let backup = backup_store(cli);
     let block_data = parse_block_data(data)?;
+    if dry_run {
+        if block == 0 {
+            return Err(NfcError::Unsupported(
+                "manufacturer block 0 writes are not enabled",
+            ));
+        }
+        let mut source = service
+            .classic_read(ClassicRead::new(&keys).include_common_keys(!cli.no_common_keys))?
+            .dump;
+        let target = source.blocks.get_mut(block).ok_or_else(|| {
+            NfcError::InvalidArgument(format!(
+                "block {block} is outside the {} layout",
+                source.layout.name()
+            ))
+        })?;
+        target.set_read(block_data);
+        let plan = service.classic_write_preflight(
+            ClassicWritePreflight::new(source, &keys)
+                .include_common_keys(!cli.no_common_keys)
+                .selection(RestoreSelection::Blocks(vec![block])),
+        )?;
+        print_write_plan(&plan);
+        println!("dry run: no card writes were performed");
+        return Ok(());
+    }
     let result = service.classic_write_block(
         ClassicBlockWrite::new(block, block_data, &keys, &backup)
             .include_common_keys(!cli.no_common_keys)
@@ -845,14 +899,33 @@ fn classic_write(
     Ok(())
 }
 
+struct RestorePlanOptions {
+    blocks: Option<String>,
+    changes_only: bool,
+    dry_run: bool,
+}
+
 fn classic_restore(
     cli: &Cli,
     service: &mut Service,
     input: &Path,
     format: Option<&str>,
     continue_on_error: bool,
+    options: RestorePlanOptions,
 ) -> Result<()> {
-    require_confirmation(cli.yes, "restoring a Classic dump")?;
+    let RestorePlanOptions {
+        blocks,
+        changes_only,
+        dry_run,
+    } = options;
+    if !dry_run {
+        require_confirmation(cli.yes, "restoring a Classic dump")?;
+    }
+    let selection = match (blocks.as_deref(), changes_only) {
+        (Some(blocks), _) => RestoreSelection::Blocks(parse_block_list(blocks)?),
+        (None, true) => RestoreSelection::ChangesOnly,
+        (None, false) => RestoreSelection::All,
+    };
     prepare(service, cli.device.as_deref())?;
     let bytes = fs::read(input)
         .map_err(|error| NfcError::Io(format!("could not read {}: {error}", input.display())))?;
@@ -866,11 +939,21 @@ fn classic_restore(
     let mut keys = load_key_store(cli)?;
     capture_dump_metadata(cli, &mut keys, &load.dump)?;
     let backup = backup_store(cli);
-    let result = service.classic_restore(
-        ClassicRestore::new(load.dump, &keys, &backup)
+    let plan = service.classic_write_preflight(
+        ClassicWritePreflight::new(load.dump.clone(), &keys)
             .include_common_keys(!cli.no_common_keys)
-            .confirmed(true)
+            .selection(selection)
             .continue_on_failure(continue_on_error),
+    )?;
+    print_write_plan(&plan);
+    if dry_run {
+        println!("dry run: no card writes were performed");
+        return Ok(());
+    }
+    let result = service.classic_write_execute(
+        ClassicWriteExecution::new(plan.token, load.dump, &keys, &backup)
+            .include_common_keys(!cli.no_common_keys)
+            .confirmed(true),
     )?;
     println!(
         "restore: {} written, {} unchanged, {} unknown skipped, {} trailers",
@@ -879,6 +962,9 @@ fn classic_restore(
         result.skipped_unknown_blocks,
         result.trailer_writes
     );
+    if result.not_selected_blocks > 0 {
+        println!("not selected: {}", result.not_selected_blocks);
+    }
     if let Some(backup) = result.backup {
         println!("backup: {}", backup.path.display());
     }
@@ -895,6 +981,35 @@ fn classic_restore(
         )));
     }
     Ok(())
+}
+
+fn print_write_plan(plan: &ClassicWritePlan) {
+    println!(
+        "plan: {} · UID {} · {} · {} block(s), {} trailer(s)",
+        plan.layout.name(),
+        plan.card.uid_hex(),
+        plan.selection.label(),
+        plan.blocks.len(),
+        plan.trailer_writes()
+    );
+    println!(
+        "unchanged: {}, unknown skipped: {}, expires at {}",
+        plan.unchanged_blocks, plan.skipped_unknown_blocks, plan.expires_at
+    );
+    for block in &plan.blocks {
+        println!(
+            "block {:<3} sector {:<2} {} · {}",
+            block.block,
+            block.sector,
+            block.role_label(),
+            block.access_note
+        );
+        println!("  old {}", hex_bytes(&block.old));
+        println!("  new {}", hex_bytes(&block.new));
+    }
+    for warning in &plan.warnings {
+        eprintln!("warning: {warning}");
+    }
 }
 
 fn classic_keyscan(

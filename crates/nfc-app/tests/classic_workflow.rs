@@ -4,10 +4,11 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use nfc_app::classic::{
-    ClassicBlockWrite, ClassicKeyscan, ClassicRead, ClassicRestore, KeyTypes, RestoreBlockState,
+    ClassicBlockWrite, ClassicKeyscan, ClassicRead, ClassicRestore, ClassicWriteExecution,
+    ClassicWritePreflight, KeyTypes, RestoreBlockState, RestoreSelection, WorkbenchMergeReport,
 };
 use nfc_app::{BackupStore, KeyEntry, KeyKind, KeySource, KeyStore, Service};
-use nfc_classic::{AccessBits, AccessCondition, Dump, Layout, bcc_for_uid};
+use nfc_classic::{AccessBits, AccessCondition, Dump, DumpFormat, Layout, bcc_for_uid, exchange};
 use nfc_core::{BLOCK_SIZE, CancelToken, CardInfo, CardType, Key, KeyType, NfcError, Result};
 use nfc_transport::{DeviceInfo, Reader, Transport};
 
@@ -747,4 +748,258 @@ fn read_block_authenticates_the_sector_for_block_zero_too() {
     assert_eq!(block_four.data, [4; BLOCK_SIZE]);
     assert_eq!(block_four.key.sector, 1);
     assert!(handle.lock().auth_log.contains(&(4, KeyType::B, KEY_B)));
+}
+
+#[test]
+fn selective_restore_writes_only_the_requested_blocks() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+    let mut source = read_dump(&mut service, &store);
+    for block in 4..=6 {
+        source.blocks[block].set_read([block as u8 + 0x40; BLOCK_SIZE]);
+    }
+
+    let result = service
+        .classic_restore(
+            ClassicRestore::new(source, &store, &backup)
+                .confirmed(true)
+                .selection(RestoreSelection::Blocks(vec![4, 6])),
+        )
+        .expect("selective restore");
+    assert_eq!(result.written_blocks, 2);
+    assert_eq!(result.not_selected_blocks, 62);
+    assert_eq!(handle.lock().write_log, vec![4, 6]);
+    assert_eq!(handle.lock().blocks[&4], [0x44; BLOCK_SIZE]);
+    assert_eq!(handle.lock().blocks[&5], [5; BLOCK_SIZE]);
+    assert_eq!(result.blocks[5].state, RestoreBlockState::NotSelected);
+    assert_eq!(result.blocks[0].state, RestoreBlockState::NotSelected);
+}
+
+#[test]
+fn changes_only_uses_the_baseline_and_refuses_an_empty_plan() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+    let baseline = read_dump(&mut service, &store);
+    let mut source = baseline.clone();
+    source.blocks[4].set_read([0x99; BLOCK_SIZE]);
+
+    let result = service
+        .classic_restore(
+            ClassicRestore::new(source.clone(), &store, &backup)
+                .confirmed(true)
+                .selection(RestoreSelection::ChangesOnly)
+                .baseline(baseline.clone()),
+        )
+        .expect("changes-only restore");
+    assert_eq!(result.written_blocks, 1);
+    assert_eq!(handle.lock().write_log, vec![4]);
+
+    let result = service.classic_restore(
+        ClassicRestore::new(baseline.clone(), &store, &backup)
+            .confirmed(true)
+            .selection(RestoreSelection::ChangesOnly)
+            .baseline(baseline),
+    );
+    assert!(matches!(result, Err(NfcError::InvalidArgument(_))));
+    assert_eq!(handle.lock().write_log, vec![4]);
+}
+
+#[test]
+fn dry_run_reports_the_plan_without_a_backup_or_write() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+    let mut source = read_dump(&mut service, &store);
+    source.blocks[4].set_read([0xAB; BLOCK_SIZE]);
+
+    let result = service
+        .classic_restore(
+            ClassicRestore::new(source, &store, &backup)
+                .dry_run(true)
+                .selection(RestoreSelection::Blocks(vec![4])),
+        )
+        .expect("dry run");
+    assert!(result.dry_run);
+    assert_eq!(result.planned_blocks, 1);
+    assert_eq!(result.written_blocks, 0);
+    assert!(result.backup.is_none());
+    assert_eq!(result.blocks[4].state, RestoreBlockState::Planned);
+    assert!(
+        result
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("dry run"))
+    );
+    assert!(handle.lock().write_log.is_empty());
+    assert_eq!(
+        std::fs::read_dir(directory.path())
+            .expect("backup dir")
+            .count(),
+        0
+    );
+}
+
+#[test]
+fn preflight_token_rechecks_the_source_and_card_and_is_single_use() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+    let mut source = read_dump(&mut service, &store);
+    source.blocks[4].set_read([0x5A; BLOCK_SIZE]);
+
+    let plan = service
+        .classic_write_preflight(
+            ClassicWritePreflight::new(source.clone(), &store)
+                .selection(RestoreSelection::Blocks(vec![4])),
+        )
+        .expect("preflight");
+    assert_eq!(plan.blocks.len(), 1);
+    assert_eq!(plan.blocks[0].block, 4);
+    assert_eq!(plan.blocks[0].new, [0x5A; BLOCK_SIZE]);
+    assert!(plan.source_fingerprint != 0);
+
+    let mut changed_source = source.clone();
+    changed_source.blocks[5].set_read([0x77; BLOCK_SIZE]);
+    let result = service.classic_write_execute(
+        ClassicWriteExecution::new(plan.token, changed_source, &store, &backup).confirmed(true),
+    );
+    assert!(matches!(result, Err(NfcError::CardChanged)));
+    assert!(handle.lock().write_log.is_empty());
+
+    let plan = service
+        .classic_write_preflight(
+            ClassicWritePreflight::new(source.clone(), &store)
+                .selection(RestoreSelection::Blocks(vec![4])),
+        )
+        .expect("second preflight");
+    handle.lock().blocks.insert(4, [0x11; BLOCK_SIZE]);
+    let result = service.classic_write_execute(
+        ClassicWriteExecution::new(plan.token, source.clone(), &store, &backup).confirmed(true),
+    );
+    assert!(matches!(result, Err(NfcError::CardChanged)));
+    assert!(handle.lock().write_log.is_empty());
+
+    let plan = service
+        .classic_write_preflight(
+            ClassicWritePreflight::new(source.clone(), &store)
+                .selection(RestoreSelection::Blocks(vec![4])),
+        )
+        .expect("third preflight");
+    let token = plan.token;
+    let result = service
+        .classic_write_execute(
+            ClassicWriteExecution::new(token, source.clone(), &store, &backup).confirmed(true),
+        )
+        .expect("planned write");
+    assert_eq!(result.written_blocks, 1);
+    assert_eq!(handle.lock().blocks[&4], [0x5A; BLOCK_SIZE]);
+    let reused = service.classic_write_execute(
+        ClassicWriteExecution::new(token, source, &store, &backup).confirmed(true),
+    );
+    assert!(matches!(reused, Err(NfcError::InvalidArgument(_))));
+}
+
+#[test]
+fn workbench_merge_refuses_a_different_card() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+    let source = read_dump(&mut service, &store);
+    service.workbench_load(source.clone()).expect("load");
+    let mut other = Dump::new(source.layout);
+    other.card = Some(card_with_uid(0x77));
+    other.blocks[4].set_read([0x10; BLOCK_SIZE]);
+    assert!(matches!(
+        service.workbench_merge(&other),
+        Err(NfcError::CardChanged)
+    ));
+}
+
+#[test]
+fn workbench_service_tracks_edits_and_merges_reads() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+    let source = read_dump(&mut service, &store);
+
+    let snapshot = service.workbench_load(source.clone()).expect("load");
+    assert!(snapshot.is_saved());
+    let snapshot = service.workbench_edit(4, [0xC3; BLOCK_SIZE]).expect("edit");
+    assert_eq!(snapshot.dirty_blocks, vec![4]);
+    assert_eq!(snapshot.dump.blocks[4].data, [0xC3; BLOCK_SIZE]);
+
+    let report = service
+        .workbench_merge_block(5, [0x55; BLOCK_SIZE])
+        .expect("merge");
+    assert_eq!(report.refreshed, vec![5]);
+    let snapshot = service.workbench_snapshot().expect("snapshot");
+    assert_eq!(snapshot.dump.blocks[5].data, [0x55; BLOCK_SIZE]);
+
+    let report = service
+        .workbench_merge_block(4, [0xC3; BLOCK_SIZE])
+        .expect("reconcile");
+    assert_eq!(report.reconciled, vec![4]);
+    assert!(service.workbench_snapshot().expect("snapshot").is_saved());
+
+    service.workbench_edit(6, [0x66; BLOCK_SIZE]).expect("edit");
+    let snapshot = service.workbench_undo().expect("undo");
+    assert!(snapshot.is_saved());
+    service.workbench_edit(6, [0x66; BLOCK_SIZE]).expect("edit");
+    let snapshot = service.workbench_revert().expect("revert");
+    assert!(snapshot.is_saved());
+    assert_eq!(snapshot.dump.blocks[6].data, source.blocks[6].data);
+    assert!(service.workbench_validate().expect("validate").is_valid());
+    let exported = service
+        .workbench_export(DumpFormat::Project)
+        .expect("export workbench");
+    let reloaded = exchange::load(&exported).expect("reload export").dump;
+    assert_eq!(
+        reloaded,
+        service.workbench_snapshot().expect("snapshot").dump
+    );
+    assert!(matches!(
+        service.workbench_edit(0, [0; BLOCK_SIZE]),
+        Err(NfcError::Unsupported(_))
+    ));
+    let _: WorkbenchMergeReport = report;
+}
+
+#[test]
+fn preflight_refuses_a_card_change_outside_the_planned_blocks() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+    let mut source = read_dump(&mut service, &store);
+    source.blocks[4].set_read([0x3C; BLOCK_SIZE]);
+
+    let plan = service
+        .classic_write_preflight(
+            ClassicWritePreflight::new(source.clone(), &store)
+                .selection(RestoreSelection::Blocks(vec![4])),
+        )
+        .expect("preflight");
+    handle.lock().blocks.insert(5, [0x12; BLOCK_SIZE]);
+    let result = service.classic_write_execute(
+        ClassicWriteExecution::new(plan.token, source, &store, &backup).confirmed(true),
+    );
+    assert!(matches!(result, Err(NfcError::CardChanged)));
+    assert!(handle.lock().write_log.is_empty());
+    assert_eq!(
+        std::fs::read_dir(directory.path())
+            .expect("backup dir")
+            .count(),
+        0
+    );
 }

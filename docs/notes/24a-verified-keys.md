@@ -126,5 +126,7 @@ reuse lint
 
 ## Next
 
-S2 (editable workbench and selective restore) follows. It will reuse the
-verification records and dump metadata added here.
+S2 (editable workbench and selective restore) is complete; see
+[24b-editable-workbench.md](24b-editable-workbench.md). It reused the
+verification records and dump metadata added here. S3a (UID / block-0 write)
+is next.

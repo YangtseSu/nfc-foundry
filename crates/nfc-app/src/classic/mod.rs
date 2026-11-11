@@ -8,8 +8,10 @@ pub mod backup;
 pub mod keys;
 pub(crate) mod keyscan;
 pub mod ndef;
+pub(crate) mod plan;
 pub(crate) mod read;
 pub(crate) mod restore;
+pub(crate) mod workbench;
 pub(crate) mod write;
 
 pub use backup::{BackupRecord, BackupStore};
@@ -24,6 +26,14 @@ pub use ndef::{
     ClassicNdefFormat, ClassicNdefFormatResult, ClassicNdefRead, ClassicNdefReadResult,
     ClassicNdefWrite, ClassicNdefWriteResult,
 };
+pub use plan::{
+    ClassicWriteExecution, ClassicWritePlan, ClassicWritePreflight, PlannedWriteBlock,
+    RestoreSelection, WRITE_PLAN_TTL, WriteKeyTypes, WriteToken, parse_block_list, validate_source,
+};
 pub use read::{ClassicBlockReadResult, ClassicRead, ClassicReadResult};
 pub use restore::{ClassicRestore, ClassicRestoreResult, RestoreBlockResult, RestoreBlockState};
+pub use workbench::{
+    ClassicWorkbench, WorkbenchMergeReport, WorkbenchSnapshot, WorkbenchValidation,
+    dump_fingerprint,
+};
 pub use write::{ClassicBlockWrite, ClassicWriteResult};

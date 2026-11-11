@@ -13,10 +13,11 @@ use std::time::{Duration, Instant};
 use adw::prelude::*;
 use gtk::{Orientation, gio, glib};
 use nfc_app::classic::{
-    AuthenticatedKey, BackupStore, ClassicBlockReadResult, ClassicBlockWrite, ClassicKeyscan,
-    ClassicKeyscanResult, ClassicNdefFormat, ClassicNdefFormatResult, ClassicNdefWrite,
-    ClassicNdefWriteResult, ClassicRestore, ClassicRestoreResult, ClassicWriteResult, KeyEntry,
-    KeyKind, KeySource, KeyStore, KeyTypes, KeyscanProgress, KeyscanSink,
+    AuthenticatedKey, BackupStore, ClassicBlockReadResult, ClassicKeyscan, ClassicKeyscanResult,
+    ClassicNdefFormat, ClassicNdefFormatResult, ClassicNdefWrite, ClassicNdefWriteResult,
+    ClassicRestoreResult, ClassicWriteExecution, ClassicWritePlan, ClassicWritePreflight, KeyEntry,
+    KeyKind, KeySource, KeyStore, KeyTypes, KeyscanProgress, KeyscanSink, RestoreSelection,
+    WorkbenchSnapshot, parse_block_list,
 };
 use nfc_app::type2::{
     Type2Format, Type2Lock, Type2LockResult, Type2MutationResult, Type2NdefWrite, Type2PageResult,
@@ -171,7 +172,7 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
         row.kind.to_owned()
     }));
     table.append_column(&text_column::<BlockRow>("Status", 58, false, |row| {
-        row.status.to_owned()
+        row.display_status().to_owned()
     }));
     let data_column = copy_text_column::<BlockRow>("Data", 320, true, |row| row.data.clone());
     data_column.set_expand(true);
@@ -464,8 +465,10 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
         diff_before: RefCell::new(None),
         diff_after: RefCell::new(None),
         restore_load: RefCell::new(None),
-        pending_restore_dialog: RefCell::new(None),
-        pending_write_dialog: RefCell::new(None),
+        dirty_blocks: RefCell::new(Vec::new()),
+        undo_depth: Cell::new(0),
+        pending_plan: RefCell::new(None),
+        pending_plan_dialog: RefCell::new(None),
         pending_ndef_write_dialog: RefCell::new(None),
         pending_ndef_format_dialog: RefCell::new(None),
         pending_type2_page_dialog: RefCell::new(None),
@@ -519,6 +522,9 @@ struct Inspector {
     hex: gtk::Entry,
     read: gtk::Button,
     write: gtk::Button,
+    commit: gtk::Button,
+    undo: gtk::Button,
+    revert: gtk::Button,
 }
 
 struct KeysView {
@@ -550,10 +556,19 @@ struct RestoreView {
     load: gtk::Button,
     file: gtk::Label,
     summary: gtk::Label,
+    mode: gtk::DropDown,
+    blocks: gtk::Entry,
     continue_on_error: gtk::CheckButton,
     restore: gtk::Button,
     rows: gio::ListStore,
     result: gtk::Label,
+}
+
+#[derive(Clone)]
+struct PendingPlan {
+    plan: ClassicWritePlan,
+    source: Dump,
+    restore_path: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -850,8 +865,10 @@ struct Ui {
     diff_before: RefCell<Option<DumpLoad>>,
     diff_after: RefCell<Option<DumpLoad>>,
     restore_load: RefCell<Option<(PathBuf, DumpLoad)>>,
-    pending_restore_dialog: RefCell<Option<adw::AlertDialog>>,
-    pending_write_dialog: RefCell<Option<adw::AlertDialog>>,
+    dirty_blocks: RefCell<Vec<usize>>,
+    undo_depth: Cell<usize>,
+    pending_plan: RefCell<Option<PendingPlan>>,
+    pending_plan_dialog: RefCell<Option<adw::AlertDialog>>,
     pending_ndef_write_dialog: RefCell<Option<adw::AlertDialog>>,
     pending_ndef_format_dialog: RefCell<Option<adw::AlertDialog>>,
     pending_type2_page_dialog: RefCell<Option<adw::AlertDialog>>,
@@ -996,16 +1013,29 @@ fn build_inspector() -> Inspector {
     hex.set_hexpand(true);
 
     let read = gtk::Button::with_label("Read block");
-    let write = gtk::Button::with_label("Write block");
+    let write = gtk::Button::with_label("Stage edit");
     write.add_css_class("suggested-action");
+    let commit = gtk::Button::with_label("Write changes…");
+    commit.add_css_class("destructive-action");
+    let undo = gtk::Button::with_label("Undo edit");
+    let revert = gtk::Button::with_label("Revert edits");
     read.set_sensitive(false);
     write.set_sensitive(false);
+    commit.set_sensitive(false);
+    undo.set_sensitive(false);
+    revert.set_sensitive(false);
     let actions = gtk::Box::new(Orientation::Horizontal, 6);
     actions.append(&read);
     actions.append(&write);
+    let history = gtk::Box::new(Orientation::Horizontal, 6);
+    history.append(&undo);
+    history.append(&revert);
+    let write_actions = gtk::Box::new(Orientation::Horizontal, 6);
+    write_actions.append(&commit);
 
     let note = gtk::Label::new(Some(
-        "Writes are confirmed, backed up, and read back. Block 0 stays read-only.",
+        "Edits change the working image only. Write changes confirms a preflight plan, \
+         backs up the card, and reads every block back. Block 0 stays read-only.",
     ));
     note.set_xalign(0.0);
     note.set_wrap(true);
@@ -1020,6 +1050,8 @@ fn build_inspector() -> Inspector {
     root.append(&gtk::Separator::new(Orientation::Horizontal));
     root.append(&hex);
     root.append(&actions);
+    root.append(&history);
+    root.append(&write_actions);
     root.append(&note);
 
     Inspector {
@@ -1031,6 +1063,9 @@ fn build_inspector() -> Inspector {
         hex,
         read,
         write,
+        commit,
+        undo,
+        revert,
     }
 }
 
@@ -1794,6 +1829,16 @@ fn build_restore_view() -> RestoreView {
     summary.add_css_class("caption");
     summary.add_css_class("dim-label");
 
+    let mode =
+        gtk::DropDown::from_strings(&["All known blocks", "Changes only", "Selected blocks"]);
+    mode.set_selected(0);
+    let blocks = gtk::Entry::new();
+    blocks.set_placeholder_text(Some("Blocks, e.g. 1,4,5-7"));
+    blocks.set_hexpand(true);
+    blocks.set_sensitive(false);
+    let selection_row = gtk::Box::new(Orientation::Horizontal, 8);
+    selection_row.append(&mode);
+    selection_row.append(&blocks);
     let continue_on_error = gtk::CheckButton::with_label("Continue after a failed block");
     continue_on_error.set_active(false);
     let restore = gtk::Button::with_label("Restore to card");
@@ -1838,6 +1883,7 @@ fn build_restore_view() -> RestoreView {
     root.append(&title);
     root.append(&file_row);
     root.append(&summary);
+    root.append(&selection_row);
     root.append(&continue_on_error);
     root.append(&restore);
     root.append(&note);
@@ -1849,6 +1895,8 @@ fn build_restore_view() -> RestoreView {
         load,
         file,
         summary,
+        mode,
+        blocks,
         continue_on_error,
         restore,
         rows,
@@ -2476,7 +2524,22 @@ fn connect_signals(ui: &Rc<Ui>) {
     let ui2 = ui.clone();
     ui.inspector
         .write
-        .connect_clicked(move |_| confirm_write(ui2.clone()));
+        .connect_clicked(move |_| stage_edit(ui2.clone()));
+
+    let ui2 = ui.clone();
+    ui.inspector
+        .commit
+        .connect_clicked(move |_| confirm_workbench_write(ui2.clone()));
+
+    let ui2 = ui.clone();
+    ui.inspector
+        .undo
+        .connect_clicked(move |_| undo_edit(ui2.clone()));
+
+    let ui2 = ui.clone();
+    ui.inspector
+        .revert
+        .connect_clicked(move |_| revert_edits(ui2.clone()));
 
     let ui2 = ui.clone();
     ui.inspector
@@ -2720,6 +2783,14 @@ fn connect_signals(ui: &Rc<Ui>) {
     ui.restore_view
         .restore
         .connect_clicked(move |_| confirm_restore(&ui2));
+    let ui2 = ui.clone();
+    ui.restore_view
+        .mode
+        .connect_selected_notify(move |dropdown| {
+            ui2.restore_view
+                .blocks
+                .set_sensitive(dropdown.selected() == 2);
+        });
 
     let ui2 = ui.clone();
     ui.reader_combo.connect_selected_notify(move |dropdown| {
@@ -2974,6 +3045,9 @@ fn update_inspector(ui: &Ui) {
         ui.inspector.hex.set_sensitive(false);
         ui.inspector.read.set_sensitive(false);
         ui.inspector.write.set_sensitive(false);
+        ui.inspector.commit.set_sensitive(false);
+        ui.inspector.undo.set_sensitive(false);
+        ui.inspector.revert.set_sensitive(false);
         ui.selected_label.set_localized("No block selected");
         return;
     };
@@ -2990,7 +3064,8 @@ fn update_inspector(ui: &Ui) {
     };
     ui.inspector.meta.set_localized(&format!(
         "Sector {:02} · {role} · {}",
-        row.sector, row.status
+        row.sector,
+        row.display_status()
     ));
     match &row.error {
         Some(error) => {
@@ -3017,16 +3092,20 @@ fn update_inspector(ui: &Ui) {
     ui.inspector
         .hex
         .set_text(if row.complete { &row.data } else { "" });
-    let can_edit = ui.live.get() && !ui.busy.get() && row.complete && row.number != 0;
+    let can_edit = !ui.busy.get() && row.complete && row.number != 0;
     ui.inspector.hex.set_sensitive(can_edit);
     ui.inspector
         .read
         .set_sensitive(ui.live.get() && !ui.busy.get());
     ui.selected_label.set_localized(&format!(
         "Block {:03} · sector {:02}\n{} · {}",
-        row.number, row.sector, role, row.status
+        row.number,
+        row.sector,
+        role,
+        row.display_status()
     ));
     update_write_sensitivity(ui);
+    update_workbench_actions(ui);
 }
 
 fn update_write_sensitivity(ui: &Ui) {
@@ -3034,7 +3113,7 @@ fn update_write_sensitivity(ui: &Ui) {
         ui.inspector.write.set_sensitive(false);
         return;
     };
-    if !ui.live.get() || ui.busy.get() || !row.complete || row.number == 0 {
+    if ui.busy.get() || !row.complete || row.number == 0 {
         ui.inspector.write.set_sensitive(false);
         return;
     }
@@ -3048,8 +3127,20 @@ fn update_write_sensitivity(ui: &Ui) {
         .borrow()
         .as_ref()
         .and_then(|dump| dump.blocks.get(row.number))
-        .is_some_and(|block| block.data == data);
+        .is_some_and(|block| block.complete() && block.data == data);
     ui.inspector.write.set_sensitive(!same);
+}
+
+fn update_workbench_actions(ui: &Ui) {
+    let has_image = ui.dump.borrow().is_some();
+    let dirty = !ui.dirty_blocks.borrow().is_empty();
+    ui.inspector
+        .commit
+        .set_sensitive(has_image && ui.live.get() && !ui.busy.get() && dirty);
+    ui.inspector
+        .undo
+        .set_sensitive(ui.undo_depth.get() > 0 && !ui.busy.get());
+    ui.inspector.revert.set_sensitive(dirty && !ui.busy.get());
 }
 
 fn update_card(ui: &Ui) {
@@ -3664,6 +3755,7 @@ fn finish_read(ui: &Rc<Ui>, result: NfcResult<CardReadResult>) {
             ui.type2.replace(None);
             ui.type2_restore.replace(None);
             ui.live.set(true);
+            reset_workbench(ui, &dump);
             ui.dump.replace(Some(dump.clone()));
             populate_rows(ui, &dump);
             switch_workspace(ui, Workspace::Classic);
@@ -3753,7 +3845,8 @@ fn finish_read(ui: &Rc<Ui>, result: NfcResult<CardReadResult>) {
 
 fn populate_rows(ui: &Ui, dump: &Dump) {
     ui.rows.remove_all();
-    for row in classic::rows_for(dump) {
+    let dirty = ui.dirty_blocks.borrow().clone();
+    for row in classic::rows_for_dirty(dump, &dirty) {
         ui.rows.append(&glib::BoxedAnyObject::new(row));
     }
     if dump.blocks.is_empty() {
@@ -3764,13 +3857,127 @@ fn populate_rows(ui: &Ui, dump: &Dump) {
     }
 }
 
+fn workbench_snapshot(ui: &Ui) -> Option<WorkbenchSnapshot> {
+    ui.service
+        .lock()
+        .ok()
+        .and_then(|service| service.workbench_snapshot())
+}
+
+fn apply_workbench_snapshot(ui: &Ui, snapshot: &WorkbenchSnapshot) {
+    let selected = ui.selection.selected();
+    ui.dirty_blocks.replace(snapshot.dirty_blocks.clone());
+    ui.undo_depth.set(snapshot.undo_depth);
+    ui.dump.replace(Some(snapshot.dump.clone()));
+    populate_rows(ui, &snapshot.dump);
+    if selected != gtk::INVALID_LIST_POSITION {
+        ui.selection.set_selected(selected);
+    }
+    update_inspector(ui);
+    update_card(ui);
+    update_ndef(ui);
+    update_restore_sensitivity(ui);
+}
+
+fn refresh_workbench(ui: &Ui) {
+    if let Some(snapshot) = workbench_snapshot(ui) {
+        apply_workbench_snapshot(ui, &snapshot);
+    }
+}
+
+fn load_workbench(ui: &Ui, dump: &Dump) {
+    if let Ok(mut service) = ui.service.lock()
+        && let Err(error) = service.workbench_load(dump.clone())
+    {
+        append_log(ui, &format!("workbench · load failed · {error}"));
+    }
+}
+
+fn reset_workbench(ui: &Ui, dump: &Dump) {
+    load_workbench(ui, dump);
+    ui.dirty_blocks.replace(Vec::new());
+    ui.undo_depth.set(0);
+}
+
+fn stage_edit(ui: Rc<Ui>) {
+    if ui.busy.get() {
+        return;
+    }
+    let Some(row) = selected_row(&ui) else {
+        return;
+    };
+    if row.number == 0 {
+        toast_error(&ui, "Block 0 is read-only");
+        return;
+    }
+    let data = match classic::parse_hex_16(ui.inspector.hex.text().as_str()) {
+        Ok(data) => data,
+        Err(error) => {
+            toast_error(&ui, &error);
+            return;
+        }
+    };
+    let result = match ui.service.lock() {
+        Ok(mut service) => service.workbench_edit(row.number, data),
+        Err(_) => {
+            toast_error(&ui, "reader service lock was poisoned");
+            return;
+        }
+    };
+    match result {
+        Ok(snapshot) => {
+            apply_workbench_snapshot(&ui, &snapshot);
+            ui.status
+                .set_localized(&format!("Block {:03} staged", row.number));
+        }
+        Err(error) => toast_error(&ui, &error.to_string()),
+    }
+}
+
+fn undo_edit(ui: Rc<Ui>) {
+    let result = match ui.service.lock() {
+        Ok(mut service) => service.workbench_undo(),
+        Err(_) => {
+            toast_error(&ui, "reader service lock was poisoned");
+            return;
+        }
+    };
+    match result {
+        Ok(snapshot) => {
+            apply_workbench_snapshot(&ui, &snapshot);
+            ui.status.set_localized("Edit undone");
+        }
+        Err(error) => toast_error(&ui, &error.to_string()),
+    }
+}
+
+fn revert_edits(ui: Rc<Ui>) {
+    let result = match ui.service.lock() {
+        Ok(mut service) => service.workbench_revert(),
+        Err(_) => {
+            toast_error(&ui, "reader service lock was poisoned");
+            return;
+        }
+    };
+    match result {
+        Ok(snapshot) => {
+            apply_workbench_snapshot(&ui, &snapshot);
+            ui.status.set_localized("Edits reverted");
+        }
+        Err(error) => toast_error(&ui, &error.to_string()),
+    }
+}
+
 fn replace_row(ui: &Ui, block: usize) {
     let row = {
         let dump = ui.dump.borrow();
+        let dirty = ui.dirty_blocks.borrow();
         dump.as_ref().and_then(|dump| {
-            dump.blocks
-                .get(block)
-                .map(|block| BlockRow::from_block(block, dump.layout))
+            dump.blocks.get(block).map(|block| {
+                let mut row = BlockRow::from_block(block, dump.layout);
+                row.dirty = dirty.binary_search(&block.number).is_ok();
+                row
+            })
         })
     };
     if let Some(row) = row {
@@ -3816,16 +4023,38 @@ fn finish_read_block(ui: &Rc<Ui>, block: usize, result: NfcResult<ClassicBlockRe
     set_busy(ui, false);
     match result {
         Ok(result) => {
-            {
-                let mut dump = ui.dump.borrow_mut();
-                if let Some(dump) = dump.as_mut()
-                    && let Some(block) = dump.blocks.get_mut(block)
-                {
-                    block.set_read(result.data);
+            let merged = ui
+                .service
+                .lock()
+                .ok()
+                .map(|mut service| service.workbench_merge_block(block, result.data));
+            match merged {
+                Some(Ok(report)) => {
+                    if !report.conflicts.is_empty() {
+                        append_log(
+                            ui,
+                            &format!(
+                                "merge · block {block:03} conflicts with an edit and was kept"
+                            ),
+                        );
+                    }
+                    refresh_workbench(ui);
+                }
+                Some(Err(error)) => {
+                    append_log(ui, &format!("merge · block {block:03} failed · {error}"));
+                    replace_row(ui, block);
+                    update_inspector(ui);
+                }
+                None => {
+                    if let Some(dump) = ui.dump.borrow_mut().as_mut()
+                        && let Some(target) = dump.blocks.get_mut(block)
+                    {
+                        target.set_read(result.data);
+                    }
+                    replace_row(ui, block);
+                    update_inspector(ui);
                 }
             }
-            replace_row(ui, block);
-            update_inspector(ui);
             update_card(ui);
             record_captured_keys(ui, &result.card, &[result.key]);
             ui.status.set_localized(&format!("Block {block:03} read"));
@@ -3838,161 +4067,273 @@ fn finish_read_block(ui: &Rc<Ui>, block: usize, result: NfcResult<ClassicBlockRe
     }
 }
 
-fn confirm_write(ui: Rc<Ui>) {
+fn confirm_workbench_write(ui: Rc<Ui>) {
     if ui.busy.get() || !ui.live.get() {
+        toast_error(&ui, "Writing changes needs a live selected card");
         return;
     }
-    let Some(row) = selected_row(&ui) else {
+    let Some(source) = ui.dump.borrow().clone() else {
+        toast_error(&ui, "No workbench image is loaded");
         return;
     };
-    if row.number == 0 {
-        toast_error(&ui, "Block 0 is read-only");
-        return;
-    }
-    let text = ui.inspector.hex.text();
-    let data = match classic::parse_hex_16(text.as_str()) {
-        Ok(data) => data,
-        Err(error) => {
-            toast_error(&ui, &error);
-            return;
-        }
-    };
-    let current = {
-        let dump = ui.dump.borrow();
-        dump.as_ref()
-            .and_then(|dump| dump.blocks.get(row.number))
-            .map(|block| block.data)
-    };
-    let Some(current) = current else {
-        toast_error(&ui, "The selected block is not in the current dump");
-        return;
-    };
-    if current == data {
-        toast_info(&ui, "The block already contains these bytes");
+    if ui.dirty_blocks.borrow().is_empty() {
+        toast_info(&ui, "There are no edits to write");
         return;
     }
-
-    let heading = format!("Write block {:03}?", row.number);
-    let role = if row.trailer {
-        "sector trailer"
-    } else {
-        "data block"
-    };
-    let body = format!(
-        "Sector {:02} · {role}\n\nOld  {}\nNew  {}\n\nA project backup is written before the write, and the block is read back afterwards.",
-        row.sector,
-        classic::hex_with_mask(&current, u16::MAX),
-        classic::hex_with_mask(&data, u16::MAX)
+    start_preflight(
+        &ui,
+        source,
+        RestoreSelection::ChangesOnly,
+        None,
+        ui.restore_view.continue_on_error.is_active(),
     );
-    let dialog = adw::AlertDialog::builder()
-        .heading(&heading)
-        .body(&body)
-        .build();
-    add_response(&dialog, "cancel", "Cancel");
-    add_response(
-        &dialog,
-        "write",
-        if row.trailer {
-            "Write trailer"
-        } else {
-            "Write block"
-        },
-    );
-    dialog.set_response_appearance(
-        "write",
-        if row.trailer {
-            adw::ResponseAppearance::Destructive
-        } else {
-            adw::ResponseAppearance::Suggested
-        },
-    );
-    dialog.set_default_response(Some("cancel"));
-    dialog.set_close_response("cancel");
-    let trailer = row.trailer;
-    let block = row.number;
-    let ui2 = ui.clone();
-    dialog.connect_response(None, move |_, response| {
-        ui2.pending_write_dialog.replace(None);
-        if response == "write" {
-            start_write(ui2.clone(), block, data, trailer);
-        }
-    });
-    ui.pending_write_dialog.replace(Some(dialog.clone()));
-    present_alert(&dialog, &ui.window);
 }
 
-fn start_write(ui: Rc<Ui>, block: usize, data: [u8; 16], trailer: bool) {
-    set_busy(&ui, true);
-    ui.status
-        .set_localized(&format!("Writing block {block:03}…"));
+fn start_preflight(
+    ui: &Rc<Ui>,
+    source: Dump,
+    selection: RestoreSelection,
+    restore_path: Option<PathBuf>,
+    continue_on_failure: bool,
+) {
+    set_busy(ui, true);
+    ui.status.set_localized("Building the write plan…");
     let service = ui.service.clone();
     let keys = ui.keys.borrow().clone();
-    let backup = ui.backup.borrow().clone();
-    let expected_card = ui.dump.borrow().as_ref().and_then(|dump| dump.card.clone());
+    let include_common_keys = ui.preferences.borrow().use_common_keys;
+    let expected_card = source.card.clone();
+    let request_source = source.clone();
+    let use_workbench_baseline = restore_path.is_none();
     let (sender, receiver) = async_channel::bounded(1);
     std::thread::spawn(move || {
         let result = match service.lock() {
             Ok(mut service) => {
-                let mut request = ClassicBlockWrite::new(block, data, &keys, &backup);
-                if trailer {
-                    request = request.confirm_trailer(true);
-                }
+                let mut request = ClassicWritePreflight::new(request_source, &keys)
+                    .include_common_keys(include_common_keys)
+                    .selection(selection)
+                    .continue_on_failure(continue_on_failure);
                 if let Some(card) = expected_card {
                     request = request.expected_card(card);
                 }
-                service.classic_write_block(request)
+                if use_workbench_baseline && let Some(baseline) = service.workbench_baseline_dump()
+                {
+                    request = request.baseline(baseline);
+                }
+                service.classic_write_preflight(request)
             }
             Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
         };
         let _ = sender.send_blocking(result);
     });
+    let ui = ui.clone();
     glib::spawn_future_local(async move {
         match receiver.recv().await {
-            Ok(result) => finish_write(&ui, block, data, result),
-            Err(_) => finish_write(
+            Ok(result) => finish_preflight(&ui, source, restore_path, result),
+            Err(_) => finish_preflight(
                 &ui,
-                block,
-                data,
+                source,
+                restore_path,
                 Err(NfcError::Io("reader worker stopped".to_owned())),
             ),
         }
     });
 }
 
-fn finish_write(ui: &Rc<Ui>, block: usize, data: [u8; 16], result: NfcResult<ClassicWriteResult>) {
+fn finish_preflight(
+    ui: &Rc<Ui>,
+    source: Dump,
+    restore_path: Option<PathBuf>,
+    result: NfcResult<ClassicWritePlan>,
+) {
+    set_busy(ui, false);
+    match result {
+        Ok(plan) => {
+            if plan.blocks.is_empty() {
+                ui.status.set_localized("No writes planned");
+                toast_info(ui, "The card already matches the selected blocks");
+                return;
+            }
+            append_log(
+                ui,
+                &format!(
+                    "plan · {} · {} block(s), {} trailer(s)",
+                    plan.selection.label(),
+                    plan.blocks.len(),
+                    plan.trailer_writes()
+                ),
+            );
+            show_plan_dialog(
+                ui,
+                PendingPlan {
+                    plan,
+                    source,
+                    restore_path,
+                },
+            );
+        }
+        Err(error) => {
+            ui.status.set_localized("Write preflight failed");
+            toast_error(ui, &error.to_string());
+        }
+    }
+}
+
+fn plan_body(plan: &ClassicWritePlan) -> String {
+    let mut body = format!(
+        "{} · UID {}\n{} · {} block(s), {} trailer(s)\n{} unchanged, {} unknown skipped · plan expires at {}\n",
+        classic::display_layout(plan.layout),
+        plan.card.uid_hex(),
+        plan.selection.label(),
+        plan.blocks.len(),
+        plan.trailer_writes(),
+        plan.unchanged_blocks,
+        plan.skipped_unknown_blocks,
+        plan.expires_at
+    );
+    body.push_str("\nA project backup is written before the write, and every block is read back. Block 0 is never written.\n");
+    for block in plan.blocks.iter().take(12) {
+        body.push_str(&format!(
+            "\nBlock {:03} · sector {:02} · {} · {}",
+            block.block,
+            block.sector,
+            block.role_label(),
+            block.access_note
+        ));
+        body.push_str(&format!(
+            "\n  old {}\n  new {}",
+            classic::hex_with_mask(&block.old, u16::MAX),
+            classic::hex_with_mask(&block.new, u16::MAX)
+        ));
+    }
+    if plan.blocks.len() > 12 {
+        body.push_str(&format!("\n… and {} more block(s)", plan.blocks.len() - 12));
+    }
+    for warning in &plan.warnings {
+        body.push_str(&format!("\nWarning: {warning}"));
+    }
+    body
+}
+
+fn show_plan_dialog(ui: &Rc<Ui>, pending: PendingPlan) {
+    let restore = pending.restore_path.is_some();
+    let heading = if restore {
+        "Restore the plan to the live card?"
+    } else {
+        "Write the edited blocks?"
+    };
+    let action = if restore { "Restore" } else { "Write changes" };
+    let dialog = adw::AlertDialog::builder()
+        .heading(heading)
+        .body(plan_body(&pending.plan))
+        .build();
+    add_response(&dialog, "cancel", "Cancel");
+    add_response(&dialog, "write", action);
+    dialog.set_response_appearance("write", adw::ResponseAppearance::Destructive);
+    dialog.set_default_response(Some("cancel"));
+    dialog.set_close_response("cancel");
+    let ui2 = ui.clone();
+    dialog.connect_response(None, move |_, response| {
+        ui2.pending_plan_dialog.replace(None);
+        let pending = ui2.pending_plan.borrow_mut().take();
+        if response == "write"
+            && let Some(pending) = pending
+        {
+            start_plan_execution(&ui2, pending);
+        }
+    });
+    ui.pending_plan.replace(Some(pending));
+    ui.pending_plan_dialog.replace(Some(dialog.clone()));
+    present_alert(&dialog, &ui.window);
+}
+
+fn start_plan_execution(ui: &Rc<Ui>, pending: PendingPlan) {
+    set_busy(ui, true);
+    ui.status.set_localized("Writing the planned blocks…");
+    let service = ui.service.clone();
+    let keys = ui.keys.borrow().clone();
+    let backup = ui.backup.borrow().clone();
+    let token = pending.plan.token;
+    let restore_path = pending.restore_path.clone();
+    let source = if restore_path.is_none() {
+        ui.dump
+            .borrow()
+            .clone()
+            .unwrap_or_else(|| pending.source.clone())
+    } else {
+        pending.source.clone()
+    };
+    let include_common_keys = ui.preferences.borrow().use_common_keys;
+    let (sender, receiver) = async_channel::bounded(1);
+    std::thread::spawn(move || {
+        let result = match service.lock() {
+            Ok(mut service) => service.classic_write_execute(
+                ClassicWriteExecution::new(token, source, &keys, &backup)
+                    .include_common_keys(include_common_keys)
+                    .confirmed(true),
+            ),
+            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
+        };
+        let _ = sender.send_blocking(result);
+    });
+    let ui = ui.clone();
+    glib::spawn_future_local(async move {
+        match receiver.recv().await {
+            Ok(result) => {
+                if let Some(path) = restore_path {
+                    finish_restore(&ui, path, result);
+                } else {
+                    finish_workbench_write(&ui, result);
+                }
+            }
+            Err(_) => {
+                let error = Err(NfcError::Io("reader worker stopped".to_owned()));
+                if let Some(path) = restore_path {
+                    finish_restore(&ui, path, error);
+                } else {
+                    finish_workbench_write(&ui, error);
+                }
+            }
+        }
+    });
+}
+
+fn finish_workbench_write(ui: &Rc<Ui>, result: NfcResult<ClassicRestoreResult>) {
     set_busy(ui, false);
     match result {
         Ok(result) => {
-            if result.changed {
-                {
-                    let mut dump = ui.dump.borrow_mut();
-                    if let Some(dump) = dump.as_mut()
-                        && let Some(block) = dump.blocks.get_mut(block)
-                    {
-                        block.set_read(data);
-                    }
-                }
-                replace_row(ui, block);
-                update_inspector(ui);
-                update_card(ui);
-                update_ndef(ui);
-                let backup = result
-                    .backup
-                    .as_ref()
-                    .map(|backup| backup.path.display().to_string())
-                    .unwrap_or_else(|| "no backup".to_owned());
-                ui.status
-                    .set_localized(&format!("Block {block:03} written"));
-                append_log(ui, &format!("write · block {block:03} · {backup}"));
-                toast_info(ui, &format!("Block {block:03} written and read back"));
+            let backup = result
+                .backup
+                .as_ref()
+                .map(|backup| backup.path.display().to_string())
+                .unwrap_or_else(|| "no backup needed".to_owned());
+            append_log(
+                ui,
+                &format!(
+                    "write changes · {} block(s), {} trailer(s) · {backup}",
+                    result.written_blocks, result.trailer_writes
+                ),
+            );
+            for warning in &result.warnings {
+                append_log(ui, &format!("warning · {warning}"));
+            }
+            for failure in &result.failures {
+                append_log(ui, &format!("failure · {failure}"));
+            }
+            refresh_workbench(ui);
+            ui.status.set_localized(&format!(
+                "Changes written · {} block(s)",
+                result.written_blocks
+            ));
+            if result.failures.is_empty() {
+                toast_info(ui, "Changes written and read back");
             } else {
-                ui.status.set_localized("No change");
-                toast_info(ui, "The block already contained these bytes");
+                toast_info(ui, "Write finished with failures; see the activity log");
             }
         }
         Err(error) => {
             ui.status.set_localized("Write failed");
             toast_error(ui, &error.to_string());
+            refresh_workbench(ui);
         }
     }
 }
@@ -4388,10 +4729,32 @@ fn finish_ndef_format(ui: &Rc<Ui>, result: NfcResult<ClassicNdefFormatResult>) {
 /// Replaces the live image with the service result and refreshes every surface
 /// that depends on it. No redundant card read is performed.
 fn apply_ndef_result(ui: &Rc<Ui>, dump: &Dump, info: &ClassicNdefInfo) {
-    populate_rows(ui, dump);
-    ui.dump.replace(Some(dump.clone()));
+    let merged = ui
+        .service
+        .lock()
+        .ok()
+        .map(|mut service| service.workbench_merge(dump));
     ui.ndef.replace(Some(info.clone()));
-    update_card(ui);
+    match merged {
+        Some(Ok(report)) => {
+            if !report.conflicts.is_empty() {
+                append_log(
+                    ui,
+                    &format!(
+                        "merge · NDEF write conflicts with {} staged edit(s)",
+                        report.conflicts.len()
+                    ),
+                );
+            }
+            refresh_workbench(ui);
+        }
+        _ => {
+            reset_workbench(ui, dump);
+            populate_rows(ui, dump);
+            ui.dump.replace(Some(dump.clone()));
+            update_card(ui);
+        }
+    }
     render_ndef(ui, Some(info), None);
     update_restore_sensitivity(ui);
     record_dump_metadata_keys(ui, dump);
@@ -6373,74 +6736,24 @@ fn confirm_restore(ui: &Rc<Ui>) {
         toast_error(ui, "Load a dump before restoring");
         return;
     };
-    let known = load
-        .dump
-        .blocks
-        .iter()
-        .filter(|block| block.complete())
-        .count();
-    let body = format!(
-        "Load: {}\nImage: {} · {} of {} blocks known\n\nA project backup is written before the write. Data blocks are written before sector trailers, and every block is read back. Block 0 is never written.",
-        path.display(),
-        classic::display_layout(load.dump.layout),
-        known,
-        load.dump.layout.block_count()
-    );
-    let dialog = adw::AlertDialog::builder()
-        .heading("Restore dump to the live card?")
-        .body(body)
-        .build();
-    add_response(&dialog, "cancel", "Cancel");
-    add_response(&dialog, "restore", "Restore");
-    dialog.set_response_appearance("restore", adw::ResponseAppearance::Destructive);
-    dialog.set_default_response(Some("cancel"));
-    dialog.set_close_response("cancel");
-    let ui2 = ui.clone();
-    dialog.connect_response(None, move |_, response| {
-        ui2.pending_restore_dialog.replace(None);
-        if response == "restore" {
-            start_restore(&ui2, path.clone(), load.dump.clone());
-        }
-    });
-    ui.pending_restore_dialog.replace(Some(dialog.clone()));
-    present_alert(&dialog, &ui.window);
-}
-
-fn start_restore(ui: &Rc<Ui>, path: PathBuf, dump: Dump) {
-    let ui = ui.clone();
-    set_busy(&ui, true);
-    ui.status.set_localized("Restoring dump…");
-    let service = ui.service.clone();
-    let keys = ui.keys.borrow().clone();
-    let backup = ui.backup.borrow().clone();
-    let continue_on_failure = ui.restore_view.continue_on_error.is_active();
-    let expected_card = dump.card.clone();
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => {
-                let mut request = ClassicRestore::new(dump, &keys, &backup)
-                    .confirmed(true)
-                    .continue_on_failure(continue_on_failure);
-                if let Some(card) = expected_card {
-                    request = request.expected_card(card);
-                }
-                service.classic_restore(request)
+    let selection = match ui.restore_view.mode.selected() {
+        1 => RestoreSelection::ChangesOnly,
+        2 => match parse_block_list(ui.restore_view.blocks.text().as_str()) {
+            Ok(blocks) => RestoreSelection::Blocks(blocks),
+            Err(error) => {
+                toast_error(ui, &error.to_string());
+                return;
             }
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        match receiver.recv().await {
-            Ok(result) => finish_restore(&ui, path, result),
-            Err(_) => finish_restore(
-                &ui,
-                path,
-                Err(NfcError::Io("reader worker stopped".to_owned())),
-            ),
-        }
-    });
+        },
+        _ => RestoreSelection::All,
+    };
+    start_preflight(
+        ui,
+        load.dump,
+        selection,
+        Some(path),
+        ui.restore_view.continue_on_error.is_active(),
+    );
 }
 
 fn finish_restore(ui: &Rc<Ui>, path: PathBuf, result: NfcResult<ClassicRestoreResult>) {
@@ -6606,6 +6919,14 @@ fn choose_save_path(ui: &Rc<Ui>, dump: &Dump, format: DumpFormat) {
         match exchange::export(&dump, format) {
             Ok(bytes) => match std::fs::write(&path, &bytes) {
                 Ok(()) => {
+                    let saved = ui2
+                        .service
+                        .lock()
+                        .ok()
+                        .and_then(|mut service| service.workbench_mark_saved().ok());
+                    if let Some(snapshot) = saved {
+                        apply_workbench_snapshot(&ui2, &snapshot);
+                    }
                     let keys_omitted =
                         chosen != DumpFormat::Project && !dump.metadata.keys.is_empty();
                     append_log(
@@ -6690,6 +7011,7 @@ fn load_dump_file(ui: &Rc<Ui>, path: &Path) -> Result<(), String> {
     ui.type2.replace(None);
     ui.type2_restore.replace(None);
     ui.live.set(false);
+    reset_workbench(ui, &loaded.dump);
     ui.dump.replace(Some(loaded.dump.clone()));
     populate_rows(ui, &loaded.dump);
     switch_workspace(ui, Workspace::Classic);
@@ -8241,6 +8563,12 @@ mod tests {
         ui.live.set(false);
         ui.busy.set(false);
         ui.dump.replace(None);
+        if let Ok(mut service) = ui.service.lock() {
+            service.workbench_clear();
+        }
+        ui.dirty_blocks.replace(Vec::new());
+        ui.undo_depth.set(0);
+        ui.pending_plan.replace(None);
         ui.type2.replace(None);
         ui.type2_restore.replace(None);
         close_alert(&ui.pending_type2_page_dialog);
@@ -8265,8 +8593,7 @@ mod tests {
         ui.restore_load.replace(None);
         ui.diff_before.replace(None);
         ui.diff_after.replace(None);
-        close_alert(&ui.pending_restore_dialog);
-        close_alert(&ui.pending_write_dialog);
+        close_alert(&ui.pending_plan_dialog);
         close_alert(&ui.pending_ndef_write_dialog);
         close_alert(&ui.pending_ndef_format_dialog);
         ui.ndef.replace(None);
@@ -8343,6 +8670,7 @@ mod tests {
 
     fn show_dump(ui: &Rc<Ui>) {
         let dump = fixture_dump();
+        reset_workbench(ui, &dump);
         ui.dump.replace(Some(dump.clone()));
         populate_rows(ui, &dump);
         ui.live.set(true);
@@ -8450,7 +8778,7 @@ mod tests {
         selection_updates_inspector(&harness);
         write_gates_follow_state(&harness);
         reader_refresh_invalidates(&harness);
-        write_confirmation_cancel_and_success(&harness);
+        workbench_stage_undo_revert_and_write(&harness);
         identity_refusal_is_visible(&harness);
         restore_cancel_then_confirm(&harness);
         diff_screen_classifies_blocks(&harness);
@@ -8754,27 +9082,35 @@ mod tests {
             .set_text(&classic::hex_with_mask(&changed_block(), u16::MAX));
         update_write_sensitivity(&harness.ui);
         assert!(harness.ui.inspector.write.is_sensitive());
-        confirm_write(harness.ui.clone());
+        assert_eq!(
+            harness.ui.inspector.write.label().as_deref(),
+            Some("暂存编辑")
+        );
+        assert_eq!(
+            harness.ui.inspector.commit.label().as_deref(),
+            Some("写入更改…")
+        );
+        stage_edit(harness.ui.clone());
+        assert!(harness.ui.inspector.commit.is_sensitive());
+        assert_eq!(harness.ui.dirty_blocks.borrow().as_slice(), &[4]);
+        assert_eq!(harness.handle.block(4), Some(image()[4]));
+
+        confirm_workbench_write(harness.ui.clone());
+        pump_until(&harness.ui, "Chinese write plan", || {
+            harness.ui.pending_plan_dialog.borrow().is_some()
+        });
         let dialog = harness
             .ui
-            .pending_write_dialog
+            .pending_plan_dialog
             .borrow()
             .clone()
-            .expect("write dialog");
-        assert_eq!(dialog.heading().as_deref(), Some("写入数据块 004？"));
-        assert_eq!(dialog.response_label("write"), "写入数据块");
-        assert_eq!(dialog.response_label("cancel"), "取消");
-        assert_eq!(dialog.close_response(), "cancel");
-        assert_eq!(dialog.default_response().as_deref(), Some("cancel"));
-        assert!(dialog.body().contains("扇区 01 · 数据块"));
-        let dialog_texts = i18n::visible_alert_texts(&dialog);
-        let dialog_leftovers = english_chrome(&dialog_texts);
-        assert!(
-            dialog_leftovers.is_empty(),
-            "untranslated dialog: {dialog_leftovers:#?}"
-        );
+            .expect("plan dialog");
+        assert_eq!(dialog.heading().as_deref(), Some("写入已编辑的数据块？"));
+        assert_eq!(dialog.response_label("write"), "写入更改");
+        assert!(dialog.body().contains("数据块 004"), "{}", dialog.body());
+        assert!(dialog.body().contains("使用"), "{}", dialog.body());
         emit_response(&dialog, "cancel");
-        harness.ui.pending_write_dialog.replace(None);
+        assert!(harness.ui.pending_plan_dialog.borrow().is_none());
 
         choose_reader(harness, "mock:ntag");
         start_read(harness.ui.clone());
@@ -8837,9 +9173,19 @@ mod tests {
             .set_text(&classic::hex_with_mask(&changed_block(), u16::MAX));
         update_write_sensitivity(&harness.ui);
         assert!(harness.ui.inspector.write.is_sensitive());
+        assert!(!harness.ui.inspector.commit.is_sensitive());
         harness.ui.live.set(false);
-        update_inspector(&harness.ui);
-        assert!(!harness.ui.inspector.write.is_sensitive());
+        harness
+            .ui
+            .inspector
+            .hex
+            .set_text(&classic::hex_with_mask(&changed_block(), u16::MAX));
+        update_write_sensitivity(&harness.ui);
+        assert!(
+            harness.ui.inspector.write.is_sensitive(),
+            "a loaded image is editable without a live card"
+        );
+        assert!(!harness.ui.inspector.commit.is_sensitive());
 
         harness.ui.selection.set_selected(0);
         update_inspector(&harness.ui);
@@ -8863,13 +9209,15 @@ mod tests {
             .set_text(&classic::hex_with_mask(&changed_block(), u16::MAX));
         update_write_sensitivity(&harness.ui);
         assert!(harness.ui.inspector.write.is_sensitive());
+        stage_edit(harness.ui.clone());
+        assert!(harness.ui.inspector.commit.is_sensitive());
         refresh_devices(&harness.ui);
         assert!(!harness.ui.live.get());
-        assert!(!harness.ui.inspector.write.is_sensitive());
+        assert!(!harness.ui.inspector.commit.is_sensitive());
         assert!(harness.ui.status.label().contains("Inspection only"));
     }
 
-    fn write_confirmation_cancel_and_success(harness: &Harness) {
+    fn workbench_stage_undo_revert_and_write(harness: &Harness) {
         reset(harness);
         show_dump(&harness.ui);
         harness.ui.selection.set_selected(4);
@@ -8879,30 +9227,39 @@ mod tests {
             .hex
             .set_text(&classic::hex_with_mask(&changed_block(), u16::MAX));
         update_write_sensitivity(&harness.ui);
-        confirm_write(harness.ui.clone());
-        let dialog = harness
-            .ui
-            .pending_write_dialog
-            .borrow()
-            .clone()
-            .expect("write dialog");
-        emit_response(&dialog, "cancel");
-        assert!(harness.ui.pending_write_dialog.borrow().is_none());
+        stage_edit(harness.ui.clone());
         assert_eq!(harness.handle.block(4), Some(image()[4]));
-
-        confirm_write(harness.ui.clone());
-        let dialog = harness
+        assert_eq!(harness.ui.dirty_blocks.borrow().as_slice(), &[4]);
+        assert!(harness.ui.inspector.commit.is_sensitive());
+        let row = harness
             .ui
-            .pending_write_dialog
-            .borrow()
-            .clone()
-            .expect("write dialog");
-        emit_response(&dialog, "write");
-        pump_until(&harness.ui, "block write", || {
-            !harness.ui.busy.get() && harness.ui.status.label().contains("written")
-        });
-        assert_eq!(harness.handle.block(4), Some(changed_block()));
+            .rows
+            .item(4)
+            .and_downcast::<glib::BoxedAnyObject>()
+            .expect("row")
+            .borrow::<BlockRow>()
+            .clone();
+        assert_eq!(row.display_status(), "edited");
 
+        undo_edit(harness.ui.clone());
+        assert!(harness.ui.dirty_blocks.borrow().is_empty());
+        assert_eq!(harness.ui.dirty_blocks.borrow().len(), 0);
+        stage_edit(harness.ui.clone());
+        revert_edits(harness.ui.clone());
+        assert!(harness.ui.dirty_blocks.borrow().is_empty());
+        assert_eq!(
+            harness.ui.dump.borrow().as_ref().expect("dump").blocks[4].data,
+            image()[4]
+        );
+
+        harness.ui.selection.set_selected(4);
+        harness
+            .ui
+            .inspector
+            .hex
+            .set_text(&classic::hex_with_mask(&changed_block(), u16::MAX));
+        update_write_sensitivity(&harness.ui);
+        stage_edit(harness.ui.clone());
         let mut trailer = image()[7];
         trailer[15] = 0xFE;
         harness.ui.selection.set_selected(7);
@@ -8913,26 +9270,78 @@ mod tests {
             .hex
             .set_text(&classic::hex_with_mask(&trailer, u16::MAX));
         update_write_sensitivity(&harness.ui);
-        assert!(
-            harness.ui.inspector.write.is_sensitive(),
-            "a valid changed trailer is writable after confirmation"
-        );
-        confirm_write(harness.ui.clone());
+        stage_edit(harness.ui.clone());
+        assert_eq!(harness.ui.dirty_blocks.borrow().as_slice(), &[4, 7]);
+
+        confirm_workbench_write(harness.ui.clone());
+        pump_until(&harness.ui, "write plan", || {
+            harness.ui.pending_plan_dialog.borrow().is_some()
+        });
         let dialog = harness
             .ui
-            .pending_write_dialog
+            .pending_plan_dialog
             .borrow()
             .clone()
-            .expect("trailer dialog");
+            .expect("plan dialog");
+        assert!(
+            dialog
+                .heading()
+                .as_deref()
+                .is_some_and(|heading| heading.contains("edited blocks"))
+        );
+        assert!(dialog.body().contains("Block 004"));
         emit_response(&dialog, "cancel");
-        assert_eq!(harness.handle.block(7), Some(image()[7]));
+        assert!(harness.ui.pending_plan_dialog.borrow().is_none());
+        assert_eq!(harness.handle.block(4), Some(image()[4]));
+
+        confirm_workbench_write(harness.ui.clone());
+        pump_until(&harness.ui, "write plan", || {
+            harness.ui.pending_plan_dialog.borrow().is_some()
+        });
+        let dialog = harness
+            .ui
+            .pending_plan_dialog
+            .borrow()
+            .clone()
+            .expect("plan dialog");
+        emit_response(&dialog, "write");
+        pump_until(&harness.ui, "planned write", || {
+            !harness.ui.busy.get() && harness.ui.status.label().contains("Changes written")
+        });
+        assert_eq!(harness.handle.block(4), Some(changed_block()));
+        assert_eq!(harness.handle.block(7), Some(trailer));
+        assert!(harness.ui.dirty_blocks.borrow().is_empty());
+        assert_eq!(
+            std::fs::read_dir(harness.backups.path())
+                .expect("backup dir")
+                .count(),
+            1
+        );
     }
 
     fn identity_refusal_is_visible(harness: &Harness) {
         reset(harness);
         show_dump(&harness.ui);
+        harness.ui.selection.set_selected(4);
+        harness
+            .ui
+            .inspector
+            .hex
+            .set_text(&classic::hex_with_mask(&changed_block(), u16::MAX));
+        update_write_sensitivity(&harness.ui);
+        stage_edit(harness.ui.clone());
+        confirm_workbench_write(harness.ui.clone());
+        pump_until(&harness.ui, "write plan", || {
+            harness.ui.pending_plan_dialog.borrow().is_some()
+        });
         harness.handle.set_card(Some(other_card()));
-        start_write(harness.ui.clone(), 4, changed_block(), false);
+        let dialog = harness
+            .ui
+            .pending_plan_dialog
+            .borrow()
+            .clone()
+            .expect("plan dialog");
+        emit_response(&dialog, "write");
         pump_until(&harness.ui, "identity refusal", || {
             harness.ui.status.label() == "Write failed"
         });
@@ -8961,24 +9370,30 @@ mod tests {
         assert!(harness.ui.restore_view.restore.is_sensitive());
 
         confirm_restore(&harness.ui);
+        pump_until(&harness.ui, "restore plan", || {
+            harness.ui.pending_plan_dialog.borrow().is_some()
+        });
         let dialog = harness
             .ui
-            .pending_restore_dialog
+            .pending_plan_dialog
             .borrow()
             .clone()
             .expect("restore dialog");
         emit_response(&dialog, "cancel");
-        assert!(harness.ui.pending_restore_dialog.borrow().is_none());
+        assert!(harness.ui.pending_plan_dialog.borrow().is_none());
         assert_eq!(harness.handle.block(4), Some(image()[4]));
 
         confirm_restore(&harness.ui);
+        pump_until(&harness.ui, "restore plan", || {
+            harness.ui.pending_plan_dialog.borrow().is_some()
+        });
         let dialog = harness
             .ui
-            .pending_restore_dialog
+            .pending_plan_dialog
             .borrow()
             .clone()
             .expect("restore dialog");
-        emit_response(&dialog, "restore");
+        emit_response(&dialog, "write");
         pump_until(&harness.ui, "restore completion", || {
             !harness.ui.busy.get() && harness.ui.status.label().contains("Restore complete")
         });

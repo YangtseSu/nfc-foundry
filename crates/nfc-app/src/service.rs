@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 use nfc_core::{CancelToken, CardInfo, CardType, NfcError, Result};
 use nfc_transport::{DeviceInfo, Transport};
@@ -7,7 +9,9 @@ use crate::classic::{
     BackupRecord, BackupStore, ClassicBlockWrite, ClassicKeyscan, ClassicKeyscanResult,
     ClassicNdefFormat, ClassicNdefFormatResult, ClassicNdefRead, ClassicNdefReadResult,
     ClassicNdefWrite, ClassicNdefWriteResult, ClassicRead, ClassicReadResult, ClassicRestore,
-    ClassicRestoreResult, ClassicWriteResult, KeyStore,
+    ClassicRestoreResult, ClassicWorkbench, ClassicWriteExecution, ClassicWritePlan,
+    ClassicWritePreflight, ClassicWriteResult, KeyStore, WorkbenchMergeReport, WorkbenchSnapshot,
+    WorkbenchValidation, WriteToken,
 };
 use crate::device::DeviceManager;
 use crate::operation::{Operation, OperationKind};
@@ -21,16 +25,26 @@ pub enum CardReadResult {
     Type2(Type2ReadResult),
 }
 
+struct PendingWrite {
+    plan: ClassicWritePlan,
+    baseline: Option<nfc_classic::Dump>,
+    expires: Instant,
+}
+
 /// Application facade shared by the GUI and `nfctl`.
 #[derive(Default)]
 pub struct Service {
     devices: DeviceManager,
+    workbench: Option<ClassicWorkbench>,
+    pending_writes: HashMap<u64, PendingWrite>,
+    next_write_token: u64,
 }
 
 impl Service {
     pub fn with_transport(transport: Arc<dyn Transport>) -> Self {
         Self {
             devices: DeviceManager::with_transport(transport),
+            ..Self::default()
         }
     }
 
@@ -133,8 +147,206 @@ impl Service {
     /// Restores a dump with a pre-write backup and the request's stop policy.
     pub fn classic_restore(&mut self, request: ClassicRestore<'_>) -> Result<ClassicRestoreResult> {
         let cancel = request.cancel.clone();
+        let source_fingerprint = crate::classic::dump_fingerprint(&request.dump);
         let mut operation = self.begin_operation(OperationKind::Write, cancel)?;
-        crate::classic::restore::restore(&mut operation, request)
+        let result = crate::classic::restore::restore(&mut operation, request)?;
+        drop(operation);
+        self.apply_written_baseline(source_fingerprint, &result);
+        Ok(result)
+    }
+
+    /// Reads the live card and returns a validated write plan without writing.
+    pub fn classic_write_preflight(
+        &mut self,
+        request: ClassicWritePreflight<'_>,
+    ) -> Result<ClassicWritePlan> {
+        let token = self.new_write_token();
+        let cancel = request.cancel.clone();
+        let plan = {
+            let mut operation = self.begin_operation(OperationKind::Read, cancel)?;
+            crate::classic::restore::preflight(&mut operation, &request, token)?
+        };
+        let now = Instant::now();
+        self.pending_writes
+            .retain(|_, pending| pending.expires > now);
+        self.pending_writes.insert(
+            token.value(),
+            PendingWrite {
+                plan: plan.clone(),
+                baseline: request.baseline,
+                expires: Instant::now() + crate::classic::WRITE_PLAN_TTL,
+            },
+        );
+        Ok(plan)
+    }
+
+    /// Executes a preflight plan after rechecking the token, expiry, card, and
+    /// source image. The token is consumed even when execution fails.
+    pub fn classic_write_execute(
+        &mut self,
+        request: ClassicWriteExecution<'_>,
+    ) -> Result<ClassicRestoreResult> {
+        let Some(pending) = self.pending_writes.remove(&request.token.value()) else {
+            return Err(NfcError::InvalidArgument(
+                "the write token is unknown or was already used".to_owned(),
+            ));
+        };
+        if Instant::now() > pending.expires {
+            return Err(NfcError::InvalidArgument(
+                "the write plan expired; run the preflight again".to_owned(),
+            ));
+        }
+        if crate::classic::dump_fingerprint(&request.dump) != pending.plan.source_fingerprint {
+            return Err(NfcError::CardChanged);
+        }
+        let source_fingerprint = pending.plan.source_fingerprint;
+        let selection = pending.plan.selection.clone();
+        let expected_card = pending.plan.card.clone();
+        let continue_on_failure = pending.plan.continue_on_failure;
+        let mut restore = ClassicRestore::new(request.dump, request.keys, request.backup)
+            .include_common_keys(request.include_common_keys)
+            .confirmed(request.confirmed)
+            .continue_on_failure(continue_on_failure)
+            .selection(selection)
+            .expected_card(expected_card)
+            .cancel(request.cancel.clone());
+        if let Some(baseline) = pending.baseline {
+            restore = restore.baseline(baseline);
+        }
+        let mut operation = self.begin_operation(OperationKind::Write, request.cancel)?;
+        let result =
+            crate::classic::restore::restore_with_plan(&mut operation, restore, &pending.plan)?;
+        drop(operation);
+        self.apply_written_baseline(source_fingerprint, &result);
+        Ok(result)
+    }
+
+    fn apply_written_baseline(&mut self, source_fingerprint: u64, result: &ClassicRestoreResult) {
+        if result.dry_run {
+            return;
+        }
+        let Some(workbench) = self.workbench.as_mut() else {
+            return;
+        };
+        if workbench.fingerprint() != source_fingerprint {
+            return;
+        }
+        let written: Vec<usize> = result
+            .blocks
+            .iter()
+            .filter(|block| block.state == crate::classic::RestoreBlockState::Written)
+            .map(|block| block.block)
+            .collect();
+        if !written.is_empty() {
+            let _ = workbench.mark_written(&written);
+        }
+    }
+
+    fn new_write_token(&mut self) -> WriteToken {
+        let value = self.next_write_token.wrapping_add(1);
+        self.next_write_token = value;
+        WriteToken::new(value)
+    }
+
+    pub fn workbench_snapshot(&self) -> Option<WorkbenchSnapshot> {
+        self.workbench.as_ref().map(ClassicWorkbench::snapshot)
+    }
+
+    pub fn workbench_dump(&self) -> Option<nfc_classic::Dump> {
+        self.workbench
+            .as_ref()
+            .map(|workbench| workbench.working().clone())
+    }
+
+    pub fn workbench_baseline_dump(&self) -> Option<nfc_classic::Dump> {
+        self.workbench
+            .as_ref()
+            .map(|workbench| workbench.baseline().clone())
+    }
+
+    pub fn workbench_load(&mut self, dump: nfc_classic::Dump) -> Result<WorkbenchSnapshot> {
+        let workbench = ClassicWorkbench::new(dump)?;
+        let snapshot = workbench.snapshot();
+        self.workbench = Some(workbench);
+        Ok(snapshot)
+    }
+
+    pub fn workbench_clear(&mut self) {
+        self.workbench = None;
+    }
+
+    /// Exports the working image in the requested dump format.
+    pub fn workbench_export(&self, format: nfc_classic::DumpFormat) -> Result<Vec<u8>> {
+        let workbench = self
+            .workbench
+            .as_ref()
+            .ok_or_else(|| NfcError::InvalidArgument("no workbench image is loaded".to_owned()))?;
+        nfc_classic::exchange::export(workbench.working(), format)
+    }
+
+    pub fn workbench_edit(
+        &mut self,
+        block: usize,
+        data: [u8; nfc_core::BLOCK_SIZE],
+    ) -> Result<WorkbenchSnapshot> {
+        let workbench = self.workbench_mut()?;
+        workbench.edit_block(block, data)?;
+        Ok(workbench.snapshot())
+    }
+
+    pub fn workbench_edit_ascii(&mut self, block: usize, text: &str) -> Result<WorkbenchSnapshot> {
+        let workbench = self.workbench_mut()?;
+        workbench.edit_ascii_block(block, text)?;
+        Ok(workbench.snapshot())
+    }
+
+    pub fn workbench_undo(&mut self) -> Result<WorkbenchSnapshot> {
+        let workbench = self.workbench_mut()?;
+        workbench.undo()?;
+        Ok(workbench.snapshot())
+    }
+
+    pub fn workbench_revert(&mut self) -> Result<WorkbenchSnapshot> {
+        let workbench = self.workbench_mut()?;
+        workbench.revert()?;
+        Ok(workbench.snapshot())
+    }
+
+    pub fn workbench_mark_saved(&mut self) -> Result<WorkbenchSnapshot> {
+        let workbench = self.workbench_mut()?;
+        workbench.mark_saved();
+        Ok(workbench.snapshot())
+    }
+
+    pub fn workbench_mark_written(&mut self, blocks: &[usize]) -> Result<WorkbenchSnapshot> {
+        let workbench = self.workbench_mut()?;
+        workbench.mark_written(blocks)?;
+        Ok(workbench.snapshot())
+    }
+
+    pub fn workbench_merge(&mut self, read: &nfc_classic::Dump) -> Result<WorkbenchMergeReport> {
+        self.workbench_mut()?.merge_read(read)
+    }
+
+    pub fn workbench_merge_block(
+        &mut self,
+        block: usize,
+        data: [u8; nfc_core::BLOCK_SIZE],
+    ) -> Result<WorkbenchMergeReport> {
+        self.workbench_mut()?.merge_block(block, data)
+    }
+
+    pub fn workbench_validate(&self) -> Result<WorkbenchValidation> {
+        self.workbench
+            .as_ref()
+            .map(ClassicWorkbench::validate)
+            .ok_or_else(|| NfcError::InvalidArgument("no workbench image is loaded".to_owned()))
+    }
+
+    fn workbench_mut(&mut self) -> Result<&mut ClassicWorkbench> {
+        self.workbench
+            .as_mut()
+            .ok_or_else(|| NfcError::InvalidArgument("no workbench image is loaded".to_owned()))
     }
 
     /// Reads the card and parses the MAD, NFC sector map, and NDEF TLV.
@@ -399,6 +611,58 @@ mod tests {
                 .count(),
             0
         );
+    }
+
+    #[test]
+    fn expired_and_unknown_write_tokens_are_refused_before_io() {
+        use nfc_classic::{Dump, Layout};
+
+        let (mut service, handle) = service_with_card(card(1));
+        let directory = tempfile::tempdir().expect("temp dir");
+        let backup = BackupStore::new(directory.path());
+        let keys = KeyStore::new();
+        let dump = Dump::new(Layout::Classic1K).with_card(card(1));
+        let token = WriteToken::new(77);
+        let plan = ClassicWritePlan {
+            token,
+            layout: Layout::Classic1K,
+            card: card(1),
+            selection: crate::classic::RestoreSelection::All,
+            selected_blocks: Vec::new(),
+            blocks: Vec::new(),
+            unchanged_blocks: 0,
+            skipped_unknown_blocks: 0,
+            warnings: Vec::new(),
+            expires_at: 0,
+            source_fingerprint: crate::classic::dump_fingerprint(&dump),
+            card_fingerprint: 0,
+            continue_on_failure: false,
+        };
+        service.pending_writes.insert(
+            77,
+            PendingWrite {
+                plan,
+                baseline: None,
+                expires: Instant::now() - std::time::Duration::from_secs(1),
+            },
+        );
+        let result = service.classic_write_execute(
+            ClassicWriteExecution::new(token, dump.clone(), &keys, &backup).confirmed(true),
+        );
+        assert!(matches!(result, Err(NfcError::InvalidArgument(_))));
+        assert_eq!(handle.block(4), None);
+        assert_eq!(
+            std::fs::read_dir(directory.path())
+                .expect("backup dir")
+                .count(),
+            0
+        );
+
+        let result = service.classic_write_execute(
+            ClassicWriteExecution::new(WriteToken::new(78), dump, &keys, &backup).confirmed(true),
+        );
+        assert!(matches!(result, Err(NfcError::InvalidArgument(_))));
+        assert_eq!(handle.block(4), None);
     }
 
     #[test]

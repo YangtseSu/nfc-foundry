@@ -539,13 +539,6 @@ pub fn visible_texts(widget: &impl IsA<gtk::Widget>) -> Vec<String> {
     collect_texts(widget, false)
 }
 
-/// Same as [`visible_texts`], but keeps the content of a presented alert
-/// dialog. Dialog bodies are checked separately from the main window.
-#[cfg(test)]
-pub fn visible_alert_texts(widget: &impl IsA<gtk::Widget>) -> Vec<String> {
-    collect_texts(widget, true)
-}
-
 #[cfg(test)]
 fn collect_texts(widget: &impl IsA<gtk::Widget>, include_dialog: bool) -> Vec<String> {
     fn walk(widget: &gtk::Widget, texts: &mut Vec<String>, include_dialog: bool) {
@@ -1360,6 +1353,56 @@ keys! {
     BlockZeroReadOnly => ("Block 0 is read-only", "块 0 为只读"),
     BlockNotInDump => ("The selected block is not in the current dump", "所选数据块不在当前转储中"),
     BlockAlreadyContains => ("The block already contains these bytes", "数据块已包含这些字节"),
+    StageEdit => ("Stage edit", "暂存编辑"),
+    WriteChangesAction => ("Write changes…", "写入更改…"),
+    UndoEdit => ("Undo edit", "撤销编辑"),
+    RevertEdits => ("Revert edits", "还原编辑"),
+    WorkbenchNote => (
+        "Edits change the working image only. Write changes confirms a preflight plan, backs up the card, and reads every block back. Block 0 stays read-only.",
+        "编辑只修改工作镜像。写入更改会确认预检计划、备份卡片并回读每个数据块。块 0 保持只读。"
+    ),
+    AllKnownBlocks => ("All known blocks", "全部已知块"),
+    ChangesOnly => ("Changes only", "仅更改块"),
+    SelectedBlocks => ("Selected blocks", "选定块"),
+    BlocksPlaceholder => ("Blocks, e.g. 1,4,5-7", "块号，例如 1,4,5-7"),
+    StagedBlock => ("Block {block:03} staged", "数据块 {block:03} 已暂存"),
+    EditUndone => ("Edit undone", "已撤销编辑"),
+    EditsReverted => ("Edits reverted", "已还原编辑"),
+    BuildingWritePlan => ("Building the write plan…", "正在生成写入计划…"),
+    WritingPlannedBlocks => ("Writing the planned blocks…", "正在写入计划的块…"),
+    NoWritesPlanned => ("No writes planned", "没有计划写入"),
+    CardAlreadyMatches => ("The card already matches the selected blocks", "卡片已与所选块一致"),
+    WritePreflightFailed => ("Write preflight failed", "写入预检失败"),
+    WriteChangesNeedsLive => ("Writing changes needs a live selected card", "写入更改需要在线选中的卡片"),
+    NoWorkbenchImage => ("No workbench image is loaded", "未加载工作镜像"),
+    NoEditsToWrite => ("There are no edits to write", "没有可写入的编辑"),
+    WriteChangesQuestion => ("Write the edited blocks?", "写入已编辑的数据块？"),
+    WriteChangesActionLabel => ("Write changes", "写入更改"),
+    OperationPlan => ("plan", "计划"),
+    OperationWriteChanges => ("write changes", "写入更改"),
+    PlanCounts => ("{} block(s), {} trailer(s)", "{} 个数据块、{} 个扇区尾块"),
+    PlanSelectionAll => ("all known blocks", "全部已知块"),
+    PlanSelectionChanges => ("changed blocks only", "仅更改块"),
+    PlanSelectionBlocks => ("{} selected block(s)", "{} 个选定块"),
+    WriteWith => ("write with {}", "使用 {} 写入"),
+    KeyAOrB => ("Key A or B", "密钥 A 或 B"),
+    KeyAType => ("Key A", "密钥 A"),
+    KeyBType => ("Key B", "密钥 B"),
+    NoWriteKey => ("no key", "无可用密钥"),
+    PlanSummaryFirst => ("{} · UID {}", "{} · UID {}"),
+    PlanSummaryBlocks => ("{} · {} block(s), {} trailer(s)", "{} · {} 个数据块、{} 个扇区尾块"),
+    PlanSummarySkipped => ("{} unchanged, {} unknown skipped · plan expires at {}", "{} 个未变，跳过 {} 个未知数据块 · 计划到期于 {}"),
+    PlanBackupNote => (
+        "A project backup is written before the write, and every block is read back. Block 0 is never written.",
+        "写入前会保存项目备份，并回读每个数据块。块 0 永不写入。"
+    ),
+    PlanBlockLine => ("Block {block:03} · sector {sector:02} · {role} · {access}", "数据块 {block:03} · 扇区 {sector:02} · {role} · {access}"),
+    PlanOldLine => ("  old {}", "  旧值 {}"),
+    PlanNewLine => ("  new {}", "  新值 {}"),
+    PlanMoreBlocks => ("… and {} more block(s)", "… 还有 {} 个数据块"),
+    ChangesWrittenStatus => ("Changes written · {} block(s)", "更改已写入 · {} 个数据块"),
+    ChangesWrittenToast => ("Changes written and read back", "更改已写入并回读校验"),
+    WriteFinishedFailures => ("Write finished with failures; see the activity log", "写入完成但有失败；请查看活动日志"),
     WriteBlockQuestion => ("Write block {}?", "写入数据块 {}？"),
     SectorTrailer => ("sector trailer", "扇区尾块"),
     DataBlock => ("data block", "数据块"),

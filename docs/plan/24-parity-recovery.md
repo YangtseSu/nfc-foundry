@@ -75,6 +75,10 @@ Acceptance:
 
 ### S2: editable workbench and selective restore
 
+Spec: [24b-editable-workbench.md](../specs/24b-editable-workbench.md). Status:
+complete 2026-11-11. See
+[24b-editable-workbench.md](../notes/24b-editable-workbench.md).
+
 Goal: restore the old workbench model that the rewrite dropped, then use it for
 selective and changes-only writes.
 
@@ -227,8 +231,6 @@ Acceptance:
 
 ## First implementation slice
 
-Start with S1. It is non-destructive, has no hardware dependency, fixes the
-daily read/keyscan workflow, and supplies the key context that S2 and S3 need.
-S2 follows S1; S3a can run in parallel with S2 only if the UID service does not
-depend on the workbench model. S3b requires S2 and S3a. S4 and S5 are
-independent of S3 and can be scheduled after S1.
+S1 and S2 are complete. S3a is next. S3a reuses the preflight token, backup,
+and read-back patterns from S2; S3b requires S3a. S4 and S5 are independent of
+S3 and can be scheduled after S1.

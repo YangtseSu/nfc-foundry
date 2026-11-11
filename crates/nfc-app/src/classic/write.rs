@@ -225,6 +225,7 @@ pub(crate) fn check_expected_card(actual: &CardInfo, expected: Option<&CardInfo>
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct AllowedTypes {
     a: bool,
     b: bool,
@@ -255,6 +256,13 @@ impl AllowedTypes {
         match key_type {
             KeyType::A => self.a,
             KeyType::B => self.b,
+        }
+    }
+
+    pub(crate) fn types(&self) -> super::plan::WriteKeyTypes {
+        super::plan::WriteKeyTypes {
+            a: self.a,
+            b: self.b,
         }
     }
 }

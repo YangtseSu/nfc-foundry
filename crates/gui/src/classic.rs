@@ -23,6 +23,7 @@ pub struct BlockRow {
     pub data: String,
     pub complete: bool,
     pub trailer: bool,
+    pub dirty: bool,
     pub error: Option<String>,
 }
 
@@ -36,15 +37,26 @@ impl BlockRow {
             data: hex_with_mask(&block.data, block.known_mask),
             complete: block.complete(),
             trailer: layout.is_trailer(block.number).unwrap_or(false),
+            dirty: false,
             error: block.error.clone(),
         }
     }
+
+    /// Status shown in the table; an unsaved edit wins over the read status.
+    pub fn display_status(&self) -> &'static str {
+        if self.dirty { "edited" } else { self.status }
+    }
 }
 
-pub fn rows_for(dump: &Dump) -> Vec<BlockRow> {
+/// Rows with the workbench dirty set applied.
+pub fn rows_for_dirty(dump: &Dump, dirty: &[usize]) -> Vec<BlockRow> {
     dump.blocks
         .iter()
-        .map(|block| BlockRow::from_block(block, dump.layout))
+        .map(|block| {
+            let mut row = BlockRow::from_block(block, dump.layout);
+            row.dirty = dirty.binary_search(&block.number).is_ok();
+            row
+        })
         .collect()
 }
 
@@ -576,10 +588,10 @@ mod tests {
     fn rows_follow_the_layout_geometry() {
         let one_k = Dump::new(Layout::Classic1K);
         let four_k = Dump::new(Layout::Classic4K);
-        assert_eq!(rows_for(&one_k).len(), 64);
-        assert_eq!(rows_for(&four_k).len(), 256);
-        assert_eq!(rows_for(&four_k)[128].sector, 32);
-        assert!(rows_for(&four_k)[255].trailer);
+        assert_eq!(rows_for_dirty(&one_k, &[]).len(), 64);
+        assert_eq!(rows_for_dirty(&four_k, &[]).len(), 256);
+        assert_eq!(rows_for_dirty(&four_k, &[])[128].sector, 32);
+        assert!(rows_for_dirty(&four_k, &[])[255].trailer);
     }
 
     #[test]

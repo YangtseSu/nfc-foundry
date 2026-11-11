@@ -29,10 +29,13 @@ shared `nfc-app` methods. Every write checks
 access conditions, saves a backup, writes the block, reads it back, and
 rechecks card identity; restore requires confirmation, refuses to change
 manufacturer block 0, writes data blocks before sector trailers, and stops at
-the first failure by default. Native recovery now covers Crypto1, the `mfkey`
-solvers, parity-based nonce acquisition, nested and static-nested recovery, and
-darkside collection, and hardnested with the PM3 state tables and 64-lane
-bit-sliced solver, exposed as
+the first failure by default. The GUI workbench stages edits with undo and
+revert; selective restores accept an explicit block set or changed blocks only,
+and both surfaces preview a write plan with block, trailer, access, and expiry
+details before executing a one-shot token. Native recovery now covers Crypto1,
+the `mfkey` solvers, parity-based nonce acquisition, nested and static-nested
+recovery, and darkside collection, and hardnested with the PM3 state tables and
+64-lane bit-sliced solver, exposed as
 `nfctl recover auto|darkside|nested|staticnested|hardnested`. Both readers
 complete software Crypto1 authentication, collect hardnested encrypted nonces
 with fast select, and verify recovered keys. `recover auto` is a full autopwn:
@@ -73,9 +76,10 @@ system locale is used on first run. Every shipped `nfctl` card and file
 operation has a GUI path with the same gates; see the
 [parity matrix](docs/design/parity.md). The package installs both binaries, the
 hicolor icon set, and the desktop entry. Phase 24 S1 (verified-key capture,
-card-scoped key verification, and project dump v2 metadata) is complete; S2
-(editable workbench and selective restore) is next. Remaining work is the
-Type 4 read surface (hardware-gated) and phases 13-17.
+card-scoped key verification, and project dump v2 metadata) and S2 (editable
+workbench, selective restore, and write preflight) are complete; S3 (UID and
+block-0 writes) is next. Remaining work is the Type 4 read surface
+(hardware-gated) and phases 13-17.
 
 ## Product scope
 

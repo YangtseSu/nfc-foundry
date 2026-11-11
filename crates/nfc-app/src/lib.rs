@@ -17,8 +17,11 @@ pub use classic::{
     BackupRecord, BackupStore, ClassicBlockWrite, ClassicKeyscan, ClassicKeyscanResult,
     ClassicNdefFormat, ClassicNdefFormatResult, ClassicNdefRead, ClassicNdefReadResult,
     ClassicNdefWrite, ClassicNdefWriteResult, ClassicRead, ClassicReadResult, ClassicRestore,
-    ClassicRestoreResult, ClassicWriteResult, KeyEntry, KeyKind, KeySource, KeyStore, KeyTypes,
-    KeyscanProgress, KeyscanSink, RestoreBlockResult, RestoreBlockState, SectorKeys,
+    ClassicRestoreResult, ClassicWorkbench, ClassicWriteExecution, ClassicWritePlan,
+    ClassicWritePreflight, ClassicWriteResult, KeyEntry, KeyKind, KeySource, KeyStore, KeyTypes,
+    KeyscanProgress, KeyscanSink, PlannedWriteBlock, RestoreBlockResult, RestoreBlockState,
+    RestoreSelection, SectorKeys, WorkbenchMergeReport, WorkbenchSnapshot, WorkbenchValidation,
+    WriteKeyTypes, WriteToken, dump_fingerprint, parse_block_list,
 };
 pub use device::DeviceManager;
 pub use nfc_classic_ndef::{

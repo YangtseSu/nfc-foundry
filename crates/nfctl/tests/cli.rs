@@ -3,6 +3,8 @@
 use std::path::Path;
 use std::process::{Command, Output};
 
+use nfc_classic::{DumpFormat, exchange};
+
 fn nfctl(args: &[&str]) -> Output {
     let config = tempfile::tempdir().expect("config dir");
     Command::new(env!("CARGO_BIN_EXE_nfctl"))
@@ -886,4 +888,114 @@ fn version_and_diag_report_the_release_version() {
     let text = stdout(&output);
     assert!(text.contains("reader: Mock Classic 1K"), "{text}");
     assert!(text.contains("mock:classic-1k"), "{text}");
+}
+
+#[test]
+fn restore_dry_run_blocks_and_changes_only_share_the_plan() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let dump_path = directory.path().join("card.json");
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "classic",
+        "dump",
+        "--output",
+        dump_path.to_str().expect("path"),
+        "--format",
+        "project",
+    ]);
+    assert_success(&output);
+    let mut dump = exchange::load(&std::fs::read(&dump_path).expect("dump"))
+        .expect("load dump")
+        .dump;
+    dump.blocks[4].set_read([0x41; 16]);
+    dump.blocks[6].set_read([0x46; 16]);
+    let source = directory.path().join("changed.json");
+    std::fs::write(
+        &source,
+        exchange::export(&dump, DumpFormat::Project).expect("export"),
+    )
+    .expect("write source");
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "classic",
+        "write",
+        "--block",
+        "4",
+        "--data",
+        "AA0102030405060708090A0B0C0D0E0F",
+        "--dry-run",
+    ]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("block 4"), "{text}");
+    assert!(
+        text.contains("dry run: no card writes were performed"),
+        "{text}"
+    );
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "classic",
+        "restore",
+        "--input",
+        source.to_str().expect("path"),
+        "--blocks",
+        "4,6",
+        "--dry-run",
+    ]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("block 4"), "{text}");
+    assert!(text.contains("block 6"), "{text}");
+    assert!(!text.contains("block 5"), "{text}");
+    assert!(
+        text.contains("dry run: no card writes were performed"),
+        "{text}"
+    );
+
+    let backups = directory.path().join("backups");
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "--backup-dir",
+        backups.to_str().expect("path"),
+        "classic",
+        "restore",
+        "--input",
+        source.to_str().expect("path"),
+        "--blocks",
+        "4,6",
+        "--yes",
+    ]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("2 written"), "{text}");
+    assert!(text.contains("not selected: 62"), "{text}");
+    assert_eq!(std::fs::read_dir(&backups).expect("backup dir").count(), 1);
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "classic",
+        "restore",
+        "--input",
+        dump_path.to_str().expect("path"),
+        "--changes-only",
+        "--yes",
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        stderr(&output).contains("no changed blocks"),
+        "{}",
+        stderr(&output)
+    );
 }
