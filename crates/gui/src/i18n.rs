@@ -1208,7 +1208,9 @@ keys! {
         "自动模式会用密钥库和常见密钥扫描所有扇区；全部未命中时先用 Darkside 取种子密钥，再用 Nested 或 Hardnested 恢复剩余密钥。"
     ),
     NoRecoveredKey => ("No recovered key.", "尚无恢复的密钥。"),
-    SaveVerifiedKey => ("Save verified key", "保存已验证密钥"),
+    SaveVerifiedKey => ("Save verified keys", "保存已验证密钥"),
+    AdvancedStrategyOptions => ("Advanced strategy options", "高级策略选项"),
+    RecoveryLog => ("Recovery log", "恢复日志"),
     RecoveryRunning => ("Recovery running.", "恢复正在运行。"),
     Starting => ("Starting…", "正在启动…"),
     ElapsedZero => ("Elapsed 0:00", "耗时 0:00"),

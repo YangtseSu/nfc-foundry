@@ -99,15 +99,23 @@ GPUI rules for new UI work.
 ## Recovery
 
 - Strategies: Auto, Darkside, Nested, Static nested, Hardnested, FM11RF08S.
-- Inputs: known block/type, target block/type, tables directory, acquisition
-  cap, and key-store/common candidates.
-- One progress line renders acquisition, filtering, or brute force; a
-  one-second timer shows elapsed time. Cancel is available while the engine
-  runs and is checked before the next reader exchange.
-- A verified key appears with its type and key value; saving to the store is a
-  separate action with `recovery` provenance.
+  Auto is the product path and takes no block inputs. The explicit strategies
+  live in a collapsed `Advanced strategy options` expander with known
+  block/type and target block/type; the hardnested table directory and
+  acquisition cap are shared.
+- Candidates: the key store plus the built-in common keys when enabled.
+- A scrollable, read-only log under the action bar is the single progress and
+  result surface. Phase transitions, per-sector keys, acquisition/filtering/
+  brute-force state, and limitations are appended there; live counters are
+  replaced in place. A one-second timer shows elapsed time.
+- The footer keeps `Start recovery`, `Cancel`, and `Save verified keys`
+  outside the scroll area, so the save action stays reachable with a long
+  result. Cancel is available while the engine runs and is checked before the
+  next reader exchange.
+- Every key appears only after a fresh authentication; saving to the store is
+  a separate action with `recovery` provenance and per-sector attribution.
 - Engine limitations (darkside no-sample, FM11RF08S transport limits, missing
-  hardnested tables) are shown verbatim in a dedicated warning line.
+  hardnested tables) are logged verbatim and mirrored once in the status bar.
 
 ## Diagnostics
 

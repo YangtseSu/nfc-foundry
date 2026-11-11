@@ -126,3 +126,26 @@ hardware-validated in release notes.
   reader-scheduled acquisition.
 - Hardnested fallback still requires a known key; the seed comes from the
   dictionary, the EV1 signature key, or darkside.
+
+## Recovery page consolidation
+
+The recovery page no longer repeats one state in several places. The former
+progress line, summary line, limitation line, and recovered-key label are
+replaced by one read-only, scrollable log under the action bar. Dictionary
+sectors, nested/hardnested targets, verified sector keys, read verification,
+limitations, and the completion summary are written there; acquisition,
+filtering, brute force, darkside probes, and verification counters replace a
+single live row. The status bar keeps one compact start/finish line and the
+activity list one start/finish record. Success toasts were removed; validation
+errors still use a toast.
+
+The known/target block inputs moved into a collapsed `Advanced strategy
+options` expander. Auto is the default and hides the block rows; the explicit
+strategies show them. The save action and the start/cancel row stay outside the
+log scroll area, so a long result cannot push `Save verified keys` off the
+page. The GTK scenario asserts the save action stays inside the window after a
+32-key result.
+
+Keyscan remains the standalone authentication scan and the source of
+dictionary import/export; `classic keyscan` stays in `nfctl`. Auto no longer
+requires the user to run it first.

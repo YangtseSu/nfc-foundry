@@ -74,12 +74,13 @@ the same four flags/checkboxes in both surfaces.
 | Operation | CLI | GUI | Gate | Hardware |
 |---|---|---|---|---|
 | Auto recovery | `recover auto` | Recovery → Auto → Start recovery | R | all-sector autopwn on PN532, ACR122U |
+| Advanced recovery | `recover nested`, `staticnested`, `hardnested`, `darkside` | Recovery → Advanced strategy options | R | developer diagnostics; same engine |
 | Darkside | `recover darkside` | Recovery → Darkside → Start recovery | R | host-driven MFCUK port; needs a repeating tag nonce |
 | Nested | `recover nested` | Recovery → Nested → Start recovery | R | PN532, ACR122U |
 | Static nested | `recover staticnested` | Recovery → Static nested | R | PN532, ACR122U |
 | Hardnested | `recover hardnested` | Recovery → Hardnested | R | PN532, ACR122U |
 | FM11RF08S profile | `recover fm11rf08s` | Recovery → FM11RF08S | R | detection only |
-| Save recovered key | `--key-store` write by the operation | Recovery → Save verified key | explicit | file only |
+| Save recovered keys | `--key-store` write by the operation | Recovery → Save verified keys | explicit | file only |
 | Self-check | `nfctl diag` | Diagnostics | R (no card I/O) | no card path |
 
 Recovery authenticates only; it never writes the card. A recovered key is

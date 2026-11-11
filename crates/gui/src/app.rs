@@ -572,6 +572,9 @@ struct SectorKeyRow {
 struct RecoveryView {
     root: gtk::Box,
     strategy: gtk::DropDown,
+    advanced: gtk::Expander,
+    known_row: gtk::Box,
+    target_row: gtk::Box,
     known_block: gtk::Entry,
     known_type: gtk::DropDown,
     target_block: gtk::Entry,
@@ -582,12 +585,106 @@ struct RecoveryView {
     common: gtk::CheckButton,
     start: gtk::Button,
     cancel: gtk::Button,
-    progress: gtk::Label,
     elapsed: gtk::Label,
-    summary: gtk::Label,
-    limitations: gtk::Label,
-    keys: gtk::Label,
+    log: RecoveryLog,
     save: gtk::Button,
+}
+
+/// Scrollable, read-only recovery log. Live rows (acquisition, filtering,
+/// brute force, per-sector progress) are replaced in place; phase transitions
+/// and results are appended.
+struct RecoveryLog {
+    scroller: gtk::ScrolledWindow,
+    view: gtk::TextView,
+    buffer: gtk::TextBuffer,
+    live_start: Cell<Option<i32>>,
+}
+
+impl RecoveryLog {
+    fn new() -> Self {
+        let view = gtk::TextView::new();
+        view.set_editable(false);
+        view.set_cursor_visible(false);
+        view.set_monospace(true);
+        view.set_wrap_mode(gtk::WrapMode::WordChar);
+        view.set_top_margin(6);
+        view.set_bottom_margin(6);
+        view.set_left_margin(6);
+        view.set_right_margin(6);
+        let buffer = view.buffer();
+        for (name, weight) in [
+            ("info", 400),
+            ("success", 700),
+            ("warning", 700),
+            ("error", 700),
+        ] {
+            let tag = gtk::TextTag::builder().name(name).weight(weight).build();
+            buffer.tag_table().add(&tag);
+        }
+        let scroller = gtk::ScrolledWindow::builder()
+            .child(&view)
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .vscrollbar_policy(gtk::PolicyType::Automatic)
+            .min_content_height(180)
+            .build();
+        scroller.set_has_frame(true);
+        scroller.set_vexpand(true);
+        Self {
+            scroller,
+            view,
+            buffer,
+            live_start: Cell::new(None),
+        }
+    }
+
+    fn clear(&self) {
+        self.buffer.set_text("");
+        self.live_start.set(None);
+    }
+
+    #[cfg(test)]
+    fn text(&self) -> String {
+        self.buffer
+            .text(&self.buffer.start_iter(), &self.buffer.end_iter(), true)
+            .to_string()
+    }
+
+    fn append(&self, tag: &str, line: &str) {
+        self.end_live();
+        let mut end = self.buffer.end_iter();
+        self.buffer.insert_with_tags_by_name(&mut end, line, &[tag]);
+        self.buffer.insert(&mut end, "\n");
+        self.scroll_to_end();
+    }
+
+    fn live(&self, tag: &str, line: &str) {
+        if let Some(start) = self.live_start.get() {
+            let mut start_iter = self.buffer.iter_at_offset(start);
+            let mut end_iter = self.buffer.end_iter();
+            self.buffer.delete(&mut start_iter, &mut end_iter);
+            let mut insert = self.buffer.iter_at_offset(start);
+            self.buffer
+                .insert_with_tags_by_name(&mut insert, line, &[tag]);
+        } else {
+            let mut end = self.buffer.end_iter();
+            let start = end.offset();
+            self.buffer.insert_with_tags_by_name(&mut end, line, &[tag]);
+            self.live_start.set(Some(start));
+        }
+        self.scroll_to_end();
+    }
+
+    fn end_live(&self) {
+        if self.live_start.take().is_some() {
+            let mut end = self.buffer.end_iter();
+            self.buffer.insert(&mut end, "\n");
+        }
+    }
+
+    fn scroll_to_end(&self) {
+        let mut end = self.buffer.end_iter();
+        self.view.scroll_to_iter(&mut end, 0.0, false, 0.0, 0.0);
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -1809,17 +1906,19 @@ fn build_recovery_view(preferences: &UiPreferences) -> RecoveryView {
     known_block.set_text("4");
     known_block.set_width_chars(6);
     let known_type = gtk::DropDown::from_strings(&["A", "B"]);
-    let known_row = gtk::Box::new(Orientation::Horizontal, 6);
-    known_row.append(&known_block);
-    known_row.append(&known_type);
+    let known_controls = gtk::Box::new(Orientation::Horizontal, 6);
+    known_controls.append(&known_block);
+    known_controls.append(&known_type);
+    let known_row = setting_row("Known block / type", &known_controls);
 
     let target_block = gtk::Entry::new();
     target_block.set_text("0");
     target_block.set_width_chars(6);
     let target_type = gtk::DropDown::from_strings(&["A", "B"]);
-    let target_row = gtk::Box::new(Orientation::Horizontal, 6);
-    target_row.append(&target_block);
-    target_row.append(&target_type);
+    let target_controls = gtk::Box::new(Orientation::Horizontal, 6);
+    target_controls.append(&target_block);
+    target_controls.append(&target_type);
+    let target_row = setting_row("Target block / type", &target_controls);
 
     let tables = gtk::Entry::new();
     if let Some(path) = &preferences.hardnested_tables {
@@ -1828,9 +1927,10 @@ fn build_recovery_view(preferences: &UiPreferences) -> RecoveryView {
     tables.set_placeholder_text(Some("Installed table directory"));
     tables.set_hexpand(true);
     let choose_tables = gtk::Button::with_label("Choose…");
-    let tables_row = gtk::Box::new(Orientation::Horizontal, 6);
-    tables_row.append(&tables);
-    tables_row.append(&choose_tables);
+    let tables_controls = gtk::Box::new(Orientation::Horizontal, 6);
+    tables_controls.append(&tables);
+    tables_controls.append(&choose_tables);
+    let tables_row = setting_row("Tables directory", &tables_controls);
 
     let max_nonces = gtk::SpinButton::with_range(0.0, 100_000.0, 100.0);
     max_nonces.set_value(0.0);
@@ -1840,67 +1940,57 @@ fn build_recovery_view(preferences: &UiPreferences) -> RecoveryView {
     let common = gtk::CheckButton::with_label("Include common keys");
     common.set_active(preferences.use_common_keys);
 
+    let advanced_form = gtk::Box::new(Orientation::Vertical, 6);
+    advanced_form.append(&known_row);
+    advanced_form.append(&target_row);
+    advanced_form.append(&tables_row);
+    advanced_form.append(&setting_row("Max nonces", &max_nonces));
+    let advanced = gtk::Expander::new(Some("Advanced strategy options"));
+    advanced.set_expanded(false);
+    advanced.set_child(Some(&advanced_form));
+
     let start = gtk::Button::with_label("Start recovery");
     start.add_css_class("suggested-action");
     let cancel = gtk::Button::with_label("Cancel");
+    let elapsed = gtk::Label::new(Some("Elapsed —"));
+    elapsed.set_xalign(1.0);
+    elapsed.set_hexpand(true);
+    elapsed.add_css_class("caption");
+    elapsed.add_css_class("dim-label");
     let actions = gtk::Box::new(Orientation::Horizontal, 6);
     actions.append(&start);
     actions.append(&cancel);
+    actions.append(&elapsed);
 
-    let progress = gtk::Label::new(Some("No recovery running."));
-    progress.set_xalign(0.0);
-    progress.set_wrap(true);
-    progress.add_css_class("caption");
-    progress.add_css_class("dim-label");
-    let elapsed = gtk::Label::new(Some("Elapsed —"));
-    elapsed.set_xalign(1.0);
-    elapsed.add_css_class("caption");
-    elapsed.add_css_class("dim-label");
-    let progress_row = gtk::Box::new(Orientation::Horizontal, 8);
-    progress_row.append(&progress);
-    progress_row.append(&elapsed);
-    progress.set_hexpand(true);
+    let log_title = gtk::Label::new(Some("Recovery log"));
+    log_title.set_xalign(0.0);
+    log_title.add_css_class("caption");
+    log_title.add_css_class("dim-label");
+    let log = RecoveryLog::new();
 
-    let summary = gtk::Label::new(Some(
-        "Auto scans every sector with the key store and common keys, takes a darkside seed when nothing matches, then recovers the remaining keys with nested or hardnested.",
-    ));
-    summary.set_xalign(0.0);
-    summary.set_wrap(true);
-    let limitations = gtk::Label::new(None);
-    limitations.set_xalign(0.0);
-    limitations.set_wrap(true);
-    limitations.set_selectable(true);
-    limitations.add_css_class("warning");
-    limitations.set_visible(false);
-    let keys = gtk::Label::new(Some("No recovered key."));
-    keys.set_xalign(0.0);
-    keys.set_wrap(true);
-    keys.set_selectable(true);
-    keys.add_css_class("mono");
-    let save = gtk::Button::with_label("Save verified key");
+    let save = gtk::Button::with_label("Save verified keys");
     save.add_css_class("suggested-action");
+    save.set_halign(gtk::Align::Start);
 
     let form = gtk::Box::new(Orientation::Vertical, 6);
     form.append(&setting_row("Strategy", &strategy));
-    form.append(&setting_row("Known block / type", &known_row));
-    form.append(&setting_row("Target block / type", &target_row));
-    form.append(&setting_row("Tables directory", &tables_row));
-    form.append(&setting_row("Max nonces", &max_nonces));
+    form.append(&advanced);
     form.append(&common);
 
     root.append(&title);
     root.append(&note);
     root.append(&form);
     root.append(&actions);
-    root.append(&progress_row);
-    root.append(&summary);
-    root.append(&limitations);
-    root.append(&keys);
+    root.append(&log_title);
+    root.append(&log.scroller);
     root.append(&save);
 
     RecoveryView {
         root,
         strategy,
+        advanced,
+        known_row,
+        target_row,
         known_block,
         known_type,
         target_block,
@@ -1911,11 +2001,8 @@ fn build_recovery_view(preferences: &UiPreferences) -> RecoveryView {
         common,
         start,
         cancel,
-        progress,
         elapsed,
-        summary,
-        limitations,
-        keys,
+        log,
         save,
     }
 }
@@ -6408,13 +6495,16 @@ fn update_recovery_sensitivity(ui: &Ui) {
     let editable = !busy && !running;
 
     view.strategy.set_sensitive(editable);
+    view.advanced.set_sensitive(editable);
     view.start.set_sensitive(!busy);
     view.cancel.set_sensitive(running);
     view.save.set_sensitive(!busy && has_result);
-    view.known_block.set_sensitive(editable && uses_known);
-    view.known_type.set_sensitive(editable && uses_known);
-    view.target_block.set_sensitive(editable && !auto);
-    view.target_type.set_sensitive(editable && !auto);
+    view.known_row.set_visible(uses_known);
+    view.target_row.set_visible(!auto);
+    view.known_block.set_sensitive(editable);
+    view.known_type.set_sensitive(editable);
+    view.target_block.set_sensitive(editable);
+    view.target_type.set_sensitive(editable);
     view.tables.set_sensitive(editable && uses_tables);
     view.choose_tables.set_sensitive(editable && uses_tables);
     view.max_nonces.set_sensitive(editable && uses_tables);
@@ -6506,22 +6596,27 @@ fn start_recovery(ui: Rc<Ui>) {
         .keys
         .borrow()
         .recovery_candidates(view.common.is_active());
+    let candidate_count = candidates.len();
 
     let token = CancelToken::new();
     let run = ui.recovery_run.get().wrapping_add(1);
     ui.recovery_run.set(run);
     ui.recovery_cancel.replace(Some(token.clone()));
     ui.recovery_result.replace(None);
-    view.keys.set_localized("No recovered key.");
-    view.limitations.set_visible(false);
-    view.limitations.set_localized("");
-    view.summary.set_localized("Recovery running.");
-    view.progress.set_localized("Starting…");
+    let log = &view.log;
+    log.clear();
+    log.append(
+        "info",
+        &format!(
+            "Start · {} · {candidate_count} candidate key(s)",
+            recovery_strategy_label(strategy)
+        ),
+    );
     view.elapsed.set_localized("Elapsed 0:00");
     ui.recovery_started.replace(Some(Instant::now()));
     start_recovery_timer(&ui);
     set_busy(&ui, true);
-    ui.status.set_localized("Recovering a key…");
+    ui.status.set_localized("Recovery running.");
 
     let service = ui.service.clone();
     let (result_sender, result_receiver) = async_channel::bounded(1);
@@ -6554,9 +6649,12 @@ fn start_recovery(ui: Rc<Ui>) {
             if ui2.recovery_run.get() != run {
                 break;
             }
-            ui2.recovery_view
-                .progress
-                .set_localized(&recovery_progress_text(progress));
+            let text = recovery_progress_text(progress);
+            if recovery_progress_is_live(progress) {
+                ui2.recovery_view.log.live("info", &text);
+            } else {
+                ui2.recovery_view.log.append("info", &text);
+            }
         }
     });
     glib::spawn_future_local(async move {
@@ -6656,6 +6754,17 @@ fn recovery_progress_text(progress: RecoveryProgress) -> String {
     }
 }
 
+fn recovery_progress_is_live(progress: RecoveryProgress) -> bool {
+    matches!(
+        progress,
+        RecoveryProgress::Darkside { .. }
+            | RecoveryProgress::Verify { .. }
+            | RecoveryProgress::Acquiring { .. }
+            | RecoveryProgress::Filtering { .. }
+            | RecoveryProgress::BruteForce { .. }
+    )
+}
+
 fn finish_recovery(
     ui: &Rc<Ui>,
     result: NfcResult<RecoveryResult>,
@@ -6679,56 +6788,58 @@ fn finish_recovery(
         .set_localized(&format!("Elapsed {}", format_elapsed(elapsed)));
     match result {
         Ok(result) => {
-            let mut lines = Vec::new();
+            let log = &ui.recovery_view.log;
+            log.end_live();
             if result.sector_keys.is_empty() {
                 for (key_type, key) in &result.keys {
-                    lines.push(format!(
-                        "{} · {} · verified",
-                        key_type.label(),
-                        key.to_hex()
-                    ));
+                    log.append(
+                        "success",
+                        &format!(
+                            "Verified {} · {} · verified",
+                            key_type.label(),
+                            key.to_hex()
+                        ),
+                    );
                 }
             } else {
                 for entry in &result.sector_keys {
-                    lines.push(format!(
-                        "sector {} · {} · {} · verified",
-                        entry.sector,
-                        entry.key_type.label(),
-                        entry.key.to_hex()
-                    ));
+                    log.append(
+                        "success",
+                        &format!(
+                            "Verified sector {} · {} · {} · verified",
+                            entry.sector,
+                            entry.key_type.label(),
+                            entry.key.to_hex()
+                        ),
+                    );
                 }
             }
-            ui.recovery_view.keys.set_localized(&lines.join("\n"));
             let attempts = result
                 .attempts
                 .iter()
                 .map(|kind| format!("{kind:?}"))
                 .collect::<Vec<_>>()
                 .join(", ");
-            let profile = result
-                .profile
-                .as_ref()
-                .map(|profile| {
-                    format!(
-                        " · PRNG {:?} · known key {}",
+            log.append(
+                "success",
+                &format!(
+                    "Complete · {} · {attempts} · {} key(s) verified",
+                    recovery_strategy_label(strategy),
+                    result.keys.len()
+                ),
+            );
+            if let Some(profile) = &result.profile {
+                log.append(
+                    "info",
+                    &format!(
+                        "Profile · PRNG {:?} · known key {}",
                         profile.prng, profile.has_known_key
-                    )
-                })
-                .unwrap_or_default();
-            let note = if result.note.is_empty() {
-                String::new()
-            } else {
-                format!("\n{}", result.note)
-            };
-            ui.recovery_view.summary.set_localized(&format!(
-                "{} · {attempts} · {} key(s) verified{profile}{note}",
-                recovery_strategy_label(strategy),
-                result.keys.len()
-            ));
-            ui.recovery_view.limitations.set_visible(false);
-            ui.recovery_view
-                .progress
-                .set_localized("Recovery complete.");
+                    ),
+                );
+            }
+            if !result.note.is_empty() {
+                log.append("info", &result.note);
+            }
             ui.status.set_localized(&format!(
                 "Recovery complete · {} key(s) verified",
                 result.keys.len()
@@ -6746,15 +6857,11 @@ fn finish_recovery(
                 target_block,
                 target_key_type,
             }));
-            toast_info(ui, "Recovered key verified by the service");
         }
         Err(NfcError::Cancelled) => {
             ui.recovery_view
-                .progress
-                .set_localized("Recovery cancelled.");
-            ui.recovery_view
-                .summary
-                .set_localized("Cancelled before the next reader exchange.");
+                .log
+                .append("warning", "Cancelled before the next reader exchange.");
             ui.status.set_localized("Recovery cancelled");
             append_log(ui, "recovery · cancelled");
         }
@@ -6762,20 +6869,15 @@ fn finish_recovery(
             let message = error.to_string();
             let limitation = matches!(error, NfcError::Unsupported(_))
                 || message.to_ascii_lowercase().contains("hardnested table");
-            ui.recovery_view.progress.set_localized("Recovery stopped.");
+            let tag = if limitation { "warning" } else { "error" };
+            ui.recovery_view.log.end_live();
+            ui.recovery_view.log.append(tag, &message);
             if limitation {
-                ui.recovery_view.limitations.set_localized(&message);
-                ui.recovery_view.limitations.set_visible(true);
-                ui.recovery_view.summary.set_localized(
-                    "The engine reported a limitation instead of a generic failure.",
-                );
                 ui.status.set_localized("Recovery limitation");
                 append_log(ui, &format!("recovery · limitation · {message}"));
-                toast_info(ui, "Recovery limitation reported by the engine");
             } else {
-                ui.recovery_view.summary.set_localized(&message);
                 ui.status.set_localized("Recovery failed");
-                toast_error(ui, &message);
+                append_log(ui, &format!("recovery · failed · {message}"));
             }
         }
     }
@@ -6786,8 +6888,8 @@ fn cancel_recovery(ui: &Ui) {
     if let Some(token) = ui.recovery_cancel.borrow().as_ref() {
         token.cancel();
         ui.recovery_view
-            .progress
-            .set_localized("Cancelling after the current exchange…");
+            .log
+            .append("warning", "Cancelling after the current exchange…");
     }
 }
 
@@ -7594,15 +7696,8 @@ mod tests {
         ui.recovery_view.tables.set_text("");
         ui.recovery_view.max_nonces.set_value(0.0);
         ui.recovery_view.common.set_active(true);
-        ui.recovery_view.limitations.set_visible(false);
-        ui.recovery_view.keys.set_localized("No recovered key.");
-        ui.recovery_view
-            .progress
-            .set_localized("No recovery running.");
+        ui.recovery_view.log.clear();
         ui.recovery_view.elapsed.set_localized("Elapsed —");
-        ui.recovery_view.summary.set_localized(
-            "Auto classifies the PRNG and tries dictionary, nested, or darkside recovery.",
-        );
         ui.activity.borrow_mut().clear();
         ui.activity_view.rows.remove_all();
         ui.log_buffer.set_text("");
@@ -8266,9 +8361,8 @@ mod tests {
         update_recovery_sensitivity(ui);
         start_recovery(ui.clone());
         pump_until(ui, "darkside recovery", || !ui.busy.get());
-        let limitation = ui.recovery_view.limitations.label().to_string();
-        assert!(ui.recovery_view.limitations.is_visible());
-        assert!(!limitation.is_empty());
+        let log = ui.recovery_view.log.text();
+        assert!(log.contains("unsupported"), "{log}");
         assert!(activity_text(ui).contains("recovery · limitation"));
         assert!(!activity_text(ui).contains("recovery · failed"));
 
@@ -8287,8 +8381,10 @@ mod tests {
             0,
             nfc_core::KeyType::A,
         );
-        assert!(ui.recovery_view.keys.label().contains("B0B1B2B3B4B5"));
-        assert!(ui.recovery_view.keys.label().contains("verified"));
+        let log = ui.recovery_view.log.text();
+        assert!(log.contains("B0B1B2B3B4B5"), "{log}");
+        assert!(log.contains("verified"), "{log}");
+        assert!(log.contains("Complete"), "{log}");
         assert!(ui.recovery_view.save.is_sensitive());
         assert!(
             !activity_text(ui).contains("B0B1B2B3B4B5"),
@@ -8305,6 +8401,58 @@ mod tests {
                 .iter()
                 .any(|entry| entry.source == KeySource::Recovery)
         );
+
+        // A long result stays inside the scrollable log and the save action
+        // remains reachable at the bottom of the page.
+        let sector_keys: Vec<nfc_recover::RecoveredKey> = (0..16)
+            .flat_map(|sector| {
+                [nfc_core::KeyType::A, nfc_core::KeyType::B]
+                    .into_iter()
+                    .map(move |key_type| nfc_recover::RecoveredKey {
+                        sector,
+                        key_type,
+                        key: Key::new([sector as u8; 6]),
+                        method: nfc_recover::AttackKind::Dictionary,
+                    })
+            })
+            .collect();
+        let result = RecoveryResult {
+            keys: sector_keys
+                .iter()
+                .map(|entry| (entry.key_type, entry.key))
+                .collect(),
+            sector_keys,
+            attempts: vec![nfc_recover::AttackKind::Dictionary],
+            profile: None,
+            note: "sector keys 32/32 · read verification 16/16 sectors".to_owned(),
+        };
+        finish_recovery(
+            ui,
+            Ok(result),
+            RecoveryStrategy::Auto,
+            0,
+            nfc_core::KeyType::A,
+        );
+        ui.views.set_visible_child_name("recovery");
+        pump_until(ui, "recovery page", || {
+            ui.recovery_view.log.text().contains("sector 15")
+        });
+        let bounds = ui
+            .recovery_view
+            .save
+            .compute_bounds(&ui.window)
+            .expect("save bounds");
+        assert!(
+            bounds.y() + bounds.height() <= ui.window.height() as f32,
+            "save action is outside the window: {bounds:?} in {}px",
+            ui.window.height()
+        );
+        ui.recovery_view.log.clear();
+        ui.recovery_view.log.live("info", "probe 1");
+        ui.recovery_view.log.live("info", "probe 2");
+        assert_eq!(ui.recovery_view.log.text(), "probe 2");
+        ui.recovery_view.log.append("info", "done");
+        assert_eq!(ui.recovery_view.log.text(), "probe 2\ndone\n");
 
         let progress = recovery_progress_text(RecoveryProgress::BruteForce {
             tested_states: 5,

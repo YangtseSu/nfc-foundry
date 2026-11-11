@@ -17,7 +17,7 @@ Blocks               metric strip · block table · fixed block inspector
 Classic NDEF         message/capacity · mapping · write/export/format cards
 Diff                 before/after files · summary · changed-block table
 Keys                 key store table · scan scope · add/import inspector
-Recovery             strategy list · target · candidates · run/progress/result
+Recovery             strategy · advanced options · scrollable log · save keys
 action bar           status · detail · last backup · Scan keys · Read card
 ```
 
@@ -50,7 +50,7 @@ action bar           status · detail · last backup · Scan keys · Read card
 - Restore opens the typed dialog with the image layout and UID; the safe stop
   policy is the default, and the CLI continue policy is exposed as a checkbox.
 - Classic NDEF format uses the typed dialog and the pre-write backup.
-- Recovery authenticates only, exposes cancel, and shows the verified key.
+- Recovery authenticates only, exposes cancel, logs every phase and verified key in one scrollable pane, and keeps the save action in the footer.
 - The status bar shows the last backup path after a mutation.
 
 ## Tests
