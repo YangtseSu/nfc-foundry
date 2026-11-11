@@ -2,6 +2,11 @@
 
 Date: 2026-11-09
 
+Historical note: this phase bootstrapped the GPUI Kit shell. The GUI stack is
+now GTK4-rs (`gtk4` + `libadwaita`, [ADR 0006](../adr/0006-gtk4-rs.md)); the
+GPUI implementation was removed in phase 19. This spec remains a record of the
+original phase.
+
 ## Goal
 
 Create a compiling Rust workspace with clear crate boundaries, documentation,

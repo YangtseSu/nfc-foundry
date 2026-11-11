@@ -103,8 +103,9 @@ support is claimed until validated.
 ## Technical stack
 
 - Rust latest stable, edition 2024.
-- GUI: GTK4-rs (`gtk4` + `libadwaita`) in `crates/gui`, one frontend only.
-  The GPUI Kit implementation was removed and is not a fallback.
+- GUI: GTK4-rs (`gtk4` + `libadwaita`) in `crates/gui`, one frontend only,
+  decided in [ADR 0006](docs/adr/0006-gtk4-rs.md). The GPUI Kit implementation
+  was removed and is not a fallback.
 - Transport: pure Rust drivers over `serialport` (PN532 UART) and `nusb`
   (ACR122U USB/CCID). No C shim, no CGO, no `libnfc`.
 - Recovery: native Rust, ported from the current

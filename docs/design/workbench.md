@@ -1,7 +1,8 @@
 # GTK4 workbench contract
 
-This is the current screen contract for `crates/gui`. It replaces the removed
-GPUI rules for new UI work.
+This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
+`libadwaita`) is the selected GUI stack in
+[ADR 0006](../adr/0006-gtk4-rs.md); it replaces the removed GPUI rules.
 
 ## Shell
 

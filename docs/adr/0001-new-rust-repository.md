@@ -2,6 +2,8 @@
 
 - Status: accepted
 - Date: 2026-11-09
+- Note: the GUI stack later moved from GPUI Kit to GTK4-rs; see
+  [ADR 0006](0006-gtk4-rs.md). The repository decision is unchanged.
 
 ## Context
 

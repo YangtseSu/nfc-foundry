@@ -2,13 +2,15 @@
 
 Status legend: `done`, `in progress`, `pending`, `optional`, `blocked`.
 
-GUI note: the GPUI Kit workspaces were removed on `feat/gtk4-ui`. Phase 19
-is the GTK4-rs workbench umbrella in `crates/gui`, executed as slices.
-19a (Classic completion/PM3 interchange), 19b (NDEF write/format),
-19c (Type 2 workbench), 19d (recovery/system surfaces), and 19e (bilingual UI,
-parity, packaging) are complete. There is no separate "19" implementation step
-outside those slices. Phases 04/09/10/18 describe
-the removed GPUI surfaces and remain historical for domain and CLI work.
+GUI note: **GTK4-rs (`gtk4` + `libadwaita`) is the selected and only GUI
+stack** as of [ADR 0006](../adr/0006-gtk4-rs.md). The GPUI Kit workspaces were
+removed on `feat/gtk4-ui`. Phase 19 is the GTK4-rs workbench umbrella in
+`crates/gui`, executed as slices. 19a (Classic completion/PM3 interchange),
+19b (NDEF write/format), 19c (Type 2 workbench), 19d (recovery/system
+surfaces), and 19e (bilingual UI, parity, packaging) are complete. There is no
+separate "19" implementation step outside those slices. Phases 04/09/10/18
+describe historical GUI surfaces and remain historical for domain and CLI
+work; their current equivalents are the GTK4 workspaces.
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -21,9 +23,9 @@ the removed GPUI surfaces and remain historical for domain and CLI work.
 | 06 | Native recovery: Crypto1, darkside, nested, staticnested | done |
 | 07 | Native hardnested and FM11RF08S/static encrypted | done |
 | 08 | NDEF core: records, TLV, templates, validation | done |
-| 09 | Type 2 / NTAG read/write/NDEF + GUI | in progress |
+| 09 | Type 2 / NTAG read/write/NDEF + GUI | in progress (ACR122U hardware record pending) |
 | 10 | Classic NDEF: MAD/GPB/format + GUI | done |
-| 11 | Type 4 / ISO-DEP NDEF adapter | in progress |
+| 11 | Type 4 / ISO-DEP NDEF adapter | optional; hardware record pending |
 | 12 | Packaging, CI, hardware certification, release | done |
 | 13 | RF and transport completion: Type B, high rate, auto-poll, diagnostics | pending |
 | 14 | Read-only protocol adapters: Type 4B/Type 3, EMV, T-Union, FMCOS/Calypso | optional |
@@ -31,7 +33,7 @@ the removed GPUI surfaces and remain historical for domain and CLI work.
 | 16 | Chinese resident ID read-only (authorized SAM) | blocked |
 | 17 | Amiibo / NTAG215 read, decrypt, encrypt, write (user keys/data) | optional |
 | 18 | Workbench UI redesign, bilingual UI, icon and desktop entry | done (GPUI; GUI superseded by 19) |
-| 19 | GTK4 workbench: shell, Classic slice, then parity screens | done |
+| 19 | GTK4 workbench: shell, Classic slice, then parity screens | done (19a–19e) |
 | 19a | Classic completion: PM3 interchange, keys, diff/restore, safety, UI tests | done |
 | 19b | NDEF write/format: composer, Classic NDEF, read-only gates | done |
 | 19c | Type 2 / NTAG workbench and hardware-gated Type 4 read | done |

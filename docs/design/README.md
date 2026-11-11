@@ -1,10 +1,11 @@
 # Design references
 
-The GPUI Kit implementation was removed on `feat/gtk4-ui`. The current GTK4
-screen contract is [workbench.md](workbench.md); the CLI/GUI operation matrix
-is [parity.md](parity.md). This directory also records the removed design and
-the workbench prototype. The Go version remains the
-visual reference for the rewrite.
+The GUI stack is GTK4-rs (`gtk4` + `libadwaita`), decided in
+[ADR 0006](../adr/0006-gtk4-rs.md). The current GTK4 screen contract is
+[workbench.md](workbench.md); the CLI/GUI operation matrix is
+[parity.md](parity.md). This directory also records the removed GPUI design and
+the workbench prototype; the Go version remains the visual reference for the
+rewrite.
 
 ## Removed GPUI shell (record)
 

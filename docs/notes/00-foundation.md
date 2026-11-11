@@ -2,6 +2,9 @@
 
 Date: 2026-11-09
 
+Historical note: the GPUI Kit shell recorded here was removed in phase 19.
+The GUI stack is now GTK4-rs (`gtk4` + `libadwaita`, [ADR 0006](../adr/0006-gtk4-rs.md)).
+
 ## Implemented
 
 - Rust workspace with `nfc-core`, `nfc-transport`, `nfc-drivers`,

@@ -1,6 +1,6 @@
 # Phase 18 note: workbench UI and bilingual UI
 
-Status: implementation complete; hardware unchanged.
+Status: superseded by phase 19. The GPUI Kit shell was removed; the GUI stack is now GTK4-rs (`gtk4` + `libadwaita`, [ADR 0006](../adr/0006-gtk4-rs.md)). This note remains a historical record.
 
 ## What changed
 

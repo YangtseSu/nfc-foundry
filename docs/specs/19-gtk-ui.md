@@ -1,6 +1,6 @@
 # Spec: phase 19 GTK4 workbench
 
-Status: first Classic slice implemented.
+Status: complete; implemented through slices 19a–19e.
 
 ## Surface
 

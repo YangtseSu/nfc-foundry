@@ -359,14 +359,19 @@ golden vector.
 
 ## GUI
 
-The GPUI Kit layer was removed on `feat/gtk4-ui`. The GTK4-rs workbench in
-`crates/gui` calls the same `nfc-app` services and is the only desktop
-frontend. The first slice covers the shell, reader selection, Classic
-read/table/inspector/verified block write, dump save/load, and a read-only
-Classic NDEF view. GUI view code stays presentation-only; card operations run
-on a background thread and report through the application model. Remaining
-screens, NDEF mutations, localization, UI tests, and packaging are tracked in
-phase 19.
+The GUI stack is **GTK4-rs** (`gtk4` + `libadwaita`), decided in
+[ADR 0006](adr/0006-gtk4-rs.md); ADR 0005's GPUI Kit shell was removed and is
+not a fallback. The single `nfc-foundry` binary in `crates/gui` calls the same
+`nfc-app` services and is the only desktop frontend.
+
+The workbench has a header with the primary `Read card` action, a workspace
+selector (`MIFARE Classic` / `NFC Forum Type 2`), a `☰` main menu, and a back
+button for the hidden System pages. The Classic workspace exposes Blocks,
+NDEF, Keys, Recovery, and Dumps; the Type 2 workspace exposes Pages,
+Protection, NDEF, and Dumps. Diagnostics, Activity, Settings, and About live in
+the header menu. GUI view code stays presentation-only: card operations run on
+a worker thread and report through `async-channel` to `glib` on the main
+context. UI tests run under Xvfb and are gated by `NFC_FOUNDRY_GUI_TESTS=1`.
 
 ## Errors and cancellation
 

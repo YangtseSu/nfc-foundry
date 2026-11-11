@@ -158,8 +158,10 @@ output is English-only.
 
 ## GUI
 
-The GPUI Kit GUI was removed on `feat/gtk4-ui`. The GTK4-rs application will
-consume the same NDEF services; until it lands, use `nfctl`.
+The GTK4-rs workbench consumes the same NDEF services as `nfctl`. The shared
+NDEF page is shown in both card-family workspaces: Classic renders MAD/NDEF
+facts and the Classic composer, Type 2 renders CC/TLV facts and the Type 2
+composer. Write and format dispatch is gated by the active workspace.
 
 ## Tests
 
