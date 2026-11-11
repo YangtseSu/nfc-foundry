@@ -2,6 +2,11 @@
 
 Status legend: `done`, `in progress`, `pending`, `optional`, `blocked`.
 
+Phase files: phases 00-17 are planned and recorded as sections in this file,
+not as separate `docs/plan/NN-*.md` files. Phases 18, 19, and 24 have separate
+plan files because they are large multi-slice efforts. Notes exist for phases
+20-23 and are linked from their sections below.
+
 GUI note: **GTK4-rs (`gtk4` + `libadwaita`) is the selected and only GUI
 stack** as of [ADR 0006](../adr/0006-gtk4-rs.md). The GPUI Kit workspaces were
 removed on `feat/gtk4-ui`. Phase 19 is the GTK4-rs workbench umbrella in
@@ -23,7 +28,7 @@ work; their current equivalents are the GTK4 workspaces.
 | 06 | Native recovery: Crypto1, darkside, nested, staticnested | done |
 | 07 | Native hardnested and FM11RF08S/static encrypted | done |
 | 08 | NDEF core: records, TLV, templates, validation | done |
-| 09 | Type 2 / NTAG read/write/NDEF + GUI | in progress (ACR122U hardware record pending) |
+| 09 | Type 2 / NTAG read/write/NDEF + GUI | done |
 | 10 | Classic NDEF: MAD/GPB/format + GUI | done |
 | 11 | Type 4 / ISO-DEP NDEF adapter | optional; hardware record pending |
 | 12 | Packaging, CI, hardware certification, release | done |
@@ -39,6 +44,10 @@ work; their current equivalents are the GTK4 workspaces.
 | 19c | Type 2 / NTAG workbench and hardware-gated Type 4 read | done |
 | 19d | Recovery, keyscan, diagnostics, activity, settings | done |
 | 19e | Bilingual UI, parity audit, UI tests, packaging | done |
+| 20 | All-sector autopwn, host-driven darkside, recovery UI | done |
+| 21 | Wi-Fi WSC decoding, selectable card facts, Activity copy | done |
+| 22 | Grouped primary navigation and header menu | done (superseded by 23) |
+| 23 | Card-family workspaces and NDEF placement | done |
 | 24 | Parity recovery: verified keys, workbench, UID, reader lifecycle, diagnostics | in progress (S1, S2, S3a, S3b done) |
 
 ## Rules
@@ -730,6 +739,32 @@ covers every shell page, navigation, focus, dialogs, Chinese reads and
 writes; and the AUR package and release tarball install both binaries, the
 hicolor icons, and the desktop entry. See
 [docs/notes/19e-completion.md](../notes/19e-completion.md).
+
+### 20: All-sector autopwn and host-driven darkside
+
+Status: done. Note: [20-autopwn.md](../notes/20-autopwn.md). This follow-up to
+19e replaced the single-target auto strategy with an all-sector scan and a
+host-driven darkside sequence, then consolidated Recovery into one scrollable
+log.
+
+### 21: NDEF Wi-Fi WSC and copyable card facts
+
+Status: done. Note: [21-ndef-wsc.md](../notes/21-ndef-wsc.md). Media record
+`application/vnd.wfa.wsc` is decoded as Wi-Fi authentication/encryption/SSID/
+key, non-text payloads render as hex, and card/key/activity values are
+selectable or copyable.
+
+### 22: Grouped primary navigation and header menu
+
+Status: done, superseded by phase 23. Note:
+[22-navigation.md](../notes/22-navigation.md). The eleven peer tabs became six
+grouped pages with system pages in the header menu.
+
+### 23: Card-family workspaces
+
+Status: done. Note: [23-workspaces.md](../notes/23-workspaces.md). The header
+workspace selector switches the Classic and Type 2 stacks, moves the shared
+NDEF view into the selected workspace, and hides family-inapplicable pages.
 
 ### 24: Parity recovery
 
