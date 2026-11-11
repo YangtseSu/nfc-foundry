@@ -266,7 +266,7 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
     let classic_tabs = gtk::Stack::new();
     classic_tabs.set_transition_type(gtk::StackTransitionType::Crossfade);
     classic_tabs.set_vexpand(true);
-    classic_tabs.add_titled(&card_page, Some("card"), "Card");
+    classic_tabs.add_titled(&card_page, Some("blocks"), "Blocks");
     classic_tabs.add_titled(&classic_ndef_slot, Some("ndef"), "NDEF");
     classic_tabs.add_titled(&keys_group, Some("keys"), "Keys");
     classic_tabs.add_titled(&recovery_view.root, Some("recovery"), "Recovery");
@@ -3662,7 +3662,7 @@ fn finish_read(ui: &Rc<Ui>, result: NfcResult<CardReadResult>) {
             ui.dump.replace(Some(dump.clone()));
             populate_rows(ui, &dump);
             switch_workspace(ui, Workspace::Classic);
-            ui.classic_tabs.set_visible_child_name("card");
+            ui.classic_tabs.set_visible_child_name("blocks");
             update_card(ui);
             update_ndef(ui);
             update_restore_sensitivity(ui);
@@ -6598,7 +6598,7 @@ fn load_dump_file(ui: &Rc<Ui>, path: &Path) -> Result<(), String> {
     ui.dump.replace(Some(loaded.dump.clone()));
     populate_rows(ui, &loaded.dump);
     switch_workspace(ui, Workspace::Classic);
-    ui.classic_tabs.set_visible_child_name("card");
+    ui.classic_tabs.set_visible_child_name("blocks");
     update_card(ui);
     update_ndef(ui);
     update_restore_sensitivity(ui);
@@ -8303,11 +8303,11 @@ mod tests {
         reset(harness);
         let ui = &harness.ui;
         switch_workspace(ui, Workspace::Classic);
-        for page in ["card", "ndef", "keys", "recovery", "dumps"] {
+        for page in ["blocks", "ndef", "keys", "recovery", "dumps"] {
             ui.classic_tabs.set_visible_child_name(page);
             assert_eq!(ui.classic_tabs.visible_child_name().as_deref(), Some(page));
         }
-        ui.classic_tabs.set_visible_child_name("card");
+        ui.classic_tabs.set_visible_child_name("blocks");
         assert_eq!(
             ui.table_stack.visible_child_name().as_deref(),
             Some("empty")
@@ -8497,7 +8497,7 @@ mod tests {
         show_dump(&harness.ui);
         harness.ui.selection.set_selected(4);
         switch_workspace(&harness.ui, Workspace::Classic);
-        harness.ui.classic_tabs.set_visible_child_name("card");
+        harness.ui.classic_tabs.set_visible_child_name("blocks");
         let uid = harness
             .ui
             .dump
@@ -8518,7 +8518,7 @@ mod tests {
                 .item(0)
                 .and_downcast::<gtk::StackPage>()
                 .and_then(|page| page.title())
-                .is_some_and(|title| title == "卡片")
+                .is_some_and(|title| title == "数据块")
         );
         assert_eq!(
             harness.ui.views.visible_child_name().as_deref(),

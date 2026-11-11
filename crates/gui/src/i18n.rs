@@ -1056,6 +1056,7 @@ keys! {
     Compare => ("Compare", "比较"),
     LoadBothThenCompare => ("Load both images, then compare.", "加载两个镜像后进行比较。"),
     BlockColumn => ("Block", "数据块"),
+    BlocksPage => ("Blocks", "数据块"),
     StateColumn => ("State", "状态"),
     DetailColumn => ("Detail", "详情"),
     DiffSummary => (

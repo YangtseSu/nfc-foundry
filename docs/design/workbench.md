@@ -12,7 +12,7 @@ GPUI rules for new UI work.
   header.
 - Left rail (fixed start pane, `GtkPaned`): reader menu with refresh, card
   identity/size/readability, key-store status, and selected block.
-- Workspaces: `Classic` shows `Card`, `NDEF`, `Keys`, `Recovery`, and `Dumps`;
+- Workspaces: `Classic` shows `Blocks`, `NDEF`, `Keys`, `Recovery`, and `Dumps`;
   `Type 2` shows `Pages`, `Protection`, `NDEF`, and `Dumps`. `Keys` owns
   `Key store` / `Key scan`; Classic `Dumps` owns Save/Load plus `Diff` /
   `Restore`; Type 2 `Dumps` owns Save/Load plus Restore. The NDEF view is
@@ -25,7 +25,7 @@ GPUI rules for new UI work.
   the last workspace. `About NFC Foundry` opens `AdwAboutDialog`.
 - Status bar: operation text, spinner, and layout/card facts.
 
-## Card
+## Blocks
 
 - `GtkColumnView` with `Block`, `Sector`, `Type`, `Status`, and `Data`.
   `Data` expands and shows all 16 bytes; unknown bytes are `??`.

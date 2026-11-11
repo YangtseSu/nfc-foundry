@@ -25,10 +25,10 @@ hidden System page.
 ### Classic workspace
 
 ```text
-Card │ NDEF │ Keys │ Recovery │ Dumps
+Blocks │ NDEF │ Keys │ Recovery │ Dumps
 ```
 
-- `Card` is the former `Card` block table.
+- `Blocks` is the former `Card` block table.
 - `Keys` owns `Key store` and `Key scan`.
 - `Dumps` owns `Save dump…`, `Load dump…`, and the `Diff` / `Restore` sub-tabs.
 - Save/Load were removed from the `☰` menu.
