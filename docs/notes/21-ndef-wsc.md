@@ -12,9 +12,8 @@ key were neither visible nor copyable.
 - `record_summary` decodes `application/vnd.wfa.wsc` media records with the
   existing `nfc_ndef::WifiRecord` parser and shows the authentication and
   encryption labels (for example `Wi-Fi · WSC` and `WPA2-Personal · AES`).
-- WSC records add `SSID` and `Password` rows. Each row is a selectable
-  monospace label plus a `Copy` button that writes the raw value to the
-  clipboard.
+- WSC records add `SSID` and `Password` rows as selectable monospace labels,
+  so the value can be selected and copied directly.
 - Any other media payload is shown as hex when it is not clean UTF-8 text
   (control characters included), instead of a lossy string full of U+FFFD.
 - `nfctl ndef read` prints the same decoded summary:
@@ -40,3 +39,13 @@ The payload used the standard Credential TLV with a Network Index (0x1026), SSID
 - `cargo test -p nfc-foundry gtk_workbench_scenarios` (gated) still passes.
 - `cargo test --workspace`, `cargo clippy --workspace --all-targets --
   -D warnings`, `cargo fmt --all --check`, and `reuse lint` pass.
+
+## Adjacent interaction fixes
+
+- The rail UID line and the Type 2 summary are selectable.
+- Block and Type 2 `Data` cells, key-table `Key` cells, and key-scan `Key A`/
+  `Key B` cells copy on double-click.
+- Activity rows copy `Time<TAB>Operation<TAB>Result<TAB>Detail` when activated.
+- Page and tab switches focus the relevant `StackSwitcher`, so selectable
+  labels in Diagnostics and Type 2 Protection no longer open with their text
+  selected. Tests assert that no label holds focus after those switches.

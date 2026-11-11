@@ -173,7 +173,7 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
     table.append_column(&text_column::<BlockRow>("Status", 58, false, |row| {
         row.status.to_owned()
     }));
-    let data_column = text_column::<BlockRow>("Data", 320, true, |row| row.data.clone());
+    let data_column = copy_text_column::<BlockRow>("Data", 320, true, |row| row.data.clone());
     data_column.set_expand(true);
     table.append_column(&data_column);
     let table_scroll = gtk::ScrolledWindow::builder().child(&table).build();
@@ -289,6 +289,7 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
     let card_detail = gtk::Label::new(Some("Select a reader and read a card."));
     card_detail.set_xalign(0.0);
     card_detail.set_wrap(true);
+    card_detail.set_selectable(true);
     card_detail.add_css_class("caption");
     card_detail.add_css_class("dim-label");
     card_body.append(&card_title);
@@ -371,6 +372,8 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
     let ui = Rc::new(Ui {
         window: window.clone(),
         toast: toast.clone(),
+        #[cfg(test)]
+        toasts: RefCell::new(Vec::new()),
         service,
         keys: RefCell::new(keys),
         keys_path: RefCell::new(keys_path),
@@ -409,6 +412,7 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
         settings_view,
         activity: RefCell::new(Vec::new()),
         views: views.clone(),
+        switcher: switcher.clone(),
         type2: RefCell::new(None),
         type2_restore: RefCell::new(None),
         diff_before: RefCell::new(None),
@@ -715,6 +719,8 @@ struct SettingsView {
 struct Ui {
     window: adw::ApplicationWindow,
     toast: adw::ToastOverlay,
+    #[cfg(test)]
+    toasts: RefCell<Vec<adw::Toast>>,
     service: Arc<Mutex<Service>>,
     keys: RefCell<KeyStore>,
     keys_path: RefCell<Option<PathBuf>>,
@@ -753,6 +759,7 @@ struct Ui {
     settings_view: SettingsView,
     activity: RefCell<Vec<ActivityRow>>,
     views: gtk::Stack,
+    switcher: gtk::StackSwitcher,
     type2: RefCell<Option<Type2Session>>,
     type2_restore: RefCell<Option<(PathBuf, Type2Image)>>,
     diff_before: RefCell<Option<DumpLoad>>,
@@ -789,6 +796,7 @@ struct TypedDialog {
 struct Type2View {
     root: gtk::Box,
     tabs: gtk::Stack,
+    switcher: gtk::StackSwitcher,
     advanced: gtk::Switch,
     summary: gtk::Label,
     warnings: gtk::Label,
@@ -1122,6 +1130,7 @@ fn build_type2_view() -> Type2View {
     let summary = gtk::Label::new(Some("Read a Type 2 tag to inspect its pages."));
     summary.set_xalign(0.0);
     summary.set_wrap(true);
+    summary.set_selectable(true);
     summary.add_css_class("caption");
     summary.add_css_class("dim-label");
     heading.append(&title);
@@ -1184,7 +1193,8 @@ fn build_type2_view() -> Type2View {
         false,
         |row| row.lock.clone(),
     ));
-    let data_column = text_column::<type2_ui::PageRow>("Data", 180, true, |row| row.data.clone());
+    let data_column =
+        copy_text_column::<type2_ui::PageRow>("Data", 180, true, |row| row.data.clone());
     data_column.set_expand(true);
     table.append_column(&data_column);
     let table_scroll = gtk::ScrolledWindow::builder().child(&table).build();
@@ -1346,6 +1356,7 @@ fn build_type2_view() -> Type2View {
     Type2View {
         root,
         tabs,
+        switcher,
         advanced,
         summary,
         warnings,
@@ -1487,7 +1498,7 @@ fn build_keys_view() -> KeysView {
     table.append_column(&text_column::<KeyRow>("Type", 70, false, |row| {
         row.kind.to_owned()
     }));
-    table.append_column(&text_column::<KeyRow>("Key", 160, true, |row| {
+    table.append_column(&copy_text_column::<KeyRow>("Key", 160, true, |row| {
         row.key.clone()
     }));
     table.append_column(&text_column::<KeyRow>("Source", 100, false, |row| {
@@ -1780,12 +1791,18 @@ fn build_keyscan_view() -> KeyscanView {
     table.append_column(&text_column::<SectorKeyRow>("Sector", 70, false, |row| {
         row.sector.clone()
     }));
-    table.append_column(&text_column::<SectorKeyRow>("Key A", 180, true, |row| {
-        row.key_a.clone()
-    }));
-    table.append_column(&text_column::<SectorKeyRow>("Key B", 180, true, |row| {
-        row.key_b.clone()
-    }));
+    table.append_column(&copy_text_column::<SectorKeyRow>(
+        "Key A",
+        180,
+        true,
+        |row| row.key_a.clone(),
+    ));
+    table.append_column(&copy_text_column::<SectorKeyRow>(
+        "Key B",
+        180,
+        true,
+        |row| row.key_b.clone(),
+    ));
     let table_scroll = gtk::ScrolledWindow::builder()
         .child(&table)
         .vexpand(true)
@@ -2082,6 +2099,22 @@ fn build_activity_view() -> ActivityView {
     scroll.set_has_frame(true);
     scroll.set_overlay_scrolling(false);
 
+    let copy_rows = rows.clone();
+    table.connect_activate(move |table, position| {
+        let Some(object) = copy_rows
+            .item(position)
+            .and_downcast::<glib::BoxedAnyObject>()
+        else {
+            return;
+        };
+        let activity = object.borrow::<ActivityRow>();
+        let text = format!(
+            "{}\t{}\t{}\t{}",
+            activity.time, activity.operation, activity.result, activity.detail
+        );
+        drop(activity);
+        table.clipboard().set_text(&text);
+    });
     let clear = gtk::Button::with_label("Clear activity");
 
     root.append(&title);
@@ -2224,6 +2257,16 @@ fn setting_row(label: &str, widget: &impl IsA<gtk::Widget>) -> gtk::Box {
 }
 
 fn connect_signals(ui: &Rc<Ui>) {
+    let ui2 = ui.clone();
+    ui.views.connect_visible_child_name_notify(move |_| {
+        ui2.switcher.grab_focus();
+    });
+    let ui2 = ui.clone();
+    ui.type2_view
+        .tabs
+        .connect_visible_child_name_notify(move |_| {
+            ui2.type2_view.switcher.grab_focus();
+        });
     let ui2 = ui.clone();
     ui.selection
         .connect_selected_notify(move |_| update_inspector(&ui2));
@@ -2582,6 +2625,25 @@ fn text_column<T: 'static>(
     mono: bool,
     getter: fn(&T) -> String,
 ) -> gtk::ColumnViewColumn {
+    text_column_with(title, width, mono, getter, false)
+}
+
+fn copy_text_column<T: 'static>(
+    title: &str,
+    width: i32,
+    mono: bool,
+    getter: fn(&T) -> String,
+) -> gtk::ColumnViewColumn {
+    text_column_with(title, width, mono, getter, true)
+}
+
+fn text_column_with<T: 'static>(
+    title: &str,
+    width: i32,
+    mono: bool,
+    getter: fn(&T) -> String,
+    copy_on_double_click: bool,
+) -> gtk::ColumnViewColumn {
     let factory = gtk::SignalListItemFactory::new();
     factory.connect_setup(move |_, item| {
         let item = item.downcast_ref::<gtk::ListItem>().expect("list item");
@@ -2590,6 +2652,18 @@ fn text_column<T: 'static>(
         label.set_margin_end(6);
         if mono {
             label.add_css_class("mono");
+        }
+        if copy_on_double_click {
+            let gesture = gtk::GestureClick::new();
+            gesture.set_button(1);
+            gesture.set_propagation_phase(gtk::PropagationPhase::Capture);
+            let target = label.clone();
+            gesture.connect_pressed(move |_, presses, _, _| {
+                if presses == 2 {
+                    target.clipboard().set_text(&target.label());
+                }
+            });
+            label.add_controller(gesture);
         }
         item.set_child(Some(&label));
     });
@@ -3067,25 +3141,13 @@ fn record_card(index: usize, record: &NdefRecord) -> gtk::Box {
     card.append(&title);
     card.append(&body);
     for (field, value) in wifi_fields(record) {
-        let row = gtk::Box::new(Orientation::Horizontal, 6);
         let field = i18n::translate_lines(field);
         let text = gtk::Label::new(Some(&format!("{field}: {value}")));
         text.set_xalign(0.0);
         text.set_wrap(true);
         text.set_selectable(true);
-        text.set_hexpand(true);
         text.add_css_class("mono");
-        let copy = gtk::Button::new();
-        copy.set_localized("Copy");
-        copy.add_css_class("flat");
-        copy.set_valign(gtk::Align::Start);
-        let value = value.clone();
-        copy.connect_clicked(move |button| {
-            button.clipboard().set_text(&value);
-        });
-        row.append(&text);
-        row.append(&copy);
-        card.append(&row);
+        card.append(&text);
     }
     card
 }
@@ -7346,14 +7408,18 @@ fn set_busy(ui: &Ui, busy: bool) {
 }
 
 fn toast_info(ui: &Rc<Ui>, message: &str) {
-    ui.toast
-        .add_toast(adw::Toast::new(&i18n::translate_lines(message)));
+    let toast = adw::Toast::new(&i18n::translate_lines(message));
+    #[cfg(test)]
+    ui.toasts.borrow_mut().push(toast.clone());
+    ui.toast.add_toast(toast);
 }
 
 fn toast_error(ui: &Rc<Ui>, message: &str) {
     append_log(ui, &format!("error · {message}"));
-    ui.toast
-        .add_toast(adw::Toast::new(&i18n::translate_lines(message)));
+    let toast = adw::Toast::new(&i18n::translate_lines(message));
+    #[cfg(test)]
+    ui.toasts.borrow_mut().push(toast.clone());
+    ui.toast.add_toast(toast);
 }
 
 fn add_response(dialog: &adw::AlertDialog, id: &str, label: &str) {
@@ -7707,6 +7773,10 @@ mod tests {
             .expect("select classic");
         harness.ui.reader_combo.set_selected(0);
         let ui = &harness.ui;
+        #[cfg(test)]
+        for toast in ui.toasts.borrow_mut().drain(..) {
+            toast.dismiss();
+        }
         ui.live.set(false);
         ui.busy.set(false);
         ui.dump.replace(None);
@@ -7948,7 +8018,30 @@ mod tests {
         assert!(ui.read_button.is_sensitive());
 
         let context = glib::MainContext::default();
+        ui.views.set_visible_child_name("diagnostics");
         while context.iteration(false) {}
+        assert!(
+            !ui.diagnostics_view.version.has_focus(),
+            "diagnostics focused a selectable label"
+        );
+        assert!(
+            !gtk::prelude::GtkWindowExt::focus(&ui.window)
+                .is_some_and(|widget| widget.is::<gtk::Label>()),
+            "a label holds focus after the page switch"
+        );
+
+        ui.views.set_visible_child_name("type2");
+        ui.type2_view.tabs.set_visible_child_name("protection");
+        while context.iteration(false) {}
+        assert!(
+            !ui.type2_view.configuration.has_focus(),
+            "protection focused the configuration label"
+        );
+        assert!(
+            !gtk::prelude::GtkWindowExt::focus(&ui.window)
+                .is_some_and(|widget| widget.is::<gtk::Label>()),
+            "a label holds focus after the tab switch"
+        );
         assert!(ui.read_button.is_focusable());
         assert!(ui.window.child_focus(gtk::DirectionType::TabForward));
     }

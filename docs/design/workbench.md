@@ -197,9 +197,9 @@ GPUI rules for new UI work.
   data-area size, capacity, NDEF state, locked pages, password protection, and
   warnings.
 - Wi-Fi WSC media records decode SSID, authentication, encryption, and network
-  key. SSID and password render as selectable rows with a Copy action. Other
-  binary media payloads render as hex; they are never passed through a lossy
-  UTF-8 preview.
+  key. SSID and password render as selectable monospace text, so the user can
+  select and copy a field directly. Other binary media payloads render as hex;
+  they are never passed through a lossy UTF-8 preview.
 - Unformatted cards state that Format is required before writing. A Type 2
   format is destructive, removes proprietary TLVs, and uses the typed phrase.
 - Type 2 write is refused for a partial data area, read-only CC, locked data
