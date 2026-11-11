@@ -15,7 +15,7 @@ The grouped tab row still mixed card-family pages with shared features:
 
 ### Workspace selector
 
-The header now carries a compact `Classic` / `Type 2` `MenuButton`. It switches
+The header now carries a compact `MIFARE Classic` / `NFC Forum Type 2` `MenuButton`. It switches
 the top-level workspace stack, updates its label, and moves the shared NDEF
 view into the selected workspace. `Read card` selects the workspace from the
 card family automatically; the manual selector exists for loading dumps and

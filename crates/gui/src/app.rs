@@ -381,7 +381,7 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
     back.set_visible(false);
     header.pack_start(&back);
     let workspace_button = gtk::MenuButton::new();
-    workspace_button.set_label("Classic");
+    workspace_button.set_label("MIFARE Classic");
     workspace_button.add_css_class("flat");
     header.pack_start(&workspace_button);
     let read_button = gtk::Button::with_label("Read card");
@@ -622,8 +622,8 @@ impl Workspace {
 
     const fn label(self) -> &'static str {
         match self {
-            Self::Classic => "Classic",
-            Self::Type2 => "Type 2",
+            Self::Classic => "MIFARE Classic",
+            Self::Type2 => "NFC Forum Type 2",
         }
     }
 }
@@ -8395,17 +8395,9 @@ mod tests {
             &ui.workspace_button
                 .popover()
                 .expect("workspace menu popover"),
-            "Classic",
+            "MIFARE Classic",
         )
-        .or_else(|| {
-            find_button(
-                &ui.workspace_button
-                    .popover()
-                    .expect("workspace menu popover"),
-                &i18n::translate_lines("Classic"),
-            )
-        })
-        .expect("classic workspace item");
+        .expect("MIFARE Classic workspace item");
         classic_item.emit_clicked();
         for _ in 0..5 {
             while context.iteration(false) {}

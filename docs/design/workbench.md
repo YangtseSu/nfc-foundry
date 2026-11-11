@@ -6,7 +6,7 @@ GPUI rules for new UI work.
 ## Shell
 
 - One window, 1360×880 default, resizable.
-- Header: `NFC Foundry` title, workspace selector (`Classic` / `Type 2`),
+- Header: `NFC Foundry` title, workspace selector (`MIFARE Classic` / `NFC Forum Type 2`),
   primary `Read card`, and a `☰` main menu. A `←` back button appears only
   while a system page is shown. The reader selector is not duplicated in the
   header.
@@ -235,7 +235,7 @@ GPUI rules for new UI work.
 
 ## Workspace selector
 
-The header selector is a compact `MenuButton` labelled `Classic` or `Type 2`.
+The header selector is a compact `MenuButton` labelled `MIFARE Classic` or `NFC Forum Type 2`.
 It switches the workspace stack and moves the shared NDEF view into that
 workspace. Reading a card selects the matching workspace automatically; the
 manual selector covers loading dumps and inspecting pages without a live card.
