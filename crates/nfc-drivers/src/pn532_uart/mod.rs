@@ -14,8 +14,8 @@ use std::time::Duration;
 
 use nfc_core::{BLOCK_SIZE, CardInfo, Key, KeyType, NfcError, Result};
 use nfc_transport::{
-    ApduCapabilities, ApduResponse, DeviceInfo, ParityFrame, Reader, RecoveryCapabilities,
-    TrailerWriter,
+    ApduCapabilities, ApduResponse, DeviceInfo, ManufacturerWriter, ParityFrame, Reader,
+    RecoveryCapabilities, TrailerWriter,
 };
 
 use crate::PN532_UART_PREFIX;
@@ -213,6 +213,10 @@ impl Reader for Pn532Uart {
         self.protocol()?.set_raw_mode(enabled)
     }
 
+    fn manufacturer_writer(&mut self) -> Option<&mut dyn ManufacturerWriter> {
+        Some(self)
+    }
+
     fn recovery_capabilities(&self) -> RecoveryCapabilities {
         RecoveryCapabilities {
             parity_exchange: self.protocol.is_some(),
@@ -251,6 +255,12 @@ impl Reader for Pn532Uart {
 impl TrailerWriter for Pn532Uart {
     fn write_sector_trailer(&mut self, block: u8, data: [u8; BLOCK_SIZE]) -> Result<()> {
         self.protocol()?.write_block(block, data)
+    }
+}
+
+impl ManufacturerWriter for Pn532Uart {
+    fn write_manufacturer_block(&mut self, data: [u8; BLOCK_SIZE]) -> Result<()> {
+        self.protocol()?.write_manufacturer_block(data)
     }
 }
 

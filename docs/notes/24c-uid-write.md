@@ -1,31 +1,33 @@
 # Note: phase 24c standalone UID / block-0 write
 
-Status: complete 2026-11-11, hardware row pending. Plan:
+Status: complete 2026-11-11; PN532 UART hardware validated. Plan:
 [24-parity-recovery.md](../plan/24-parity-recovery.md). Spec:
 [24c-uid-write.md](../specs/24c-uid-write.md).
 
 ## Problem
 
 The application refused every manufacturer-block write. The ACR122U driver had
-a hardware-validated Gen1A sequence, but there was no plan, backup, reselect,
-or verification around it, and no ordinary CUID/Gen2 path. A UID change can
-make the old card identity and workbench stale, so it cannot share the ordinary
-block-write path.
+a hardware-validated Gen1A sequence, but the PN532 driver had none, and there
+was no plan, backup, reselect, or verification around either, plus no ordinary
+CUID/Gen2 path. A UID change can make the old card identity and workbench
+stale, so it cannot share the ordinary block-write path.
 
 ## Implemented
 
 ### Transport capability
 
 - `Reader::manufacturer_writer` returns the protected writer when a driver has
-  one. The default is `None`; PN532 does not implement `ManufacturerWriter` and
-  cannot reach the Gen1A backend.
-- `Acr122Usb` returns itself; `MockReader` returns itself when its scripted
-  Gen1A capability is enabled. The mock defaults to a magic card: the Gen1A
+  one. The default is `None`.
+- `Acr122Usb` and `Pn532Uart` return themselves; `MockReader` returns itself
+  when its scripted Gen1A capability is enabled. The mock defaults to a magic card: the Gen1A
   writer is available, an ordinary block-0 write is accepted, and a block-0
   write updates the scripted card UID so a reselect observes it.
 - `MockCall::ManufacturerWrite`, `MockFault::WriteAppliedError`,
   `set_manufacturer_write`, and `set_block_zero_writable` script the protected
   path, lost acknowledgements, and immutable cards.
+- `CrcA` and the `0x40`/`0x43` unlock sequence live in one reader-neutral
+  `nfc-drivers::gen1a` module. The ACR122U and PN532 implementations only
+  provide raw byte/bit exchanges and reselect/raw-mode transitions.
 
 ### UID workflow
 
@@ -99,6 +101,9 @@ block-write path.
 
 ## Tests
 
+- `nfc-drivers` unit tests: CRC_A vector, ACK nibble positions, and
+  card/BCC validation. The existing scripted ACR122U Gen1A sequence still runs
+  through the shared module.
 - `nfc-app` unit tests: UID text parsing and backend labels.
 - `nfc-app` workflow tests: ordinary CUID success with backup and reselect
   evidence, Gen1A when access bits deny a standard write, Gen1A-to-standard
@@ -112,7 +117,8 @@ block-write path.
 - Gated GTK scenario: Advanced switch, unchanged-target refusal, plan cancel,
   plan confirmation, write, and automatic re-read.
 - Environment-gated `nfctl` hardware test changes the UID and restores the
-  original block 0 on an owned magic card.
+  original block 0 on an owned magic card. It passed on PN532 UART on
+  2026-11-11.
 
 ## Commands run
 
@@ -123,6 +129,27 @@ cargo test --workspace
 NFC_FOUNDRY_GUI_TESTS=1 xvfb-run -a cargo test -p nfc-foundry gtk_workbench_scenarios
 reuse lint
 ```
+
+Hardware, 2026-11-11, PN532 UART `pn532_uart:/dev/ttyUSB0`, Gen1A magic
+Classic 1K UID `FA B9 CF F4`, sector-0 Key A `FFFFFFFFFFFF`:
+
+```sh
+NFC_FOUNDRY_HARDWARE=1 \
+NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
+NFC_FOUNDRY_HARDWARE_KEY=FFFFFFFFFFFF \
+NFC_FOUNDRY_HARDWARE_KEY_TYPE=A \
+NFC_FOUNDRY_HARDWARE_WRITE=yes \
+NFC_FOUNDRY_HARDWARE_UID_CONFIRM=yes \
+NFC_FOUNDRY_HARDWARE_BACKUP_DIR=/tmp/nfc-uid-backups \
+cargo test -p nfctl --features hardware-write --test hardware_classic \
+  -- --ignored changes_and_restores_the_card_uid --nocapture
+```
+
+The run selected `[Gen1a, Standard]`, wrote UID `FA B9 CF F5` through Gen1A,
+reselect verified the complete block 0, BCC, and trailer, then restored UID
+`FA B9 CF F4` and the original block 0. The read-only PN532 suite also passed
+(`classic_1k`, 15/16 sectors readable, 15 verified keys) after the driver
+change.
 
 The `hardware-write` feature build was also checked:
 
@@ -136,9 +163,12 @@ result's `.data` field, so the hardware suite compiles again.
 
 ## Decisions and problems
 
-- Gen1A is tried first on an ACR122U because it is the validated protected
-  writer and does not depend on access bits. The ordinary write remains the
-  fallback for CUID/Gen2 cards and for PN532.
+- Gen1A is tried first on both readers because it does not depend on access
+  bits. The ordinary write remains the fallback for CUID/Gen2 cards.
+- The PN532 Gen1A path reuses the ACR122U sequence rather than duplicating it.
+  The driver only adds the reselect/raw-mode wrapper and the raw exchanges.
+  The first PN532 attempt against the same card failed before this port because
+  the standard block-0 write timed out and correctly left the card unchanged.
 - The preflight cannot prove that a card is magic without attempting a write.
   An ordinary immutable card is therefore refused by the card itself: the
   Gen1A unlock fails, the ordinary write is not acknowledged, and the reselect
@@ -153,11 +183,10 @@ result's `.data` field, so the hardware suite compiles again.
   uncertain outcome with the backup path.
 - The service clears the workbench only when its card identity matches the card
   that was changed. A file-backed workbench for another card is untouched.
-- No hardware run was possible in this slice: the environment has no ACR122U or
-  owned magic card attached. The driver-level same-value Gen1A write remains
-  validated from phase 05; the service path, a changed UID, and the ordinary
-  backend are not advertised. The hardware matrix records both as
-  `not recorded`.
+- The PN532 UART service path is now validated. The ACR122U service path is
+  still `not recorded`; its driver-level same-value Gen1A write remains
+  validated from phase 05. The ordinary CUID/Gen2 backend is covered by
+  scripted tests only.
 
 ## Next
 

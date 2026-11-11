@@ -10,7 +10,7 @@ Release: `0.1.0`.
 
 | Reader | Connection | Firmware | Date | Note |
 |---|---|---|---|---|
-| PN532 UART (CH340 adapter) | `pn532_uart:/dev/ttyUSB0` | PN532 firmware 1.6 | 2026-11-10 | `docs/notes/02-pn532-uart.md`, `04-classic-workflows.md`, `06-recovery-foundation.md`, `07-hardnested.md`, `09-type2-ndef.md`, `10-classic-ndef.md` |
+| PN532 UART (CH340 adapter) | `pn532_uart:/dev/ttyUSB0` | PN532 firmware 1.6 | 2026-11-11 | `docs/notes/02-pn532-uart.md`, `04-classic-workflows.md`, `06-recovery-foundation.md`, `07-hardnested.md`, `09-type2-ndef.md`, `10-classic-ndef.md`, `24c-uid-write.md` |
 | ACR122U direct USB/CCID | `acr122_usb:001:017` | internal PN532 firmware 1.6 | 2026-11-10 | `docs/notes/05-acr122-usb.md`, `06-recovery-foundation.md`, `07-hardnested.md` |
 
 `pcscd` was stopped for every ACR122U run. The ACR122U was opened as the
@@ -37,7 +37,7 @@ add no reader path of their own.
 | Classic 4K read/write | not recorded | not recorded | — |
 | Raw 7-bit REQA with 16-bit ATQA | validated | validated | phase 02, phase 05 |
 | Gen1A manufacturer block 0 same-value write | not recorded | validated | phase 05: magic Classic 1K, reselect and read-back |
-| Classic UID change through the guarded `nfc-app` service | not recorded | not recorded | phase 24c: preflight, sector-0 backup, Gen1A/ordinary backends, reselect and full block-0/BCC verification; the driver primitive is validated, the service path is not |
+| Classic UID change through the guarded `nfc-app` service | validated | not recorded | phase 24c, 2026-11-11: Gen1A magic Classic 1K on PN532 UART, UID `FA B9 CF F4` -> `FA B9 CF F5`, reselect and full block 0/BCC verified, original UID restored. ACR122U service path not recorded; its driver primitive is validated. |
 | Type 2 page read | validated | validated | phase 02, phase 05 |
 | Type 2 / NTAG215 NDEF format, write, read, restore | validated | not recorded | phase 09: 135/135 pages, 33-byte Text record, restore |
 | Type 2 one-way lock and password configuration | not recorded | not recorded | phase 09 |
@@ -56,7 +56,7 @@ add no reader path of their own.
 | MIFARE Classic 1K | `6A 31 5E 28` | PN532 | selection, Classic NDEF format/write/restore |
 | NTAG215 | `04 52 F5 67 D3 2A 81` | PN532 | 135-page read, NDEF write/read/restore |
 | Type 2 tag | `04 34 4C C2 83 5C 80` | ACR122U | page read |
-| Magic Gen1A Classic 1K | `FA B9 CF F4` | ACR122U | same-value block 0 write |
+| Magic Gen1A Classic 1K | `FA B9 CF F4` | PN532, ACR122U | same-value block 0 write; guarded UID change/restore on PN532 |
 
 `FA B9 CF F4` appears twice with different sector keys; set
 `NFC_FOUNDRY_HARDWARE_KEY` and `NFC_FOUNDRY_HARDWARE_TARGET_KEY` for the card under test.
@@ -70,9 +70,9 @@ add no reader path of their own.
   release claim.
 - Type 4 NDEF is implemented but has no hardware record; it is not advertised.
 - Classic 4K and sector-trailer writes are not part of the release claim.
-- The guarded UID service has no hardware record. The phase 05 Gen1A record
-  covers the driver's same-value block-0 write only; a changed UID through the
-  service is not advertised.
+- The guarded UID service is validated on PN532 UART for a Gen1A magic
+  Classic 1K. The ACR122U service path is not recorded; the phase 05 record
+  covers its driver's same-value block-0 write only.
 
 Do not promote a row without adding a dated entry to the matching phase note
 and updating this table.
@@ -129,7 +129,21 @@ NFC_FOUNDRY_HARDWARE_GEN1A_CONFIRM=yes \
 cargo test -p nfc-drivers --features hardware-write -- --ignored
 ```
 
-ACR122U or PN532, authorized magic Classic 1K UID change and restore:
+PN532 UART, authorized magic Classic 1K UID change and restore (validated
+2026-11-11 with a Gen1A card and `FFFFFFFFFFFF` sector-0 Key A):
+
+```sh
+NFC_FOUNDRY_HARDWARE=1 \
+NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
+NFC_FOUNDRY_HARDWARE_KEY=FFFFFFFFFFFF \
+NFC_FOUNDRY_HARDWARE_KEY_TYPE=A \
+NFC_FOUNDRY_HARDWARE_WRITE=yes \
+NFC_FOUNDRY_HARDWARE_UID_CONFIRM=yes \
+NFC_FOUNDRY_HARDWARE_BACKUP_DIR=/tmp/nfc-uid-backups \
+cargo test -p nfctl --features hardware-write --test hardware_classic -- --ignored changes_and_restores_the_card_uid --nocapture
+```
+
+ACR122U, same service test (not yet recorded):
 
 ```sh
 NFC_FOUNDRY_HARDWARE=1 \

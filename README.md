@@ -79,10 +79,11 @@ hicolor icon set, and the desktop entry. Phase 24 S1 (verified-key capture,
 card-scoped key verification, and project dump v2 metadata), S2 (editable
 workbench, selective restore, and write preflight), and S3a (standalone UID /
 block-0 write) are complete. The UID path writes only four-byte UID MIFARE
-Classic 1K magic cards, prefers the ACR122U Gen1A protected writer, falls back
-to an ordinary CUID/Gen2 block-0 write, and reselects and verifies the complete
-block 0, BCC, and sector trailer after every attempt. Its hardware row is still
-pending; S3b (restore with UID) is next. Remaining work is the Type 4 read
+Classic 1K magic cards, prefers the Gen1A protected writer on ACR122U and
+PN532 UART, falls back to an ordinary CUID/Gen2 block-0 write, and reselects
+and verifies the complete block 0, BCC, and sector trailer after every attempt.
+The path is hardware-validated on PN532 UART with an owned Gen1A card; the
+ACR122U service path remains unrecorded. S3b (restore with UID) is next. Remaining work is the Type 4 read
 surface (hardware-gated) and phases 13-17.
 
 ## Product scope

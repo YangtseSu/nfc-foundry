@@ -53,6 +53,7 @@ Hardware tests:
 - read one Classic block with a known key;
 - read Type 2 pages;
 - same-value Classic write with explicit confirmation and read-back;
+- guarded Gen1A UID change and restore;
 - raw transceive after driver stabilization;
 - full Classic dump and per-sector key scan;
 - temporary data-block write and restore with backups.
@@ -60,9 +61,10 @@ Hardware tests:
 Current status: firmware identification, Classic 1K selection/authentication/
 read, Type 2 selection/read, raw 7-bit REQA (16-bit ATQA response), full Classic
 dump, key scan, temporary data-block write with backup and read-back, and
-restore are validated on a PN532 (CH340 UART adapter, firmware 1.6). Trailer
-writes and a 4K card run remain future hardware checks. See
-`docs/notes/04-classic-workflows.md`.
+restore are validated on a PN532 (CH340 UART adapter, firmware 1.6). The
+guarded Gen1A UID change and restore passed on 2026-11-11 with an owned magic
+Classic 1K; see `docs/notes/24c-uid-write.md`. Trailer writes and a 4K card run
+remain future hardware checks.
 
 ## ACR122U
 
@@ -115,8 +117,8 @@ read, raw 7-bit REQA, and a same-value Gen1A manufacturer-block write verified
 by reselection and read-back. A physical unplug/replug was not exercised;
 disconnect mapping is covered by scripted transport tests. See
 `docs/notes/05-acr122-usb.md`. Phase 24c adds a guarded application service over
-the same Gen1A primitive and an ordinary CUID/Gen2 path; that service path has
-no hardware record yet.
+the same Gen1A primitive and an ordinary CUID/Gen2 path. The service path is
+validated on PN532 UART; the ACR122U service path is not recorded.
 
 ### Type 2 write and NDEF status
 

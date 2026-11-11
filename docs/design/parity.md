@@ -32,7 +32,7 @@ the image when the reader changes. No CLI-only card capability is hidden there.
 | Write block | `classic write --block --data` | Blocks inspector → Stage edit → Write changes… | C, B | PN532; ACR n/r |
 | Write sector trailer | `classic write --confirm-trailer` | Stage the trailer edit, then Write changes… | C, B | n/r |
 | Write preflight | `classic write --dry-run` / `classic restore --dry-run` | Plan dialog before Write changes… / Restore to card | R | PN532; ACR n/r |
-| Change UID / manufacturer block 0 | `classic uid --uid --advanced [--dry-run]` | Blocks inspector → Advanced mode → Write UID… → target UID → plan dialog | A, B, C | n/r |
+| Change UID / manufacturer block 0 | `classic uid --uid --advanced [--dry-run]` | Blocks inspector → Advanced mode → Write UID… → target UID → plan dialog | A, B, C | PN532; ACR n/r |
 | Edit working image | — (staged by the GUI; `--dry-run` previews the plan) | Stage edit, Undo edit, Revert edits; dirty rows show `edited` | none | file only |
 | Restore | `classic restore --input [--blocks] [--changes-only] [--continue-on-error] [--dry-run]` | MIFARE Classic → Dumps → Restore → Load dump… → mode → Restore to card | C, B | PN532; ACR n/r |
 | Key scan | `classic keyscan [--save] [--types]` | MIFARE Classic → Keys → Key scan → Start scan; verified keys are captured automatically, Save remains available | R | PN532; ACR n/r |

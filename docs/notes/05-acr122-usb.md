@@ -112,9 +112,9 @@ Date: 2026-11-10
 ## Deviations
 
 - No `acr122_pcsc` backend and no PC/SC fallback.
-- No service, CLI, or GUI command writes manufacturer block 0. The driver
-  capability and the gated hardware test establish the path; the UID/clone
-  workflow and its Advanced-mode confirmation rules remain future work.
+- No service, CLI, or GUI command existed at this phase. Phase 24c added the
+  guarded UID service, CLI, and GUI path and a PN532 Gen1A writer. The ACR122U
+  service path remains unrecorded; the PN532 service path is validated.
 - The hardware run used the user-approved same-value write. A UID-changing
   write was not performed; `NFC_FOUNDRY_TEST_UID` supports it, and the test restores
   the original block when the UID changes.

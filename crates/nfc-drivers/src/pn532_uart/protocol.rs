@@ -12,6 +12,7 @@ use nfc_transport::{ApduResponse, ParityFrame};
 
 use super::frame::{Frame, WAKEUP_PREAMBLE, build_frame, take_frame};
 use super::link::Pn532Link;
+use crate::gen1a::{self, Gen1aLink};
 use crate::pn53x::{
     AUTO_ATR_RES_AND_RATS, FirmwareVersion, GET_FIRMWARE_VERSION, IN_COMMUNICATE_THRU,
     IN_DATA_EXCHANGE, IN_LIST_PASSIVE_TARGET, INITIATOR, ISO14443A_106_KBPS, MAX_ISO_DEP_APDU,
@@ -306,6 +307,31 @@ impl Pn532Protocol {
         payload.extend_from_slice(&data);
         self.data_exchange(&payload, self.config.command_timeout, Retry::No)?;
         Ok(())
+    }
+
+    /// Unlocks a Gen1A magic card with the 7-bit `0x40` / `0x43` backdoor and
+    /// writes the complete manufacturer block. The caller must reselect and
+    /// verify the card; a matching block 0 is the authoritative success check.
+    pub(crate) fn write_manufacturer_block(&mut self, data: [u8; BLOCK_SIZE]) -> Result<()> {
+        self.require_ordinary("Gen1A manufacturer write")?;
+        let card = self.selected.as_ref().ok_or(NfcError::NoCard)?.clone();
+        gen1a::validate(&card, &data)?;
+
+        // Reselect the same card before the raw sequence. A card that is still
+        // authenticated would encrypt the Gen1A backdoor frames with Crypto1.
+        let current = self.select_card()?;
+        if !current.same_identity(&card) {
+            return Err(NfcError::CardChanged);
+        }
+
+        self.set_raw_mode(true)?;
+        let result = gen1a::write_block0(self, &data);
+        let reset = self.set_raw_mode(false);
+        match (result, reset) {
+            (Ok(()), Ok(())) => Ok(()),
+            (Err(error), _) => Err(error),
+            (Ok(()), Err(error)) => Err(error),
+        }
     }
 
     pub(crate) fn read_page_quad(&mut self, start_page: u8) -> Result<[u8; PAGE_QUAD_SIZE]> {
@@ -726,6 +752,16 @@ impl Pn532Protocol {
                 }
             }
         }
+    }
+}
+
+impl Gen1aLink for Pn532Protocol {
+    fn transceive_bytes(&mut self, tx: &[u8]) -> Result<Vec<u8>> {
+        Pn532Protocol::transceive_bytes(self, tx)
+    }
+
+    fn transceive_bits(&mut self, tx: &[u8], tx_bits: usize) -> Result<(Vec<u8>, usize)> {
+        Pn532Protocol::transceive_bits(self, tx, tx_bits)
     }
 }
 

@@ -1,6 +1,7 @@
 //! Concrete reader drivers. Only PN532 UART and ACR122U USB/CCID are in scope.
 
 pub mod acr122_usb;
+mod gen1a;
 pub mod pn532_uart;
 mod pn53x;
 

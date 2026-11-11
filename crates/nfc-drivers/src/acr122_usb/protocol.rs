@@ -18,6 +18,7 @@ use nfc_core::{
 use nfc_transport::{ApduResponse, ParityFrame};
 
 use super::ccid::AcrLink;
+use crate::gen1a::{self, Gen1aLink};
 use crate::pn53x::{
     AUTO_ATR_RES_AND_RATS, FirmwareVersion, GET_FIRMWARE_VERSION, IN_COMMUNICATE_THRU,
     IN_DATA_EXCHANGE, IN_LIST_PASSIVE_TARGET, IN_RELEASE, INITIATOR, ISO14443A_106_KBPS,
@@ -43,11 +44,6 @@ const SW_APPLICATION_ERROR: [u8; 2] = [0x63, 0x7F];
 
 const MAX_ACR_FRAME: usize = 250;
 const MAX_ACR_RAW_PAYLOAD: usize = 248;
-
-const GEN1A_UNLOCK_FIRST: u8 = 0x40;
-const GEN1A_UNLOCK_SECOND: u8 = 0x43;
-const MIFARE_HALT: u8 = 0x50;
-const MIFARE_ACK: u8 = 0x0A;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Acr122Config {
@@ -487,16 +483,7 @@ impl Acr122Protocol {
     pub(crate) fn write_manufacturer_block(&mut self, data: [u8; BLOCK_SIZE]) -> Result<()> {
         self.require_ordinary("Gen1A manufacturer write")?;
         let card = self.selected.as_ref().ok_or(NfcError::NoCard)?.clone();
-        if card.uid.len() != 4 || card.card_type != CardType::MifareClassic1K {
-            return Err(NfcError::Unsupported(
-                "Gen1A block 0 writes require a four-byte UID MIFARE Classic 1K card",
-            ));
-        }
-        if data[4] != data[0] ^ data[1] ^ data[2] ^ data[3] {
-            return Err(NfcError::InvalidArgument(
-                "the manufacturer block has an invalid BCC".to_owned(),
-            ));
-        }
+        gen1a::validate(&card, &data)?;
 
         // Reselect the same card before the raw sequence. A card that is still
         // authenticated would encrypt the Gen1A backdoor frames with Crypto1.
@@ -506,7 +493,7 @@ impl Acr122Protocol {
         }
 
         self.set_raw_mode(true)?;
-        let result = self.gen1a_sequence(&data);
+        let result = gen1a::write_block0(self, &data);
         let reset = self.set_raw_mode(false);
         match (result, reset) {
             (Ok(()), Ok(())) => Ok(()),
@@ -776,57 +763,15 @@ impl Acr122Protocol {
         }
         Ok(())
     }
+}
 
-    fn gen1a_sequence(&mut self, data: &[u8; BLOCK_SIZE]) -> Result<()> {
-        let halt = crc_a(&[MIFARE_HALT, 0x00]);
-        match self.transceive_bytes(&halt) {
-            Ok(_) => {}
-            Err(NfcError::Timeout(_) | NfcError::NoCard) => {}
-            Err(error) => return Err(error),
-        }
+impl Gen1aLink for Acr122Protocol {
+    fn transceive_bytes(&mut self, tx: &[u8]) -> Result<Vec<u8>> {
+        Acr122Protocol::transceive_bytes(self, tx)
+    }
 
-        let (response, bits) = self
-            .transceive_bits(&[GEN1A_UNLOCK_FIRST], 7)
-            .map_err(|error| gen1a_error("the card did not answer the 7-bit 0x40 unlock", error))?;
-        if bits != 4 || !is_gen1a_ack(&response) {
-            return Err(NfcError::Unsupported(
-                "the card answered the 7-bit 0x40 Gen1A unlock command with an unexpected frame",
-            ));
-        }
-
-        let response = self
-            .transceive_bytes(&[GEN1A_UNLOCK_SECOND])
-            .map_err(|error| gen1a_error("the card refused the 0x43 unlock command", error))?;
-        if !is_gen1a_ack(&response) {
-            return Err(NfcError::Unsupported(
-                "the card answered the Gen1A 0x43 unlock command with an unexpected frame",
-            ));
-        }
-
-        let mut write_command = vec![MIFARE_WRITE, 0x00];
-        let write_crc = crc_a(&write_command);
-        write_command.extend_from_slice(&write_crc);
-        let response = self.transceive_bytes(&write_command).map_err(|error| {
-            gen1a_error("the card did not acknowledge the block 0 write", error)
-        })?;
-        if !is_gen1a_ack(&response) {
-            return Err(NfcError::Io(
-                "the card answered the Gen1A block 0 write with an unexpected frame".to_owned(),
-            ));
-        }
-
-        let mut payload = Vec::with_capacity(BLOCK_SIZE + 2);
-        payload.extend_from_slice(data);
-        payload.extend_from_slice(&crc_a(data));
-        let response = self
-            .transceive_bytes(&payload)
-            .map_err(|error| gen1a_error("the block 0 data frame was not acknowledged", error))?;
-        if !is_gen1a_ack(&response) {
-            return Err(NfcError::Io(
-                "the block 0 data frame was answered with an unexpected frame".to_owned(),
-            ));
-        }
-        Ok(())
+    fn transceive_bits(&mut self, tx: &[u8], tx_bits: usize) -> Result<(Vec<u8>, usize)> {
+        Acr122Protocol::transceive_bits(self, tx, tx_bits)
     }
 }
 
@@ -853,29 +798,6 @@ fn validate_raw_payload(tx: &[u8], tx_bits: usize, bytes: bool) -> Result<()> {
 
 fn retryable(error: &NfcError) -> bool {
     matches!(error, NfcError::Timeout(_) | NfcError::Io(_))
-}
-
-fn gen1a_error(context: &'static str, error: NfcError) -> NfcError {
-    match error {
-        NfcError::Timeout(_) | NfcError::NoCard | NfcError::AuthenticationFailed => {
-            NfcError::Unsupported(context)
-        }
-        other => other,
-    }
-}
-
-fn is_gen1a_ack(response: &[u8]) -> bool {
-    response.len() == 1 && (response[0] == MIFARE_ACK || response[0] == MIFARE_ACK << 4)
-}
-
-fn crc_a(data: &[u8]) -> [u8; 2] {
-    let mut crc: u16 = 0x6363;
-    for &byte in data {
-        let mut mixed = byte ^ crc as u8;
-        mixed ^= mixed << 4;
-        crc = (crc >> 8) ^ ((mixed as u16) << 8) ^ ((mixed as u16) << 3) ^ ((mixed as u16) >> 4);
-    }
-    [crc as u8, (crc >> 8) as u8]
 }
 
 #[cfg(test)]

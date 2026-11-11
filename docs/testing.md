@@ -125,7 +125,9 @@ card that changes nothing. `nfctl` covers the Advanced and confirmation gates,
 dry run, invalid UID input, and a successful mock write with reselect evidence.
 The GTK scenario covers the Advanced switch, the target dialog, cancel, the
 plan dialog, and the automatic re-read. The hardware UID test is
-environment-gated and has no recorded run yet.
+environment-gated. It passed on 2026-11-11 on PN532 UART with a Gen1A magic
+Classic 1K: UID `FA B9 CF F4` -> `FA B9 CF F5`, reselect and full block-0/BCC
+verification, then restored. The ACR122U service path is not recorded.
 
 The phase 10 Classic NDEF tests are hardware-free. `nfc-classic-ndef` covers
 MAD1/MAD2 and CRC vectors, NFC AIDs, contiguity, GPB mapping version and

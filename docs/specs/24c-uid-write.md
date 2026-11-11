@@ -1,6 +1,6 @@
 # Spec: phase 24c standalone UID / block-0 write
 
-Status: implemented 2026-11-11, hardware row pending. Plan:
+Status: implemented 2026-11-11; PN532 UART hardware row validated. Plan:
 [24-parity-recovery.md](../plan/24-parity-recovery.md). Slice: S3a.
 
 ## Problem
@@ -19,8 +19,9 @@ Supported:
 - Four-byte UID MIFARE Classic 1K cards only.
 - Ordinary CUID / Gen2 block-0 writes where sector 0 access conditions permit a
   data write and the card accepts one.
-- ACR122U Gen1A protected block-0 writes through the existing
-  `ManufacturerWriter` driver capability.
+- Gen1A protected block-0 writes through `ManufacturerWriter` on both
+  ACR122U and PN532 UART. Both drivers share one reader-neutral unlock and
+  write sequence.
 - The full block 0 is preserved except bytes 0..4 (UID) and byte 4 (BCC), so
   SAK, ATQA, and manufacturer bytes survive the change.
 
@@ -28,8 +29,6 @@ Not in this slice:
 
 - Seven- and ten-byte UIDs, Classic 4K, and cascade BCC layouts.
 - Full clone, factory format, and restore-with-UID (S3b).
-- A PN532 `ManufacturerWriter`. PN532 has no Gen1A backend and is not advertised
-  for one. The ordinary CUID/Gen2 path is reader-independent.
 - External `nfc-mfsetuid` or any other process.
 
 ## Preflight
@@ -130,7 +129,8 @@ also invalidates the image; the user must read the card again.
   success check.
 - An ordinary immutable-UID card rejects both backends without changing any
   block; the service reports the refusal and never claims a UID change.
-- No PN532 Gen1A claim and no external process.
+- No external process. PN532 Gen1A is advertised only because this slice
+  implemented and hardware-validated it on the owned magic card.
 
 ## Tests
 
@@ -145,10 +145,12 @@ also invalidates the image; the user must read the card again.
   successful write, and image invalidation.
 - Environment-gated hardware test for an owned magic Classic 1K: change the
   UID, reselect, verify block 0 and BCC, then restore the original UID.
+  Recorded on 2026-11-11 on PN532 UART with UID `FA B9 CF F4` ->
+  `FA B9 CF F5` and restored.
 - `nfctl` parsing and confirmation unit tests.
 
 ## Required checks
 
 `cargo fmt --all --check`, workspace clippy with `-D warnings`, workspace tests,
-gated GTK tests for changed screens, and `reuse lint`. The hardware row stays
-`not recorded` until the gated run is performed on the owned magic card.
+gated GTK tests for changed screens, and `reuse lint`. The PN532 UART hardware
+row is validated; the ACR122U service path remains `not recorded`.

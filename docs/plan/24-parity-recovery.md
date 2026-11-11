@@ -109,8 +109,8 @@ Acceptance:
 ### S3a: standalone UID / block-0 write
 
 Spec: [24c-uid-write.md](../specs/24c-uid-write.md). Status: complete
-2026-11-11. See [24c-uid-write.md](../notes/24c-uid-write.md). Hardware row is
-pending.
+2026-11-11. See [24c-uid-write.md](../notes/24c-uid-write.md). Hardware
+validated on PN532 UART; the ACR122U service path is not recorded.
 
 Goal: a guarded, read-back-verified UID write for supported magic cards only.
 
@@ -118,16 +118,16 @@ Deliver:
 
 - `nfc-app` UID service with preflight, block-0 backup, write, reselect, and
   full block-0/BCC verification.
-- Standard CUID/Gen2 block-0 write where the card accepts it, with ACR122U
-  Gen1A as the first protected-writer backend.
+- Standard CUID/Gen2 block-0 write where the card accepts it, with the Gen1A
+  protected writer first on both ACR122U and PN532 UART.
 - 4-byte UID MIFARE Classic 1K only. The service verifies sector 0 access
   conditions, the current block-0 UID/BCC, and the target UID's BCC.
 - Destructive plan confirmation, explicit Advanced-mode requirement, and a
   pre-write backup record containing the old and new block 0.
 - `nfctl classic uid` and the GTK dialog use the same service.
-- PN532 Gen1A is not advertised by this slice unless a native PN532
-  `ManufacturerWriter` is implemented and hardware-validated in the same
-  change. External `nfc-mfsetuid` remains prohibited.
+- PN532 Gen1A is implemented as a native `ManufacturerWriter` and
+  hardware-validated in this slice; the reader-neutral sequence is shared with
+  the ACR122U driver. External `nfc-mfsetuid` remains prohibited.
 
 Acceptance:
 
@@ -135,7 +135,8 @@ Acceptance:
   bits, write-response uncertainty, card disappearance after write, and
   cancellation.
 - A hardware run on an owned magic card changes the UID, reselects, and
-  verifies the complete block 0 and BCC.
+  verifies the complete block 0 and BCC. Recorded on 2026-11-11 on PN532 UART
+  with a Gen1A Classic 1K, UID `FA B9 CF F4` -> `FA B9 CF F5` and restored.
 - An ordinary immutable-UID card fails safely before any write.
 
 ### S3b: restore with UID

@@ -223,8 +223,9 @@ layer owns file paths, sidecars, and backup policy.
   `CardChanged` before the backup. Block 0 is rejected by this path.
 - A standalone UID write requires Advanced mode, a four-byte UID Classic 1K,
   and a one-shot preflight bound to the four sector-0 blocks and the card
-  identity. It backs up sector 0, orders the Gen1A protected writer before an
-  ordinary CUID/Gen2 block-0 write, reselects after every attempt, and verifies
+  identity. It backs up sector 0, orders the Gen1A protected writer (ACR122U
+  and PN532 UART share one reader-neutral sequence) before an ordinary
+  CUID/Gen2 block-0 write, reselects after every attempt, and verifies
   the complete manufacturer block, BCC, and unchanged sector trailer. An
   ordinary immutable card refuses the write without changing data. Restore and
   the ordinary block path still reject block 0.
