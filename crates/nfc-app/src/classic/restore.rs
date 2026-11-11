@@ -12,6 +12,9 @@ use super::plan::{
     unix_now, validate_source,
 };
 use super::read::{candidate_keys, layout_for_card, read_dump};
+use super::uid::{
+    self, ClassicUidExecution, ClassicUidPlan, UID_LEN, UidBackupRecord, UidWriteBackend,
+};
 use super::workbench::dump_fingerprint;
 use super::write::{AllowedTypes, backup_label, check_expected_card};
 
@@ -143,6 +146,54 @@ pub struct ClassicRestoreResult {
     pub failures: Vec<String>,
     /// One entry per block in the target layout, in block order.
     pub blocks: Vec<RestoreBlockResult>,
+    /// UID phase of a restore-with-UID plan. `None` when no UID target was
+    /// requested.
+    pub uid: Option<RestoreUidResult>,
+}
+
+/// Final state of the UID phase of a restore.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RestoreUidState {
+    /// The target UID was written, reselected, and fully verified.
+    Applied,
+    /// The target UID already matched block 0; no UID write was needed.
+    Unchanged,
+    /// The UID phase ran and left the card unchanged.
+    Failed,
+    /// The UID phase ran but the card state could not be verified.
+    Uncertain,
+    /// The UID phase did not run because the restore or its verification
+    /// failed.
+    NotAttempted,
+}
+
+impl RestoreUidState {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Applied => "applied",
+            Self::Unchanged => "unchanged",
+            Self::Failed => "failed",
+            Self::Uncertain => "uncertain",
+            Self::NotAttempted => "not attempted",
+        }
+    }
+}
+
+/// UID phase of a restore-with-UID plan.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct RestoreUidResult {
+    pub state: RestoreUidState,
+    pub target_uid: [u8; UID_LEN],
+    pub old_block0: [u8; BLOCK_SIZE],
+    pub new_block0: [u8; BLOCK_SIZE],
+    pub card_before: CardInfo,
+    pub card_after: Option<CardInfo>,
+    pub backend: Option<UidWriteBackend>,
+    pub backup: Option<UidBackupRecord>,
+    /// Failure or skip reason. This is the only success-independent detail.
+    pub detail: Option<String>,
+    pub warnings: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -224,12 +275,18 @@ pub fn restore(
 pub(crate) fn restore_with_plan(
     operation: &mut Operation<'_>,
     request: ClassicRestore<'_>,
+    advanced: bool,
     plan: &ClassicWritePlan,
 ) -> Result<ClassicRestoreResult> {
     request.cancel.check()?;
     if !request.confirmed {
         return Err(NfcError::InvalidArgument(
             "restore requires explicit confirmation".to_owned(),
+        ));
+    }
+    if plan.uid.is_some() && !advanced {
+        return Err(NfcError::InvalidArgument(
+            "restore with UID requires Advanced mode".to_owned(),
         ));
     }
     if plan.expires_at <= unix_now() {
@@ -245,7 +302,104 @@ pub(crate) fn restore_with_plan(
     }
     let prepared = prepare(operation, &PrepareRequest::from_restore(&request))?;
     verify_plan(plan, &prepared)?;
-    execute(operation, &request, prepared)
+    let uid_plan = plan.uid.clone();
+    let mut result = if uid_plan.is_some() {
+        execute_collect(operation, &request, prepared)?
+    } else {
+        execute(operation, &request, prepared)?
+    };
+    if let Some(uid_plan) = uid_plan {
+        result.uid = Some(run_uid_phase(
+            operation, &request, &result, &uid_plan, advanced,
+        ));
+    }
+    Ok(result)
+}
+
+/// Runs the UID phase only after the dump restore has no failures and the
+/// restored sector 0 matches the plan. The UID result never turns a failed
+/// restore into a success.
+fn run_uid_phase(
+    operation: &mut Operation<'_>,
+    request: &ClassicRestore<'_>,
+    restore: &ClassicRestoreResult,
+    plan: &ClassicUidPlan,
+    advanced: bool,
+) -> RestoreUidResult {
+    let mut result = RestoreUidResult {
+        state: RestoreUidState::NotAttempted,
+        target_uid: plan.target_uid,
+        old_block0: plan.old_block0,
+        new_block0: plan.new_block0,
+        card_before: plan.card.clone(),
+        card_after: None,
+        backend: None,
+        backup: None,
+        detail: None,
+        warnings: plan.warnings.clone(),
+    };
+    if !restore.failures.is_empty() {
+        result.detail = Some(format!(
+            "the dump restore finished with {} failure(s); the UID was not written",
+            restore.failures.len()
+        ));
+        return result;
+    }
+    if let Err(error) = uid::verify_restored_sector_zero(operation, plan) {
+        result.detail = Some(format!(
+            "the restored sector 0 could not be verified ({error}); the UID was not written"
+        ));
+        return result;
+    }
+    let uid_request = ClassicUidExecution::new(plan.token, request.keys, request.backup)
+        .include_common_keys(request.include_common_keys)
+        .advanced(advanced)
+        .confirmed(true)
+        .expected_sector0_key(plan.sector0_key)
+        .cancel(request.cancel.clone());
+    match uid::execute(operation, uid_request, plan) {
+        Ok(uid) => {
+            result.state = if uid.changed {
+                RestoreUidState::Applied
+            } else {
+                RestoreUidState::Unchanged
+            };
+            result.backend = uid.backend;
+            result.card_after = Some(uid.card_after);
+            result.backup = uid.backup;
+            result.warnings.extend(uid.warnings);
+        }
+        Err(error) => {
+            result.detail = Some(error.to_string());
+            match &error {
+                NfcError::CardChanged
+                | NfcError::Cancelled
+                | NfcError::InvalidArgument(_)
+                | NfcError::Unsupported(_) => {}
+                _ => match uid::verify_after_attempt(operation, plan) {
+                    Ok(uid::VerifyOutcome::Applied(card)) => {
+                        result.state = RestoreUidState::Applied;
+                        result.card_after = Some(card);
+                        result.warnings.push(
+                            "the UID write error followed a complete read-back that confirms block 0"
+                                .to_owned(),
+                        );
+                    }
+                    Ok(uid::VerifyOutcome::Unchanged) => {
+                        result.state = RestoreUidState::Failed;
+                    }
+                    Ok(uid::VerifyOutcome::Different(card)) => {
+                        result.state = RestoreUidState::Uncertain;
+                        result.card_after = Some(card);
+                    }
+                    Err(_) => {
+                        result.state = RestoreUidState::Uncertain;
+                    }
+                },
+            }
+        }
+    }
+    result
 }
 
 /// Reads the card and produces a write plan without mutating it.
@@ -255,9 +409,42 @@ pub(crate) fn preflight(
     token: WriteToken,
 ) -> Result<ClassicWritePlan> {
     request.cancel.check()?;
+    if request.uid_target.is_some() {
+        if !request.advanced {
+            return Err(NfcError::InvalidArgument(
+                "restore with UID requires Advanced mode".to_owned(),
+            ));
+        }
+        if !matches!(request.selection, RestoreSelection::All) {
+            return Err(NfcError::InvalidArgument(
+                "a UID target requires a full restore".to_owned(),
+            ));
+        }
+    }
     let prepare_request = PrepareRequest::from_preflight(request);
     let prepared = prepare(operation, &prepare_request)?;
-    plan_from_prepared(operation.card(), &prepare_request, &prepared, token)
+    if request.uid_target.is_some()
+        && let Some(message) = &prepared.blocked[0]
+    {
+        return Err(NfcError::InvalidArgument(format!(
+            "the restore cannot write sector 0 ({message}); the UID was not planned"
+        )));
+    }
+    let uid = request
+        .uid_target
+        .map(|target| {
+            uid::plan_for_restore(
+                operation,
+                &prepared.backup,
+                &request.dump,
+                target,
+                token,
+                request.keys,
+                request.include_common_keys,
+            )
+        })
+        .transpose()?;
+    plan_from_prepared(operation.card(), &prepare_request, &prepared, token, uid)
 }
 
 fn prepare(operation: &mut Operation<'_>, request: &PrepareRequest<'_>) -> Result<PreparedRestore> {
@@ -349,12 +536,17 @@ fn prepare(operation: &mut Operation<'_>, request: &PrepareRequest<'_>) -> Resul
         let sector = layout
             .sector_for_block(number)
             .expect("block is within the layout");
+        let is_trailer = layout
+            .is_trailer(number)
+            .expect("block is within the layout");
+        let mut data = source.data;
+        if is_trailer {
+            hydrate_trailer_keys(&mut data, request.dump, &backup, sector);
+        }
         pending[sector].push(PendingBlock {
             number,
-            data: source.data,
-            is_trailer: layout
-                .is_trailer(number)
-                .expect("block is within the layout"),
+            data,
+            is_trailer,
         });
     }
 
@@ -483,6 +675,37 @@ fn blocks_equal(left: &nfc_classic::Block, right: &nfc_classic::Block) -> bool {
     left.known_mask == right.known_mask && left.data == right.data
 }
 
+/// Fills masked trailer key slots from the keys that authenticated the source
+/// and live sectors. A trailer read masks Key A and can mask Key B, so a dump
+/// alone cannot carry those bytes. The source metadata is authoritative for
+/// the key that is being restored; the live metadata is the fallback.
+fn hydrate_trailer_keys(data: &mut [u8; BLOCK_SIZE], source: &Dump, live: &Dump, sector: usize) {
+    let masked_key = |key_type: KeyType| {
+        source
+            .metadata
+            .keys
+            .iter()
+            .find(|key| key.sector == sector && key.key_type == key_type)
+            .or_else(|| {
+                live.metadata
+                    .keys
+                    .iter()
+                    .find(|key| key.sector == sector && key.key_type == key_type)
+            })
+            .map(|key| *key.key.as_bytes())
+    };
+    if data[..6].iter().all(|byte| *byte == 0)
+        && let Some(key_a) = masked_key(KeyType::A)
+    {
+        data[..6].copy_from_slice(&key_a);
+    }
+    if data[10..].iter().all(|byte| *byte == 0)
+        && let Some(key_b) = masked_key(KeyType::B)
+    {
+        data[10..].copy_from_slice(&key_b);
+    }
+}
+
 fn write_key_mask(access: &AccessBits, layout: Layout, block: &PendingBlock) -> KeyMask {
     if block.is_trailer {
         access.groups[3].full_trailer_write_keys()
@@ -499,6 +722,7 @@ fn plan_from_prepared(
     request: &PrepareRequest<'_>,
     prepared: &PreparedRestore,
     token: WriteToken,
+    uid: Option<ClassicUidPlan>,
 ) -> Result<ClassicWritePlan> {
     let mut blocks = Vec::new();
     for sector in 0..prepared.pending.len() {
@@ -530,6 +754,7 @@ fn plan_from_prepared(
         source_fingerprint: dump_fingerprint(request.dump),
         card_fingerprint: dump_fingerprint(&prepared.backup),
         continue_on_failure: request.continue_on_failure,
+        uid,
     })
 }
 
@@ -565,7 +790,27 @@ fn verify_plan(plan: &ClassicWritePlan, prepared: &PreparedRestore) -> Result<()
 fn execute(
     operation: &mut Operation<'_>,
     request: &ClassicRestore<'_>,
+    prepared: PreparedRestore,
+) -> Result<ClassicRestoreResult> {
+    execute_inner(operation, request, prepared, false)
+}
+
+/// Executes a restore and reports a fatal write error in the result instead
+/// of discarding the blocks that were already committed. The restore-with-UID
+/// path needs that partial state before it decides whether to touch block 0.
+fn execute_collect(
+    operation: &mut Operation<'_>,
+    request: &ClassicRestore<'_>,
+    prepared: PreparedRestore,
+) -> Result<ClassicRestoreResult> {
+    execute_inner(operation, request, prepared, true)
+}
+
+fn execute_inner(
+    operation: &mut Operation<'_>,
+    request: &ClassicRestore<'_>,
     mut prepared: PreparedRestore,
+    collect_fatal: bool,
 ) -> Result<ClassicRestoreResult> {
     let layout = prepared.backup.layout;
     let pending_blocks: usize = prepared.pending.iter().map(Vec::len).sum();
@@ -619,88 +864,111 @@ fn execute(
     let mut trailer_writes = 0;
     let mut failures = Vec::new();
 
-    for (sector, sector_pending) in prepared.pending.iter().enumerate() {
-        if sector_pending.is_empty() {
-            continue;
-        }
-        if let Some(message) = &prepared.blocked[sector] {
-            failures.push(message.clone());
-            mark_failed(&mut prepared.outcomes, sector_pending, message);
-            continue;
-        }
-        let allowed = prepared.allowed[sector];
-        let candidates: Vec<(KeyType, Key)> = candidate_keys(
-            request.keys,
-            operation.card(),
-            request.include_common_keys,
-            sector,
-        )
-        .into_iter()
-        .filter(|(key_type, _, _)| allowed.allows(*key_type))
-        .map(|(key_type, key, _)| (key_type, key))
-        .collect();
-        let first = layout
-            .first_block(sector)
-            .expect("sector is within the layout");
-        let mut authenticated = false;
-        for (key_type, key) in candidates {
-            request.cancel.check()?;
-            match operation.authenticate(first as u8, key_type, key) {
-                Ok(()) => {
-                    authenticated = true;
-                    break;
-                }
-                Err(NfcError::AuthenticationFailed) => continue,
-                Err(error) => return Err(error),
-            }
-        }
-        if !authenticated {
-            let message = format!("sector {sector}: no candidate key was accepted");
-            if request.continue_on_failure {
-                failures.push(message.clone());
-                mark_failed(&mut prepared.outcomes, sector_pending, &message);
+    let run = (|| -> Result<()> {
+        for (sector, sector_pending) in prepared.pending.iter().enumerate() {
+            if sector_pending.is_empty() {
                 continue;
             }
-            return Err(NfcError::AuthenticationFailed);
-        }
-
-        for block in sector_pending.iter() {
-            request.cancel.check()?;
-            match operation.write_block_verified(block.number as u8, block.data) {
-                Ok(()) => {
-                    written_blocks += 1;
-                    if block.is_trailer {
-                        trailer_writes += 1;
+            if let Some(message) = &prepared.blocked[sector] {
+                failures.push(message.clone());
+                mark_failed(&mut prepared.outcomes, sector_pending, message);
+                continue;
+            }
+            let allowed = prepared.allowed[sector];
+            let candidates: Vec<(KeyType, Key)> = candidate_keys(
+                request.keys,
+                operation.card(),
+                request.include_common_keys,
+                sector,
+            )
+            .into_iter()
+            .filter(|(key_type, _, _)| allowed.allows(*key_type))
+            .map(|(key_type, key, _)| (key_type, key))
+            .collect();
+            let first = layout
+                .first_block(sector)
+                .expect("sector is within the layout");
+            let mut authenticated = None;
+            for (key_type, key) in candidates {
+                request.cancel.check()?;
+                match operation.authenticate(first as u8, key_type, key) {
+                    Ok(()) => {
+                        authenticated = Some((key_type, key));
+                        break;
                     }
-                    prepared.outcomes[block.number] = Some(RestoreBlockResult {
-                        block: block.number,
-                        state: RestoreBlockState::Written,
-                        detail: None,
-                    });
-                }
-                Err(error) if is_fatal_write_error(&error) => return Err(error),
-                Err(error) => {
-                    let message = format!("block {}: {error}", block.number);
-                    if request.continue_on_failure {
-                        failures.push(message.clone());
-                        prepared.outcomes[block.number] = Some(RestoreBlockResult {
-                            block: block.number,
-                            state: RestoreBlockState::Failed,
-                            detail: Some(message),
-                        });
-                        continue;
-                    }
-                    return Err(NfcError::VerificationFailed(message));
+                    Err(NfcError::AuthenticationFailed) => continue,
+                    Err(error) => return Err(error),
                 }
             }
+            let Some(authenticated) = authenticated else {
+                let message = format!("sector {sector}: no candidate key was accepted");
+                if request.continue_on_failure {
+                    failures.push(message.clone());
+                    mark_failed(&mut prepared.outcomes, sector_pending, &message);
+                    continue;
+                }
+                return Err(NfcError::AuthenticationFailed);
+            };
+            let access = prepared.backup.access_bits(sector)?;
+
+            for block in sector_pending.iter() {
+                request.cancel.check()?;
+                let written = if block.is_trailer {
+                    operation.write_trailer_verified(
+                        block.number as u8,
+                        block.data,
+                        authenticated,
+                        access,
+                    )
+                } else {
+                    operation.write_block_verified(block.number as u8, block.data)
+                };
+                match written {
+                    Ok(()) => {
+                        written_blocks += 1;
+                        if block.is_trailer {
+                            trailer_writes += 1;
+                        }
+                        prepared.outcomes[block.number] = Some(RestoreBlockResult {
+                            block: block.number,
+                            state: RestoreBlockState::Written,
+                            detail: None,
+                        });
+                    }
+                    Err(error) if is_fatal_write_error(&error) => return Err(error),
+                    Err(error) => {
+                        let message = format!("block {}: {error}", block.number);
+                        if request.continue_on_failure {
+                            failures.push(message.clone());
+                            prepared.outcomes[block.number] = Some(RestoreBlockResult {
+                                block: block.number,
+                                state: RestoreBlockState::Failed,
+                                detail: Some(message),
+                            });
+                            continue;
+                        }
+                        return Err(NfcError::VerificationFailed(message));
+                    }
+                }
+            }
+            operation.check_card()?;
         }
-        operation.check_card()?;
-    }
+        Ok(())
+    })();
 
     let mut warnings = prepared.warnings.clone();
+    match run {
+        Ok(()) => {}
+        Err(error) if collect_fatal => {
+            failures.push(error.to_string());
+            warnings
+                .push("the restore stopped before every planned block was attempted".to_owned());
+        }
+        Err(error) => return Err(error),
+    }
     if !failures.is_empty() {
         warnings.push(format!(
-            "restore continued after {} failure(s)",
+            "restore finished with {} failure(s)",
             failures.len()
         ));
     }
@@ -740,6 +1008,7 @@ fn result_from(
         warnings,
         failures,
         blocks: finish_outcomes(outcomes),
+        uid: None,
     }
 }
 

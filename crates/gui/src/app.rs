@@ -17,8 +17,8 @@ use nfc_app::classic::{
     ClassicNdefFormat, ClassicNdefFormatResult, ClassicNdefWrite, ClassicNdefWriteResult,
     ClassicRestoreResult, ClassicUidExecution, ClassicUidPlan, ClassicUidPreflight,
     ClassicWriteExecution, ClassicWritePlan, ClassicWritePreflight, KeyEntry, KeyKind, KeySource,
-    KeyStore, KeyTypes, KeyscanProgress, KeyscanSink, RestoreSelection, WorkbenchSnapshot,
-    format_uid, parse_block_list, parse_uid,
+    KeyStore, KeyTypes, KeyscanProgress, KeyscanSink, RestoreSelection, RestoreUidState,
+    WorkbenchSnapshot, format_uid, parse_block_list, parse_uid,
 };
 use nfc_app::type2::{
     Type2Format, Type2Lock, Type2LockResult, Type2MutationResult, Type2NdefWrite, Type2PageResult,
@@ -565,6 +565,8 @@ struct RestoreView {
     mode: gtk::DropDown,
     blocks: gtk::Entry,
     continue_on_error: gtk::CheckButton,
+    uid: gtk::Entry,
+    uid_advanced: gtk::Switch,
     restore: gtk::Button,
     rows: gio::ListStore,
     result: gtk::Label,
@@ -575,6 +577,7 @@ struct PendingPlan {
     plan: ClassicWritePlan,
     source: Dump,
     restore_path: Option<PathBuf>,
+    advanced: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1881,13 +1884,33 @@ fn build_restore_view() -> RestoreView {
     selection_row.append(&blocks);
     let continue_on_error = gtk::CheckButton::with_label("Continue after a failed block");
     continue_on_error.set_active(false);
+    let uid_label = gtk::Label::new(Some("Target UID after restore (optional)"));
+    uid_label.set_xalign(0.0);
+    uid_label.set_hexpand(true);
+    uid_label.add_css_class("caption");
+    let uid_advanced_label = gtk::Label::new(Some("Advanced mode"));
+    uid_advanced_label.set_xalign(0.0);
+    uid_advanced_label.add_css_class("caption");
+    let uid_advanced = gtk::Switch::new();
+    uid_advanced.set_valign(gtk::Align::Center);
+    let uid = gtk::Entry::new();
+    uid.set_placeholder_text(Some("Target UID, e.g. DEADBEEF"));
+    uid.add_css_class("mono");
+    uid.set_hexpand(true);
+    let uid_row = gtk::Box::new(Orientation::Horizontal, 8);
+    uid_row.append(&uid);
+    let advanced_row = gtk::Box::new(Orientation::Horizontal, 8);
+    advanced_row.append(&uid_label);
+    advanced_row.append(&uid_advanced_label);
+    advanced_row.append(&uid_advanced);
     let restore = gtk::Button::with_label("Restore to card");
     restore.add_css_class("destructive-action");
     restore.set_sensitive(false);
     let note = gtk::Label::new(Some(
         "Restore backs up the current card first, writes data blocks before sector trailers, \
-         and reads every block back. Block 0 is never written. A card with a different identity \
-         from the image is refused before the backup.",
+         and reads every block back. Block 0 is written only when a target UID is supplied, \
+         after the restore is verified. A card with a different identity from the image is \
+         refused before the backup.",
     ));
     note.set_xalign(0.0);
     note.set_wrap(true);
@@ -1925,6 +1948,8 @@ fn build_restore_view() -> RestoreView {
     root.append(&summary);
     root.append(&selection_row);
     root.append(&continue_on_error);
+    root.append(&uid_row);
+    root.append(&advanced_row);
     root.append(&restore);
     root.append(&note);
     root.append(&result);
@@ -1938,6 +1963,8 @@ fn build_restore_view() -> RestoreView {
         mode,
         blocks,
         continue_on_error,
+        uid,
+        uid_advanced,
         restore,
         rows,
         result,
@@ -4138,15 +4165,20 @@ fn confirm_workbench_write(ui: Rc<Ui>) {
         RestoreSelection::ChangesOnly,
         None,
         ui.restore_view.continue_on_error.is_active(),
+        None,
+        false,
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 fn start_preflight(
     ui: &Rc<Ui>,
     source: Dump,
     selection: RestoreSelection,
     restore_path: Option<PathBuf>,
     continue_on_failure: bool,
+    uid_target: Option<[u8; 4]>,
+    advanced: bool,
 ) {
     set_busy(ui, true);
     ui.status.set_localized("Building the write plan…");
@@ -4163,7 +4195,11 @@ fn start_preflight(
                 let mut request = ClassicWritePreflight::new(request_source, &keys)
                     .include_common_keys(include_common_keys)
                     .selection(selection)
-                    .continue_on_failure(continue_on_failure);
+                    .continue_on_failure(continue_on_failure)
+                    .advanced(advanced);
+                if let Some(uid) = uid_target {
+                    request = request.uid_target(uid);
+                }
                 if let Some(card) = expected_card {
                     request = request.expected_card(card);
                 }
@@ -4180,11 +4216,12 @@ fn start_preflight(
     let ui = ui.clone();
     glib::spawn_future_local(async move {
         match receiver.recv().await {
-            Ok(result) => finish_preflight(&ui, source, restore_path, result),
+            Ok(result) => finish_preflight(&ui, source, restore_path, advanced, result),
             Err(_) => finish_preflight(
                 &ui,
                 source,
                 restore_path,
+                advanced,
                 Err(NfcError::Io("reader worker stopped".to_owned())),
             ),
         }
@@ -4195,12 +4232,14 @@ fn finish_preflight(
     ui: &Rc<Ui>,
     source: Dump,
     restore_path: Option<PathBuf>,
+    advanced: bool,
     result: NfcResult<ClassicWritePlan>,
 ) {
     set_busy(ui, false);
     match result {
         Ok(plan) => {
-            if plan.blocks.is_empty() {
+            let uid_changes = plan.uid.as_ref().is_some_and(|uid| uid.changed);
+            if plan.blocks.is_empty() && !uid_changes {
                 ui.status.set_localized("No writes planned");
                 toast_info(ui, "The card already matches the selected blocks");
                 return;
@@ -4208,10 +4247,14 @@ fn finish_preflight(
             append_log(
                 ui,
                 &format!(
-                    "plan · {} · {} block(s), {} trailer(s)",
+                    "plan · {} · {} block(s), {} trailer(s){}",
                     plan.selection.label(),
                     plan.blocks.len(),
-                    plan.trailer_writes()
+                    plan.trailer_writes(),
+                    plan.uid
+                        .as_ref()
+                        .map(|uid| format!(" · UID {}", format_uid(&uid.target_uid)))
+                        .unwrap_or_default()
                 ),
             );
             show_plan_dialog(
@@ -4220,6 +4263,7 @@ fn finish_preflight(
                     plan,
                     source,
                     restore_path,
+                    advanced,
                 },
             );
         }
@@ -4242,7 +4286,29 @@ fn plan_body(plan: &ClassicWritePlan) -> String {
         plan.skipped_unknown_blocks,
         plan.expires_at
     );
-    body.push_str("\nA project backup is written before the write, and every block is read back. Block 0 is never written.\n");
+    body.push_str(
+        "\nA project backup is written before the write, and every block is read back.\n",
+    );
+    if plan.uid.is_none() {
+        body.push_str("Block 0 is never written.\n");
+    }
+    if let Some(uid) = &plan.uid {
+        let backends = uid
+            .backends
+            .iter()
+            .map(|backend| backend.label())
+            .collect::<Vec<_>>()
+            .join(", ");
+        body.push_str(&format!(
+            "\nUID target {} · current UID {}\nPost-restore key {} · write with {} · backends: {backends}\nOld block 0 {}\nNew block 0 {}\nThe UID is written only after the restore and sector 0 are verified.\n",
+            format_uid(&uid.target_uid),
+            format_uid(&uid.current_uid),
+            uid.sector0_key.0.label(),
+            uid.write_keys.label(),
+            classic::hex_with_mask(&uid.old_block0, u16::MAX),
+            classic::hex_with_mask(&uid.new_block0, u16::MAX),
+        ));
+    }
     for block in plan.blocks.iter().take(12) {
         body.push_str(&format!(
             "\nBlock {:03} · sector {:02} · {} · {}",
@@ -4268,12 +4334,21 @@ fn plan_body(plan: &ClassicWritePlan) -> String {
 
 fn show_plan_dialog(ui: &Rc<Ui>, pending: PendingPlan) {
     let restore = pending.restore_path.is_some();
-    let heading = if restore {
+    let uid = pending.plan.uid.is_some();
+    let heading = if uid {
+        "Restore the plan and write the target UID?"
+    } else if restore {
         "Restore the plan to the live card?"
     } else {
         "Write the edited blocks?"
     };
-    let action = if restore { "Restore" } else { "Write changes" };
+    let action = if uid {
+        "Restore and write UID"
+    } else if restore {
+        "Restore"
+    } else {
+        "Write changes"
+    };
     let dialog = adw::AlertDialog::builder()
         .heading(heading)
         .body(plan_body(&pending.plan))
@@ -4306,6 +4381,7 @@ fn start_plan_execution(ui: &Rc<Ui>, pending: PendingPlan) {
     let backup = ui.backup.borrow().clone();
     let token = pending.plan.token;
     let restore_path = pending.restore_path.clone();
+    let advanced = pending.advanced;
     let source = if restore_path.is_none() {
         ui.dump
             .borrow()
@@ -4321,6 +4397,7 @@ fn start_plan_execution(ui: &Rc<Ui>, pending: PendingPlan) {
             Ok(mut service) => service.classic_write_execute(
                 ClassicWriteExecution::new(token, source, &keys, &backup)
                     .include_common_keys(include_common_keys)
+                    .advanced(advanced)
                     .confirmed(true),
             ),
             Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
@@ -4624,6 +4701,8 @@ fn invalidate_live_image(ui: &Rc<Ui>) {
     ui.selection.set_selected(gtk::INVALID_LIST_POSITION);
     ui.inspector.uid.set_text("");
     ui.inspector.uid_advanced.set_active(false);
+    ui.restore_view.uid.set_text("");
+    ui.restore_view.uid_advanced.set_active(false);
     render_ndef(ui, None, None);
     update_card(ui);
     update_inspector(ui);
@@ -5074,6 +5153,8 @@ fn reset_advanced(ui: &Ui) {
         .set_localized("No restore image loaded");
     ui.inspector.uid_advanced.set_active(false);
     ui.inspector.uid.set_text("");
+    ui.restore_view.uid_advanced.set_active(false);
+    ui.restore_view.uid.set_text("");
     if let Some(dialog) = ui.pending_uid_dialog.borrow_mut().take() {
         dialog.force_close();
     }
@@ -6992,13 +7073,14 @@ fn load_restore_dump(ui: &Rc<Ui>) {
 }
 
 fn update_restore_sensitivity(ui: &Ui) {
-    ui.restore_view
-        .restore
-        .set_sensitive(classic::restore_ready(
-            ui.live.get(),
-            ui.busy.get(),
-            ui.restore_load.borrow().is_some(),
-        ));
+    let ready = classic::restore_ready(
+        ui.live.get(),
+        ui.busy.get(),
+        ui.restore_load.borrow().is_some(),
+    );
+    ui.restore_view.restore.set_sensitive(ready);
+    ui.restore_view.uid.set_sensitive(!ui.busy.get());
+    ui.restore_view.uid_advanced.set_sensitive(!ui.busy.get());
 }
 
 fn confirm_restore(ui: &Rc<Ui>) {
@@ -7022,12 +7104,39 @@ fn confirm_restore(ui: &Rc<Ui>) {
         },
         _ => RestoreSelection::All,
     };
+    let uid_text = ui.restore_view.uid.text();
+    let target = if uid_text.trim().is_empty() {
+        None
+    } else {
+        match parse_uid(uid_text.as_str()) {
+            Ok(uid) => Some(uid),
+            Err(error) => {
+                toast_error(ui, &error.to_string());
+                return;
+            }
+        }
+    };
+    if target.is_some() {
+        if !ui.restore_view.uid_advanced.is_active() {
+            toast_error(ui, "Enable Advanced mode to write a target UID");
+            return;
+        }
+        if !matches!(selection, RestoreSelection::All) {
+            toast_error(
+                ui,
+                "A UID target needs a full restore; remove the block selection or changes-only mode.",
+            );
+            return;
+        }
+    }
     start_preflight(
         ui,
         load.dump,
         selection,
         Some(path),
         ui.restore_view.continue_on_error.is_active(),
+        target,
+        ui.restore_view.uid_advanced.is_active(),
     );
 }
 
@@ -7058,6 +7167,40 @@ fn finish_restore(ui: &Rc<Ui>, path: PathBuf, result: NfcResult<ClassicRestoreRe
                 text.push_str(failure);
                 append_log(ui, &format!("failure · {failure}"));
             }
+            if let Some(uid) = &result.uid {
+                for warning in &uid.warnings {
+                    append_log(ui, &format!("warning · {warning}"));
+                }
+                match uid.state {
+                    RestoreUidState::Applied => {
+                        let backend = uid
+                            .backend
+                            .map(|backend| backend.label())
+                            .unwrap_or("unknown");
+                        let target = format_uid(&uid.target_uid);
+                        text.push_str(&format!(
+                            "\nUID changed to {target} · {backend} · block 0 and BCC verified"
+                        ));
+                        append_log(ui, &format!("restore uid · target {target} · {backend}"));
+                    }
+                    RestoreUidState::Unchanged => {
+                        text.push_str(&format!(
+                            "\nUID {} already matches block 0; no UID write was needed",
+                            format_uid(&uid.target_uid)
+                        ));
+                    }
+                    RestoreUidState::Failed
+                    | RestoreUidState::Uncertain
+                    | RestoreUidState::NotAttempted => {
+                        let detail = uid.detail.as_deref().unwrap_or("no detail");
+                        text.push_str(&format!("\nUID phase {}: {detail}", uid.state.label()));
+                        append_log(ui, &format!("uid {} · {detail}", uid.state.label()));
+                    }
+                }
+                if let Some(record) = &uid.backup {
+                    text.push_str(&format!("\nUID backup: {}", record.backup.path.display()));
+                }
+            }
             ui.restore_view.rows.remove_all();
             for row in restore_rows(&result) {
                 ui.restore_view.rows.append(&glib::BoxedAnyObject::new(row));
@@ -7073,10 +7216,35 @@ fn finish_restore(ui: &Rc<Ui>, path: PathBuf, result: NfcResult<ClassicRestoreRe
                     result.written_blocks
                 ),
             );
-            if result.failures.is_empty() {
-                toast_info(ui, "Restore complete and read back");
-            } else {
-                toast_info(ui, "Restore finished with failures; see the Restore screen");
+            match result.uid.as_ref().map(|uid| uid.state) {
+                Some(RestoreUidState::Applied) => {
+                    toast_info(ui, "Restore and UID write complete and read back");
+                    invalidate_live_image(ui);
+                    let target = result
+                        .uid
+                        .as_ref()
+                        .map(|uid| format_uid(&uid.target_uid))
+                        .unwrap_or_default();
+                    ui.status
+                        .set_localized(&format!("UID changed to {target} · re-reading the card"));
+                    start_read(ui.clone());
+                    return;
+                }
+                Some(RestoreUidState::Uncertain) => {
+                    toast_error(ui, "UID state is uncertain; read the card again");
+                    invalidate_live_image(ui);
+                    return;
+                }
+                Some(RestoreUidState::Failed) => {
+                    toast_error(ui, "Dump restore finished; UID write failed");
+                }
+                _ => {
+                    if result.failures.is_empty() {
+                        toast_info(ui, "Restore complete and read back");
+                    } else {
+                        toast_info(ui, "Restore finished with failures; see the Restore screen");
+                    }
+                }
             }
             ui.live.set(false);
             update_inspector(ui);
@@ -8662,6 +8830,18 @@ mod tests {
         dump_for(&image())
     }
 
+    /// A raw fixture carries the trailer Key A bytes, but a card read masks
+    /// them. Restore sources use the read representation so unchanged trailers
+    /// are not rewritten.
+    fn as_read_dump(mut dump: Dump) -> Dump {
+        for block in dump.blocks.iter_mut() {
+            if block.number % 4 == 3 {
+                block.data[..6].fill(0);
+            }
+        }
+        dump
+    }
+
     fn dump_for(blocks: &[[u8; 16]]) -> Dump {
         let mut raw = Vec::new();
         for block in blocks {
@@ -8864,6 +9044,8 @@ mod tests {
         ui.type2_view.include_locks.set_active(false);
         render_type2(ui);
         ui.restore_load.replace(None);
+        ui.restore_view.uid.set_text("");
+        ui.restore_view.uid_advanced.set_active(false);
         ui.diff_before.replace(None);
         ui.diff_after.replace(None);
         close_alert(&ui.pending_plan_dialog);
@@ -9054,6 +9236,7 @@ mod tests {
         workbench_stage_undo_revert_and_write(&harness);
         identity_refusal_is_visible(&harness);
         restore_cancel_then_confirm(&harness);
+        restore_with_uid(&harness);
         diff_screen_classifies_blocks(&harness);
         keys_screen_adds_and_saves(&harness);
         read_captures_keys(&harness);
@@ -9629,7 +9812,7 @@ mod tests {
     fn restore_cancel_then_confirm(harness: &Harness) {
         reset(harness);
         show_dump(&harness.ui);
-        let mut source = fixture_dump();
+        let mut source = as_read_dump(fixture_dump());
         source.blocks[4].set_read([0xCC; 16]);
         harness.ui.restore_load.replace(Some((
             PathBuf::from("test-restore.bin"),
@@ -9707,6 +9890,58 @@ mod tests {
             1
         );
         assert!(!harness.ui.live.get());
+    }
+
+    fn restore_with_uid(harness: &Harness) {
+        reset(harness);
+        show_dump(&harness.ui);
+        let ui = &harness.ui;
+        let mut source = as_read_dump(fixture_dump());
+        source.blocks[4].set_read([0xCC; 16]);
+        ui.restore_load.replace(Some((
+            PathBuf::from("test-restore-uid.bin"),
+            DumpLoad {
+                format: DumpFormat::Raw,
+                dump: source,
+                warnings: Vec::new(),
+            },
+        )));
+        update_restore_sensitivity(ui);
+        ui.restore_view.mode.set_selected(0);
+        ui.restore_view.uid.set_text("DEADBEEF");
+
+        ui.restore_view.restore.emit_clicked();
+        assert!(ui.pending_plan_dialog.borrow().is_none());
+        assert_eq!(harness.handle.block(4), Some(image()[4]));
+
+        ui.restore_view.uid_advanced.set_active(true);
+        ui.restore_view.restore.emit_clicked();
+        pump_until(ui, "restore UID plan", || {
+            ui.pending_plan_dialog.borrow().is_some()
+        });
+        let dialog = alert_pending(&ui.pending_plan_dialog);
+        assert!(
+            dialog
+                .heading()
+                .as_deref()
+                .is_some_and(|heading| heading.contains("target UID"))
+        );
+        assert!(dialog.body().contains("UID target DEADBEEF"));
+        assert!(dialog.body().contains("restore and sector 0 are verified"));
+        emit_response(&dialog, "write");
+        pump_until(ui, "restore UID write and re-read", || {
+            !ui.busy.get() && ui.status.label().contains("Read complete")
+        });
+        assert_eq!(harness.handle.block(4), Some([0xCC; 16]));
+        assert_eq!(
+            harness.handle.block(0).expect("block 0")[0..4],
+            [0xDE, 0xAD, 0xBE, 0xEF]
+        );
+        assert!(
+            activity_text(ui).contains("restore uid · target DEADBEEF"),
+            "{}",
+            activity_text(ui)
+        );
     }
 
     fn diff_screen_classifies_blocks(harness: &Harness) {

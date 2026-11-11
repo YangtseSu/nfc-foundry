@@ -1,6 +1,6 @@
 # Phase 24 plan: parity recovery
 
-Status: planned 2026-11-11. This phase ports the remaining capabilities that
+Status: in progress 2026-11-11. This phase ports the remaining capabilities that
 exist in the previous repository but have no Rust equivalent. It is deliberately
 slice-based: each slice ships service, CLI, GUI, tests, and docs together.
 
@@ -110,7 +110,7 @@ Acceptance:
 
 Spec: [24c-uid-write.md](../specs/24c-uid-write.md). Status: complete
 2026-11-11. See [24c-uid-write.md](../notes/24c-uid-write.md). Hardware
-validated on PN532 UART; the ACR122U service path is not recorded.
+validated on PN532 UART and ACR122U.
 
 Goal: a guarded, read-back-verified UID write for supported magic cards only.
 
@@ -127,7 +127,8 @@ Deliver:
 - `nfctl classic uid` and the GTK dialog use the same service.
 - PN532 Gen1A is implemented as a native `ManufacturerWriter` and
   hardware-validated in this slice; the reader-neutral sequence is shared with
-  the ACR122U driver. External `nfc-mfsetuid` remains prohibited.
+  the ACR122U driver. The external `nfc-mfsetuid` binary is not invoked;
+  `nfctl classic uid` and the GTK dialog are its native replacement.
 
 Acceptance:
 
@@ -140,6 +141,10 @@ Acceptance:
 - An ordinary immutable-UID card fails safely before any write.
 
 ### S3b: restore with UID
+
+Spec: [24d-restore-with-uid.md](../specs/24d-restore-with-uid.md). Status:
+complete 2026-11-11; valid on PN532 UART and ACR122U. See
+[24d-restore-with-uid.md](../notes/24d-restore-with-uid.md).
 
 Goal: restore a complete dump and write the target UID last.
 
@@ -213,15 +218,52 @@ Acceptance:
 - Self-check JSON is stable and tested; no key material or dump payload is
   included.
 
+### S6: Type 2 authenticated access after AUTH0
+
+Spec: [24e-type2-auth.md](../specs/24e-type2-auth.md). Status: planned.
+
+Goal: programming PWD/PACK/AUTH0 must not make the tag unusable by the
+application. A protected tag must support authenticated reads, page writes,
+NDEF writes, and configuration changes, and must be restorable to an
+unprotected state.
+
+Deliver:
+
+- A `PWD_AUTH` session bound to the reader operation: password, PACK
+  verification, authentication lifetime, and reset after field loss or card
+  change. The secret is never stored in a dump, key store, log, or UI model.
+- Type 2 read, page write, NDEF read/write/format, and configuration write
+  paths authenticate before accessing a page protected by `AUTH0`.
+- Password programming accepts the current password when the configuration is
+  already protected, writes PWD/PACK before AUTH0/ACCESS, and supports
+  clearing `AUTH0` back to `0xFF`.
+- CLI and GUI password entry for protected access, with the same service path
+  and confirmation gates; the CLI non-interactive form is explicit.
+- A hardware round trip on an owned NTAG215: set `AUTH0=0x20` with a known
+  password, authenticated read/write of the NDEF message, restore
+  `AUTH0=0xFF`, and verify the original vCard NDEF, lock bytes, and
+  configuration.
+
+Acceptance:
+
+- A protected tag reads and writes through the service with the correct
+  password; a wrong password fails before any mutation.
+- Password programming cannot leave a tag protected with an unknown password.
+- The original NDEF state and unprotected configuration are restored in the
+  hardware round trip.
+- No secret appears in a backup, dump, key store, activity log, or error text.
+
 ## Explicit non-goals
 
 - Type 4 CLI/GUI exposure; it stays hardware-gated.
-- Type 2 `GET_VERSION`, `READ_CNT`, `FAST_READ`, `READ_SIG`, and authenticated
-  access after AUTH0.
+- Type 2 `GET_VERSION`, `READ_CNT`, `FAST_READ`, and `READ_SIG`; these are
+  optional diagnostics, not release requirements.
 - Full clone and factory-format workflows. They become possible after S3, but
   need their own spec and hardware record.
 - Type B, high-rate, and the rest of phase 13.
-- External recovery engines or `nfc-mfsetuid`.
+- External recovery engines, or process wrappers that invoke `nfc-mfsetuid`.
+  The native recovery and UID paths replace them; this is not a missing card
+  capability.
 - Windows/macOS, packaging changes beyond the new diagnostics fields.
 
 ## Verification policy
@@ -236,6 +278,7 @@ Acceptance:
 
 ## First implementation slice
 
-S1, S2, and S3a are complete. S3b is next. S3a reuses the preflight token,
-backup, and read-back patterns from S2; S3b requires S3a. S4 and S5 are
-independent of S3 and can be scheduled after S1.
+S1, S2, S3a, and S3b are complete. S4 and S5 are independent and can be
+scheduled next. S6 closes the Type 2 password gap: the current product can
+program PWD/PACK/AUTH0 but cannot authenticate afterwards, so the existing
+password hardware test must not run on a shared tag until S6 lands.

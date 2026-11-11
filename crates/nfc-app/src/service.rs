@@ -221,9 +221,31 @@ impl Service {
             restore = restore.baseline(baseline);
         }
         let mut operation = self.begin_operation(OperationKind::Write, request.cancel)?;
-        let result =
-            crate::classic::restore::restore_with_plan(&mut operation, restore, &pending.plan)?;
+        let result = crate::classic::restore::restore_with_plan(
+            &mut operation,
+            restore,
+            request.advanced,
+            &pending.plan,
+        )?;
         drop(operation);
+        if let Some(uid) = &result.uid
+            && matches!(
+                uid.state,
+                crate::classic::RestoreUidState::Applied
+                    | crate::classic::RestoreUidState::Uncertain
+            )
+        {
+            let belongs_to_old_card = self.workbench.as_ref().is_some_and(|workbench| {
+                workbench
+                    .working()
+                    .card
+                    .as_ref()
+                    .is_some_and(|card| card.same_identity(&uid.card_before))
+            });
+            if belongs_to_old_card {
+                self.workbench = None;
+            }
+        }
         self.apply_written_baseline(source_fingerprint, &result);
         Ok(result)
     }
@@ -703,6 +725,7 @@ mod tests {
             source_fingerprint: crate::classic::dump_fingerprint(&dump),
             card_fingerprint: 0,
             continue_on_failure: false,
+            uid: None,
         };
         service.pending_writes.insert(
             77,

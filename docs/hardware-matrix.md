@@ -11,7 +11,7 @@ Release: `0.1.0`.
 | Reader | Connection | Firmware | Date | Note |
 |---|---|---|---|---|
 | PN532 UART (CH340 adapter) | `pn532_uart:/dev/ttyUSB0` | PN532 firmware 1.6 | 2026-11-11 | `docs/notes/02-pn532-uart.md`, `04-classic-workflows.md`, `06-recovery-foundation.md`, `07-hardnested.md`, `09-type2-ndef.md`, `10-classic-ndef.md`, `24c-uid-write.md` |
-| ACR122U direct USB/CCID | `acr122_usb:001:017` | internal PN532 firmware 1.6 | 2026-11-10 | `docs/notes/05-acr122-usb.md`, `06-recovery-foundation.md`, `07-hardnested.md` |
+| ACR122U direct USB/CCID | `acr122_usb:001:002` | internal PN532 firmware 1.6 | 2026-11-11 | `docs/notes/05-acr122-usb.md`, `06-recovery-foundation.md`, `07-hardnested.md`, `09-type2-ndef.md`, `24c-uid-write.md`, `24d-restore-with-uid.md` |
 
 `pcscd` was stopped for every ACR122U run. The ACR122U was opened as the
 logged-in user through the `uaccess` udev rule.
@@ -31,48 +31,53 @@ add no reader path of their own.
 | Enumerate, open, firmware check | validated | validated | phase 02, phase 05 |
 | Classic 1K select, UID/ATQA/SAK | validated | validated | phase 02, phase 05 |
 | Classic Key A authenticate and single-block read | validated | validated | phase 02, phase 05 |
-| Classic full dump and per-sector key scan | validated | not recorded | phase 04: 64/64 blocks, 16/16 sectors, 37 attempts, 32 verified keys |
-| Classic temporary data-block write, read-back, restore | validated | not recorded | phase 04: block 4, backup and restore |
-| Classic sector-trailer write | not recorded | not recorded | — |
-| Classic 4K read/write | not recorded | not recorded | — |
+| Classic full dump and per-sector key scan | validated | validated | PN532 phase 04: 64/64 blocks, 16/16 sectors, 37 attempts, 32 verified keys. ACR122U 2026-11-11: 64/64 blocks, 16/16 sectors; key scan 46 attempts, 15 Key A hits. |
+| Classic temporary data-block write, read-back, restore | validated | validated | PN532 phase 04: block 4. ACR122U 2026-11-11: block 4, backup and restore. |
+| Classic sector-trailer write | validated | validated | 2026-11-11: PN532 block 7 and ACR122U block 15, GPB change with Key A preserved, read-back verified, original trailer restored. |
+| Classic 4K read/write | not recorded | not recorded | No 4K card was present on 2026-11-11; the two test cards are 1K (SAK 08). |
 | Raw 7-bit REQA with 16-bit ATQA | validated | validated | phase 02, phase 05 |
 | Gen1A manufacturer block 0 same-value write | not recorded | validated | phase 05: magic Classic 1K, reselect and read-back |
-| Classic UID change through the guarded `nfc-app` service | validated | not recorded | phase 24c, 2026-11-11: Gen1A magic Classic 1K on PN532 UART, UID `FA B9 CF F4` -> `FA B9 CF F5`, reselect and full block 0/BCC verified, original UID restored. ACR122U service path not recorded; its driver primitive is validated. |
+| Classic UID change through the guarded `nfc-app` service | validated | validated | 2026-11-11: Gen1A magic Classic 1K, UID `FA B9 CF F4` -> `FA B9 CF F5`, reselect and full block 0/BCC verified, original UID restored. PN532 used the ordinary backend; ACR122U used Gen1A. |
+| Classic full restore with UID through the guarded `nfc-app` service | validated | validated | phase 24d, 2026-11-11: full dump with one changed data block, UID `FA B9 CF F4` -> `FA B9 CF F5`, full read verified, original data and UID restored and diffed byte for byte on both readers. PN532 used the ordinary backend; ACR122U used Gen1A. |
 | Type 2 page read | validated | validated | phase 02, phase 05 |
-| Type 2 / NTAG215 NDEF format, write, read, restore | validated | not recorded | phase 09: 135/135 pages, 33-byte Text record, restore |
-| Type 2 one-way lock and password configuration | not recorded | not recorded | phase 09 |
-| Classic NDEF format, write, read, restore | validated | not recorded | phase 10: blank Classic 1K UID `6A 31 5E 28`, byte-for-byte restore |
+| Type 2 / NTAG215 NDEF format, write, read, restore | validated | validated | PN532 phase 09: 135/135 pages, 33-byte Text record, restore. ACR122U 2026-11-11: NTAG215 `04 34 4C C2 83 5C 80`, 135/135 pages, 33-byte Text record written and read, original 75-byte vCard NDEF restored. |
+| Type 2 one-way lock and password configuration | not recorded | not recorded | phase 09; the NTAG215 was not put into a protected state. |
+| Classic NDEF format, write, read, restore | validated | validated | PN532 phase 10: blank Classic 1K UID `6A 31 5E 28`, byte-for-byte restore. ACR122U 2026-11-11: 715-byte capacity, 3 blocks written, 18 blocks restored, full dump diff 0 changed. |
 | Crypto1 parity probe and full software authentication | validated | validated | phase 06 |
 | Nested, static-nested, and auto recovery | validated | validated | phase 06: recovered and re-verified target keys |
 | Hardnested acquisition and solver | validated | validated | phase 07: 1816 and 1840 frames, recovered and re-verified keys |
 | Darkside repeated-nonce collection | no sample | no sample | phase 06: documented reader limitation, not a key result |
-| Type 4 NDEF read/write | not recorded | not recorded | phase 11; not advertised |
+| Type 4 NDEF read/write | not recorded | not recorded | phase 11; not advertised. A DESFire EV3 8K `04 4D 09 A2 BB 17 90` was probed on PN532 on 2026-11-11; it has no NDEF Tag Application (`6A82`) and is not NDEF-formatted. |
 
 ## Card records
 
 | Card | UID | Readers | Operations |
 |---|---|---|---|
-| MIFARE Classic 1K | `FA B9 CF F4` | PN532, ACR122U | select, read, raw REQA, recovery |
+| MIFARE Classic 1K | `FA B9 CF F4` | PN532, ACR122U | select, read, raw REQA, recovery; ACR122U dump, data-block/trailer writes, UID, restore, Classic NDEF |
 | MIFARE Classic 1K | `6A 31 5E 28` | PN532 | selection, Classic NDEF format/write/restore |
 | NTAG215 | `04 52 F5 67 D3 2A 81` | PN532 | 135-page read, NDEF write/read/restore |
-| Type 2 tag | `04 34 4C C2 83 5C 80` | ACR122U | page read |
-| Magic Gen1A Classic 1K | `FA B9 CF F4` | PN532, ACR122U | same-value block 0 write; guarded UID change/restore on PN532 |
+| Type 2 tag | `04 34 4C C2 83 5C 80` | ACR122U | page read; NDEF format/write/read/restore |
+| Magic Gen1A Classic 1K | `FA B9 CF F4` | PN532, ACR122U | same-value block 0 write; guarded UID change/restore; restore with UID on both |
 
-`FA B9 CF F4` appears twice with different sector keys; set
-`NFC_FOUNDRY_HARDWARE_KEY` and `NFC_FOUNDRY_HARDWARE_TARGET_KEY` for the card under test.
+`FA B9 CF F4` appears twice with different sector keys. The PN532 card uses
+`FFFFFFFFFFFF` plus `FBBECDF6304E`; the ACR122U card uses
+`000000000000`, `D3F7D3F7D3F7`, and `FFFFFFFFFFFF`. Set
+`NFC_FOUNDRY_HARDWARE_KEY`, `NFC_FOUNDRY_HARDWARE_KEY_2`,
+`NFC_FOUNDRY_HARDWARE_KEY_3`, and `NFC_FOUNDRY_HARDWARE_TARGET_KEY` for the
+card under test.
 
 ## Release claims
 
 - PN532 UART: **PASS** for every row marked `validated`.
 - ACR122U: **PASS** for every row marked `validated`.
-- The matrix is not symmetric. ACR122U writes for Classic data blocks, Type 2
-  NDEF, and Classic NDEF, plus one-way locks and passwords, are not part of the
-  release claim.
+- The matrix is not symmetric. ACR122U Type 2 NDEF, one-way locks, and password
+  configuration are not part of the release claim.
 - Type 4 NDEF is implemented but has no hardware record; it is not advertised.
-- Classic 4K and sector-trailer writes are not part of the release claim.
-- The guarded UID service is validated on PN532 UART for a Gen1A magic
-  Classic 1K. The ACR122U service path is not recorded; the phase 05 record
-  covers its driver's same-value block-0 write only.
+- Classic 4K has no hardware record; it is not part of the release claim.
+- Classic sector-trailer writes and the guarded UID service are validated on
+  both readers. The ACR122U trailer run used a default-access sector because the
+  generic single-block request cannot supply a separate Key A for a B-only
+  access condition; restore hydrates that key from dump metadata.
 
 Do not promote a row without adding a dated entry to the matching phase note
 and updating this table.
@@ -113,7 +118,7 @@ ACR122U, read-only driver checks:
 ```sh
 sudo systemctl stop pcscd
 NFC_FOUNDRY_HARDWARE=1 \
-NFC_FOUNDRY_DEVICE=acr122_usb:001:017 \
+NFC_FOUNDRY_DEVICE=acr122_usb:001:002 \
 cargo test -p nfc-drivers --features hardware -- --ignored
 ```
 
@@ -121,7 +126,7 @@ ACR122U, authorized Gen1A manufacturer-block same-value write:
 
 ```sh
 NFC_FOUNDRY_HARDWARE=1 \
-NFC_FOUNDRY_DEVICE=acr122_usb:001:017 \
+NFC_FOUNDRY_DEVICE=acr122_usb:001:002 \
 NFC_FOUNDRY_HARDWARE_KEY=<sector-key> \
 NFC_FOUNDRY_HARDWARE_SECTOR0_KEY=<sector-0-key> \
 NFC_FOUNDRY_HARDWARE_WRITE=yes \
@@ -143,7 +148,8 @@ NFC_FOUNDRY_HARDWARE_BACKUP_DIR=/tmp/nfc-uid-backups \
 cargo test -p nfctl --features hardware-write --test hardware_classic -- --ignored changes_and_restores_the_card_uid --nocapture
 ```
 
-ACR122U, same service test (not yet recorded):
+ACR122U, authorized magic Classic 1K UID change and restore (validated
+2026-11-11 on `acr122_usb:001:002`; the card used Gen1A):
 
 ```sh
 NFC_FOUNDRY_HARDWARE=1 \
@@ -156,13 +162,53 @@ cargo test -p nfctl --features hardware-write --test hardware_classic -- --ignor
 ```
 
 The test changes the UID, prints the reselected identity and backup path, then
-restores the original UID and block 0.
+restores the original UID and block 0. The ACR122U run used sector-0 Key A
+`A0A1A2A3A4A5` and Key B `000000000000`.
+
+Both readers, full Classic 1K restore with UID (validated 2026-11-11):
+
+```sh
+NFC_FOUNDRY_HARDWARE=1 \
+NFC_FOUNDRY_DEVICE=<pn532_uart:/dev/ttyUSB0|acr122_usb:001:002> \
+NFC_FOUNDRY_HARDWARE_KEY=<card-key-1> \
+NFC_FOUNDRY_HARDWARE_KEY_2=<card-key-2> \
+[NFC_FOUNDRY_HARDWARE_KEY_3=<card-key-3>] \
+NFC_FOUNDRY_HARDWARE_WRITE=yes \
+NFC_FOUNDRY_HARDWARE_UID_CONFIRM=yes \
+NFC_FOUNDRY_HARDWARE_BACKUP_DIR=/tmp/nfc-s3b-backups \
+cargo test -p nfctl --features hardware-write --test hardware_classic \
+  -- --ignored restores_a_dump_and_changes_the_uid_last --nocapture
+```
+
+Both readers, sector-trailer write and restore (validated 2026-11-11):
+
+```sh
+NFC_FOUNDRY_HARDWARE=1 \
+NFC_FOUNDRY_DEVICE=<reader> \
+NFC_FOUNDRY_HARDWARE_KEY=<trailer-key> \
+NFC_FOUNDRY_HARDWARE_WRITE=yes \
+NFC_FOUNDRY_HARDWARE_TRAILER=<trailer-block> \
+cargo test -p nfctl --features hardware-write --test hardware_classic \
+  -- --ignored writes_and_restores_a_sector_trailer --nocapture
+```
+
+ACR122U, Classic NDEF format/write/read/restore (validated 2026-11-11):
+
+```sh
+NFC_FOUNDRY_HARDWARE=1 \
+NFC_FOUNDRY_DEVICE=acr122_usb:001:002 \
+NFC_FOUNDRY_HARDWARE_WRITE=yes \
+NFC_FOUNDRY_HARDWARE_NDEF_FORMAT=yes \
+NFC_FOUNDRY_HARDWARE_BACKUP_DIR=/tmp/nfc-acr-ndef-backups \
+cargo test -p nfctl --features hardware-write --test hardware_classic_ndef \
+  -- --ignored formats_writes_reads_and_restores_a_classic_card --nocapture
+```
 
 Recovery, read-only and card-owned:
 
 ```sh
 NFC_FOUNDRY_HARDWARE=1 \
-NFC_FOUNDRY_DEVICE=acr122_usb:001:017 \
+NFC_FOUNDRY_DEVICE=acr122_usb:001:002 \
 NFC_FOUNDRY_HARDWARE_KEY=D3F7D3F7D3F7 \
 cargo test -p nfc-recover --test hardware_recovery -- --ignored --nocapture
 ```

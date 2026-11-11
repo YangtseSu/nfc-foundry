@@ -191,23 +191,32 @@ pub fn write_block(
     let first = layout
         .first_block(sector)
         .expect("sector is within the layout");
-    let mut authenticated = false;
+    let mut authenticated = None;
     for (key_type, key) in candidates {
         request.cancel.check()?;
         match operation.authenticate(first as u8, key_type, key) {
             Ok(()) => {
-                authenticated = true;
+                authenticated = Some((key_type, key));
                 break;
             }
             Err(NfcError::AuthenticationFailed) => continue,
             Err(error) => return Err(error),
         }
     }
-    if !authenticated {
+    let Some(authenticated) = authenticated else {
         return Err(NfcError::AuthenticationFailed);
-    }
+    };
 
-    operation.write_block_verified(request.block as u8, request.data)?;
+    if is_trailer {
+        operation.write_trailer_verified(
+            request.block as u8,
+            request.data,
+            authenticated,
+            access,
+        )?;
+    } else {
+        operation.write_block_verified(request.block as u8, request.data)?;
+    }
     operation.check_card()?;
     Ok(ClassicWriteResult {
         block: request.block,

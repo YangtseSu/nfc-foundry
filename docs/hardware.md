@@ -62,9 +62,10 @@ Current status: firmware identification, Classic 1K selection/authentication/
 read, Type 2 selection/read, raw 7-bit REQA (16-bit ATQA response), full Classic
 dump, key scan, temporary data-block write with backup and read-back, and
 restore are validated on a PN532 (CH340 UART adapter, firmware 1.6). The
-guarded Gen1A UID change and restore passed on 2026-11-11 with an owned magic
-Classic 1K; see `docs/notes/24c-uid-write.md`. Trailer writes and a 4K card run
-remain future hardware checks.
+guarded Gen1A UID change and restore, sector-trailer write, and full restore
+with UID passed on 2026-11-11 with an owned magic Classic 1K; see
+`docs/notes/24c-uid-write.md` and `docs/notes/24d-restore-with-uid.md`. A 4K
+card run remains a future hardware check.
 
 ## ACR122U
 
@@ -118,7 +119,9 @@ by reselection and read-back. A physical unplug/replug was not exercised;
 disconnect mapping is covered by scripted transport tests. See
 `docs/notes/05-acr122-usb.md`. Phase 24c adds a guarded application service over
 the same Gen1A primitive and an ordinary CUID/Gen2 path. The service path is
-validated on PN532 UART; the ACR122U service path is not recorded.
+validated on both PN532 UART and ACR122U; phase 24d adds restore with UID,
+also validated on both. Classic data-block and sector-trailer writes, full
+dumps, and Classic NDEF format/write/read/restore are validated on ACR122U.
 
 ### Type 2 write and NDEF status
 
@@ -128,7 +131,7 @@ at `pn532_uart:/dev/ttyUSB0` completed an authorized NTAG215
 33-byte Text record, verify it, then restore the original user memory from a
 project backup. The original URI NDEF was present after the restore. The write
 path uses READ (0x30), WRITE (0xA2), and PWD_AUTH (0x1B), CRC-A, read-back
-verification, and restored raw mode. ACR122U write/NDEF, one-way locks, and
+verification, and restored raw mode. ACR122U Type 2 NDEF write/read/restore is now recorded; one-way locks and
 password configuration have not been recorded yet. Run the gated checks in
 `docs/testing.md` before advertising those remaining operations as
 hardware-validated. The phase 09 note records the details.

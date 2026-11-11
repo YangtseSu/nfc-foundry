@@ -207,3 +207,44 @@ Run on 2026-11-10 with a PN532 over `/dev/ttyUSB0` and an owned MIFARE Classic
   ordinary data block. The service still requires trailer confirmation.
 - The GUI was exercised through headless UI integration tests, not with a
   visible window on the hardware run.
+
+## 2026-11-11 hardware revisit
+
+The pending Classic writes were exercised on both readers.
+
+PN532 UART `pn532_uart:/dev/ttyUSB0`, magic Gen1A Classic 1K `FA B9 CF F4`,
+keys `FFFFFFFFFFFF` and `FBBECDF6304E`:
+
+- full read: 64/64 blocks and 16/16 sectors;
+- key scan: 17 attempts, 16 Key A hits;
+- data-block write and restore: block 4, both writes backed up and read back;
+- sector-trailer write and restore: block 7, GPB byte changed, Key A preserved,
+  access bytes and GPB read back, original trailer restored;
+- the five-test Classic suite passed with `--test-threads=1`.
+
+ACR122U `acr122_usb:001:002`, magic Gen1A Classic 1K `FA B9 CF F4`, keys
+`000000000000`, `D3F7D3F7D3F7`, and `FFFFFFFFFFFF`:
+
+- full read: 64/64 blocks and 16/16 sectors;
+- key scan: 46 attempts, 15 Key A hits (the scan checks Key A only; the three
+  card keys cover all sectors for reads and writes);
+- data-block write and restore: block 4, backups and read-back;
+- sector-trailer write and restore: block 15 with default access, GPB changed,
+  Key A preserved, original trailer restored;
+- the five-test Classic suite passed with `--test-threads=1`.
+
+The trailer runs exposed a real defect: a read-modify-write trailer sent the
+masked Key A bytes back to the card and destroyed the key. Trailer writes now
+preserve a masked Key A/B from the authenticated key, compare only the access
+bytes and GPB on read-back, and prove the new Key A and writable Key B by
+authenticating with them. Restore fills masked trailer slots from the dump's
+recorded key metadata. A generic single-block trailer write with a B-only
+access condition and a masked Key A is refused because the request has no
+separate Key A field; the restore path has the metadata to fill it.
+
+ACR122U trailer access differs by sector: sectors 0-2 use B-only trailer
+writes and masked Key B, while sectors 3-15 use the default A-write trailer.
+The ACR trailer run used block 15.
+
+Remaining blockers now exclude trailer writes. Classic 4K remains without a
+hardware card, and the GUI was still exercised headlessly.

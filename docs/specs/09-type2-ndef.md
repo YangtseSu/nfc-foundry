@@ -80,7 +80,8 @@ Kit workspace for memory, NDEF, and protection. The GUI and CLI call the same
   flags.
 - PWD and PACK cannot be restored from a dump because they are not readable.
 - No Type 2 password authentication input in the GUI beyond programming the
-  configuration; protected reads after AUTH0 is set are a follow-up.
+  configuration; protected reads after AUTH0 is set are planned in
+  [24e-type2-auth.md](24e-type2-auth.md) (plan 24 S6), not in this phase.
 - No automatic key/secret retrieval from the network.
 
 ## Safety

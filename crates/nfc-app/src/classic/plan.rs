@@ -7,6 +7,7 @@ use nfc_core::{BLOCK_SIZE, CancelToken, CardInfo, CardType, KeyType, NfcError, R
 
 use super::backup::BackupStore;
 use super::keys::KeyStore;
+use super::uid::{ClassicUidPlan, UID_LEN};
 
 /// How long a preflight plan may be used for a write.
 pub const WRITE_PLAN_TTL: Duration = Duration::from_secs(120);
@@ -129,6 +130,9 @@ pub struct ClassicWritePlan {
     pub card_fingerprint: u64,
     /// The continue policy the plan was built with.
     pub continue_on_failure: bool,
+    /// Guarded UID write executed only after the full restore and its
+    /// post-restore sector-0 verification succeed.
+    pub uid: Option<ClassicUidPlan>,
 }
 
 impl ClassicWritePlan {
@@ -148,6 +152,10 @@ pub struct ClassicWritePreflight<'a> {
     /// baseline.
     pub baseline: Option<Dump>,
     pub continue_on_failure: bool,
+    /// Target manufacturer-block UID. Only a full restore may carry one.
+    pub uid_target: Option<[u8; UID_LEN]>,
+    /// Advanced mode is required when `uid_target` is set.
+    pub advanced: bool,
     pub cancel: CancelToken,
 }
 
@@ -161,6 +169,8 @@ impl<'a> ClassicWritePreflight<'a> {
             selection: RestoreSelection::All,
             baseline: None,
             continue_on_failure: false,
+            uid_target: None,
+            advanced: false,
             cancel: CancelToken::new(),
         }
     }
@@ -190,6 +200,18 @@ impl<'a> ClassicWritePreflight<'a> {
         self
     }
 
+    /// Adds a UID target to a full restore. The UID is written only after the
+    /// restore is complete and sector 0 has been verified.
+    pub fn uid_target(mut self, uid: [u8; UID_LEN]) -> Self {
+        self.uid_target = Some(uid);
+        self
+    }
+
+    pub fn advanced(mut self, advanced: bool) -> Self {
+        self.advanced = advanced;
+        self
+    }
+
     pub fn cancel(mut self, cancel: CancelToken) -> Self {
         self.cancel = cancel;
         self
@@ -205,6 +227,8 @@ pub struct ClassicWriteExecution<'a> {
     pub include_common_keys: bool,
     pub backup: &'a BackupStore,
     pub confirmed: bool,
+    /// Required when the plan carries a UID target.
+    pub advanced: bool,
     pub cancel: CancelToken,
 }
 
@@ -217,6 +241,7 @@ impl<'a> ClassicWriteExecution<'a> {
             include_common_keys: true,
             backup,
             confirmed: false,
+            advanced: false,
             cancel: CancelToken::new(),
         }
     }
@@ -228,6 +253,11 @@ impl<'a> ClassicWriteExecution<'a> {
 
     pub fn confirmed(mut self, confirmed: bool) -> Self {
         self.confirmed = confirmed;
+        self
+    }
+
+    pub fn advanced(mut self, advanced: bool) -> Self {
+        self.advanced = advanced;
         self
     }
 

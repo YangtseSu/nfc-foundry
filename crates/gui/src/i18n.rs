@@ -1072,8 +1072,8 @@ keys! {
     ContinueOnError => ("Continue after a failed block", "数据块失败后继续"),
     RestoreToCard => ("Restore to card", "恢复写入卡片"),
     RestoreNote => (
-        "Restore backs up the current card first, writes data blocks before sector trailers, and reads every block back. Block 0 is never written. A card with a different identity from the image is refused before the backup.",
-        "恢复写入会先备份当前卡片，先写数据块再写扇区尾块，并回读每个数据块。块 0 永不写入。与镜像标识不同的卡片会在备份前被拒绝。"
+        "Restore backs up the current card first, writes data blocks before sector trailers, and reads every block back. Block 0 is written only when a target UID is supplied, after the restore is verified. A card with a different identity from the image is refused before the backup.",
+        "恢复写入会先备份当前卡片，先写数据块再写扇区尾块，并回读每个数据块。仅当指定目标 UID 时才在恢复验证后写入块 0。与镜像标识不同的卡片会在备份前被拒绝。"
     ),
     RestoreResultColumn => ("Result", "结果"),
     LoadClassicDumpRestore => ("Load Classic dump to restore", "加载用于恢复写入的 Classic 转储"),
@@ -1710,6 +1710,35 @@ keys! {
     ClassicUidChanged => ("UID changed to {}", "UID 已更改为 {}"),
     ClassicUidReread => ("UID changed · re-reading the card", "UID 已更改 · 正在重新读取卡片"),
     ClassicUidFailed => ("UID write failed", "UID 写入失败"),
+    RestoreUidLabel => ("Target UID after restore (optional)", "恢复后目标 UID（可选）"),
+    RestoreUidPlaceholder => ("Target UID, e.g. DEADBEEF", "目标 UID，例如 DEADBEEF"),
+    RestoreUidNeedsAdvanced => (
+        "Enable Advanced mode to write a target UID",
+        "写入目标 UID 前请启用高级模式"
+    ),
+    RestoreUidNeedsFull => (
+        "A UID target needs a full restore; remove the block selection or changes-only mode.",
+        "写入目标 UID 需要完整恢复；请移除块选择或仅变更模式。"
+    ),
+    RestoreUidPlan => (
+        "UID target {} · current UID {} · post-restore key {}",
+        "UID 目标 {} · 当前 UID {} · 恢复后密钥 {}"
+    ),
+    RestoreUidAfterRestore => (
+        "The UID is written only after every restored block and sector 0 are read back and verified.",
+        "仅在每个恢复块和扇区 0 均回读验证后才会写入 UID。"
+    ),
+    RestoreUidDialogHeading => (
+        "Restore the plan and write the target UID?",
+        "恢复计划并写入目标 UID？"
+    ),
+    RestoreUidDialogConfirm => ("Restore and write UID", "恢复并写入 UID"),
+    RestoreUidChanged => ("UID changed to {} · re-reading the card", "UID 已更改为 {} · 正在重新读取卡片"),
+    RestoreUidFailed => (
+        "Dump restore finished; UID write failed",
+        "转储恢复已完成；UID 写入失败"
+    ),
+    RestoreUidNotAttempted => ("UID was not written: {}", "未写入 UID：{}"),
 }
 
 #[cfg(test)]

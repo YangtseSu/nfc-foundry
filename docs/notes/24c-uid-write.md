@@ -1,6 +1,6 @@
 # Note: phase 24c standalone UID / block-0 write
 
-Status: complete 2026-11-11; PN532 UART hardware validated. Plan:
+Status: complete 2026-11-11; PN532 UART and ACR122U hardware validated. Plan:
 [24-parity-recovery.md](../plan/24-parity-recovery.md). Spec:
 [24c-uid-write.md](../specs/24c-uid-write.md).
 
@@ -183,13 +183,16 @@ result's `.data` field, so the hardware suite compiles again.
   uncertain outcome with the backup path.
 - The service clears the workbench only when its card identity matches the card
   that was changed. A file-backed workbench for another card is untouched.
-- The PN532 UART service path is now validated. The ACR122U service path is
-  still `not recorded`; its driver-level same-value Gen1A write remains
-  validated from phase 05. The ordinary CUID/Gen2 backend is covered by
-  scripted tests only.
+- The PN532 UART service path is now validated. On 2026-11-11 the same test
+  passed on `acr122_usb:001:002` with a Gen1A magic Classic 1K: it selected
+  Gen1A, changed `FA B9 CF F4` to `FA B9 CF F5`, reselected and verified block
+  0/BCC, then restored the original UID. The ACR122U service path is now
+  validated. The ordinary CUID/Gen2 backend remains covered by scripted tests
+  only.
 
 ## Next
 
-S3b (restore with UID) follows. It reuses the UID plan, backup, and
-post-write verification but runs the UID write only after the dump restore and
-its full read-back have succeeded.
+S3b (restore with UID) is complete on both readers; see
+[24d-restore-with-uid.md](24d-restore-with-uid.md). It reuses the UID plan,
+backup, and post-write verification but runs the UID write only after the dump
+restore and its full read-back have succeeded.

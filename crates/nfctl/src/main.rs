@@ -11,8 +11,8 @@ use nfc_app::classic::{
     AuthenticatedKey, BackupStore, ClassicBlockWrite, ClassicKeyscan, ClassicNdefFormat,
     ClassicNdefRead, ClassicNdefWrite, ClassicRead, ClassicUidExecution, ClassicUidPlan,
     ClassicUidPreflight, ClassicWriteExecution, ClassicWritePlan, ClassicWritePreflight, KeyEntry,
-    KeyKind, KeySource, KeyStore, KeyTypes, RestoreSelection, common_keys, format_uid,
-    parse_block_list, parse_uid,
+    KeyKind, KeySource, KeyStore, KeyTypes, RestoreSelection, RestoreUidState, common_keys,
+    format_uid, parse_block_list, parse_uid,
 };
 use nfc_app::type2::{
     Type2Format, Type2Lock, Type2NdefWrite, Type2PageWrite, Type2Password, Type2Restore,
@@ -176,6 +176,12 @@ enum ClassicCommand {
         /// Write only blocks that differ from the loaded image baseline.
         #[arg(long)]
         changes_only: bool,
+        /// After a full restore, write this four-byte UID to block 0.
+        #[arg(long, value_name = "UID")]
+        uid: Option<String>,
+        /// Required with `--uid`: UID writes are an Advanced action.
+        #[arg(long)]
+        advanced: bool,
         /// Print the write plan and exit without a backup or card write.
         #[arg(long)]
         dry_run: bool,
@@ -784,6 +790,8 @@ fn classic(cli: &Cli, service: &mut Service, command: ClassicCommand) -> Result<
             continue_on_error,
             blocks,
             changes_only,
+            uid,
+            advanced,
             dry_run,
         } => classic_restore(
             cli,
@@ -794,6 +802,8 @@ fn classic(cli: &Cli, service: &mut Service, command: ClassicCommand) -> Result<
             RestorePlanOptions {
                 blocks,
                 changes_only,
+                uid,
+                advanced,
                 dry_run,
             },
         ),
@@ -1013,6 +1023,8 @@ fn print_uid_plan(plan: &ClassicUidPlan) {
 struct RestorePlanOptions {
     blocks: Option<String>,
     changes_only: bool,
+    uid: Option<String>,
+    advanced: bool,
     dry_run: bool,
 }
 
@@ -1027,10 +1039,35 @@ fn classic_restore(
     let RestorePlanOptions {
         blocks,
         changes_only,
+        uid,
+        advanced,
         dry_run,
     } = options;
+    let target = uid.as_deref().map(parse_uid).transpose()?;
+    if target.is_some() && !advanced {
+        return Err(NfcError::InvalidArgument(
+            "a restore UID write requires --advanced".to_owned(),
+        ));
+    }
+    if target.is_none() && advanced {
+        return Err(NfcError::InvalidArgument(
+            "--advanced requires --uid".to_owned(),
+        ));
+    }
+    if target.is_some() && (blocks.is_some() || changes_only) {
+        return Err(NfcError::InvalidArgument(
+            "a UID target requires a full restore; remove --blocks and --changes-only".to_owned(),
+        ));
+    }
+    let action = match target {
+        Some(uid) => format!(
+            "restoring a Classic dump and writing UID {}",
+            format_uid(&uid)
+        ),
+        None => "restoring a Classic dump".to_owned(),
+    };
     if !dry_run {
-        require_confirmation(cli.yes, "restoring a Classic dump")?;
+        require_confirmation(cli.yes, &action)?;
     }
     let selection = match (blocks.as_deref(), changes_only) {
         (Some(blocks), _) => RestoreSelection::Blocks(parse_block_list(blocks)?),
@@ -1050,12 +1087,14 @@ fn classic_restore(
     let mut keys = load_key_store(cli)?;
     capture_dump_metadata(cli, &mut keys, &load.dump)?;
     let backup = backup_store(cli);
-    let plan = service.classic_write_preflight(
-        ClassicWritePreflight::new(load.dump.clone(), &keys)
-            .include_common_keys(!cli.no_common_keys)
-            .selection(selection)
-            .continue_on_failure(continue_on_error),
-    )?;
+    let mut preflight = ClassicWritePreflight::new(load.dump.clone(), &keys)
+        .include_common_keys(!cli.no_common_keys)
+        .selection(selection)
+        .continue_on_failure(continue_on_error);
+    if let Some(uid) = target {
+        preflight = preflight.uid_target(uid).advanced(true);
+    }
+    let plan = service.classic_write_preflight(preflight)?;
     print_write_plan(&plan);
     if dry_run {
         println!("dry run: no card writes were performed");
@@ -1064,6 +1103,7 @@ fn classic_restore(
     let result = service.classic_write_execute(
         ClassicWriteExecution::new(plan.token, load.dump, &keys, &backup)
             .include_common_keys(!cli.no_common_keys)
+            .advanced(target.is_some())
             .confirmed(true),
     )?;
     println!(
@@ -1086,12 +1126,106 @@ fn classic_restore(
         eprintln!("failure: {failure}");
     }
     if !result.failures.is_empty() {
+        let committed: Vec<usize> = result
+            .blocks
+            .iter()
+            .filter(|block| block.state == nfc_app::classic::RestoreBlockState::Written)
+            .map(|block| block.block)
+            .collect();
+        println!("committed blocks: {}", block_ranges(&committed));
+    }
+    if let Some(uid) = &result.uid {
+        print_restore_uid(uid);
+    }
+    if !result.failures.is_empty() {
         return Err(NfcError::VerificationFailed(format!(
             "restore finished with {} failure(s)",
             result.failures.len()
         )));
     }
+    if let Some(uid) = &result.uid
+        && matches!(
+            uid.state,
+            RestoreUidState::Failed | RestoreUidState::Uncertain | RestoreUidState::NotAttempted
+        )
+    {
+        return Err(NfcError::VerificationFailed(format!(
+            "UID phase {}: {}",
+            uid.state.label(),
+            uid.detail.as_deref().unwrap_or("no detail")
+        )));
+    }
     Ok(())
+}
+
+fn block_ranges(blocks: &[usize]) -> String {
+    if blocks.is_empty() {
+        return "none".to_owned();
+    }
+    let mut ranges = Vec::new();
+    let mut start = blocks[0];
+    let mut end = start;
+    for &block in &blocks[1..] {
+        if block == end + 1 {
+            end = block;
+        } else {
+            ranges.push((start, end));
+            start = block;
+            end = block;
+        }
+    }
+    ranges.push((start, end));
+    ranges
+        .into_iter()
+        .map(|(start, end)| {
+            if start == end {
+                start.to_string()
+            } else {
+                format!("{start}-{end}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn print_restore_uid(uid: &nfc_app::classic::RestoreUidResult) {
+    for warning in &uid.warnings {
+        eprintln!("warning: {warning}");
+    }
+    match uid.state {
+        RestoreUidState::Applied => {
+            let backend = uid
+                .backend
+                .map(|backend| backend.label())
+                .unwrap_or("unknown");
+            println!(
+                "UID changed: {} -> {}",
+                format_uid(&uid.old_block0[0..4]),
+                format_uid(&uid.target_uid)
+            );
+            println!("backend: {backend}");
+            println!("block 0 verified: {}", hex_bytes(&uid.new_block0));
+            if let Some(card) = &uid.card_after {
+                println!("BCC valid · reselected UID {}", card.uid_hex());
+            }
+        }
+        RestoreUidState::Unchanged => {
+            println!(
+                "UID {} already matches block 0; no UID write was needed",
+                format_uid(&uid.target_uid)
+            );
+        }
+        RestoreUidState::Failed | RestoreUidState::Uncertain | RestoreUidState::NotAttempted => {
+            eprintln!(
+                "uid: {} · {}",
+                uid.state.label(),
+                uid.detail.as_deref().unwrap_or("")
+            );
+        }
+    }
+    if let Some(record) = &uid.backup {
+        println!("UID backup: {}", record.backup.path.display());
+    }
 }
 
 fn print_write_plan(plan: &ClassicWritePlan) {
@@ -1118,8 +1252,33 @@ fn print_write_plan(plan: &ClassicWritePlan) {
         println!("  old {}", hex_bytes(&block.old));
         println!("  new {}", hex_bytes(&block.new));
     }
+    if let Some(uid) = &plan.uid {
+        let backends = uid
+            .backends
+            .iter()
+            .map(|backend| backend.label())
+            .collect::<Vec<_>>()
+            .join(", ");
+        println!(
+            "UID target {} · current UID {} · post-restore sector-0 read key {} · write with {} · backends: {backends}",
+            format_uid(&uid.target_uid),
+            format_uid(&uid.current_uid),
+            uid.sector0_key.0.label(),
+            uid.write_keys.label()
+        );
+        for backend in &uid.backends {
+            println!("  {}: {}", backend.label(), backend.note());
+        }
+        println!("  old block 0 {}", hex_bytes(&uid.old_block0));
+        println!("  new block 0 {}", hex_bytes(&uid.new_block0));
+    }
     for warning in &plan.warnings {
         eprintln!("warning: {warning}");
+    }
+    if let Some(uid) = &plan.uid {
+        for warning in &uid.warnings {
+            eprintln!("warning: {warning}");
+        }
     }
 }
 

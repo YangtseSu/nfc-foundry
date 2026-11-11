@@ -125,11 +125,17 @@ Two hardware-only defects were found and fixed during the record:
   one logical area, and the regression test asserts that later NFC sector data
   blocks stay zero. The corrected hardware run wrote 3 blocks.
 
-No ACR122U was connected, so the ACR122U Classic NDEF record remains pending.
+No ACR122U was connected for the original run. On 2026-11-11 the same
+format/write/read/restore test passed on `acr122_usb:001:002` with the magic
+Gen1A Classic 1K `FA B9 CF F4`: 715-byte capacity, 3 blocks written, 18 blocks
+restored, and a full project dump diff reported 0 changed and 64 equal. The
+restore filled masked trailer Key A from the dump key metadata; no key was
+destroyed. A follow-up write replaced the NDEF payload with the Text record
+`UID FA B9 CF F4`; the read returned it verbatim, and a dump diff showed 3
+changed data blocks, 61 equal blocks, and 0 trailer changes.
 
 ## Follow-ups
 
-- Hardware format/write/read record on ACR122U (PN532 UART is recorded).
 - Key-B management for reformatting a card whose MAD or NFC trailers are
   already protected.
 - Optional MAD registration/publisher-sector management.

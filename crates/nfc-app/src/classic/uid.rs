@@ -163,6 +163,10 @@ pub struct ClassicUidExecution<'a> {
     pub backup: &'a BackupStore,
     pub advanced: bool,
     pub confirmed: bool,
+    /// When set, sector 0 must authenticate with exactly this key. The
+    /// restore-with-UID path uses the key that the restored trailer supplies
+    /// instead of falling back to another stored candidate.
+    pub expected_sector0_key: Option<(KeyType, Key)>,
     pub cancel: CancelToken,
 }
 
@@ -175,6 +179,7 @@ impl<'a> ClassicUidExecution<'a> {
             backup,
             advanced: false,
             confirmed: false,
+            expected_sector0_key: None,
             cancel: CancelToken::new(),
         }
     }
@@ -191,6 +196,11 @@ impl<'a> ClassicUidExecution<'a> {
 
     pub fn confirmed(mut self, confirmed: bool) -> Self {
         self.confirmed = confirmed;
+        self
+    }
+
+    pub fn expected_sector0_key(mut self, key: (KeyType, Key)) -> Self {
+        self.expected_sector0_key = Some(key);
         self
     }
 
@@ -272,7 +282,7 @@ pub fn preflight(
     }
     check_expected_card(operation.card(), request.expected_card.as_ref())?;
     let target_bcc = bcc_for_uid(&request.target_uid)?;
-    let sector = read_sector_zero(operation, request.keys, request.include_common_keys)?;
+    let sector = read_sector_zero(operation, request.keys, request.include_common_keys, None)?;
     let current_uid = sector.current_uid();
     let expected_bcc = bcc_for_uid(&current_uid)?;
     if sector.blocks[0][4] != expected_bcc {
@@ -370,6 +380,291 @@ pub fn preflight(
     })
 }
 
+/// The bytes a trailer read returns: Key A is always masked, and Key B is
+/// masked when the access bits do not expose it.
+fn trailer_as_read(mut trailer: [u8; BLOCK_SIZE], access: AccessBits) -> [u8; BLOCK_SIZE] {
+    trailer[..6].fill(0);
+    if !access.groups[3].key_b_readable() {
+        trailer[10..].fill(0);
+    }
+    trailer
+}
+
+/// Builds the UID plan for a full restore. The plan is bound to the sector-0
+/// state the repair will leave behind: the restored trailer supplies the
+/// post-restore keys, and the verification fingerprint covers the four
+/// post-restore sector-0 blocks.
+pub(crate) fn plan_for_restore(
+    operation: &mut Operation<'_>,
+    current: &Dump,
+    source: &Dump,
+    target_uid: [u8; UID_LEN],
+    token: WriteToken,
+    keys: &KeyStore,
+    include_common_keys: bool,
+) -> Result<ClassicUidPlan> {
+    let card = operation.card().clone();
+    if card.card_type != CardType::MifareClassic1K {
+        return Err(NfcError::Unsupported(
+            "restore with UID requires a MIFARE Classic 1K card",
+        ));
+    }
+    if card.uid.len() != UID_LEN {
+        return Err(NfcError::Unsupported(
+            "restore with UID requires a four-byte UID MIFARE Classic 1K card",
+        ));
+    }
+    if current.layout != Layout::Classic1K || source.layout != Layout::Classic1K {
+        return Err(NfcError::Unsupported(
+            "restore with UID supports MIFARE Classic 1K only",
+        ));
+    }
+    if !current.blocks[0].complete() || !current.blocks[3].complete() {
+        return Err(NfcError::VerificationFailed(
+            "sector 0 could not be read completely before planning the UID write".to_owned(),
+        ));
+    }
+    if !source.blocks[0].complete() || source.blocks[0].data != current.blocks[0].data {
+        return Err(NfcError::VerificationFailed(
+            "the dump manufacturer block does not match the card; a restore with UID cannot change it"
+                .to_owned(),
+        ));
+    }
+    let current_uid: [u8; UID_LEN] = current.blocks[0].data[0..UID_LEN]
+        .try_into()
+        .expect("four-byte UID slice");
+    if current_uid != card.uid.as_slice() {
+        return Err(NfcError::CardChanged);
+    }
+    let expected_bcc = bcc_for_uid(&current_uid)?;
+    if current.blocks[0].data[4] != expected_bcc {
+        return Err(NfcError::VerificationFailed(format!(
+            "manufacturer block 0 BCC is {:02X}, expected {expected_bcc:02X}; the card image is inconsistent",
+            current.blocks[0].data[4]
+        )));
+    }
+    let target_bcc = bcc_for_uid(&target_uid)?;
+
+    let current_access = AccessBits::decode([
+        current.blocks[3].data[6],
+        current.blocks[3].data[7],
+        current.blocks[3].data[8],
+    ])
+    .map_err(|error| {
+        NfcError::InvalidArgument(format!(
+            "the live sector 0 trailer access bits are invalid: {error}"
+        ))
+    })?;
+    let mut live_key = current
+        .metadata
+        .keys
+        .iter()
+        .find(|key| key.sector == 0)
+        .map(|key| (key.key_type, key.key));
+    if live_key.is_none() {
+        for (key_type, key, _) in candidate_keys(keys, &card, include_common_keys, 0) {
+            operation.cancel().check()?;
+            match operation.authenticate(0, key_type, key) {
+                Ok(()) => {
+                    live_key = Some((key_type, key));
+                    break;
+                }
+                Err(NfcError::AuthenticationFailed) => continue,
+                Err(error) => return Err(error),
+            }
+        }
+    }
+    let live_key = live_key.ok_or(NfcError::AuthenticationFailed)?;
+
+    let trailer_written =
+        source.blocks[3].complete() && source.blocks[3].data != current.blocks[3].data;
+    let source_key = |key_type: KeyType| {
+        source
+            .metadata
+            .keys
+            .iter()
+            .find(|key| key.sector == 0 && key.key_type == key_type)
+            .map(|key| key.key)
+    };
+    let (sector0_key, write_key, old_trailer, post_access) = if trailer_written {
+        let mut written_trailer = source.blocks[3].data;
+        if written_trailer[..6].iter().all(|byte| *byte == 0) {
+            let key_a = source_key(KeyType::A)
+                .or_else(|| (live_key.0 == KeyType::A).then_some(live_key.1))
+                .ok_or_else(|| {
+                    NfcError::InvalidArgument(
+                        "the restored sector 0 trailer masks Key A and no Key A is known; supply the Key A bytes"
+                            .to_owned(),
+                    )
+                })?;
+            written_trailer[..6].copy_from_slice(key_a.as_bytes());
+        }
+        if written_trailer[10..].iter().all(|byte| *byte == 0)
+            && !current_access.groups[3].key_b_readable()
+        {
+            let key_b = source_key(KeyType::B)
+                .or_else(|| (live_key.0 == KeyType::B).then_some(live_key.1))
+                .ok_or_else(|| {
+                    NfcError::InvalidArgument(
+                        "the restored sector 0 trailer masks Key B and no Key B is known; supply the Key B bytes"
+                            .to_owned(),
+                    )
+                })?;
+            written_trailer[10..].copy_from_slice(key_b.as_bytes());
+        }
+        let access =
+            AccessBits::decode([written_trailer[6], written_trailer[7], written_trailer[8]])
+                .map_err(|error| {
+                    NfcError::InvalidArgument(format!(
+                        "the post-restore sector 0 trailer access bits are invalid: {error}"
+                    ))
+                })?;
+        if access.groups[0].data_read_keys().is_empty() {
+            return Err(NfcError::Unsupported(
+                "the post-restore sector 0 access bits deny reading its data blocks; the UID write cannot be verified",
+            ));
+        }
+        let key_a = Key::new(
+            written_trailer[0..6]
+                .try_into()
+                .expect("six-byte Key A slice"),
+        );
+        let key_b = Key::new(
+            written_trailer[10..16]
+                .try_into()
+                .expect("six-byte Key B slice"),
+        );
+        let write_mask = access.groups[0].data_write_keys();
+        let write_key = if write_mask.allows_a() {
+            Some((KeyType::A, key_a))
+        } else if write_mask.allows_b() {
+            Some((KeyType::B, key_b))
+        } else {
+            None
+        };
+        let read_mask = access.groups[0].data_read_keys();
+        let read_key = if read_mask.allows_b() && !read_mask.allows_a() {
+            (KeyType::B, key_b)
+        } else {
+            (KeyType::A, key_a)
+        };
+        (
+            read_key,
+            write_key,
+            trailer_as_read(written_trailer, access),
+            access,
+        )
+    } else {
+        let write_mask = current_access.groups[0].data_write_keys();
+        let mut write_key = match live_key.0 {
+            KeyType::A => write_mask.allows_a(),
+            KeyType::B => write_mask.allows_b(),
+        }
+        .then_some(live_key);
+        if write_key.is_none() && !write_mask.is_empty() {
+            for (key_type, key, _) in candidate_keys(keys, &card, include_common_keys, 0) {
+                if !match key_type {
+                    KeyType::A => write_mask.allows_a(),
+                    KeyType::B => write_mask.allows_b(),
+                } {
+                    continue;
+                }
+                operation.cancel().check()?;
+                if operation.authenticate(0, key_type, key).is_ok() {
+                    write_key = Some((key_type, key));
+                    break;
+                }
+            }
+        }
+        (
+            live_key,
+            write_key,
+            trailer_as_read(current.blocks[3].data, current_access),
+            current_access,
+        )
+    };
+    let write_keys = WriteKeyTypes {
+        a: post_access.groups[0].data_write_keys().allows_a(),
+        b: post_access.groups[0].data_write_keys().allows_b(),
+    };
+
+    let mut backends = Vec::new();
+    if operation.has_manufacturer_writer() {
+        backends.push(UidWriteBackend::Gen1a);
+    }
+    if write_key.is_some() {
+        backends.push(UidWriteBackend::Standard);
+    }
+    if backends.is_empty() {
+        return Err(if write_keys.any() {
+            NfcError::AuthenticationFailed
+        } else {
+            NfcError::Unsupported(
+                "the post-restore sector 0 access bits deny data writes and the reader has no protected manufacturer writer",
+            )
+        });
+    }
+
+    let mut new_block0 = current.blocks[0].data;
+    new_block0[0..UID_LEN].copy_from_slice(&target_uid);
+    new_block0[4] = target_bcc;
+    let changed = new_block0 != current.blocks[0].data;
+
+    let mut expected = Dump::new(Layout::Classic1K).with_card(card.clone());
+    for number in 0..4 {
+        let data = if number == 3 {
+            old_trailer
+        } else if source.blocks[number].complete() {
+            source.blocks[number].data
+        } else {
+            current.blocks[number].data
+        };
+        expected.blocks[number].set_read(data);
+    }
+
+    let mut warnings = Vec::new();
+    if trailer_written {
+        warnings.push(
+            "the restored sector 0 trailer replaces Key A/B; the restored trailer supplies the verification key"
+                .to_owned(),
+        );
+    }
+    if !write_keys.any() {
+        warnings.push(
+            "post-restore sector 0 access bits deny data writes; only the protected Gen1A writer can change this UID"
+                .to_owned(),
+        );
+    } else if write_key.is_none() {
+        warnings.push(
+            "no candidate key is allowed by the post-restore access bits; only the protected Gen1A writer is available"
+                .to_owned(),
+        );
+    }
+    warnings.push("the UID is written only after the restore and sector 0 are verified".to_owned());
+    if !changed {
+        warnings.push("the target UID already matches the card; no UID write is needed".to_owned());
+    }
+
+    Ok(ClassicUidPlan {
+        token,
+        card,
+        layout: Layout::Classic1K,
+        current_uid,
+        target_uid,
+        old_block0: current.blocks[0].data,
+        new_block0,
+        old_trailer,
+        sector0_key,
+        write_key,
+        write_keys,
+        backends,
+        changed,
+        warnings,
+        expires_at: unix_now() + WRITE_PLAN_TTL.as_secs(),
+        card_fingerprint: dump_fingerprint(&expected),
+    })
+}
+
 /// Executes a plan after rechecking the token, card, and sector-0 state.
 pub fn execute(
     operation: &mut Operation<'_>,
@@ -393,7 +688,12 @@ pub fn execute(
         ));
     }
     check_expected_card(operation.card(), Some(&plan.card))?;
-    let sector = read_sector_zero(operation, request.keys, request.include_common_keys)?;
+    let sector = read_sector_zero(
+        operation,
+        request.keys,
+        request.include_common_keys,
+        request.expected_sector0_key,
+    )?;
     if dump_fingerprint(&sector.image()) != plan.card_fingerprint {
         return Err(NfcError::CardChanged);
     }
@@ -516,6 +816,7 @@ fn read_sector_zero(
     operation: &mut Operation<'_>,
     keys: &KeyStore,
     include_common_keys: bool,
+    expected_key: Option<(KeyType, Key)>,
 ) -> Result<SectorZero> {
     let card = operation.card().clone();
     if card.card_type != CardType::MifareClassic1K {
@@ -535,19 +836,28 @@ fn read_sector_zero(
         ));
     }
 
-    let mut authenticated = None;
-    for (key_type, key, _source) in candidate_keys(keys, &card, include_common_keys, 0) {
-        operation.cancel().check()?;
-        match operation.authenticate(0, key_type, key) {
-            Ok(()) => {
-                authenticated = Some((key_type, key));
-                break;
-            }
-            Err(NfcError::AuthenticationFailed) => continue,
-            Err(error) => return Err(error),
+    let key = match expected_key {
+        Some((key_type, key)) => {
+            operation.cancel().check()?;
+            operation.authenticate(0, key_type, key)?;
+            (key_type, key)
         }
-    }
-    let key = authenticated.ok_or(NfcError::AuthenticationFailed)?;
+        None => {
+            let mut authenticated = None;
+            for (key_type, key, _source) in candidate_keys(keys, &card, include_common_keys, 0) {
+                operation.cancel().check()?;
+                match operation.authenticate(0, key_type, key) {
+                    Ok(()) => {
+                        authenticated = Some((key_type, key));
+                        break;
+                    }
+                    Err(NfcError::AuthenticationFailed) => continue,
+                    Err(error) => return Err(error),
+                }
+            }
+            authenticated.ok_or(NfcError::AuthenticationFailed)?
+        }
+    };
 
     let mut blocks = [[0u8; BLOCK_SIZE]; 4];
     for (number, block) in blocks.iter_mut().enumerate() {
@@ -562,16 +872,42 @@ fn read_sector_zero(
     Ok(sector)
 }
 
-enum VerifyOutcome {
+pub(crate) enum VerifyOutcome {
     Applied(CardInfo),
     Unchanged,
     Different(CardInfo),
 }
 
+/// Re-reads sector 0 with the planned key and requires it to match the
+/// post-restore state stored in the plan. No write is performed.
+pub(crate) fn verify_restored_sector_zero(
+    operation: &mut Operation<'_>,
+    plan: &ClassicUidPlan,
+) -> Result<()> {
+    let reader = operation.reader_mut();
+    let card = reader.card_info()?;
+    if card.card_type != CardType::MifareClassic1K
+        || card.uid.as_slice() != plan.current_uid.as_slice()
+    {
+        return Err(NfcError::CardChanged);
+    }
+    reader.authenticate(0, plan.sector0_key.0, plan.sector0_key.1)?;
+    let mut dump = Dump::new(Layout::Classic1K).with_card(card);
+    for number in 0..4 {
+        dump.blocks[number].set_read(reader.read_block(number as u8)?);
+    }
+    if dump_fingerprint(&dump) != plan.card_fingerprint {
+        return Err(NfcError::VerificationFailed(
+            "the restored sector 0 does not match the dump".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 /// Reselects and reads block 0 after an attempt. This path deliberately
 /// ignores cancellation: once a write may have reached the card, the caller
 /// must learn the outcome instead of treating a cancel as "not written".
-fn verify_after_attempt(
+pub(crate) fn verify_after_attempt(
     operation: &mut Operation<'_>,
     plan: &ClassicUidPlan,
 ) -> Result<VerifyOutcome> {

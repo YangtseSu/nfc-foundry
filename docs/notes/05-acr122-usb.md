@@ -123,6 +123,18 @@ Date: 2026-11-10
 - No LED/buzzer control, interrupt-endpoint event handling, or automatic
   polling.
 
+## 2026-11-11 service revisit
+
+`pcscd` was stopped and the direct USB path ran with the application services
+at `acr122_usb:001:002`. Classic full dump and key scan reached 64/64 blocks
+and 16/16 sectors; data-block and sector-trailer writes backed up and read
+back; the guarded UID service selected Gen1A and changed and restored the UID;
+restore with UID restored a full dump with a changed data block and UID; the
+Classic NDEF format/write/read/restore round trip left the original dump
+byte-for-byte. NTAG215 NDEF format/write/read/restore restored the original
+75-byte vCard. See `09-type2-ndef.md`, `10-classic-ndef.md`,
+`24c-uid-write.md`, and `24d-restore-with-uid.md`.
+
 ## Remaining blockers
 
 - Physical unplug/replug recovery was not tested; disconnect mapping is covered

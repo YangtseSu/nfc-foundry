@@ -494,11 +494,14 @@ impl Reader for MockReader {
     fn read_block(&mut self, block: u8) -> Result<[u8; BLOCK_SIZE]> {
         let mut state = self.state.lock();
         state.check_call(MockCall::ReadBlock)?;
-        state
-            .blocks
-            .get(&block)
-            .copied()
-            .ok_or_else(|| NfcError::InvalidArgument(format!("mock block {block} is not loaded")))
+        let data = state.blocks.get(&block).copied().ok_or_else(|| {
+            NfcError::InvalidArgument(format!("mock block {block} is not loaded"))
+        })?;
+        Ok(if block % 4 == 3 {
+            trailer_as_read(data)
+        } else {
+            data
+        })
     }
 
     fn write_block(&mut self, block: u8, data: [u8; BLOCK_SIZE]) -> Result<()> {
@@ -713,6 +716,20 @@ impl Transport for MockTransport {
             })?;
         Ok(Box::new(MockReader::from_handle(info, handle)))
     }
+}
+
+/// The bytes a MIFARE trailer read returns: Key A is always masked, and Key B
+/// is masked when the trailer access bits do not expose it.
+fn trailer_as_read(mut data: [u8; BLOCK_SIZE]) -> [u8; BLOCK_SIZE] {
+    data[..6].fill(0);
+    let c1 = data[7] & 0x80 != 0;
+    let c2 = data[8] & 0x08 != 0;
+    let c3 = data[8] & 0x80 != 0;
+    let code = (u8::from(c1) << 2) | (u8::from(c2) << 1) | u8::from(c3);
+    if code > 2 {
+        data[10..].fill(0);
+    }
+    data
 }
 
 #[cfg(test)]

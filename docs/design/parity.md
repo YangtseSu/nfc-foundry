@@ -27,25 +27,26 @@ the image when the reader changes. No CLI-only card capability is hidden there.
 | Operation | CLI | GUI | Gate | Hardware |
 |---|---|---|---|---|
 | Read block | `classic read --block` | Blocks → Read block | R | PN532, ACR122U |
-| Dump | `classic dump --output --format` | MIFARE Classic → Dumps → Save dump… (format dialog) | R | PN532; ACR n/r |
+| Dump | `classic dump --output --format` | MIFARE Classic → Dumps → Save dump… (format dialog) | R | PN532, ACR |
 | Verified key capture | read, `classic keyscan`, `recover` record authenticated keys | read, Key scan, Recovery record authenticated keys | R | file only |
-| Write block | `classic write --block --data` | Blocks inspector → Stage edit → Write changes… | C, B | PN532; ACR n/r |
-| Write sector trailer | `classic write --confirm-trailer` | Stage the trailer edit, then Write changes… | C, B | n/r |
-| Write preflight | `classic write --dry-run` / `classic restore --dry-run` | Plan dialog before Write changes… / Restore to card | R | PN532; ACR n/r |
-| Change UID / manufacturer block 0 | `classic uid --uid --advanced [--dry-run]` | Blocks inspector → Advanced mode → Write UID… → target UID → plan dialog | A, B, C | PN532; ACR n/r |
+| Write block | `classic write --block --data` | Blocks inspector → Stage edit → Write changes… | C, B | PN532, ACR |
+| Write sector trailer | `classic write --confirm-trailer` | Stage the trailer edit, then Write changes… | C, B | PN532, ACR |
+| Write preflight | `classic write --dry-run` / `classic restore --dry-run` | Plan dialog before Write changes… / Restore to card | R | PN532, ACR |
+| Change UID / manufacturer block 0 | `classic uid --uid --advanced [--dry-run]` | Blocks inspector → Advanced mode → Write UID… → target UID → plan dialog | A, B, C | PN532, ACR |
 | Edit working image | — (staged by the GUI; `--dry-run` previews the plan) | Stage edit, Undo edit, Revert edits; dirty rows show `edited` | none | file only |
-| Restore | `classic restore --input [--blocks] [--changes-only] [--continue-on-error] [--dry-run]` | MIFARE Classic → Dumps → Restore → Load dump… → mode → Restore to card | C, B | PN532; ACR n/r |
-| Key scan | `classic keyscan [--save] [--types]` | MIFARE Classic → Keys → Key scan → Start scan; verified keys are captured automatically, Save remains available | R | PN532; ACR n/r |
+| Restore | `classic restore --input [--blocks] [--changes-only] [--continue-on-error] [--dry-run]` | MIFARE Classic → Dumps → Restore → Load dump… → mode → Restore to card | C, B | PN532, ACR |
+| Restore with UID | `classic restore --input --uid --advanced [--dry-run]` | Restore → target UID + Advanced → Restore to card → plan dialog | A, B, C | PN532, ACR |
+| Key scan | `classic keyscan [--save] [--types]` | MIFARE Classic → Keys → Key scan → Start scan; verified keys are captured automatically, Save remains available | R | PN532, ACR |
 | Key list | `classic keys list` | Keys table (version-2 store with card-scoped verifications) | R | file only |
 | Key import | `classic keys import` | Keys → Import .dic / JSON… | explicit | file only |
 | Key add | `classic keys add` | Keys → Add key | explicit | file only |
 | Key export `.dic` | `classic keys export --format dic` | Keys → Export .dic… | explicit | file only |
 | Key export JSON | `classic keys export --format json` | Keys → Save store | explicit | file only |
 | Dump diff | `classic diff BEFORE AFTER` | MIFARE Classic → Dumps → Diff → Load before/after → Compare | R | file only |
-| Classic NDEF facts | `classic ndef info` | NDEF page facts for the loaded Classic image | R | PN532 |
-| Classic NDEF read | `classic ndef read [--output]` | NDEF page records; Export message… writes the raw message | R | PN532 |
-| Classic NDEF write | `classic ndef write` | NDEF composer → Write NDEF | C, B | PN532; ACR n/r |
-| Classic NDEF format | `classic ndef format` | NDEF → Format NDEF area… | C, B | PN532; ACR n/r |
+| Classic NDEF facts | `classic ndef info` | NDEF page facts for the loaded Classic image | R | PN532, ACR |
+| Classic NDEF read | `classic ndef read [--output]` | NDEF page records; Export message… writes the raw message | R | PN532, ACR |
+| Classic NDEF write | `classic ndef write` | NDEF composer → Write NDEF | C, B | PN532, ACR |
+| Classic NDEF format | `classic ndef format` | NDEF → Format NDEF area… | C, B | PN532, ACR |
 
 Extra service gates on both surfaces: a complete dump, a complete and writable
 NFC mapping, no read-only GPB, capacity, and a message different from the

@@ -137,8 +137,29 @@ authorization. The gated tests live in `nfctl/tests/hardware_type2.rs`.
 
 ## Remaining blockers
 
-- Hardware validation of NTAG215 read/write/NDEF round trip on ACR122U.
 - Hardware validation of lock and password paths on an owned tag.
+- Authenticated reads/writes after AUTH0 are planned in
+  [24e-type2-auth.md](../specs/24e-type2-auth.md) (plan 24 S6). The password
+  hardware test must not run on a shared tag until that slice lands.
 - `GET_VERSION`/`FAST_READ` for tags whose CC is absent or non-standard.
 - Type 2 password authentication for reads and writes after AUTH0 is set.
 - Classic MAD/CC NDEF belongs to phase 10.
+
+## 2026-11-11 ACR122U hardware record
+
+`pcscd` was stopped and an NTAG215 (`04 34 4C C2 83 5C 80`) was placed on
+`acr122_usb:001:002`. The read test reported 135/135 pages, CC `E1 10 3E 00`,
+496-byte NDEF area, 491-byte capacity, and the original 75-byte vCard NDEF
+message. The write test then:
+
+- formatted the NDEF area;
+- wrote a 33-byte Text record and read it back;
+- saved the original image to a project backup;
+- restored the original user memory.
+
+A follow-up `type2 info` reported the original 75-byte vCard NDEF, 135/135
+pages, static lock `00 00`, dynamic lock `00 00 00`, AUTH0 `FF`, ACCESS `00`,
+CFGLCK false, and AUTHLIM 0. The ACR122U Type 2 NDEF row is now validated.
+
+The password test was not run: it changes PWD/PACK and AUTH0 without restoring
+them, so it needs an explicit decision for the owned tag.

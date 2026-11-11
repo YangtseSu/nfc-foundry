@@ -32,7 +32,10 @@ pub use plan::{
     RestoreSelection, WRITE_PLAN_TTL, WriteKeyTypes, WriteToken, parse_block_list, validate_source,
 };
 pub use read::{ClassicBlockReadResult, ClassicRead, ClassicReadResult};
-pub use restore::{ClassicRestore, ClassicRestoreResult, RestoreBlockResult, RestoreBlockState};
+pub use restore::{
+    ClassicRestore, ClassicRestoreResult, RestoreBlockResult, RestoreBlockState, RestoreUidResult,
+    RestoreUidState,
+};
 pub use uid::{
     ClassicUidExecution, ClassicUidPlan, ClassicUidPreflight, ClassicUidResult, UID_LEN,
     UidBackupRecord, UidWriteBackend, format_uid, normalize_uid_text, parse_uid,

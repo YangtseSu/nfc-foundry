@@ -161,7 +161,7 @@ fn ndef_write_read_and_restore_round_trip() {
 
 #[cfg(feature = "hardware-write")]
 #[test]
-#[ignore = "requires an NTAG with a known password"]
+#[ignore = "deferred until phase 24 S6: authenticated access after AUTH0"]
 fn password_configuration_writes_and_verifies() {
     assert_eq!(
         env::var("NFC_FOUNDRY_HARDWARE_WRITE").as_deref(),

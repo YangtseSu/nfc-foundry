@@ -1,6 +1,6 @@
 # Spec: phase 24c standalone UID / block-0 write
 
-Status: implemented 2026-11-11; PN532 UART hardware row validated. Plan:
+Status: implemented 2026-11-11; PN532 UART and ACR122U hardware rows validated. Plan:
 [24-parity-recovery.md](../plan/24-parity-recovery.md). Slice: S3a.
 
 ## Problem
@@ -29,7 +29,7 @@ Not in this slice:
 
 - Seven- and ten-byte UIDs, Classic 4K, and cascade BCC layouts.
 - Full clone, factory format, and restore-with-UID (S3b).
-- External `nfc-mfsetuid` or any other process.
+- Invoking the external `nfc-mfsetuid` binary. Its Gen1A unlock and block-0 write sequence is ported natively; the shipped path is `nfctl classic uid` / the GTK dialog.
 
 ## Preflight
 
@@ -152,5 +152,5 @@ also invalidates the image; the user must read the card again.
 ## Required checks
 
 `cargo fmt --all --check`, workspace clippy with `-D warnings`, workspace tests,
-gated GTK tests for changed screens, and `reuse lint`. The PN532 UART hardware
-row is validated; the ACR122U service path remains `not recorded`.
+gated GTK tests for changed screens, and `reuse lint`. The PN532 UART and
+ACR122U hardware rows are validated.

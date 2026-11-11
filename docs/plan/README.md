@@ -39,7 +39,7 @@ work; their current equivalents are the GTK4 workspaces.
 | 19c | Type 2 / NTAG workbench and hardware-gated Type 4 read | done |
 | 19d | Recovery, keyscan, diagnostics, activity, settings | done |
 | 19e | Bilingual UI, parity audit, UI tests, packaging | done |
-| 24 | Parity recovery: verified keys, workbench, UID, reader lifecycle, diagnostics | in progress (S1, S2, S3a done; S3b next) |
+| 24 | Parity recovery: verified keys, workbench, UID, reader lifecycle, diagnostics | in progress (S1, S2, S3a, S3b done) |
 
 ## Rules
 
@@ -742,5 +742,6 @@ and diagnostics gaps.
 Detailed plan: [24-parity-recovery.md](24-parity-recovery.md). Status:
 in progress. S1 (verified-key capture and dump key metadata), S2 (editable
 workbench and selective restore), and S3a (standalone UID / block-0 write) are
-complete; S3b (restore with UID) is next. Each slice needs a spec in
-`docs/specs/` before implementation and a note in `docs/notes/` when complete.
+complete; S3b (restore with UID) is complete and validated on PN532 UART and
+ACR122U. Each slice needs a spec in `docs/specs/` before implementation and a
+note in `docs/notes/` when complete.

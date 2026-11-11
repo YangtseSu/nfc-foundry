@@ -82,8 +82,11 @@ block-0 write) are complete. The UID path writes only four-byte UID MIFARE
 Classic 1K magic cards, prefers the Gen1A protected writer on ACR122U and
 PN532 UART, falls back to an ordinary CUID/Gen2 block-0 write, and reselects
 and verifies the complete block 0, BCC, and sector trailer after every attempt.
-The path is hardware-validated on PN532 UART with an owned Gen1A card; the
-ACR122U service path remains unrecorded. S3b (restore with UID) is next. Remaining work is the Type 4 read
+The path is hardware-validated on PN532 UART and ACR122U with an owned Gen1A
+card. S3b (restore with UID) is complete:
+a full restore runs under one preflight token, verifies the restored sector 0,
+and only then writes the target UID. It is hardware-validated on PN532 UART and
+ACR122U with an owned Gen1A Classic 1K. Remaining work is the Type 4 read
 surface (hardware-gated) and phases 13-17.
 
 ## Product scope

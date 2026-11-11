@@ -152,3 +152,23 @@ cargo test -p nfctl --features hardware-write --test hardware_type4 -- --ignored
 Expected first cards: NTAG 424 DNA (factory 256-byte NDEF, free read/write) and
 MIFARE DESFire EV3 8K (after external AN11004 formatting). Neither record is
 claimed until the commands above run on the actual card and reader.
+
+## 2026-11-11 DESFire EV3 8K probe
+
+A MIFARE DESFire EV3 8K (UID `04 4D 09 A2 BB 17 90`, ATQA `03 44`, SAK
+`20`) was placed on `pn532_uart:/dev/ttyUSB0`. The selection-level scan reports
+only `Iso14443` because the card is an ISO-DEP target. APDU probes gave:
+
+- `GET VERSION` (`90 60 00 00 00`): `91AF` with
+  `04 01 01 33 00 1A 05` (NXP DESFire EV3 8K);
+- `SELECT` by NDEF Tag Application `D2760000850101`: `6A82`, not found;
+- `SELECT` by MIFARE application `D2760000850100`: `9000`;
+- `GET APPLICATION IDS` (`90 6A 00 00 00`): `9100` with no application data;
+- `SELECT FILE E103`: `6A82`.
+
+The card has no NFC Forum Type 4 NDEF application, so the Type 4 read stops at
+application selection before the CC. NFC Foundry does not implement DESFire
+native authentication, applications, or files, and does not format a DESFire
+card. The Type 4 path can be exercised only after an external Type 4/AN11004
+format creates the NDEF application and CC file. DESFire native support is not
+part of the current product scope.

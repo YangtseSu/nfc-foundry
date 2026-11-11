@@ -1119,3 +1119,150 @@ fn uid_write_gates_and_verifies_on_the_mock_card() {
         stdout(&output)
     );
 }
+
+#[test]
+fn restore_with_uid_dry_run_gates_and_executes_on_the_mock_card() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backups = directory.path().join("backups");
+    let dump_path = directory.path().join("card.json");
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "classic",
+        "dump",
+        "--output",
+        dump_path.to_str().expect("path"),
+        "--format",
+        "project",
+    ]);
+    assert_success(&output);
+    let mut dump = exchange::load(&std::fs::read(&dump_path).expect("dump"))
+        .expect("load dump")
+        .dump;
+    dump.blocks[4].set_read([0x41; 16]);
+    let source = directory.path().join("changed.json");
+    std::fs::write(
+        &source,
+        exchange::export(&dump, DumpFormat::Project).expect("export"),
+    )
+    .expect("write source");
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "classic",
+        "restore",
+        "--input",
+        source.to_str().expect("path"),
+        "--uid",
+        "DEADBEEF",
+        "--advanced",
+        "--dry-run",
+    ]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("UID target DEADBEEF"), "{text}");
+    assert!(text.contains("new block 0"), "{text}");
+    assert!(
+        text.contains("dry run: no card writes were performed"),
+        "{text}"
+    );
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "classic",
+        "restore",
+        "--input",
+        source.to_str().expect("path"),
+        "--uid",
+        "DEADBEEF",
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        stderr(&output).contains("--advanced"),
+        "{}",
+        stderr(&output)
+    );
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "classic",
+        "restore",
+        "--input",
+        source.to_str().expect("path"),
+        "--advanced",
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("--uid"), "{}", stderr(&output));
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "classic",
+        "restore",
+        "--input",
+        source.to_str().expect("path"),
+        "--blocks",
+        "4",
+        "--uid",
+        "DEADBEEF",
+        "--advanced",
+        "--yes",
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        stderr(&output).contains("full restore"),
+        "{}",
+        stderr(&output)
+    );
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "--backup-dir",
+        backups.to_str().expect("path"),
+        "classic",
+        "restore",
+        "--input",
+        source.to_str().expect("path"),
+        "--uid",
+        "DEADBEEF",
+        "--advanced",
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        stderr(&output).contains("writing UID DEADBEEF"),
+        "{}",
+        stderr(&output)
+    );
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "--backup-dir",
+        backups.to_str().expect("path"),
+        "classic",
+        "restore",
+        "--input",
+        source.to_str().expect("path"),
+        "--uid",
+        "DE:AD:BE:EF",
+        "--advanced",
+        "--yes",
+    ]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("1 written"), "{text}");
+    assert!(text.contains("UID changed: 04A2248A -> DEADBEEF"), "{text}");
+    assert!(text.contains("BCC valid"), "{text}");
+    assert!(text.contains("UID backup:"), "{text}");
+}

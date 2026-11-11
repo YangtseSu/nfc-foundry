@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use nfc_app::classic::{
     ClassicBlockWrite, ClassicKeyscan, ClassicRead, ClassicRestore, ClassicUidExecution,
     ClassicUidPreflight, ClassicWriteExecution, ClassicWritePreflight, KeyTypes, RestoreBlockState,
-    RestoreSelection, UidWriteBackend, WorkbenchMergeReport,
+    RestoreSelection, RestoreUidState, UidWriteBackend, WorkbenchMergeReport,
 };
 use nfc_app::{BackupStore, KeyEntry, KeyKind, KeySource, KeyStore, Service};
 use nfc_classic::{AccessBits, AccessCondition, Dump, DumpFormat, Layout, bcc_for_uid, exchange};
@@ -30,6 +30,18 @@ fn trailer(access: [u8; 3]) -> [u8; BLOCK_SIZE] {
     let mut data = [0xFF; BLOCK_SIZE];
     data[6..9].copy_from_slice(&access);
     data[9] = 0x69;
+    data
+}
+
+/// The bytes a MIFARE trailer read returns: Key A is always masked and Key B
+/// is masked when the access bits hide it.
+fn trailer_as_read(mut data: [u8; BLOCK_SIZE]) -> [u8; BLOCK_SIZE] {
+    data[..6].fill(0);
+    if let Ok(access) = AccessBits::decode([data[6], data[7], data[8]])
+        && !access.groups[3].key_b_readable()
+    {
+        data[10..].fill(0);
+    }
     data
 }
 
@@ -193,11 +205,15 @@ impl Reader for TestReader {
         if state.card.is_none() {
             return Err(NfcError::NoCard);
         }
-        state
+        let mut data = state
             .blocks
             .get(&block)
             .copied()
-            .ok_or_else(|| NfcError::Io(format!("test block {block} is not loaded")))
+            .ok_or_else(|| NfcError::Io(format!("test block {block} is not loaded")))?;
+        if block % 4 == 3 {
+            data = trailer_as_read(data);
+        }
+        Ok(data)
     }
 
     fn write_block(&mut self, block: u8, data: [u8; BLOCK_SIZE]) -> Result<()> {
@@ -575,7 +591,10 @@ fn restore_writes_data_blocks_before_the_trailer_and_backs_up() {
             .expect("load backup")
             .dump;
     assert_eq!(backup_dump.blocks[4].data, [4; BLOCK_SIZE]);
-    assert_eq!(backup_dump.blocks[7].data, original_trailer);
+    assert_eq!(
+        backup_dump.blocks[7].data,
+        trailer_as_read(original_trailer)
+    );
 }
 
 #[test]
@@ -1164,7 +1183,10 @@ fn uid_write_changes_block_zero_and_reselects_the_new_uid() {
     .expect("load backup")
     .dump;
     assert_eq!(backup_dump.blocks[0].data, original);
-    assert_eq!(backup_dump.blocks[3].data, original_trailer);
+    assert_eq!(
+        backup_dump.blocks[3].data,
+        trailer_as_read(original_trailer)
+    );
 
     let read = service
         .classic_read_block(0, &store, false, CancelToken::new())
@@ -1456,4 +1478,333 @@ fn uid_write_on_an_immutable_card_changes_nothing() {
     }
     assert_eq!(handle.lock().blocks[&0][0..4], UID);
     assert_eq!(handle.lock().card.as_ref().expect("card").uid, UID);
+}
+
+fn restore_uid_preflight(
+    service: &mut Service,
+    store: &KeyStore,
+    dump: &Dump,
+    target: [u8; 4],
+) -> Result<nfc_app::classic::ClassicWritePlan> {
+    service.classic_write_preflight(
+        ClassicWritePreflight::new(dump.clone(), store)
+            .include_common_keys(false)
+            .uid_target(target)
+            .advanced(true),
+    )
+}
+
+fn restore_uid_execute(
+    service: &mut Service,
+    store: &KeyStore,
+    backup: &BackupStore,
+    token: nfc_app::classic::WriteToken,
+    dump: Dump,
+    advanced: bool,
+) -> Result<nfc_app::classic::ClassicRestoreResult> {
+    service.classic_write_execute(
+        ClassicWriteExecution::new(token, dump, store, backup)
+            .include_common_keys(false)
+            .advanced(advanced)
+            .confirmed(true),
+    )
+}
+
+#[test]
+fn restore_with_uid_restores_the_dump_then_changes_and_verifies_the_uid() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+    let mut source = read_dump(&mut service, &store);
+    source.blocks[4].set_read([0x41; BLOCK_SIZE]);
+    let original_block0 = handle.lock().blocks[&0];
+
+    let plan = restore_uid_preflight(&mut service, &store, &source, TARGET_UID)
+        .expect("restore UID preflight");
+    let uid = plan.uid.as_ref().expect("UID plan");
+    assert_eq!(uid.target_uid, TARGET_UID);
+    assert_eq!(uid.old_block0, original_block0);
+    assert_eq!(uid.current_uid, UID);
+    assert_eq!(uid.backends, vec![UidWriteBackend::Standard]);
+    assert_eq!(plan.blocks.len(), 1);
+    assert_eq!(plan.blocks[0].block, 4);
+
+    let result = restore_uid_execute(
+        &mut service,
+        &store,
+        &backup,
+        plan.token,
+        source.clone(),
+        true,
+    )
+    .expect("restore and UID write");
+    assert!(result.failures.is_empty());
+    assert_eq!(result.written_blocks, 1);
+    assert_eq!(handle.lock().write_log, vec![4, 0]);
+    let uid = result.uid.expect("UID result");
+    assert_eq!(uid.state, RestoreUidState::Applied);
+    assert_eq!(uid.backend, Some(UidWriteBackend::Standard));
+    assert_eq!(uid.old_block0, original_block0);
+    assert_eq!(uid.target_uid, TARGET_UID);
+    assert_eq!(
+        uid.card_after.as_ref().expect("card after").uid,
+        TARGET_UID.to_vec()
+    );
+    let uid_backup = uid.backup.expect("UID backup");
+    assert!(uid_backup.backup.path.exists());
+    assert_eq!(handle.lock().blocks[&4], [0x41; BLOCK_SIZE]);
+    assert_eq!(&handle.lock().blocks[&0][0..4], TARGET_UID.as_slice());
+
+    let read = service
+        .classic_read(ClassicRead::new(&store).include_common_keys(false))
+        .expect("read after restore");
+    assert_eq!(read.dump.card.expect("card").uid, TARGET_UID.to_vec());
+    assert_eq!(read.dump.blocks[4].data, [0x41; BLOCK_SIZE]);
+    assert_eq!(read.dump.blocks[0].data, uid.new_block0);
+}
+
+#[test]
+fn restore_with_uid_uses_the_restored_trailer_key_for_the_uid_write() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A), (KeyType::B, KEY_B)]);
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+    let mut source = read_dump(&mut service, &store);
+    source.blocks[4].set_read([0x44; BLOCK_SIZE]);
+    let mut access = AccessBits::decode(ordinary_access()).expect("access");
+    access.groups[0] = AccessCondition::new(false, true, true);
+    let mut new_trailer = trailer(access.encode());
+    new_trailer[..6].fill(0);
+    new_trailer[10..16].copy_from_slice(KEY_B.as_bytes());
+    source.blocks[3].set_read(new_trailer);
+
+    let plan = restore_uid_preflight(&mut service, &store, &source, TARGET_UID)
+        .expect("restore UID preflight");
+    let uid = plan.uid.as_ref().expect("UID plan");
+    assert_eq!(uid.sector0_key, (KeyType::B, KEY_B));
+    assert_eq!(uid.write_key, Some((KeyType::B, KEY_B)));
+    assert_eq!(uid.old_trailer, trailer_as_read(new_trailer));
+    assert!(uid.write_keys.b);
+
+    let result = restore_uid_execute(&mut service, &store, &backup, plan.token, source, true)
+        .expect("restore and UID write");
+    assert!(result.failures.is_empty());
+    let uid = result.uid.expect("UID result");
+    assert_eq!(uid.state, RestoreUidState::Applied);
+    let mut stored_trailer = new_trailer;
+    stored_trailer[..6].copy_from_slice(KEY_A.as_bytes());
+    assert_eq!(handle.lock().blocks[&3], stored_trailer);
+    assert_eq!(&handle.lock().blocks[&0][0..4], TARGET_UID.as_slice());
+    assert!(
+        handle
+            .lock()
+            .auth_log
+            .iter()
+            .any(|(block, key_type, key)| *block == 0 && *key_type == KeyType::B && *key == KEY_B)
+    );
+}
+
+#[test]
+fn restore_with_uid_refuses_post_restore_access_that_denies_a_uid_write() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+    let directory = tempfile::tempdir().expect("temp dir");
+    let mut source = read_dump(&mut service, &store);
+    source.blocks[4].set_read([0x55; BLOCK_SIZE]);
+    let mut access = AccessBits::decode(ordinary_access()).expect("access");
+    access.groups[0] = AccessCondition::new(true, true, true);
+    source.blocks[3].set_read(trailer(access.encode()));
+
+    let result = restore_uid_preflight(&mut service, &store, &source, TARGET_UID);
+    assert!(
+        matches!(result, Err(NfcError::Unsupported(_))),
+        "{result:?}"
+    );
+    assert!(handle.lock().write_log.is_empty());
+    assert_eq!(
+        std::fs::read_dir(directory.path())
+            .expect("backup dir")
+            .count(),
+        0
+    );
+}
+
+#[test]
+fn restore_with_uid_requires_advanced_mode_a_full_restore_and_confirmation() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+    let mut source = read_dump(&mut service, &store);
+    source.blocks[4].set_read([0x66; BLOCK_SIZE]);
+
+    let result = service.classic_write_preflight(
+        ClassicWritePreflight::new(source.clone(), &store)
+            .include_common_keys(false)
+            .uid_target(TARGET_UID),
+    );
+    assert!(matches!(result, Err(NfcError::InvalidArgument(_))));
+    assert!(handle.lock().write_log.is_empty());
+
+    let result = service.classic_write_preflight(
+        ClassicWritePreflight::new(source.clone(), &store)
+            .include_common_keys(false)
+            .uid_target(TARGET_UID)
+            .advanced(true)
+            .selection(RestoreSelection::Blocks(vec![4])),
+    );
+    assert!(matches!(result, Err(NfcError::InvalidArgument(_))));
+    assert!(handle.lock().write_log.is_empty());
+
+    let plan = restore_uid_preflight(&mut service, &store, &source, TARGET_UID)
+        .expect("restore UID preflight");
+    let result = service.classic_write_execute(
+        ClassicWriteExecution::new(plan.token, source.clone(), &store, &backup)
+            .include_common_keys(false)
+            .advanced(false)
+            .confirmed(true),
+    );
+    assert!(matches!(result, Err(NfcError::InvalidArgument(_))));
+    assert!(handle.lock().write_log.is_empty());
+
+    let plan = restore_uid_preflight(&mut service, &store, &source, TARGET_UID)
+        .expect("restore UID preflight");
+    let result = service.classic_write_execute(
+        ClassicWriteExecution::new(plan.token, source, &store, &backup)
+            .include_common_keys(false)
+            .advanced(true)
+            .confirmed(false),
+    );
+    assert!(matches!(result, Err(NfcError::InvalidArgument(_))));
+    assert!(handle.lock().write_log.is_empty());
+}
+
+#[test]
+fn restore_with_uid_skips_the_uid_when_a_dump_block_fails() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    handle.lock().fail_write = Some(5);
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+    let mut source = read_dump(&mut service, &store);
+    source.blocks[4].set_read([0x47; BLOCK_SIZE]);
+    source.blocks[5].set_read([0x48; BLOCK_SIZE]);
+
+    let plan = restore_uid_preflight(&mut service, &store, &source, TARGET_UID)
+        .expect("restore UID preflight");
+    let result = restore_uid_execute(&mut service, &store, &backup, plan.token, source, true)
+        .expect("restore reports partial failure");
+    assert_eq!(result.failures.len(), 1);
+    assert!(result.failures[0].contains("block 5"));
+    assert_eq!(result.written_blocks, 1);
+    let uid = result.uid.expect("UID result");
+    assert_eq!(uid.state, RestoreUidState::NotAttempted);
+    assert!(
+        uid.detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("failure")),
+        "{:?}",
+        uid.detail
+    );
+    assert_eq!(handle.lock().write_log, vec![4, 5]);
+    assert_eq!(handle.lock().card.as_ref().expect("card").uid, UID);
+}
+
+#[test]
+fn restore_with_uid_distinguishes_a_uid_failure_from_a_dump_failure() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    handle.lock().block_zero_writable = false;
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+    let mut source = read_dump(&mut service, &store);
+    source.blocks[4].set_read([0x49; BLOCK_SIZE]);
+
+    let plan = restore_uid_preflight(&mut service, &store, &source, TARGET_UID)
+        .expect("restore UID preflight");
+    let result = restore_uid_execute(&mut service, &store, &backup, plan.token, source, true)
+        .expect("dump restore succeeds");
+    assert!(result.failures.is_empty());
+    assert_eq!(result.written_blocks, 1);
+    assert_eq!(handle.lock().blocks[&4], [0x49; BLOCK_SIZE]);
+    let uid = result.uid.expect("UID result");
+    assert_eq!(uid.state, RestoreUidState::Failed);
+    assert!(
+        uid.detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("not changed")),
+        "{:?}",
+        uid.detail
+    );
+    assert_eq!(handle.lock().write_log, vec![4, 0]);
+    assert_eq!(handle.lock().card.as_ref().expect("card").uid, UID);
+}
+
+#[test]
+fn single_block_trailer_write_preserves_a_masked_key_a() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+    let original = handle.lock().blocks[&7];
+    let mut changed = original;
+    changed[..6].fill(0);
+    changed[9] ^= 0xFF;
+
+    let result = service
+        .classic_write_block(
+            ClassicBlockWrite::new(7, changed, &store, &backup)
+                .include_common_keys(false)
+                .confirm_trailer(true),
+        )
+        .expect("write the trailer");
+    assert!(result.changed);
+    let stored = handle.lock().blocks[&7];
+    assert_eq!(&stored[..6], KEY_A.as_bytes());
+    assert_eq!(stored[9], original[9] ^ 0xFF);
+    let read = service
+        .classic_read_block(7, &store, false, CancelToken::new())
+        .expect("read the trailer")
+        .data;
+    assert_eq!(read[6..10], stored[6..10]);
+
+    service
+        .classic_write_block(
+            ClassicBlockWrite::new(7, original, &store, &backup)
+                .include_common_keys(false)
+                .confirm_trailer(true),
+        )
+        .expect("restore the trailer");
+    assert_eq!(handle.lock().blocks[&7], original);
+}
+
+#[test]
+fn restore_preserves_a_masked_trailer_key() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+    let original = handle.lock().blocks[&7];
+    let mut source = read_dump(&mut service, &store);
+    assert!(source.blocks[7].data[..6].iter().all(|byte| *byte == 0));
+    source.blocks[7].data[9] ^= 0xFF;
+
+    let result = service
+        .classic_restore(ClassicRestore::new(source, &store, &backup).confirmed(true))
+        .expect("restore the trailer");
+    assert!(result.failures.is_empty());
+    assert_eq!(result.trailer_writes, 1);
+    let stored = handle.lock().blocks[&7];
+    assert_eq!(&stored[..6], KEY_A.as_bytes());
+    assert_eq!(stored[9], original[9] ^ 0xFF);
+    assert_eq!(stored[10..], original[10..]);
 }

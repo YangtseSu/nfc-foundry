@@ -109,6 +109,69 @@ impl<'a> Operation<'a> {
         Ok(())
     }
 
+    /// Writes a sector trailer, preserving masked key bytes and verifying the
+    /// fields the card can actually return.
+    ///
+    /// A trailer read never returns Key A and may mask Key B. When the target
+    /// bytes leave such a slot at zero, the authenticated key fills it so a
+    /// read-modify-write cannot silently destroy the key. Verification
+    /// re-authenticates with the resulting Key A, compares the access bytes
+    /// and GPB, and proves Key B when the new access bits permit Key B
+    /// trailer writes.
+    pub(crate) fn write_trailer_verified(
+        &mut self,
+        block: u8,
+        data: [u8; BLOCK_SIZE],
+        authenticated: (KeyType, Key),
+        current_access: nfc_classic::AccessBits,
+    ) -> Result<()> {
+        self.cancel.check()?;
+        let mut final_data = data;
+        if final_data[..6].iter().all(|byte| *byte == 0) {
+            if authenticated.0 != KeyType::A {
+                return Err(NfcError::InvalidArgument(format!(
+                    "block {block} masks Key A and the sector authenticated with Key B; supply the Key A bytes"
+                )));
+            }
+            final_data[..6].copy_from_slice(authenticated.1.as_bytes());
+        }
+        if final_data[10..].iter().all(|byte| *byte == 0)
+            && !current_access.groups[3].key_b_readable()
+        {
+            if authenticated.0 != KeyType::B {
+                return Err(NfcError::InvalidArgument(format!(
+                    "block {block} masks Key B and the sector authenticated with Key A; supply the Key B bytes"
+                )));
+            }
+            final_data[10..].copy_from_slice(authenticated.1.as_bytes());
+        }
+        let access =
+            nfc_classic::AccessBits::decode([final_data[6], final_data[7], final_data[8]])?;
+        self.reader.write_block(block, final_data)?;
+
+        let key_a = Key::new(
+            final_data[..6]
+                .try_into()
+                .expect("trailer Key A is six bytes"),
+        );
+        self.reader.authenticate(block, KeyType::A, key_a)?;
+        let read_back = self.reader.read_block(block)?;
+        if read_back[6..10] != final_data[6..10] {
+            return Err(NfcError::VerificationFailed(format!(
+                "block {block} access bytes did not match after the trailer write"
+            )));
+        }
+        if access.groups[3].full_trailer_write_keys().allows_b() {
+            let key_b = Key::new(
+                final_data[10..]
+                    .try_into()
+                    .expect("trailer Key B is six bytes"),
+            );
+            self.reader.authenticate(block, KeyType::B, key_b)?;
+        }
+        Ok(())
+    }
+
     /// Writes a sector trailer without a read-back. Callers that change keys
     /// must re-authenticate with the new key before verifying the block.
     pub(crate) fn write_block_unverified(

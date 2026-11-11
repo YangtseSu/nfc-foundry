@@ -29,6 +29,9 @@ Required gates:
 
 - `NFC_FOUNDRY_HARDWARE=1`: enable hardware tests.
 - `NFC_FOUNDRY_DEVICE`: exact connstring.
+- `NFC_FOUNDRY_HARDWARE_KEY_2` / `NFC_FOUNDRY_HARDWARE_KEY_3`: optional extra
+  12-hex card key candidates, used when one card has sectors with different
+  keys.
 - `NFC_FOUNDRY_HARDWARE_KEY`: 12-hex MIFARE Classic key; defaults to
   `FFFFFFFFFFFF`.
 - `NFC_FOUNDRY_HARDWARE_KEY_TYPE`: `A` or `B`; defaults to `A`.
@@ -477,3 +480,18 @@ cargo clippy -p nfc-drivers --features hardware --all-targets -- -D warnings
 Do not add tests that only prove a wiring call, a copy, a mock echo, a default
 literal, a non-empty vector, or a bare `is_ok()`. Test observable behavior,
 boundaries, invariants, transitions, precedence, and failures.
+
+The 2026-11-11 hardware revisit ran the five Classic `nfctl` checks on both
+readers with `--test-threads=1`. The tests cover full dump and Key A scan,
+ordinary data-block write/restore, sector-trailer write/restore, standalone UID
+change/restore, and full dump restore with UID. `NFC_FOUNDRY_HARDWARE_KEY_2`
+and `NFC_FOUNDRY_HARDWARE_KEY_3` supply extra per-sector keys.
+`NFC_FOUNDRY_HARDWARE_TRAILER` selects the trailer block (default 7). Both
+readers passed. ACR122U `acr122_usb:001:002` additionally passed the Classic
+NDEF format/write/read/restore test after `pcscd` was stopped.
+
+Trailer writes preserve a masked Key A or Key B from the authenticated key and
+verify the access bytes and GPB on read-back. Restore fills masked trailer
+slots from the dump key metadata. A generic single-block trailer write with a
+B-only access condition and a masked Key A is refused; use a dump restore,
+which has the recorded key metadata.
