@@ -52,10 +52,28 @@ impl<'a> Operation<'a> {
         &self.cancel
     }
 
-    /// Reader access for recovery acquisition. Only `nfc-app` workflows use
-    /// this; the GUI and CLI still call service methods.
+    /// Reader access for recovery acquisition and post-write verification.
+    /// Only `nfc-app` workflows use this; the GUI and CLI still call service
+    /// methods.
     pub(crate) fn reader_mut(&mut self) -> &mut dyn Reader {
         self.reader
+    }
+
+    /// Whether the selected reader exposes a protected manufacturer writer.
+    pub(crate) fn has_manufacturer_writer(&mut self) -> bool {
+        self.reader.manufacturer_writer().is_some()
+    }
+
+    /// Writes manufacturer block 0 through the reader's protected writer.
+    pub(crate) fn write_manufacturer_block(&mut self, data: [u8; BLOCK_SIZE]) -> Result<()> {
+        self.cancel.check()?;
+        let writer = self
+            .reader
+            .manufacturer_writer()
+            .ok_or(NfcError::Unsupported(
+                "the selected reader has no protected manufacturer writer",
+            ))?;
+        writer.write_manufacturer_block(data)
     }
 
     /// Reselect the card and reject any UID, ATQA, or SAK change.

@@ -9,7 +9,8 @@ use crate::classic::{
     BackupRecord, BackupStore, ClassicBlockWrite, ClassicKeyscan, ClassicKeyscanResult,
     ClassicNdefFormat, ClassicNdefFormatResult, ClassicNdefRead, ClassicNdefReadResult,
     ClassicNdefWrite, ClassicNdefWriteResult, ClassicRead, ClassicReadResult, ClassicRestore,
-    ClassicRestoreResult, ClassicWorkbench, ClassicWriteExecution, ClassicWritePlan,
+    ClassicRestoreResult, ClassicUidExecution, ClassicUidPlan, ClassicUidPreflight,
+    ClassicUidResult, ClassicWorkbench, ClassicWriteExecution, ClassicWritePlan,
     ClassicWritePreflight, ClassicWriteResult, KeyStore, WorkbenchMergeReport, WorkbenchSnapshot,
     WorkbenchValidation, WriteToken,
 };
@@ -31,12 +32,18 @@ struct PendingWrite {
     expires: Instant,
 }
 
+struct PendingUidWrite {
+    plan: ClassicUidPlan,
+    expires: Instant,
+}
+
 /// Application facade shared by the GUI and `nfctl`.
 #[derive(Default)]
 pub struct Service {
     devices: DeviceManager,
     workbench: Option<ClassicWorkbench>,
     pending_writes: HashMap<u64, PendingWrite>,
+    pending_uid_writes: HashMap<u64, PendingUidWrite>,
     next_write_token: u64,
 }
 
@@ -218,6 +225,65 @@ impl Service {
             crate::classic::restore::restore_with_plan(&mut operation, restore, &pending.plan)?;
         drop(operation);
         self.apply_written_baseline(source_fingerprint, &result);
+        Ok(result)
+    }
+
+    /// Reads sector 0 and returns a guarded UID write plan without writing.
+    pub fn classic_uid_preflight(
+        &mut self,
+        request: ClassicUidPreflight<'_>,
+    ) -> Result<ClassicUidPlan> {
+        let token = self.new_write_token();
+        let cancel = request.cancel.clone();
+        let plan = {
+            let mut operation = self.begin_operation(OperationKind::Read, cancel)?;
+            crate::classic::uid::preflight(&mut operation, &request, token)?
+        };
+        let now = Instant::now();
+        self.pending_uid_writes
+            .retain(|_, pending| pending.expires > now);
+        self.pending_uid_writes.insert(
+            plan.token.value(),
+            PendingUidWrite {
+                plan: plan.clone(),
+                expires: now + crate::classic::WRITE_PLAN_TTL,
+            },
+        );
+        Ok(plan)
+    }
+
+    /// Executes a UID plan after rechecking the card and the sector-0 state.
+    /// The token is consumed even when execution fails. A changed UID
+    /// invalidates a workbench that belonged to the old card identity.
+    pub fn classic_uid_execute(
+        &mut self,
+        request: ClassicUidExecution<'_>,
+    ) -> Result<ClassicUidResult> {
+        let Some(pending) = self.pending_uid_writes.remove(&request.token.value()) else {
+            return Err(NfcError::InvalidArgument(
+                "the UID write token is unknown or was already used".to_owned(),
+            ));
+        };
+        if Instant::now() > pending.expires {
+            return Err(NfcError::InvalidArgument(
+                "the UID write plan expired; run the preflight again".to_owned(),
+            ));
+        }
+        let cancel = request.cancel.clone();
+        let mut operation = self.begin_operation(OperationKind::Write, cancel)?;
+        let result = crate::classic::uid::execute(&mut operation, request, &pending.plan)?;
+        if result.changed {
+            let belongs_to_old_card = self.workbench.as_ref().is_some_and(|workbench| {
+                workbench
+                    .working()
+                    .card
+                    .as_ref()
+                    .is_some_and(|card| card.same_identity(&result.card_before))
+            });
+            if belongs_to_old_card {
+                self.workbench = None;
+            }
+        }
         Ok(result)
     }
 
@@ -663,6 +729,56 @@ mod tests {
         );
         assert!(matches!(result, Err(NfcError::InvalidArgument(_))));
         assert_eq!(handle.block(4), None);
+    }
+
+    #[test]
+    fn expired_and_unknown_uid_tokens_are_refused_before_io() {
+        use nfc_classic::Layout;
+
+        let (mut service, handle) = service_with_card(card(1));
+        let directory = tempfile::tempdir().expect("temp dir");
+        let backup = BackupStore::new(directory.path());
+        let keys = KeyStore::new();
+        let plan = ClassicUidPlan {
+            token: WriteToken::new(91),
+            card: card(1),
+            layout: Layout::Classic1K,
+            current_uid: [1; 4],
+            target_uid: [2; 4],
+            old_block0: [0; BLOCK_SIZE],
+            new_block0: [0; BLOCK_SIZE],
+            old_trailer: [0; BLOCK_SIZE],
+            sector0_key: (KeyType::A, Key::new([0xFF; 6])),
+            write_key: Some((KeyType::A, Key::new([0xFF; 6]))),
+            write_keys: crate::classic::WriteKeyTypes { a: true, b: true },
+            backends: vec![crate::classic::UidWriteBackend::Standard],
+            changed: true,
+            warnings: Vec::new(),
+            expires_at: 0,
+            card_fingerprint: 0,
+        };
+        service.pending_uid_writes.insert(
+            91,
+            PendingUidWrite {
+                plan,
+                expires: Instant::now() - std::time::Duration::from_secs(1),
+            },
+        );
+        let expired = ClassicUidExecution::new(WriteToken::new(91), &keys, &backup)
+            .advanced(true)
+            .confirmed(true);
+        assert!(matches!(
+            service.classic_uid_execute(expired),
+            Err(NfcError::InvalidArgument(_))
+        ));
+        let unknown = ClassicUidExecution::new(WriteToken::new(92), &keys, &backup)
+            .advanced(true)
+            .confirmed(true);
+        assert!(matches!(
+            service.classic_uid_execute(unknown),
+            Err(NfcError::InvalidArgument(_))
+        ));
+        assert_eq!(handle.block(0), None);
     }
 
     #[test]

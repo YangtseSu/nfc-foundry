@@ -19,7 +19,7 @@ use std::sync::{Mutex, MutexGuard};
 
 use nfc_app::Service;
 #[cfg(feature = "hardware-write")]
-use nfc_app::classic::{BackupStore, ClassicBlockWrite};
+use nfc_app::classic::{BackupStore, ClassicBlockWrite, ClassicUidExecution, ClassicUidPreflight};
 use nfc_app::classic::{
     ClassicKeyscan, ClassicRead, KeyEntry, KeyKind, KeySource, KeyStore, KeyTypes,
 };
@@ -170,7 +170,8 @@ fn writes_and_restores_one_data_block() {
     let cancel = CancelToken::new();
     let original = service
         .classic_read_block(block, &store, false, cancel.clone())
-        .expect("read the original block");
+        .expect("read the original block")
+        .data;
     let mut changed = original;
     changed[0] ^= 0xFF;
 
@@ -192,6 +193,112 @@ fn writes_and_restores_one_data_block() {
 
     let read_back = service
         .classic_read_block(block, &store, false, CancelToken::new())
-        .expect("verify the original block");
+        .expect("verify the original block")
+        .data;
     assert_eq!(read_back, original);
+}
+
+#[cfg(feature = "hardware-write")]
+#[test]
+#[ignore = "requires an owned magic Classic 1K and NFC_FOUNDRY_HARDWARE_UID_CONFIRM=yes"]
+fn changes_and_restores_the_card_uid() {
+    assert_eq!(
+        env::var("NFC_FOUNDRY_HARDWARE_WRITE").as_deref(),
+        Ok("yes"),
+        "set NFC_FOUNDRY_HARDWARE_WRITE=yes to allow a write"
+    );
+    assert_eq!(
+        env::var("NFC_FOUNDRY_HARDWARE_UID_CONFIRM").as_deref(),
+        Ok("yes"),
+        "set NFC_FOUNDRY_HARDWARE_UID_CONFIRM=yes to allow a UID change"
+    );
+    let _guard = lock_hardware();
+    let conn_string = conn_string();
+    let mut service = service(&conn_string);
+    let key = key();
+    let store = key_store(key);
+    let directory = env::var("NFC_FOUNDRY_HARDWARE_BACKUP_DIR")
+        .map(std::path::PathBuf::from)
+        .map(BackupStore::new)
+        .unwrap_or_default();
+    let card = service.card_info().expect("select the magic Classic card");
+    assert_eq!(
+        card.card_type,
+        CardType::MifareClassic1K,
+        "the UID path requires a MIFARE Classic 1K card"
+    );
+    assert_eq!(card.uid.len(), 4, "the UID path requires a four-byte UID");
+    let original = service
+        .classic_read_block(0, &store, false, CancelToken::new())
+        .expect("read manufacturer block 0")
+        .data;
+    let original_uid: [u8; 4] = original[0..4].try_into().expect("four-byte UID");
+    let target = env::var("NFC_FOUNDRY_HARDWARE_UID")
+        .ok()
+        .map(|value| nfc_app::classic::parse_uid(&value).expect("valid NFC_FOUNDRY_HARDWARE_UID"))
+        .unwrap_or_else(|| {
+            let mut uid = original_uid;
+            uid[3] ^= 0x01;
+            uid
+        });
+    assert_ne!(target, original_uid, "choose a different target UID");
+    println!(
+        "UID write: {} -> {} · original block 0 {:02X?}",
+        nfc_app::classic::format_uid(&original_uid),
+        nfc_app::classic::format_uid(&target),
+        original
+    );
+
+    let plan = service
+        .classic_uid_preflight(
+            ClassicUidPreflight::new(target, &store)
+                .include_common_keys(false)
+                .advanced(true),
+        )
+        .expect("UID preflight");
+    println!(
+        "plan backends {:?} · old {:02X?} · new {:02X?}",
+        plan.backends, plan.old_block0, plan.new_block0
+    );
+    let result = service
+        .classic_uid_execute(
+            ClassicUidExecution::new(plan.token, &store, &directory)
+                .include_common_keys(false)
+                .advanced(true)
+                .confirmed(true),
+        )
+        .expect("UID write");
+    assert!(result.changed);
+    assert_eq!(result.card_after.uid, target.to_vec());
+    assert_eq!(result.new_block0[0..4], target);
+    println!(
+        "UID write verified: uid={} backend={:?} backup={:?}",
+        result.card_after.uid_hex(),
+        result.backend,
+        result.backup.as_ref().map(|record| &record.backup.path)
+    );
+
+    let plan = service
+        .classic_uid_preflight(
+            ClassicUidPreflight::new(original_uid, &store)
+                .include_common_keys(false)
+                .advanced(true),
+        )
+        .expect("restore preflight");
+    let restored = service
+        .classic_uid_execute(
+            ClassicUidExecution::new(plan.token, &store, &directory)
+                .include_common_keys(false)
+                .advanced(true)
+                .confirmed(true),
+        )
+        .expect("restore the original UID");
+    assert!(restored.changed);
+    assert_eq!(restored.card_after.uid, original_uid.to_vec());
+    assert_eq!(restored.new_block0, original);
+    println!(
+        "UID restore verified: uid={} block0={:02X?}",
+        restored.card_after.uid_hex(),
+        restored.new_block0
+    );
 }

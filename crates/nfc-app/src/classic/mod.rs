@@ -11,6 +11,7 @@ pub mod ndef;
 pub(crate) mod plan;
 pub(crate) mod read;
 pub(crate) mod restore;
+pub mod uid;
 pub(crate) mod workbench;
 pub(crate) mod write;
 
@@ -32,6 +33,10 @@ pub use plan::{
 };
 pub use read::{ClassicBlockReadResult, ClassicRead, ClassicReadResult};
 pub use restore::{ClassicRestore, ClassicRestoreResult, RestoreBlockResult, RestoreBlockState};
+pub use uid::{
+    ClassicUidExecution, ClassicUidPlan, ClassicUidPreflight, ClassicUidResult, UID_LEN,
+    UidBackupRecord, UidWriteBackend, format_uid, normalize_uid_text, parse_uid,
+};
 pub use workbench::{
     ClassicWorkbench, WorkbenchMergeReport, WorkbenchSnapshot, WorkbenchValidation,
     dump_fingerprint,

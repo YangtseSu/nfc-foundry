@@ -76,10 +76,14 @@ system locale is used on first run. Every shipped `nfctl` card and file
 operation has a GUI path with the same gates; see the
 [parity matrix](docs/design/parity.md). The package installs both binaries, the
 hicolor icon set, and the desktop entry. Phase 24 S1 (verified-key capture,
-card-scoped key verification, and project dump v2 metadata) and S2 (editable
-workbench, selective restore, and write preflight) are complete; S3 (UID and
-block-0 writes) is next. Remaining work is the Type 4 read surface
-(hardware-gated) and phases 13-17.
+card-scoped key verification, and project dump v2 metadata), S2 (editable
+workbench, selective restore, and write preflight), and S3a (standalone UID /
+block-0 write) are complete. The UID path writes only four-byte UID MIFARE
+Classic 1K magic cards, prefers the ACR122U Gen1A protected writer, falls back
+to an ordinary CUID/Gen2 block-0 write, and reselects and verifies the complete
+block 0, BCC, and sector trailer after every attempt. Its hardware row is still
+pending; S3b (restore with UID) is next. Remaining work is the Type 4 read
+surface (hardware-gated) and phases 13-17.
 
 ## Product scope
 

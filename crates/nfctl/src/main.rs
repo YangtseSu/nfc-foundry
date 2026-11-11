@@ -9,9 +9,10 @@ use clap::{Parser, Subcommand};
 use nfc_app::Service;
 use nfc_app::classic::{
     AuthenticatedKey, BackupStore, ClassicBlockWrite, ClassicKeyscan, ClassicNdefFormat,
-    ClassicNdefRead, ClassicNdefWrite, ClassicRead, ClassicWriteExecution, ClassicWritePlan,
-    ClassicWritePreflight, KeyEntry, KeyKind, KeySource, KeyStore, KeyTypes, RestoreSelection,
-    common_keys, parse_block_list,
+    ClassicNdefRead, ClassicNdefWrite, ClassicRead, ClassicUidExecution, ClassicUidPlan,
+    ClassicUidPreflight, ClassicWriteExecution, ClassicWritePlan, ClassicWritePreflight, KeyEntry,
+    KeyKind, KeySource, KeyStore, KeyTypes, RestoreSelection, common_keys, format_uid,
+    normalize_uid_text, parse_block_list, parse_uid,
 };
 use nfc_app::type2::{
     Type2Format, Type2Lock, Type2NdefWrite, Type2PageWrite, Type2Password, Type2Restore,
@@ -145,6 +146,18 @@ enum ClassicCommand {
         #[arg(long)]
         confirm_trailer: bool,
         /// Print the write plan and exit without a backup or card write.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Change the UID of a magic MIFARE Classic 1K card by writing block 0.
+    Uid {
+        /// Target four-byte UID, e.g. 04A2248A.
+        #[arg(long, value_name = "UID")]
+        uid: String,
+        /// Required: UID writes are an Advanced action.
+        #[arg(long)]
+        advanced: bool,
+        /// Print the plan and exit without a backup or card write.
         #[arg(long)]
         dry_run: bool,
     },
@@ -760,6 +773,11 @@ fn classic(cli: &Cli, service: &mut Service, command: ClassicCommand) -> Result<
             confirm_trailer,
             dry_run,
         } => classic_write(cli, service, block, &data, confirm_trailer, dry_run),
+        ClassicCommand::Uid {
+            uid,
+            advanced,
+            dry_run,
+        } => classic_uid(cli, service, &uid, advanced, dry_run),
         ClassicCommand::Restore {
             input,
             format,
@@ -897,6 +915,125 @@ fn classic_write(
         println!("block {} already contains the requested data", result.block);
     }
     Ok(())
+}
+
+fn classic_uid(
+    cli: &Cli,
+    service: &mut Service,
+    uid_text: &str,
+    advanced: bool,
+    dry_run: bool,
+) -> Result<()> {
+    if !advanced {
+        return Err(NfcError::InvalidArgument(
+            "UID writes require --advanced".to_owned(),
+        ));
+    }
+    let target = parse_uid(uid_text)?;
+    prepare(service, cli.device.as_deref())?;
+    let keys = load_key_store(cli)?;
+    let backup = backup_store(cli);
+    let plan = service.classic_uid_preflight(
+        ClassicUidPreflight::new(target, &keys)
+            .include_common_keys(!cli.no_common_keys)
+            .advanced(true),
+    )?;
+    print_uid_plan(&plan);
+    if dry_run {
+        println!("dry run: no card writes were performed");
+        return Ok(());
+    }
+    require_uid_confirmation(cli.yes, &target)?;
+    let result = service.classic_uid_execute(
+        ClassicUidExecution::new(plan.token, &keys, &backup)
+            .include_common_keys(!cli.no_common_keys)
+            .advanced(true)
+            .confirmed(true),
+    )?;
+    for warning in &result.warnings {
+        eprintln!("warning: {warning}");
+    }
+    if !result.changed {
+        println!(
+            "UID {} already matches block 0; no write was needed",
+            format_uid(&target)
+        );
+        return Ok(());
+    }
+    let backend = result
+        .backend
+        .map(|backend| backend.label())
+        .unwrap_or("unknown");
+    println!(
+        "UID changed: {} -> {}",
+        result.card_before.uid_hex(),
+        result.card_after.uid_hex()
+    );
+    println!("backend: {backend}");
+    println!("block 0 verified: {}", hex_bytes(&result.new_block0));
+    println!("BCC valid · reselected UID {}", result.card_after.uid_hex());
+    if let Some(record) = result.backup {
+        println!("backup: {}", record.backup.path.display());
+    }
+    Ok(())
+}
+
+fn print_uid_plan(plan: &ClassicUidPlan) {
+    let backends = plan
+        .backends
+        .iter()
+        .map(|backend| backend.label())
+        .collect::<Vec<_>>()
+        .join(", ");
+    println!(
+        "UID plan: {} · current UID {} -> target {}",
+        plan.layout.name(),
+        plan.card.uid_hex(),
+        hex_bytes(&plan.target_uid)
+    );
+    let write_key = plan
+        .write_key
+        .map(|(key_type, _)| key_type.label().to_string())
+        .unwrap_or_else(|| "none".to_owned());
+    println!(
+        "sector 0 · read key {} · write key {write_key} · write with {} · backends: {backends}",
+        plan.sector0_key.0.label(),
+        plan.write_keys.label()
+    );
+    for backend in &plan.backends {
+        println!("  {}: {}", backend.label(), backend.note());
+    }
+    println!("  old {}", hex_bytes(&plan.old_block0));
+    println!("  new {}", hex_bytes(&plan.new_block0));
+    for warning in &plan.warnings {
+        eprintln!("warning: {warning}");
+    }
+}
+
+fn require_uid_confirmation(yes: bool, uid: &[u8; 4]) -> Result<()> {
+    if yes {
+        return Ok(());
+    }
+    let stdin = io::stdin();
+    if !stdin.is_terminal() {
+        return Err(NfcError::InvalidArgument(
+            "a UID change needs confirmation; pass --yes".to_owned(),
+        ));
+    }
+    let expected = format_uid(uid);
+    eprint!("Type the target UID {expected} to confirm the manufacturer-block write: ");
+    io::stderr()
+        .flush()
+        .map_err(|error| NfcError::Io(error.to_string()))?;
+    let mut answer = String::new();
+    stdin
+        .read_line(&mut answer)
+        .map_err(|error| NfcError::Io(error.to_string()))?;
+    if normalize_uid_text(&answer) == expected {
+        Ok(())
+    } else {
+        Err(NfcError::Cancelled)
+    }
 }
 
 struct RestorePlanOptions {

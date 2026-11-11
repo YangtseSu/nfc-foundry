@@ -37,6 +37,7 @@ add no reader path of their own.
 | Classic 4K read/write | not recorded | not recorded | — |
 | Raw 7-bit REQA with 16-bit ATQA | validated | validated | phase 02, phase 05 |
 | Gen1A manufacturer block 0 same-value write | not recorded | validated | phase 05: magic Classic 1K, reselect and read-back |
+| Classic UID change through the guarded `nfc-app` service | not recorded | not recorded | phase 24c: preflight, sector-0 backup, Gen1A/ordinary backends, reselect and full block-0/BCC verification; the driver primitive is validated, the service path is not |
 | Type 2 page read | validated | validated | phase 02, phase 05 |
 | Type 2 / NTAG215 NDEF format, write, read, restore | validated | not recorded | phase 09: 135/135 pages, 33-byte Text record, restore |
 | Type 2 one-way lock and password configuration | not recorded | not recorded | phase 09 |
@@ -69,6 +70,9 @@ add no reader path of their own.
   release claim.
 - Type 4 NDEF is implemented but has no hardware record; it is not advertised.
 - Classic 4K and sector-trailer writes are not part of the release claim.
+- The guarded UID service has no hardware record. The phase 05 Gen1A record
+  covers the driver's same-value block-0 write only; a changed UID through the
+  service is not advertised.
 
 Do not promote a row without adding a dated entry to the matching phase note
 and updating this table.
@@ -124,6 +128,21 @@ NFC_FOUNDRY_HARDWARE_WRITE=yes \
 NFC_FOUNDRY_HARDWARE_GEN1A_CONFIRM=yes \
 cargo test -p nfc-drivers --features hardware-write -- --ignored
 ```
+
+ACR122U or PN532, authorized magic Classic 1K UID change and restore:
+
+```sh
+NFC_FOUNDRY_HARDWARE=1 \
+NFC_FOUNDRY_DEVICE=acr122_usb:<bus>:<address> \
+NFC_FOUNDRY_HARDWARE_KEY=<sector-0-key> \
+NFC_FOUNDRY_HARDWARE_WRITE=yes \
+NFC_FOUNDRY_HARDWARE_UID_CONFIRM=yes \
+NFC_FOUNDRY_HARDWARE_UID=<target-uid> \
+cargo test -p nfctl --features hardware-write --test hardware_classic -- --ignored changes_and_restores_the_card_uid --nocapture
+```
+
+The test changes the UID, prints the reselected identity and backup path, then
+restores the original UID and block 0.
 
 Recovery, read-only and card-owned:
 

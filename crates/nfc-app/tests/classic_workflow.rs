@@ -4,13 +4,14 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use nfc_app::classic::{
-    ClassicBlockWrite, ClassicKeyscan, ClassicRead, ClassicRestore, ClassicWriteExecution,
-    ClassicWritePreflight, KeyTypes, RestoreBlockState, RestoreSelection, WorkbenchMergeReport,
+    ClassicBlockWrite, ClassicKeyscan, ClassicRead, ClassicRestore, ClassicUidExecution,
+    ClassicUidPreflight, ClassicWriteExecution, ClassicWritePreflight, KeyTypes, RestoreBlockState,
+    RestoreSelection, UidWriteBackend, WorkbenchMergeReport,
 };
 use nfc_app::{BackupStore, KeyEntry, KeyKind, KeySource, KeyStore, Service};
 use nfc_classic::{AccessBits, AccessCondition, Dump, DumpFormat, Layout, bcc_for_uid, exchange};
 use nfc_core::{BLOCK_SIZE, CancelToken, CardInfo, CardType, Key, KeyType, NfcError, Result};
-use nfc_transport::{DeviceInfo, Reader, Transport};
+use nfc_transport::{DeviceInfo, ManufacturerWriter, Reader, Transport};
 
 const UID: [u8; 4] = [0x04, 0xA2, 0x24, 0x8A];
 const KEY_A: Key = Key::new([0xFF; 6]);
@@ -58,7 +59,20 @@ struct TestState {
     sector_rules: HashMap<u8, Vec<(KeyType, Key)>>,
     ignore_write: Option<u8>,
     fail_write: Option<u8>,
+    /// Apply the write and then report an I/O error, as when the ACK is lost.
+    write_applied_error: Option<u8>,
+    /// Remove the card after a successful write, before the verification read.
+    vanish_after_write: bool,
+    /// Advertise the protected Gen1A manufacturer writer.
+    manufacturer_write: bool,
+    /// Fail the protected writer without touching the card.
+    manufacturer_write_fails: bool,
+    /// Accept an ordinary write to block 0.
+    block_zero_writable: bool,
+    /// Refuse an ordinary block-0 write unless the last authentication was B.
+    block_zero_requires_b: bool,
     write_log: Vec<u8>,
+    manufacturer_write_log: Vec<[u8; BLOCK_SIZE]>,
     auth_log: Vec<(u8, KeyType, Key)>,
     cancel_after_auths: Option<(usize, CancelToken)>,
 }
@@ -68,8 +82,18 @@ impl TestState {
         Self {
             card: Some(card),
             blocks: default_image(),
+            block_zero_writable: true,
             ..Self::default()
         }
+    }
+
+    fn apply_write(&mut self, block: u8, data: [u8; BLOCK_SIZE]) {
+        if block == 0
+            && let Some(card) = self.card.as_mut()
+        {
+            card.uid = data[0..4].to_vec();
+        }
+        self.blocks.insert(block, data);
     }
 
     fn set_trailer_access(&mut self, sector: u8, access: [u8; 3]) {
@@ -182,14 +206,43 @@ impl Reader for TestReader {
             return Err(NfcError::NoCard);
         }
         state.write_log.push(block);
+        if block == 0 && !state.block_zero_writable {
+            return Err(NfcError::Io(
+                "test card refused the manufacturer block write".to_owned(),
+            ));
+        }
+        if block == 0
+            && state.block_zero_requires_b
+            && !state
+                .auth_log
+                .last()
+                .is_some_and(|(_, key_type, _)| *key_type == KeyType::B)
+        {
+            return Err(NfcError::Io(
+                "test card requires Key B for manufacturer block 0".to_owned(),
+            ));
+        }
         if state.fail_write == Some(block) {
             return Err(NfcError::Io(format!("test write of block {block} failed")));
         }
         if state.ignore_write == Some(block) {
             return Ok(());
         }
-        state.blocks.insert(block, data);
+        state.apply_write(block, data);
+        if state.write_applied_error == Some(block) {
+            return Err(NfcError::Io(
+                "test write acknowledgement was lost".to_owned(),
+            ));
+        }
+        if state.vanish_after_write {
+            state.card = None;
+        }
         Ok(())
+    }
+
+    fn manufacturer_writer(&mut self) -> Option<&mut dyn ManufacturerWriter> {
+        let available = self.handle.lock().manufacturer_write;
+        if available { Some(self) } else { None }
     }
 
     fn transceive_bytes(&mut self, _tx: &[u8]) -> Result<Vec<u8>> {
@@ -201,6 +254,39 @@ impl Reader for TestReader {
     }
 
     fn set_raw_mode(&mut self, _enabled: bool) -> Result<()> {
+        Ok(())
+    }
+}
+
+impl ManufacturerWriter for TestReader {
+    fn write_manufacturer_block(&mut self, data: [u8; BLOCK_SIZE]) -> Result<()> {
+        let mut state = self.handle.lock();
+        if state.card.is_none() {
+            return Err(NfcError::NoCard);
+        }
+        if !state.manufacturer_write {
+            return Err(NfcError::Unsupported(
+                "the test reader has no Gen1A manufacturer writer",
+            ));
+        }
+        if state.manufacturer_write_fails {
+            return Err(NfcError::Unsupported(
+                "the test card did not answer the Gen1A unlock",
+            ));
+        }
+        state.manufacturer_write_log.push(data);
+        if state.ignore_write == Some(0) {
+            return Ok(());
+        }
+        state.apply_write(0, data);
+        if state.write_applied_error == Some(0) {
+            return Err(NfcError::Io(
+                "test write acknowledgement was lost".to_owned(),
+            ));
+        }
+        if state.vanish_after_write {
+            state.card = None;
+        }
         Ok(())
     }
 }
@@ -1002,4 +1088,372 @@ fn preflight_refuses_a_card_change_outside_the_planned_blocks() {
             .count(),
         0
     );
+}
+
+const TARGET_UID: [u8; 4] = [0xDE, 0xAD, 0xBE, 0xEF];
+
+fn uid_preflight(
+    service: &mut Service,
+    store: &KeyStore,
+    target: [u8; 4],
+) -> Result<nfc_app::classic::ClassicUidPlan> {
+    service.classic_uid_preflight(
+        ClassicUidPreflight::new(target, store)
+            .include_common_keys(false)
+            .advanced(true),
+    )
+}
+
+fn uid_execute(
+    service: &mut Service,
+    store: &KeyStore,
+    backup: &BackupStore,
+    plan: &nfc_app::classic::ClassicUidPlan,
+) -> Result<nfc_app::classic::ClassicUidResult> {
+    service.classic_uid_execute(
+        ClassicUidExecution::new(plan.token, store, backup)
+            .include_common_keys(false)
+            .advanced(true)
+            .confirmed(true),
+    )
+}
+
+#[test]
+fn uid_write_changes_block_zero_and_reselects_the_new_uid() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+    let original = handle.lock().blocks[&0];
+    let original_trailer = handle.lock().blocks[&3];
+
+    let plan = uid_preflight(&mut service, &store, TARGET_UID).expect("preflight");
+    assert!(plan.changed);
+    assert_eq!(plan.backends, vec![UidWriteBackend::Standard]);
+    assert_eq!(plan.current_uid, UID);
+    assert_eq!(plan.old_block0, original);
+    assert_eq!(plan.new_block0[0..4], TARGET_UID);
+    assert_eq!(
+        plan.new_block0[4],
+        bcc_for_uid(&TARGET_UID).expect("target bcc")
+    );
+    assert_eq!(plan.new_block0[5..], original[5..]);
+
+    let result = uid_execute(&mut service, &store, &backup, &plan).expect("uid write");
+    assert!(result.changed);
+    assert_eq!(result.backend, Some(UidWriteBackend::Standard));
+    assert_eq!(result.card_after.uid, TARGET_UID.to_vec());
+    assert_eq!(result.old_block0, original);
+    assert_eq!(result.new_block0, plan.new_block0);
+    assert_eq!(handle.lock().blocks[&0], plan.new_block0);
+    assert_eq!(handle.lock().card.as_ref().expect("card").uid, TARGET_UID);
+    assert_eq!(handle.lock().write_log, vec![0]);
+    assert!(handle.lock().manufacturer_write_log.is_empty());
+
+    let record = result.backup.expect("backup");
+    assert_eq!(record.old_block0, original);
+    assert_eq!(record.new_block0, plan.new_block0);
+    assert_eq!(record.old_uid, UID);
+    assert_eq!(record.target_uid, TARGET_UID);
+    let backup_dump = exchange::load(
+        std::fs::read(&record.backup.path)
+            .expect("backup file")
+            .as_slice(),
+    )
+    .expect("load backup")
+    .dump;
+    assert_eq!(backup_dump.blocks[0].data, original);
+    assert_eq!(backup_dump.blocks[3].data, original_trailer);
+
+    let read = service
+        .classic_read_block(0, &store, false, CancelToken::new())
+        .expect("read the new block 0");
+    assert_eq!(read.card.uid, TARGET_UID.to_vec());
+    assert_eq!(read.data, plan.new_block0);
+
+    assert!(matches!(
+        uid_execute(&mut service, &store, &backup, &plan),
+        Err(NfcError::InvalidArgument(_))
+    ));
+}
+
+#[test]
+fn uid_write_authenticates_with_the_key_type_the_access_bits_allow() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    {
+        let mut state = handle.lock();
+        state.block_zero_requires_b = true;
+        let mut access = AccessBits::decode(ordinary_access()).expect("access");
+        access.groups[0] = AccessCondition::new(false, true, true);
+        state.set_trailer_access(0, access.encode());
+    }
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A), (KeyType::B, KEY_B)]);
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+
+    let plan = uid_preflight(&mut service, &store, TARGET_UID).expect("preflight");
+    assert_eq!(plan.backends, vec![UidWriteBackend::Standard]);
+    assert_eq!(plan.sector0_key.0, KeyType::A);
+    assert_eq!(plan.write_key, Some((KeyType::B, KEY_B)));
+    assert!(plan.write_keys.allows(KeyType::B));
+
+    let result = uid_execute(&mut service, &store, &backup, &plan).expect("standard write");
+    assert_eq!(result.backend, Some(UidWriteBackend::Standard));
+    assert_eq!(handle.lock().blocks[&0], plan.new_block0);
+    assert!(
+        handle
+            .lock()
+            .auth_log
+            .iter()
+            .any(|(block, key_type, key)| *block == 0 && *key_type == KeyType::B && *key == KEY_B)
+    );
+}
+
+#[test]
+fn uid_write_uses_gen1a_when_access_bits_deny_a_standard_write() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    {
+        let mut state = handle.lock();
+        state.manufacturer_write = true;
+        state.block_zero_writable = false;
+        let mut access = AccessBits::decode(ordinary_access()).expect("access");
+        access.groups[0] = AccessCondition::new(true, true, true);
+        state.set_trailer_access(0, access.encode());
+    }
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+
+    let plan = uid_preflight(&mut service, &store, TARGET_UID).expect("preflight");
+    assert_eq!(plan.backends, vec![UidWriteBackend::Gen1a]);
+    assert!(!plan.write_keys.any());
+    assert!(
+        plan.warnings
+            .iter()
+            .any(|warning| warning.contains("access bits")),
+        "{:?}",
+        plan.warnings
+    );
+
+    let result = uid_execute(&mut service, &store, &backup, &plan).expect("Gen1A write");
+    assert_eq!(result.backend, Some(UidWriteBackend::Gen1a));
+    assert_eq!(result.card_after.uid, TARGET_UID.to_vec());
+    assert_eq!(handle.lock().manufacturer_write_log, vec![plan.new_block0]);
+    assert!(handle.lock().write_log.is_empty());
+    assert_eq!(handle.lock().blocks[&0], plan.new_block0);
+}
+
+#[test]
+fn uid_write_prefers_gen1a_and_falls_back_to_the_standard_path() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    {
+        let mut state = handle.lock();
+        state.manufacturer_write = true;
+        state.manufacturer_write_fails = true;
+    }
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+
+    let plan = uid_preflight(&mut service, &store, TARGET_UID).expect("preflight");
+    assert_eq!(
+        plan.backends,
+        vec![UidWriteBackend::Gen1a, UidWriteBackend::Standard]
+    );
+    let result = uid_execute(&mut service, &store, &backup, &plan).expect("fallback write");
+    assert_eq!(result.backend, Some(UidWriteBackend::Standard));
+    assert_eq!(handle.lock().write_log, vec![0]);
+    assert!(handle.lock().manufacturer_write_log.is_empty());
+}
+
+#[test]
+fn uid_write_of_the_current_uid_needs_no_backup_or_write() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+
+    let plan = uid_preflight(&mut service, &store, UID).expect("preflight");
+    assert!(!plan.changed);
+    assert_eq!(plan.old_block0, plan.new_block0);
+    let result = uid_execute(&mut service, &store, &backup, &plan).expect("unchanged");
+    assert!(!result.changed);
+    assert!(result.backend.is_none());
+    assert!(result.backup.is_none());
+    assert!(handle.lock().write_log.is_empty());
+    assert_eq!(
+        std::fs::read_dir(directory.path())
+            .expect("backup dir")
+            .count(),
+        0
+    );
+}
+
+#[test]
+fn uid_write_requires_advanced_mode_and_a_sector_zero_key() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    {
+        let mut state = handle.lock();
+        state.accept_only(0, &[(KeyType::A, KEY_A)]);
+    }
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, DENIED)]);
+    let directory = tempfile::tempdir().expect("temp dir");
+
+    let plain = service.classic_uid_preflight(
+        ClassicUidPreflight::new(TARGET_UID, &store).include_common_keys(false),
+    );
+    assert!(matches!(plain, Err(NfcError::InvalidArgument(_))));
+
+    let result = service.classic_uid_preflight(
+        ClassicUidPreflight::new(TARGET_UID, &store)
+            .include_common_keys(false)
+            .advanced(true),
+    );
+    assert!(matches!(result, Err(NfcError::AuthenticationFailed)));
+    assert!(handle.lock().write_log.is_empty());
+    assert_eq!(
+        std::fs::read_dir(directory.path())
+            .expect("backup dir")
+            .count(),
+        0
+    );
+}
+
+#[test]
+fn uid_write_refuses_broken_access_bits_and_a_broken_block_zero() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    handle.lock().set_trailer_access(0, [0x00, 0x00, 0x00]);
+    let mut first = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+    let result = uid_preflight(&mut first, &store, TARGET_UID);
+    assert!(
+        matches!(result, Err(NfcError::InvalidArgument(_))),
+        "{result:?}"
+    );
+
+    let handle = TestHandle::new(TestState::with_card(card()));
+    {
+        let mut state = handle.lock();
+        let mut block = state.blocks[&0];
+        block[4] ^= 0xFF;
+        state.blocks.insert(0, block);
+    }
+    let mut second = service(&handle);
+    let result = uid_preflight(&mut second, &store, TARGET_UID);
+    assert!(
+        matches!(result, Err(NfcError::VerificationFailed(_))),
+        "{result:?}"
+    );
+    assert!(handle.lock().write_log.is_empty());
+}
+
+#[test]
+fn uid_write_detects_an_ignored_write_and_an_uncertain_acknowledgement() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    handle.lock().ignore_write = Some(0);
+    let mut first = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+    let plan = uid_preflight(&mut first, &store, TARGET_UID).expect("preflight");
+    let result = uid_execute(&mut first, &store, &backup, &plan);
+    assert!(
+        matches!(result, Err(NfcError::VerificationFailed(_))),
+        "{result:?}"
+    );
+    assert_eq!(handle.lock().blocks[&0][0..4], UID);
+
+    let handle = TestHandle::new(TestState::with_card(card()));
+    handle.lock().write_applied_error = Some(0);
+    let mut second = service(&handle);
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+    let plan = uid_preflight(&mut second, &store, TARGET_UID).expect("preflight");
+    let result = uid_execute(&mut second, &store, &backup, &plan).expect("lost ack");
+    assert!(result.changed);
+    assert!(
+        result
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("acknowledgement was lost")),
+        "{:?}",
+        result.warnings
+    );
+    assert_eq!(handle.lock().blocks[&0], plan.new_block0);
+}
+
+#[test]
+fn uid_write_never_claims_success_when_the_card_disappears() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    handle.lock().vanish_after_write = true;
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+    let plan = uid_preflight(&mut service, &store, TARGET_UID).expect("preflight");
+    let result = uid_execute(&mut service, &store, &backup, &plan);
+    match result {
+        Err(NfcError::VerificationFailed(message)) => {
+            assert!(message.contains("unknown"), "{message}");
+            assert!(message.contains("Backup"), "{message}");
+        }
+        other => panic!("unexpected result: {other:?}"),
+    }
+    assert!(handle.lock().card.is_none());
+    assert_eq!(handle.lock().blocks[&0], plan.new_block0);
+}
+
+#[test]
+fn uid_write_refuses_a_card_change_and_a_cancelled_operation() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    let mut first = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+    let plan = uid_preflight(&mut first, &store, TARGET_UID).expect("preflight");
+    handle.lock().blocks.insert(1, [0x5A; BLOCK_SIZE]);
+    let result = uid_execute(&mut first, &store, &backup, &plan);
+    assert!(matches!(result, Err(NfcError::CardChanged)));
+    assert!(handle.lock().write_log.is_empty());
+
+    let handle = TestHandle::new(TestState::with_card(card()));
+    let mut second = service(&handle);
+    let plan = uid_preflight(&mut second, &store, TARGET_UID).expect("preflight");
+    let cancel = CancelToken::new();
+    cancel.cancel();
+    let result = second.classic_uid_execute(
+        ClassicUidExecution::new(plan.token, &store, &backup)
+            .include_common_keys(false)
+            .advanced(true)
+            .confirmed(true)
+            .cancel(cancel),
+    );
+    assert!(matches!(result, Err(NfcError::Cancelled)));
+    assert!(handle.lock().write_log.is_empty());
+}
+
+#[test]
+fn uid_write_on_an_immutable_card_changes_nothing() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    handle.lock().block_zero_writable = false;
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+    let plan = uid_preflight(&mut service, &store, TARGET_UID).expect("preflight");
+    let result = uid_execute(&mut service, &store, &backup, &plan);
+    match result {
+        Err(NfcError::VerificationFailed(message)) => {
+            assert!(message.contains("not changed"), "{message}");
+        }
+        other => panic!("unexpected result: {other:?}"),
+    }
+    assert_eq!(handle.lock().blocks[&0][0..4], UID);
+    assert_eq!(handle.lock().card.as_ref().expect("card").uid, UID);
 }

@@ -30,6 +30,9 @@ action bar           status · detail · last backup · Scan keys · Read card
   the current bytes.
 - Save dump, Load dump, and Save/Load on Classic NDEF share the path and format
   controls; Restore and the continue policy appear on Blocks only.
+- The block inspector ends with a separate Advanced-mode UID section: a target
+  UID entry and a destructive "Write UID…" action. It is disabled unless a live
+  four-byte-UID Classic 1K image is loaded and Advanced mode is on.
 
 ## States
 
@@ -44,7 +47,10 @@ action bar           status · detail · last backup · Scan keys · Read card
 
 ## Safety
 
-- Block 0 writes are disabled.
+- Block 0 is read-only in the ordinary editor. The separate Advanced-mode UID
+  action requires a live four-byte-UID Classic 1K image, a one-shot plan, an
+  exact typed target UID, a sector-0 backup, and post-write reselect and
+  verification. An ordinary card refuses the write unchanged.
 - A sector trailer opens the typed confirmation dialog and names the block and
   sector.
 - Restore opens the typed dialog with the image layout and UID; the safe stop

@@ -115,6 +115,18 @@ and import reports; the GTK scenario reads a card and asserts the key store and
 its on-disk copy both gain the verified keys. Raw/MCT/Proxmark3 exports remain
 image-only and are tested as lossy for metadata.
 
+The phase 24c UID tests are hardware-free. `nfc-app` covers the ordinary
+CUID/Gen2 backend, the Gen1A backend when the access bits deny a data write,
+the Gen1A-to-standard fallback order, an unchanged target, a wrong sector-0
+key, broken access bits and BCC, an ignored write, a lost acknowledgement that
+the read-back confirms, card disappearance after the write, cancellation, a
+card change before execution, token reuse and expiry, and an immutable-UID
+card that changes nothing. `nfctl` covers the Advanced and confirmation gates,
+dry run, invalid UID input, and a successful mock write with reselect evidence.
+The GTK scenario covers the Advanced switch, the target dialog, cancel, the
+typed UID plan, and the automatic re-read. The hardware UID test is
+environment-gated and has no recorded run yet.
+
 The phase 10 Classic NDEF tests are hardware-free. `nfc-classic-ndef` covers
 MAD1/MAD2 and CRC vectors, NFC AIDs, contiguity, GPB mapping version and
 read-only state, TLV framing/capacity, long messages, leading proprietary TLV

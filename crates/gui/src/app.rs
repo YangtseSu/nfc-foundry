@@ -15,9 +15,10 @@ use gtk::{Orientation, gio, glib};
 use nfc_app::classic::{
     AuthenticatedKey, BackupStore, ClassicBlockReadResult, ClassicKeyscan, ClassicKeyscanResult,
     ClassicNdefFormat, ClassicNdefFormatResult, ClassicNdefWrite, ClassicNdefWriteResult,
-    ClassicRestoreResult, ClassicWriteExecution, ClassicWritePlan, ClassicWritePreflight, KeyEntry,
-    KeyKind, KeySource, KeyStore, KeyTypes, KeyscanProgress, KeyscanSink, RestoreSelection,
-    WorkbenchSnapshot, parse_block_list,
+    ClassicRestoreResult, ClassicUidExecution, ClassicUidPlan, ClassicUidPreflight,
+    ClassicWriteExecution, ClassicWritePlan, ClassicWritePreflight, KeyEntry, KeyKind, KeySource,
+    KeyStore, KeyTypes, KeyscanProgress, KeyscanSink, RestoreSelection, WorkbenchSnapshot,
+    format_uid, parse_block_list, parse_uid,
 };
 use nfc_app::type2::{
     Type2Format, Type2Lock, Type2LockResult, Type2MutationResult, Type2NdefWrite, Type2PageResult,
@@ -25,7 +26,7 @@ use nfc_app::type2::{
 };
 use nfc_app::{CardReadResult, ClassicNdefInfo, ClassicNdefState, Service};
 use nfc_classic::{Dump, DumpFormat, DumpLoad, diff, exchange};
-use nfc_core::{CancelToken, CardInfo, Key, NfcError, Result as NfcResult};
+use nfc_core::{CancelToken, CardInfo, CardType, Key, NfcError, Result as NfcResult};
 use nfc_drivers::DriverRegistry;
 use nfc_ndef::{
     NdefMessage, NdefRecord, TextRecord, Tnf, UriRecord, WifiAuthentication, WifiEncryption,
@@ -469,6 +470,8 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
         undo_depth: Cell::new(0),
         pending_plan: RefCell::new(None),
         pending_plan_dialog: RefCell::new(None),
+        pending_uid_plan: RefCell::new(None),
+        pending_uid_dialog: RefCell::new(None),
         pending_ndef_write_dialog: RefCell::new(None),
         pending_ndef_format_dialog: RefCell::new(None),
         pending_type2_page_dialog: RefCell::new(None),
@@ -525,6 +528,9 @@ struct Inspector {
     commit: gtk::Button,
     undo: gtk::Button,
     revert: gtk::Button,
+    uid_advanced: gtk::Switch,
+    uid: gtk::Entry,
+    uid_write: gtk::Button,
 }
 
 struct KeysView {
@@ -869,6 +875,8 @@ struct Ui {
     undo_depth: Cell<usize>,
     pending_plan: RefCell<Option<PendingPlan>>,
     pending_plan_dialog: RefCell<Option<adw::AlertDialog>>,
+    pending_uid_plan: RefCell<Option<ClassicUidPlan>>,
+    pending_uid_dialog: RefCell<Option<TypedDialog>>,
     pending_ndef_write_dialog: RefCell<Option<adw::AlertDialog>>,
     pending_ndef_format_dialog: RefCell<Option<adw::AlertDialog>>,
     pending_type2_page_dialog: RefCell<Option<adw::AlertDialog>>,
@@ -1042,6 +1050,37 @@ fn build_inspector() -> Inspector {
     note.add_css_class("caption");
     note.add_css_class("dim-label");
 
+    let uid_advanced_label = gtk::Label::new(Some("Advanced mode"));
+    uid_advanced_label.set_xalign(0.0);
+    uid_advanced_label.set_hexpand(true);
+    uid_advanced_label.add_css_class("caption");
+    let uid_advanced = gtk::Switch::new();
+    uid_advanced.set_valign(gtk::Align::Center);
+    uid_advanced.set_sensitive(false);
+    let uid_advanced_row = gtk::Box::new(Orientation::Horizontal, 6);
+    uid_advanced_row.append(&uid_advanced_label);
+    uid_advanced_row.append(&uid_advanced);
+
+    let uid = gtk::Entry::new();
+    uid.set_placeholder_text(Some("Target UID, e.g. 04A2248A"));
+    uid.add_css_class("mono");
+    uid.set_hexpand(true);
+    uid.set_sensitive(false);
+    let uid_write = gtk::Button::with_label("Write UID…");
+    uid_write.add_css_class("destructive-action");
+    uid_write.set_sensitive(false);
+    let uid_actions = gtk::Box::new(Orientation::Horizontal, 6);
+    uid_actions.append(&uid);
+    uid_actions.append(&uid_write);
+    let uid_note = gtk::Label::new(Some(
+        "UID writes need Advanced mode, a magic CUID/Gen2 Classic 1K card, a sector-0 backup, \
+         and an exact typed confirmation. An ordinary card refuses the write unchanged.",
+    ));
+    uid_note.set_xalign(0.0);
+    uid_note.set_wrap(true);
+    uid_note.add_css_class("caption");
+    uid_note.add_css_class("dim-label");
+
     root.append(&kicker);
     root.append(&title);
     root.append(&meta);
@@ -1053,6 +1092,10 @@ fn build_inspector() -> Inspector {
     root.append(&history);
     root.append(&write_actions);
     root.append(&note);
+    root.append(&gtk::Separator::new(Orientation::Horizontal));
+    root.append(&uid_advanced_row);
+    root.append(&uid_actions);
+    root.append(&uid_note);
 
     Inspector {
         root,
@@ -1066,6 +1109,9 @@ fn build_inspector() -> Inspector {
         commit,
         undo,
         revert,
+        uid_advanced,
+        uid,
+        uid_write,
     }
 }
 
@@ -2547,6 +2593,16 @@ fn connect_signals(ui: &Rc<Ui>) {
         .connect_changed(move |_| update_write_sensitivity(&ui2));
 
     let ui2 = ui.clone();
+    ui.inspector
+        .uid_advanced
+        .connect_active_notify(move |_| update_classic_uid_actions(&ui2));
+
+    let ui2 = ui.clone();
+    ui.inspector
+        .uid_write
+        .connect_clicked(move |_| confirm_uid_write(ui2.clone()));
+
+    let ui2 = ui.clone();
     ui.ndef_view
         .source
         .connect_selected_notify(move |dropdown| {
@@ -3049,6 +3105,7 @@ fn update_inspector(ui: &Ui) {
         ui.inspector.undo.set_sensitive(false);
         ui.inspector.revert.set_sensitive(false);
         ui.selected_label.set_localized("No block selected");
+        update_classic_uid_actions(ui);
         return;
     };
 
@@ -3106,6 +3163,7 @@ fn update_inspector(ui: &Ui) {
     ));
     update_write_sensitivity(ui);
     update_workbench_actions(ui);
+    update_classic_uid_actions(ui);
 }
 
 fn update_write_sensitivity(ui: &Ui) {
@@ -4338,6 +4396,249 @@ fn finish_workbench_write(ui: &Rc<Ui>, result: NfcResult<ClassicRestoreResult>) 
     }
 }
 
+fn update_classic_uid_actions(ui: &Ui) {
+    let classic_1k = ui
+        .dump
+        .borrow()
+        .as_ref()
+        .and_then(|dump| dump.card.as_ref())
+        .is_some_and(|card| card.card_type == CardType::MifareClassic1K && card.uid.len() == 4);
+    if !classic_1k {
+        ui.inspector.uid_advanced.set_active(false);
+    }
+    let live = ui.live.get() && classic_1k && !ui.busy.get();
+    ui.inspector.uid_advanced.set_sensitive(live);
+    let advanced = ui.inspector.uid_advanced.is_active();
+    ui.inspector.uid.set_sensitive(live && advanced);
+    ui.inspector.uid_write.set_sensitive(live && advanced);
+}
+
+fn confirm_uid_write(ui: Rc<Ui>) {
+    if ui.busy.get() {
+        return;
+    }
+    if !ui.inspector.uid_advanced.is_active() {
+        toast_error(&ui, "Enable Advanced mode before changing the UID");
+        return;
+    }
+    if !ui.live.get() {
+        toast_error(&ui, "A UID write needs a live selected card");
+        return;
+    }
+    let card = ui.dump.borrow().as_ref().and_then(|dump| dump.card.clone());
+    let Some(card) = card else {
+        toast_error(&ui, "Read a card before changing its UID");
+        return;
+    };
+    if card.card_type != CardType::MifareClassic1K || card.uid.len() != 4 {
+        toast_error(
+            &ui,
+            "UID writes require a four-byte UID MIFARE Classic 1K card",
+        );
+        return;
+    }
+    let target = match parse_uid(ui.inspector.uid.text().as_str()) {
+        Ok(uid) => uid,
+        Err(error) => {
+            toast_error(&ui, &error.to_string());
+            return;
+        }
+    };
+    if target.as_slice() == card.uid.as_slice() {
+        toast_error(&ui, "The target UID already matches the card");
+        return;
+    }
+    set_busy(&ui, true);
+    ui.status
+        .set_localized("Reading sector 0 for the UID plan…");
+    let service = ui.service.clone();
+    let keys = ui.keys.borrow().clone();
+    let include_common_keys = ui.preferences.borrow().use_common_keys;
+    let (sender, receiver) = async_channel::bounded(1);
+    std::thread::spawn(move || {
+        let result = match service.lock() {
+            Ok(mut service) => service.classic_uid_preflight(
+                ClassicUidPreflight::new(target, &keys)
+                    .include_common_keys(include_common_keys)
+                    .expected_card(card)
+                    .advanced(true),
+            ),
+            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
+        };
+        let _ = sender.send_blocking(result);
+    });
+    let ui = ui.clone();
+    glib::spawn_future_local(async move {
+        match receiver.recv().await {
+            Ok(result) => finish_uid_preflight(&ui, result),
+            Err(_) => {
+                finish_uid_preflight(&ui, Err(NfcError::Io("reader worker stopped".to_owned())))
+            }
+        }
+    });
+}
+
+fn finish_uid_preflight(ui: &Rc<Ui>, result: NfcResult<ClassicUidPlan>) {
+    set_busy(ui, false);
+    match result {
+        Ok(plan) => show_uid_plan_dialog(ui, plan),
+        Err(error) => {
+            ui.status.set_localized("UID plan failed");
+            toast_error(ui, &error.to_string());
+        }
+    }
+}
+
+fn uid_plan_body(plan: &ClassicUidPlan) -> String {
+    let backends = plan
+        .backends
+        .iter()
+        .map(|backend| backend.label())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let write_key = plan
+        .write_key
+        .map(|(key_type, _)| key_type.label().to_string())
+        .unwrap_or_else(|| "none".to_owned());
+    let mut body = format!(
+        "Target UID {}\nCurrent UID {}\nSector 0 read key {} · write key {write_key} · write with {}\nBackends: {}\n\nOld {}\nNew {}\n\nA sector-0 backup is written first. The card is reselected after the write and the complete block 0, BCC, and trailer are verified.",
+        format_uid(&plan.target_uid),
+        plan.card.uid_hex(),
+        plan.sector0_key.0.label(),
+        plan.write_keys.label(),
+        backends,
+        classic::hex_with_mask(&plan.old_block0, u16::MAX),
+        classic::hex_with_mask(&plan.new_block0, u16::MAX),
+    );
+    for warning in &plan.warnings {
+        body.push_str("\nWarning: ");
+        body.push_str(warning);
+    }
+    body
+}
+
+fn show_uid_plan_dialog(ui: &Rc<Ui>, plan: ClassicUidPlan) {
+    let phrase = format_uid(&plan.target_uid);
+    let typed = typed_dialog_with_phrase(
+        "Write manufacturer block 0?",
+        &uid_plan_body(&plan),
+        "Write UID",
+        &phrase,
+    );
+    let ui2 = ui.clone();
+    typed.dialog.connect_response(None, move |_, response| {
+        ui2.pending_uid_dialog.replace(None);
+        let plan = ui2.pending_uid_plan.borrow_mut().take();
+        if response == "confirm"
+            && let Some(plan) = plan
+        {
+            start_uid_execution(&ui2, plan);
+        }
+    });
+    ui.pending_uid_plan.replace(Some(plan));
+    ui.pending_uid_dialog.replace(Some(typed.clone()));
+    present_alert(&typed.dialog, &ui.window);
+}
+
+fn start_uid_execution(ui: &Rc<Ui>, plan: ClassicUidPlan) {
+    set_busy(ui, true);
+    ui.status.set_localized("Writing manufacturer block 0…");
+    let service = ui.service.clone();
+    let keys = ui.keys.borrow().clone();
+    let backup = ui.backup.borrow().clone();
+    let include_common_keys = ui.preferences.borrow().use_common_keys;
+    let token = plan.token;
+    let (sender, receiver) = async_channel::bounded(1);
+    std::thread::spawn(move || {
+        let result = match service.lock() {
+            Ok(mut service) => service.classic_uid_execute(
+                ClassicUidExecution::new(token, &keys, &backup)
+                    .include_common_keys(include_common_keys)
+                    .advanced(true)
+                    .confirmed(true),
+            ),
+            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
+        };
+        let _ = sender.send_blocking(result);
+    });
+    let ui = ui.clone();
+    glib::spawn_future_local(async move {
+        match receiver.recv().await {
+            Ok(result) => finish_uid_execution(&ui, result),
+            Err(_) => {
+                finish_uid_execution(&ui, Err(NfcError::Io("reader worker stopped".to_owned())))
+            }
+        }
+    });
+}
+
+fn finish_uid_execution(ui: &Rc<Ui>, result: NfcResult<nfc_app::classic::ClassicUidResult>) {
+    set_busy(ui, false);
+    match result {
+        Ok(result) => {
+            for warning in &result.warnings {
+                append_log(ui, &format!("warning · {warning}"));
+            }
+            if !result.changed {
+                ui.status
+                    .set_localized("The target UID already matches the card");
+                toast_info(ui, "No UID write was needed");
+                return;
+            }
+            let backend = result
+                .backend
+                .map(|backend| backend.label())
+                .unwrap_or("unknown");
+            let backup = result
+                .backup
+                .as_ref()
+                .map(|record| record.backup.path.display().to_string())
+                .unwrap_or_else(|| "no backup".to_owned());
+            append_log(
+                ui,
+                &format!(
+                    "uid · {} -> {} · {backend} · {backup}",
+                    result.card_before.uid_hex(),
+                    result.card_after.uid_hex()
+                ),
+            );
+            toast_info(
+                ui,
+                &format!("UID changed to {}", result.card_after.uid_hex()),
+            );
+            invalidate_live_image(ui);
+            ui.status.set_localized("UID changed · re-reading the card");
+            start_read(ui.clone());
+        }
+        Err(error) => {
+            ui.status.set_localized("UID write failed");
+            toast_error(ui, &error.to_string());
+            invalidate_live_image(ui);
+        }
+    }
+}
+
+fn invalidate_live_image(ui: &Rc<Ui>) {
+    ui.live.set(false);
+    ui.dump.replace(None);
+    if let Ok(mut service) = ui.service.lock() {
+        service.workbench_clear();
+    }
+    ui.dirty_blocks.replace(Vec::new());
+    ui.undo_depth.set(0);
+    ui.ndef.replace(None);
+    ui.rows.remove_all();
+    ui.table_stack.set_visible_child_name("empty");
+    ui.selection.set_selected(gtk::INVALID_LIST_POSITION);
+    ui.inspector.uid.set_text("");
+    ui.inspector.uid_advanced.set_active(false);
+    render_ndef(ui, None, None);
+    update_card(ui);
+    update_inspector(ui);
+    update_restore_sensitivity(ui);
+    update_ndef_actions(ui);
+}
+
 fn choose_ndef_raw(ui: &Rc<Ui>) {
     let dialog = gtk::FileDialog::builder()
         .title(i18n::translate_lines("Load raw NDEF message"))
@@ -4761,14 +5062,23 @@ fn apply_ndef_result(ui: &Rc<Ui>, dump: &Dump, info: &ClassicNdefInfo) {
 }
 
 fn typed_dialog(heading: &str, body: &str, confirm_label: &str) -> TypedDialog {
+    typed_dialog_with_phrase(heading, body, confirm_label, ADVANCED_PHRASE)
+}
+
+fn typed_dialog_with_phrase(
+    heading: &str,
+    body: &str,
+    confirm_label: &str,
+    phrase: &str,
+) -> TypedDialog {
     let dialog = adw::AlertDialog::builder()
         .heading(heading)
         .body(body)
         .build();
     let entry = gtk::Entry::new();
-    entry.set_placeholder_text(Some(ADVANCED_PHRASE));
+    entry.set_placeholder_text(Some(phrase));
     let hint = gtk::Label::new(None);
-    hint.set_localized(&format!("Type {ADVANCED_PHRASE} to enable the action."));
+    hint.set_localized(&format!("Type {phrase} to enable the action."));
     hint.set_xalign(0.0);
     hint.set_wrap(true);
     hint.add_css_class("caption");
@@ -4783,8 +5093,9 @@ fn typed_dialog(heading: &str, body: &str, confirm_label: &str) -> TypedDialog {
     dialog.set_close_response("cancel");
     dialog.set_response_enabled("confirm", false);
     let dialog2 = dialog.clone();
+    let expected = phrase.to_owned();
     entry.connect_changed(move |entry| {
-        dialog2.set_response_enabled("confirm", entry.text() == ADVANCED_PHRASE);
+        dialog2.set_response_enabled("confirm", entry.text() == expected);
     });
     TypedDialog { dialog, entry }
 }
@@ -4795,6 +5106,13 @@ fn reset_advanced(ui: &Ui) {
     ui.type2_view
         .restore_label
         .set_localized("No restore image loaded");
+    ui.inspector.uid_advanced.set_active(false);
+    ui.inspector.uid.set_text("");
+    if let Some(typed) = ui.pending_uid_dialog.borrow_mut().take() {
+        typed.dialog.force_close();
+    }
+    ui.pending_uid_plan.replace(None);
+    update_classic_uid_actions(ui);
     update_type2_restore_sensitivity(ui);
 }
 
@@ -8569,6 +8887,10 @@ mod tests {
         ui.dirty_blocks.replace(Vec::new());
         ui.undo_depth.set(0);
         ui.pending_plan.replace(None);
+        close_typed(&ui.pending_uid_dialog);
+        ui.pending_uid_plan.replace(None);
+        ui.inspector.uid_advanced.set_active(false);
+        ui.inspector.uid.set_text("");
         ui.type2.replace(None);
         ui.type2_restore.replace(None);
         close_alert(&ui.pending_type2_page_dialog);
@@ -8784,6 +9106,7 @@ mod tests {
         diff_screen_classifies_blocks(&harness);
         keys_screen_adds_and_saves(&harness);
         read_captures_keys(&harness);
+        classic_uid_write(&harness);
         keyscan_finds_and_saves(&harness);
         recovery_limitation_and_saved_key(&harness);
         diagnostics_and_activity(&harness);
@@ -9507,6 +9830,50 @@ mod tests {
         let loaded = KeyStore::load(&path).expect("persisted key store");
         assert!(loaded.verified_count(&test_card()) >= after);
         assert!(activity_text(ui).contains("captured"));
+    }
+
+    fn classic_uid_write(harness: &Harness) {
+        reset(harness);
+        let ui = &harness.ui;
+        show_dump(ui);
+        assert!(ui.inspector.uid_advanced.is_sensitive());
+        assert!(!ui.inspector.uid_write.is_sensitive());
+        ui.inspector.uid_advanced.set_active(true);
+        assert!(ui.inspector.uid_write.is_sensitive());
+
+        ui.inspector.uid.set_text("04A2248A");
+        ui.inspector.uid_write.emit_clicked();
+        assert!(ui.pending_uid_dialog.borrow().is_none());
+
+        ui.inspector.uid.set_text("DEADBEEF");
+        ui.inspector.uid_write.emit_clicked();
+        pump_until(ui, "UID plan", || ui.pending_uid_dialog.borrow().is_some());
+        let typed = typed_pending(&ui.pending_uid_dialog);
+        assert_eq!(typed.entry.placeholder_text().as_deref(), Some("DEADBEEF"));
+        emit_response(&typed.dialog, "cancel");
+        assert!(ui.pending_uid_plan.borrow().is_none());
+        assert_eq!(harness.handle.block(0).expect("block 0")[0..4], TEST_UID);
+
+        ui.inspector.uid.set_text("DE:AD:BE:EF");
+        ui.inspector.uid_write.emit_clicked();
+        pump_until(ui, "UID plan", || ui.pending_uid_dialog.borrow().is_some());
+        let typed = typed_pending(&ui.pending_uid_dialog);
+        typed.entry.set_text("DEADBEEF");
+        emit_response(&typed.dialog, "confirm");
+        pump_until(ui, "UID write and re-read", || {
+            !ui.busy.get() && ui.status.label().contains("Read complete")
+        });
+        let block0 = harness.handle.block(0).expect("block 0");
+        assert_eq!(block0[0..4], [0xDE, 0xAD, 0xBE, 0xEF]);
+        assert_eq!(
+            ui.dump.borrow().as_ref().expect("dump").blocks[0].data,
+            block0
+        );
+        assert!(
+            activity_text(ui).contains("uid · 04 A2 24 8A -> DE AD BE EF"),
+            "{}",
+            activity_text(ui)
+        );
     }
 
     fn activity_text(ui: &Ui) -> String {

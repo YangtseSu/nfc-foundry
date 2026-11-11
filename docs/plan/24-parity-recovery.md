@@ -108,6 +108,10 @@ Acceptance:
 
 ### S3a: standalone UID / block-0 write
 
+Spec: [24c-uid-write.md](../specs/24c-uid-write.md). Status: complete
+2026-11-11. See [24c-uid-write.md](../notes/24c-uid-write.md). Hardware row is
+pending.
+
 Goal: a guarded, read-back-verified UID write for supported magic cards only.
 
 Deliver:
@@ -231,6 +235,6 @@ Acceptance:
 
 ## First implementation slice
 
-S1 and S2 are complete. S3a is next. S3a reuses the preflight token, backup,
-and read-back patterns from S2; S3b requires S3a. S4 and S5 are independent of
-S3 and can be scheduled after S1.
+S1, S2, and S3a are complete. S3b is next. S3a reuses the preflight token,
+backup, and read-back patterns from S2; S3b requires S3a. S4 and S5 are
+independent of S3 and can be scheduled after S1.

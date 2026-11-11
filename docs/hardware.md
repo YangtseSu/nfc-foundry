@@ -114,7 +114,9 @@ identification, MIFARE Classic 1K block read with a known key, Type 2 page
 read, raw 7-bit REQA, and a same-value Gen1A manufacturer-block write verified
 by reselection and read-back. A physical unplug/replug was not exercised;
 disconnect mapping is covered by scripted transport tests. See
-`docs/notes/05-acr122-usb.md`.
+`docs/notes/05-acr122-usb.md`. Phase 24c adds a guarded application service over
+the same Gen1A primitive and an ordinary CUID/Gen2 path; that service path has
+no hardware record yet.
 
 ### Type 2 write and NDEF status
 

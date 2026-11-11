@@ -102,6 +102,13 @@ pub trait Reader: Send {
         ))
     }
 
+    /// Protected manufacturer-block writer for special cards. Readers without
+    /// a validated protected writer keep the default `None`, so the guarded
+    /// UID workflow can never assume the Gen1A capability.
+    fn manufacturer_writer(&mut self) -> Option<&mut dyn ManufacturerWriter> {
+        None
+    }
+
     /// Recovery parity exchange is opt-in; readers without it keep the default
     /// error instead of pretending to support active attacks.
     fn recovery_capabilities(&self) -> RecoveryCapabilities {

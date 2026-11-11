@@ -25,6 +25,9 @@ pub enum MockCall {
     /// An UPDATE BINARY APDU. Kept separate so `WriteIgnored` targets a
     /// state-changing exchange instead of the next SELECT or READ.
     ApduWrite,
+    /// The protected manufacturer-block writer. Scripted separately so a
+    /// Gen1A path can fail without consuming a fault meant for a normal write.
+    ManufacturerWrite,
 }
 
 /// Injected behavior for the next matching call.
@@ -36,6 +39,8 @@ pub enum MockFault {
     Cancelled,
     /// The write reports success but leaves the stored block unchanged.
     WriteIgnored,
+    /// The write is applied but the acknowledgement is lost with an I/O error.
+    WriteAppliedError,
 }
 
 impl MockFault {
@@ -45,7 +50,9 @@ impl MockFault {
             Self::NoCard => NfcError::NoCard,
             Self::Timeout => NfcError::Timeout("mock reader timed out".to_owned()),
             Self::Cancelled => NfcError::Cancelled,
-            Self::WriteIgnored => NfcError::Io("mock write ignored".to_owned()),
+            Self::WriteIgnored | Self::WriteAppliedError => {
+                NfcError::Io("mock write acknowledgement".to_owned())
+            }
         }
     }
 }
@@ -236,7 +243,7 @@ fn sw(sw1: u8, sw2: u8) -> ApduResponse {
     ApduResponse::new(Vec::new(), [sw1, sw2])
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct MockState {
     card: Option<CardInfo>,
     blocks: HashMap<u8, [u8; BLOCK_SIZE]>,
@@ -248,6 +255,29 @@ struct MockState {
     open_count: usize,
     close_count: usize,
     faults: Vec<(MockCall, MockFault)>,
+    /// The reader exposes the protected Gen1A manufacturer writer.
+    manufacturer_write: bool,
+    /// An ordinary write to block 0 is accepted, as on a CUID/Gen2 card.
+    block_zero_writable: bool,
+}
+
+impl Default for MockState {
+    fn default() -> Self {
+        Self {
+            card: None,
+            blocks: HashMap::new(),
+            pages: HashMap::new(),
+            password: None,
+            type4: None,
+            raw_mode: false,
+            open: false,
+            open_count: 0,
+            close_count: 0,
+            faults: Vec::new(),
+            manufacturer_write: true,
+            block_zero_writable: true,
+        }
+    }
 }
 
 impl MockState {
@@ -269,12 +299,18 @@ impl MockState {
 }
 
 /// Shared handle for scripting a mock reader while a service owns it.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct MockHandle(Arc<Mutex<MockState>>);
+
+impl Default for MockHandle {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl MockHandle {
     pub fn new() -> Self {
-        Self::default()
+        Self(Arc::new(Mutex::new(MockState::default())))
     }
 
     fn lock(&self) -> MutexGuard<'_, MockState> {
@@ -334,6 +370,24 @@ impl MockHandle {
     /// `MockCall::ApduWrite`.
     pub fn fail_next(&self, call: MockCall, fault: MockFault) {
         self.lock().faults.push((call, fault));
+    }
+
+    /// Advertise the protected Gen1A manufacturer writer.
+    pub fn set_manufacturer_write(&self, enabled: bool) {
+        self.lock().manufacturer_write = enabled;
+    }
+
+    /// Accept or refuse an ordinary write to manufacturer block 0.
+    pub fn set_block_zero_writable(&self, enabled: bool) {
+        self.lock().block_zero_writable = enabled;
+    }
+
+    pub fn manufacturer_write(&self) -> bool {
+        self.lock().manufacturer_write
+    }
+
+    pub fn block_zero_writable(&self) -> bool {
+        self.lock().block_zero_writable
     }
 
     pub fn is_raw_mode(&self) -> bool {
@@ -450,14 +504,18 @@ impl Reader for MockReader {
     fn write_block(&mut self, block: u8, data: [u8; BLOCK_SIZE]) -> Result<()> {
         let mut state = self.state.lock();
         if let Some(fault) = state.take_fault(MockCall::WriteBlock) {
-            if matches!(fault, MockFault::WriteIgnored) {
-                return Ok(());
+            match fault {
+                MockFault::WriteIgnored => return Ok(()),
+                MockFault::WriteAppliedError => {
+                    state.present_card()?;
+                    apply_block_write(&mut state, block, data, false)?;
+                    return Err(fault.into_error());
+                }
+                other => return Err(other.into_error()),
             }
-            return Err(fault.into_error());
         }
         state.present_card()?;
-        state.blocks.insert(block, data);
-        Ok(())
+        apply_block_write(&mut state, block, data, false)
     }
 
     fn read_page_quad(&mut self, start_page: u8) -> Result<[u8; PAGE_QUAD_SIZE]> {
@@ -539,6 +597,34 @@ impl Reader for MockReader {
         self.state.lock().raw_mode = enabled;
         Ok(())
     }
+
+    fn manufacturer_writer(&mut self) -> Option<&mut dyn ManufacturerWriter> {
+        let available = self.state.lock().manufacturer_write;
+        if available { Some(self) } else { None }
+    }
+}
+
+/// Applies one block write. A manufacturer-block write also updates the
+/// scripted card identity, so a reselect observes the same UID the card would
+/// report.
+fn apply_block_write(
+    state: &mut MockState,
+    block: u8,
+    data: [u8; BLOCK_SIZE],
+    protected: bool,
+) -> Result<()> {
+    if block == 0 {
+        if !protected && !state.block_zero_writable {
+            return Err(NfcError::Io(
+                "mock card refused the manufacturer block write".to_owned(),
+            ));
+        }
+        if let Some(card) = state.card.as_mut() {
+            card.uid = data[0..4].to_vec();
+        }
+    }
+    state.blocks.insert(block, data);
+    Ok(())
 }
 
 impl TrailerWriter for MockReader {
@@ -549,7 +635,25 @@ impl TrailerWriter for MockReader {
 
 impl ManufacturerWriter for MockReader {
     fn write_manufacturer_block(&mut self, data: [u8; BLOCK_SIZE]) -> Result<()> {
-        Reader::write_block(self, 0, data)
+        let mut state = self.state.lock();
+        if !state.manufacturer_write {
+            return Err(NfcError::Unsupported(
+                "the mock reader has no Gen1A manufacturer writer",
+            ));
+        }
+        if let Some(fault) = state.take_fault(MockCall::ManufacturerWrite) {
+            match fault {
+                MockFault::WriteIgnored => return Ok(()),
+                MockFault::WriteAppliedError => {
+                    state.present_card()?;
+                    apply_block_write(&mut state, 0, data, true)?;
+                    return Err(fault.into_error());
+                }
+                other => return Err(other.into_error()),
+            }
+        }
+        state.present_card()?;
+        apply_block_write(&mut state, 0, data, true)
     }
 }
 

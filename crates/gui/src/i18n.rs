@@ -1679,6 +1679,38 @@ keys! {
         "Format replaces the MAD, the NDEF Message TLV, sector keys, and access bits on every NFC sector.",
         "格式化会替换每个 NFC 扇区的 MAD、NDEF 消息 TLV、扇区密钥和访问位。"
     ),
+    ClassicUidWrite => ("Write UID…", "写入 UID…"),
+    ClassicUidPlaceholder => ("Target UID, e.g. 04A2248A", "目标 UID，例如 04A2248A"),
+    ClassicUidNote => (
+        "UID writes need Advanced mode, a magic CUID/Gen2 Classic 1K card, a sector-0 backup, and an exact typed confirmation. An ordinary card refuses the write unchanged.",
+        "UID 写入需要高级模式、魔术 CUID/Gen2 Classic 1K 卡、扇区 0 备份以及精确输入确认。普通卡会拒绝写入且数据不变。"
+    ),
+    ClassicUidAdvancedRequired => (
+        "Enable Advanced mode before changing the UID",
+        "更改 UID 前请启用高级模式"
+    ),
+    ClassicUidNeedsLive => (
+        "A UID write needs a live selected card",
+        "UID 写入需要已连接的选中卡片"
+    ),
+    ClassicUidReadFirst => ("Read a card before changing its UID", "更改 UID 前请先读取卡片"),
+    ClassicUidRequiresCard => (
+        "UID writes require a four-byte UID MIFARE Classic 1K card",
+        "UID 写入需要四字节 UID 的 MIFARE Classic 1K 卡"
+    ),
+    ClassicUidSame => ("The target UID already matches the card", "目标 UID 已与卡片一致"),
+    ClassicUidPlanReading => (
+        "Reading sector 0 for the UID plan…",
+        "正在读取扇区 0 以生成 UID 计划…"
+    ),
+    ClassicUidPlanFailed => ("UID plan failed", "UID 计划失败"),
+    ClassicUidDialogHeading => ("Write manufacturer block 0?", "写入厂商块 0？"),
+    ClassicUidDialogConfirm => ("Write UID", "写入 UID"),
+    ClassicUidWriting => ("Writing manufacturer block 0…", "正在写入厂商块 0…"),
+    ClassicUidNotNeeded => ("No UID write was needed", "无需写入 UID"),
+    ClassicUidChanged => ("UID changed to {}", "UID 已更改为 {}"),
+    ClassicUidReread => ("UID changed · re-reading the card", "UID 已更改 · 正在重新读取卡片"),
+    ClassicUidFailed => ("UID write failed", "UID 写入失败"),
 }
 
 #[cfg(test)]

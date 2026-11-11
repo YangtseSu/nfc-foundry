@@ -999,3 +999,123 @@ fn restore_dry_run_blocks_and_changes_only_share_the_plan() {
         stderr(&output)
     );
 }
+
+#[test]
+fn uid_write_gates_and_verifies_on_the_mock_card() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backups = directory.path().join("backups");
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "classic",
+        "uid",
+        "--uid",
+        "DEADBEEF",
+    ]);
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("--advanced"),
+        "{}",
+        stderr(&output)
+    );
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "classic",
+        "uid",
+        "--uid",
+        "DEADBEEF",
+        "--advanced",
+    ]);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("--yes"), "{}", stderr(&output));
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "classic",
+        "uid",
+        "--uid",
+        "not-a-uid",
+        "--advanced",
+        "--yes",
+    ]);
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("hexadecimal"),
+        "{}",
+        stderr(&output)
+    );
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "classic",
+        "uid",
+        "--uid",
+        "DEADBEEF",
+        "--advanced",
+        "--dry-run",
+    ]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("target DE AD BE EF"), "{text}");
+    assert!(text.contains("old "), "{text}");
+    assert!(text.contains("new "), "{text}");
+    assert!(text.contains("dry run"), "{text}");
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "--backup-dir",
+        backups.to_str().expect("path"),
+        "classic",
+        "uid",
+        "--uid",
+        "DEADBEEF",
+        "--advanced",
+        "--yes",
+    ]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(
+        text.contains("UID changed: 04 A2 24 8A -> DE AD BE EF"),
+        "{text}"
+    );
+    assert!(text.contains("block 0 verified"), "{text}");
+    assert!(text.contains("BCC valid"), "{text}");
+    assert!(text.contains("backup:"), "{text}");
+    assert_eq!(
+        std::fs::read_dir(&backups)
+            .expect("backup dir")
+            .filter_map(Result::ok)
+            .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "json"))
+            .count(),
+        1
+    );
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "classic",
+        "uid",
+        "--uid",
+        "04A2248A",
+        "--advanced",
+        "--yes",
+    ]);
+    assert_success(&output);
+    assert!(
+        stdout(&output).contains("already matches block 0"),
+        "{}",
+        stdout(&output)
+    );
+}

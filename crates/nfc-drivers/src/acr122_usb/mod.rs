@@ -191,6 +191,10 @@ impl Reader for Acr122Usb {
         self.protocol()?.set_raw_mode(enabled)
     }
 
+    fn manufacturer_writer(&mut self) -> Option<&mut dyn ManufacturerWriter> {
+        Some(self)
+    }
+
     fn recovery_capabilities(&self) -> RecoveryCapabilities {
         RecoveryCapabilities {
             parity_exchange: self.protocol.is_some(),
