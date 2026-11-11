@@ -161,9 +161,15 @@ fn lock_label(
     }
 }
 
-/// Inspector content for one page. `advanced` is the current mode, which
-/// changes the write gate, not the displayed facts.
-pub fn inspect(session: &Session, page: u8, advanced: bool) -> Option<PageInsight> {
+/// Inspector content for one page. `advanced` is the current mode and
+/// `auth_supplied` reports whether protected-access credentials are entered;
+/// both change the write gate, not the displayed facts.
+pub fn inspect(
+    session: &Session,
+    page: u8,
+    advanced: bool,
+    auth_supplied: bool,
+) -> Option<PageInsight> {
     if page >= session.image.layout.total_pages {
         return None;
     }
@@ -290,7 +296,7 @@ pub fn inspect(session: &Session, page: u8, advanced: bool) -> Option<PageInsigh
             config.auth0
         ));
     }
-    let gate = write_gate(session, page, advanced);
+    let gate = write_gate(session, page, advanced, auth_supplied);
     let can_write = gate.is_ok();
     details.push(match &gate {
         Ok(()) => "Write: ready.".to_owned(),
@@ -335,7 +341,12 @@ fn configuration_lines(config: &Configuration) -> Vec<String> {
 }
 
 /// Refuse a page write under the current mode before any card operation.
-pub fn write_gate(session: &Session, page: u8, advanced: bool) -> std::result::Result<(), String> {
+pub fn write_gate(
+    session: &Session,
+    page: u8,
+    advanced: bool,
+    auth_supplied: bool,
+) -> std::result::Result<(), String> {
     let role = session.image.role(page);
     if matches!(
         role,
@@ -361,11 +372,14 @@ pub fn write_gate(session: &Session, page: u8, advanced: bool) -> std::result::R
         WritePolicy::user()
     };
     check_writable(&session.image, page, policy).map_err(|error| error.to_string())?;
+    if auth_supplied {
+        return Ok(());
+    }
     if let Some(config) = session.configuration()
         && config.requires_password(page)
     {
         return Err(format!(
-            "Password protection starts at page {}; PWD_AUTH is required before writing.",
+            "Password protection starts at page {}; enter the access password and PACK in the Protection tab.",
             config.auth0
         ));
     }
@@ -626,21 +640,21 @@ mod tests {
     #[test]
     fn inspection_reports_roles_cc_locks_and_ndef() {
         let session = session();
-        let cc = inspect(&session, 3, true).expect("CC");
+        let cc = inspect(&session, 3, true, false).expect("CC");
         assert!(cc.details.contains("Data area 144 bytes"));
         assert!(cc.details.contains("NDEF capacity 141 bytes"));
-        let user = inspect(&session, 4, false).expect("user");
+        let user = inspect(&session, 4, false, false).expect("user");
         assert!(user.details.contains("NDEF data area offset 0"));
         assert!(user.can_write);
-        let config = inspect(&session, 41, true).expect("config");
+        let config = inspect(&session, 41, true, false).expect("config");
         assert!(config.details.contains("AUTH0 255"));
-        let password = inspect(&session, 43, true).expect("password");
+        let password = inspect(&session, 43, true, false).expect("password");
         assert!(password.details.contains("write-only"));
         assert!(password.can_write);
-        let manufacturer = inspect(&session, 0, true).expect("uid");
+        let manufacturer = inspect(&session, 0, true, false).expect("uid");
         assert!(!manufacturer.can_write);
         assert!(
-            write_gate(&session, 0, true)
+            write_gate(&session, 0, true, false)
                 .expect_err("manufacturer page")
                 .contains("manufacturer")
         );
@@ -653,8 +667,8 @@ mod tests {
             .image
             .set_page(2, [0x80, 0x48, 0x10, 0x00])
             .expect("lock");
-        assert!(write_gate(&session, 4, false).is_err());
-        assert!(write_gate(&session, 5, false).is_ok());
+        assert!(write_gate(&session, 4, false, false).is_err());
+        assert!(write_gate(&session, 5, false, false).is_ok());
 
         let cc = CapabilityContainer::parse(&[0xE1, 0x10, 0x12, 0xF0]).expect("CC");
         let layout = Type2Layout::from_cc(&cc).expect("layout");
@@ -668,7 +682,7 @@ mod tests {
         let session = Session::new(card(0x80), tag, Vec::new());
         let ndef = session.ndef().expect("NDEF");
         assert!(ndef.read_only);
-        assert!(write_gate(&session, 3, true).is_err());
+        assert!(write_gate(&session, 3, true, false).is_err());
     }
 
     #[test]
@@ -712,7 +726,7 @@ mod tests {
             .expect("cfg0");
         session.refresh_ndef();
         assert_eq!(ndef_password_page(&session), Some(32));
-        assert!(write_gate(&session, 32, false).is_err());
+        assert!(write_gate(&session, 32, false, false).is_err());
 
         session
             .image

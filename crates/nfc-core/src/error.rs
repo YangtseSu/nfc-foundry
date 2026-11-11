@@ -20,6 +20,8 @@ pub enum NfcError {
     Timeout(String),
     #[error("authentication failed")]
     AuthenticationFailed,
+    #[error("authentication required: {0}")]
+    AuthenticationRequired(String),
     #[error("the card identity changed")]
     CardChanged,
     #[error("verification failed: {0}")]

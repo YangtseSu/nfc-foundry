@@ -15,7 +15,8 @@ use nfc_app::classic::{
     format_uid, parse_block_list, parse_uid,
 };
 use nfc_app::type2::{
-    Type2Format, Type2Lock, Type2NdefWrite, Type2PageWrite, Type2Password, Type2Restore,
+    Type2Auth, Type2Format, Type2Lock, Type2NdefWrite, Type2PageWrite, Type2Password,
+    Type2ReadRequest, Type2Restore,
 };
 use nfc_classic::{DumpFormat, Layout, bcc_for_uid, diff, exchange};
 use nfc_classic_ndef::{
@@ -72,6 +73,26 @@ struct Cli {
     /// Confirm destructive actions without prompting.
     #[arg(long, global = true)]
     yes: bool,
+    /// PWD_AUTH password for a protected Type 2 tag, as 8 hex digits.
+    #[arg(
+        long = "type2-password",
+        visible_alias = "current-pwd",
+        global = true,
+        value_name = "HEX",
+        env = "NFC_FOUNDRY_TYPE2_PASSWORD",
+        hide_env_values = true
+    )]
+    type2_password: Option<String>,
+    /// Expected PACK returned by PWD_AUTH, as 4 hex digits.
+    #[arg(
+        long = "type2-pack",
+        visible_alias = "current-pack",
+        global = true,
+        value_name = "HEX",
+        env = "NFC_FOUNDRY_TYPE2_PACK",
+        hide_env_values = true
+    )]
+    type2_pack: Option<String>,
     #[command(subcommand)]
     command: Command,
 }
@@ -1639,18 +1660,35 @@ fn print_classic_ndef(info: &ClassicNdefInfo) {
     }
 }
 
+fn type2_auth(cli: &Cli) -> Result<Option<Type2Auth>> {
+    match (&cli.type2_password, &cli.type2_pack) {
+        (None, None) => Ok(None),
+        (Some(password), Some(pack)) => {
+            let password: [u8; PAGE_SIZE] = parse_hex_array(password, "Type 2 password")?;
+            let pack: [u8; 2] = parse_hex_array(pack, "Type 2 PACK")?;
+            Ok(Some(Type2Auth::new(password, pack)))
+        }
+        _ => Err(NfcError::InvalidArgument(
+            "--type2-password and --type2-pack must be supplied together".to_owned(),
+        )),
+    }
+}
+
 fn type2(cli: &Cli, service: &mut Service, command: Type2Command) -> Result<()> {
+    let auth = type2_auth(cli)?;
     match command {
         Type2Command::Info => {
             prepare(service, cli.device.as_deref())?;
-            let read = service.type2_read(CancelToken::new())?;
+            let read = service.type2_read(Type2ReadRequest::new(CancelToken::new()).auth(auth))?;
             print_type2_info(&read.image, &read.warnings);
             Ok(())
         }
         Type2Command::Read { page } => {
             prepare(service, cli.device.as_deref())?;
             if let Some(page) = page {
-                let image = service.type2_read(CancelToken::new())?.image;
+                let image = service
+                    .type2_read(Type2ReadRequest::new(CancelToken::new()).auth(auth))?
+                    .image;
                 let data = image.page(page).ok_or_else(|| {
                     NfcError::InvalidArgument(format!("page {page} is not readable"))
                 })?;
@@ -1661,7 +1699,7 @@ fn type2(cli: &Cli, service: &mut Service, command: Type2Command) -> Result<()> 
                 );
                 return Ok(());
             }
-            let read = service.type2_read(CancelToken::new())?;
+            let read = service.type2_read(Type2ReadRequest::new(CancelToken::new()).auth(auth))?;
             for (page, data) in read.image.pages() {
                 let data = data
                     .map(|data| hex_bytes(data))
@@ -1691,7 +1729,8 @@ fn type2(cli: &Cli, service: &mut Service, command: Type2Command) -> Result<()> 
             let result = service.type2_write_page(
                 Type2PageWrite::new(page, data, &backup)
                     .advanced(advanced)
-                    .confirm(advanced),
+                    .confirm(advanced)
+                    .auth(auth),
             )?;
             if result.changed {
                 println!(
@@ -1709,7 +1748,7 @@ fn type2(cli: &Cli, service: &mut Service, command: Type2Command) -> Result<()> 
         }
         Type2Command::Dump { output } => {
             prepare(service, cli.device.as_deref())?;
-            let read = service.type2_read(CancelToken::new())?;
+            let read = service.type2_read(Type2ReadRequest::new(CancelToken::new()).auth(auth))?;
             let bytes = type2::export(&read.image)?;
             write_output(&output, &bytes)?;
             println!(
@@ -1743,6 +1782,7 @@ fn type2(cli: &Cli, service: &mut Service, command: Type2Command) -> Result<()> 
                         restore_configuration: include_configuration,
                         restore_lock_bytes: include_locks,
                     })
+                    .auth(auth)
                     .confirm(true),
             )?;
             println!(
@@ -1760,7 +1800,8 @@ fn type2(cli: &Cli, service: &mut Service, command: Type2Command) -> Result<()> 
             prepare(service, cli.device.as_deref())?;
             let pages = parse_page_list(&pages)?;
             let backup = backup_store(cli);
-            let result = service.type2_lock(Type2Lock::new(pages, &backup).confirm(true))?;
+            let result =
+                service.type2_lock(Type2Lock::new(pages, &backup).confirm(true).auth(auth))?;
             if result.update.is_empty() {
                 println!("the requested pages are already locked");
             } else {
@@ -1784,7 +1825,9 @@ fn type2(cli: &Cli, service: &mut Service, command: Type2Command) -> Result<()> 
             let pack: [u8; 2] = parse_hex_array(&pack, "PACK")?;
             let backup = backup_store(cli);
             let result = service.type2_password(
-                Type2Password::new(auth0, access[0], password, pack, &backup).confirm(true),
+                Type2Password::new(auth0, access[0], password, pack, &backup)
+                    .current(auth)
+                    .confirm(true),
             )?;
             println!("password configuration written and verified");
             println!("backup: {}", result.backup.path.display());
@@ -1795,9 +1838,11 @@ fn type2(cli: &Cli, service: &mut Service, command: Type2Command) -> Result<()> 
 
 fn ndef(cli: &Cli, service: &mut Service, command: NdefCommand) -> Result<()> {
     prepare(service, cli.device.as_deref())?;
+    let auth = type2_auth(cli)?;
     match command {
         NdefCommand::Read { output } => {
-            let read = service.type2_ndef_read(CancelToken::new())?;
+            let read =
+                service.type2_ndef_read(Type2ReadRequest::new(CancelToken::new()).auth(auth))?;
             match &read.ndef.state {
                 NdefState::Unformatted => println!("NDEF: unformatted"),
                 NdefState::Empty => println!("NDEF: empty"),
@@ -1830,7 +1875,8 @@ fn ndef(cli: &Cli, service: &mut Service, command: NdefCommand) -> Result<()> {
         } => {
             let message = build_ndef_message(file.as_deref(), text, uri, &language)?;
             let backup = backup_store(cli);
-            let result = service.type2_ndef_write(Type2NdefWrite::new(message, &backup))?;
+            let result =
+                service.type2_ndef_write(Type2NdefWrite::new(message, &backup).auth(auth))?;
             println!(
                 "NDEF written and verified: {} page(s) written, {} unchanged",
                 result.summary.written_pages, result.summary.unchanged_pages
@@ -1841,7 +1887,8 @@ fn ndef(cli: &Cli, service: &mut Service, command: NdefCommand) -> Result<()> {
         NdefCommand::Format => {
             require_confirmation(cli.yes, "formatting the NDEF data area")?;
             let backup = backup_store(cli);
-            let result = service.type2_ndef_format(Type2Format::new(&backup).confirm(true))?;
+            let result =
+                service.type2_ndef_format(Type2Format::new(&backup).confirm(true).auth(auth))?;
             println!(
                 "NDEF formatted: {} page(s) written, {} unchanged",
                 result.summary.written_pages, result.summary.unchanged_pages
@@ -2312,6 +2359,7 @@ fn mock_service() -> Service {
     ntag.set_page(130, [0x00, 0x00, 0x00, 0xBD]);
     ntag.set_page(131, [0x00, 0x00, 0x00, 0xFF]);
     ntag.set_page(132, [0x00, 0x00, 0x00, 0x00]);
+    ntag.set_password([0xFF; PAGE_SIZE], [0x00, 0x00]);
     Service::with_transport(Arc::new(transport))
 }
 

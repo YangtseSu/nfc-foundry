@@ -57,8 +57,10 @@ Plan: [19c-type2-type4.md](../plan/19c-type2-type4.md). Spec:
 - The NDEF tab reuses `NdefDraft`/`NdefMessage` from 19b. For a Type 2 card it
   shows product/UID, CC bytes, data-area size, capacity, locked pages, and
   password protection. `Write NDEF` is gated on a live complete data area, a
-  writable CC, no locked data page, no password-protected data page, an
-  encodable message, capacity, and a message different from the stored TLV.
+  writable CC, no locked data page, an encodable message, capacity, and a
+  message different from the stored TLV. A password-protected data area
+  additionally requires the access password and PACK; phase 24 S6 added the
+  Protected access fields in the same tab.
   `Format NDEF area…` requires the confirmation dialog and removes proprietary TLVs,
   matching the service behavior. NDEF writes pass the session identity.
 - Type 4 has no surface. No hardware record exists for a reader/card path, so
@@ -100,9 +102,11 @@ password, and restore dialogs name the card, values, and backup.
   hardware support claim.
 - Type 4 remains software-only with no reader/card record, so it is absent from
   the GUI and CLI.
-- The product has no "authenticate with PWD" workflow. A tag whose AUTH0 covers
-  the NDEF data area or lock pages is shown as protected and denied for writes
-  rather than silently attempting an unauthenticated write.
+- The phase 19c product had no "authenticate with PWD" workflow. Phase 24 S6
+  added `Type2Auth`; a tag whose AUTH0 covers the NDEF data area or lock pages
+  now accepts the access password and PACK for reads and writes, and is denied
+  before mutation when they are absent or wrong. See
+  [24e-type2-auth.md](24e-type2-auth.md).
 - A password or PACK page write is visible in Advanced mode but the dedicated
   Protection form is the supported path because it programs and verifies the
   whole configuration.

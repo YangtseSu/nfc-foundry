@@ -220,7 +220,10 @@ Acceptance:
 
 ### S6: Type 2 authenticated access after AUTH0
 
-Spec: [24e-type2-auth.md](../specs/24e-type2-auth.md). Status: planned.
+Spec: [24e-type2-auth.md](../specs/24e-type2-auth.md). Status:
+implementation complete 2026-11-12; hardware-validated on PN532 UART with an
+owned NTAG216, with the ACR122U record pending. See
+[24e-type2-auth.md](../notes/24e-type2-auth.md).
 
 Goal: programming PWD/PACK/AUTH0 must not make the tag unusable by the
 application. A protected tag must support authenticated reads, page writes,
@@ -239,10 +242,10 @@ Deliver:
   clearing `AUTH0` back to `0xFF`.
 - CLI and GUI password entry for protected access, with the same service path
   and confirmation gates; the CLI non-interactive form is explicit.
-- A hardware round trip on an owned NTAG215: set `AUTH0=0x20` with a known
+- A hardware round trip on an owned NTAG21x: set `AUTH0=0x20` with a known
   password, authenticated read/write of the NDEF message, restore
-  `AUTH0=0xFF`, and verify the original vCard NDEF, lock bytes, and
-  configuration.
+  `AUTH0=0xFF`, and verify the original NDEF state, lock bytes, and
+  configuration. Validated on PN532 UART with an NTAG216.
 
 Acceptance:
 
@@ -278,7 +281,8 @@ Acceptance:
 
 ## First implementation slice
 
-S1, S2, S3a, and S3b are complete. S4 and S5 are independent and can be
-scheduled next. S6 closes the Type 2 password gap: the current product can
-program PWD/PACK/AUTH0 but cannot authenticate afterwards, so the existing
-password hardware test must not run on a shared tag until S6 lands.
+S1, S2, S3a, S3b, and S6 are implemented. S6 closes the Type 2 password gap:
+protected reads, page writes, NDEF writes/formats, configuration changes, and
+protection clearing share one PWD_AUTH session per operation. The PN532 UART
+path is hardware-validated on an owned NTAG216; the ACR122U record is pending.
+S4 and S5 are independent and can be scheduled next.

@@ -131,10 +131,12 @@ at `pn532_uart:/dev/ttyUSB0` completed an authorized NTAG215
 33-byte Text record, verify it, then restore the original user memory from a
 project backup. The original URI NDEF was present after the restore. The write
 path uses READ (0x30), WRITE (0xA2), and PWD_AUTH (0x1B), CRC-A, read-back
-verification, and restored raw mode. ACR122U Type 2 NDEF write/read/restore is now recorded; one-way locks and
-password configuration have not been recorded yet. Run the gated checks in
-`docs/testing.md` before advertising those remaining operations as
-hardware-validated. The phase 09 note records the details.
+verification, and restored raw mode. ACR122U Type 2 NDEF write/read/restore is now recorded. Authenticated access
+after AUTH0, including password configuration and clearing, passed on PN532
+UART with an NTAG216 on 2026-11-12. One-way locks and the ACR122U protected
+path have not been recorded yet. Run the gated checks in `docs/testing.md`
+before advertising the remaining operations as hardware-validated. The phase 09
+and phase 24e notes record the details.
 
 Raw operations after a selected card require an RF field cycle to return the
 card to IDLE; `InRelease` alone did not produce a REQA response on this reader.

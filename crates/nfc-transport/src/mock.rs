@@ -249,6 +249,8 @@ struct MockState {
     blocks: HashMap<u8, [u8; BLOCK_SIZE]>,
     pages: HashMap<u8, [u8; PAGE_SIZE]>,
     password: Option<([u8; PAGE_SIZE], [u8; 2])>,
+    authenticated: bool,
+    password_auths: usize,
     type4: Option<MockType4Tag>,
     raw_mode: bool,
     open: bool,
@@ -268,6 +270,8 @@ impl Default for MockState {
             blocks: HashMap::new(),
             pages: HashMap::new(),
             password: None,
+            authenticated: false,
+            password_auths: 0,
             type4: None,
             raw_mode: false,
             open: false,
@@ -296,6 +300,38 @@ impl MockState {
         }
         self.present_card().map(|_| ())
     }
+
+    /// NTAG21x configuration pages derived from the scripted capability
+    /// container size: (CFG0, CFG1).
+    fn config_pages(&self) -> Option<(u8, u8)> {
+        match self.pages.get(&3)?.get(2).copied()? {
+            0x12 => Some((41, 42)),
+            0x3E => Some((131, 132)),
+            0x6D => Some((227, 228)),
+            _ => None,
+        }
+    }
+
+    /// Whether `page` needs PWD_AUTH before the requested access.
+    fn requires_auth(&self, page: u8, for_read: bool) -> bool {
+        let Some((cfg0, cfg1)) = self.config_pages() else {
+            return false;
+        };
+        let Some(auth0) = self.pages.get(&cfg0).map(|data| data[3]) else {
+            return false;
+        };
+        if auth0 == 0xFF || page < auth0 {
+            return false;
+        }
+        !for_read || self.pages.get(&cfg1).is_none_or(|data| data[0] & 0x80 != 0)
+    }
+
+    fn require_access(&self, page: u8, for_read: bool) -> Result<()> {
+        if self.requires_auth(page, for_read) && !self.authenticated {
+            return Err(NfcError::AuthenticationFailed);
+        }
+        Ok(())
+    }
 }
 
 /// Shared handle for scripting a mock reader while a service owns it.
@@ -318,7 +354,9 @@ impl MockHandle {
     }
 
     pub fn set_card(&self, card: Option<CardInfo>) {
-        self.lock().card = card;
+        let mut state = self.lock();
+        state.card = card;
+        state.authenticated = false;
     }
 
     pub fn set_block(&self, block: u8, data: [u8; BLOCK_SIZE]) {
@@ -336,7 +374,9 @@ impl MockHandle {
 
     /// Remove every stored Type 2 page.
     pub fn clear_pages(&self) {
-        self.lock().pages.clear();
+        let mut state = self.lock();
+        state.pages.clear();
+        state.authenticated = false;
     }
 
     pub fn page(&self, page: u8) -> Option<[u8; PAGE_SIZE]> {
@@ -345,7 +385,14 @@ impl MockHandle {
 
     /// Configure the PWD_AUTH secret and expected PACK.
     pub fn set_password(&self, password: [u8; PAGE_SIZE], pack: [u8; 2]) {
-        self.lock().password = Some((password, pack));
+        let mut state = self.lock();
+        state.password = Some((password, pack));
+        state.authenticated = false;
+    }
+
+    /// Number of PWD_AUTH calls the scripted tag has answered.
+    pub fn password_auths(&self) -> usize {
+        self.lock().password_auths
     }
 
     /// Install or replace the scripted Type 4 tag.
@@ -444,6 +491,10 @@ impl MockReader {
         self.state.set_password(password, pack);
     }
 
+    pub fn password_auths(&self) -> usize {
+        self.state.password_auths()
+    }
+
     pub fn set_type4_tag(&mut self, tag: MockType4Tag) {
         self.state.set_type4_tag(tag);
     }
@@ -484,6 +535,7 @@ impl Reader for MockReader {
     fn card_info(&mut self) -> Result<CardInfo> {
         let mut state = self.state.lock();
         state.check_call(MockCall::CardInfo)?;
+        state.authenticated = false;
         state.present_card().cloned()
     }
 
@@ -530,6 +582,7 @@ impl Reader for MockReader {
             let data = state.pages.get(&page).copied().ok_or_else(|| {
                 NfcError::InvalidArgument(format!("mock Type 2 page {page} is not loaded"))
             })?;
+            state.require_access(page, true)?;
             let index = usize::from(offset) * PAGE_SIZE;
             output[index..index + PAGE_SIZE].copy_from_slice(&data);
         }
@@ -545,6 +598,19 @@ impl Reader for MockReader {
             return Err(fault.into_error());
         }
         state.present_card()?;
+        state.require_access(page, false)?;
+        if let Some((_, cfg1)) = state.config_pages() {
+            if page == cfg1.saturating_add(1) {
+                let pack = state.password.map(|(_, pack)| pack).unwrap_or([0; 2]);
+                state.password = Some((data, pack));
+            } else if page == cfg1.saturating_add(2) {
+                let password = state
+                    .password
+                    .map(|(password, _)| password)
+                    .unwrap_or([0; PAGE_SIZE]);
+                state.password = Some((password, [data[0], data[1]]));
+            }
+        }
         state.pages.insert(page, data);
         Ok(())
     }
@@ -552,8 +618,12 @@ impl Reader for MockReader {
     fn password_auth(&mut self, password: [u8; PAGE_SIZE]) -> Result<[u8; 2]> {
         let mut state = self.state.lock();
         state.check_call(MockCall::PasswordAuth)?;
+        state.password_auths += 1;
         match state.password {
-            Some((expected, pack)) if expected == password => Ok(pack),
+            Some((expected, pack)) if expected == password => {
+                state.authenticated = true;
+                Ok(pack)
+            }
             _ => Err(NfcError::AuthenticationFailed),
         }
     }

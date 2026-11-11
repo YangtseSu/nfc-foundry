@@ -218,10 +218,15 @@ NFC_FOUNDRY_HARDWARE_BACKUP_DIR=/tmp/nfc-type2-backups \
 cargo test -p nfctl --features hardware-write -- --ignored
 ```
 
-The password test additionally requires `NFC_FOUNDRY_TYPE2_PASSWORD` (8 hex digits)
-and writes AUTH0/ACCESS/PWD/PACK on an owned tag. The read and NDEF round-trip
-tests passed on a PN532 UART with an NTAG215 on 2026-11-10; the ACR122U and
-password records remain pending.
+The password test additionally requires `NFC_FOUNDRY_TYPE2_PASSWORD` (8 hex
+digits) and `NFC_FOUNDRY_TYPE2_PACK` (4 hex digits). It runs on an owned,
+initially unprotected NTAG21x: it sets `AUTH0=0x20` with `PROT`, proves a wrong
+PACK is refused, reads and writes NDEF through PWD_AUTH, clears protection with
+the current password, restores the original user memory, and checks the
+original NDEF state, lock bytes, and configuration. The read and NDEF round-trip
+tests passed on a PN532 UART with an NTAG215 on 2026-11-10. The authenticated
+round trip passed on a PN532 UART with an NTAG216 on 2026-11-12; the ACR122U
+record remains pending.
 
 Hardware workflow checks:
 

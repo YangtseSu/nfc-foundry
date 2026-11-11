@@ -778,5 +778,7 @@ Detailed plan: [24-parity-recovery.md](24-parity-recovery.md). Status:
 in progress. S1 (verified-key capture and dump key metadata), S2 (editable
 workbench and selective restore), and S3a (standalone UID / block-0 write) are
 complete; S3b (restore with UID) is complete and validated on PN532 UART and
-ACR122U. Each slice needs a spec in `docs/specs/` before implementation and a
-note in `docs/notes/` when complete.
+ACR122U; S6 (Type 2 authenticated access) is implemented and validated on
+PN532 UART with an owned NTAG216, with the ACR122U record pending. Each slice
+needs a spec in `docs/specs/` before implementation and a note in `docs/notes/`
+when complete.

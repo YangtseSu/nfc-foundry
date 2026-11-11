@@ -7,14 +7,33 @@
 use nfc_core::{CancelToken, CardInfo, NfcError, PAGE_SIZE, Result};
 use nfc_ndef::NdefMessage;
 use nfc_type2::{
-    LockUpdate, NdefState, RestoreOptions, Type2Image, Type2Ndef, WritePolicy, WriteSummary,
-    exchange, format_ndef, lock_pages, read_ndef, read_tag, restore_image, set_password,
-    write_ndef, write_page_verified,
+    LockUpdate, NdefState, PasswordUpdate, RestoreOptions, Type2Image, Type2Ndef, WritePolicy,
+    WriteSummary, exchange, format_ndef, lock_pages, read_ndef, read_tag, restore_image,
+    set_password, write_ndef, write_page_verified,
 };
+pub use nfc_type2::{Type2Auth, Type2AuthSession};
 
 use crate::classic::backup::{BackupRecord, BackupStore};
 use crate::classic::write::check_expected_card;
 use crate::operation::Operation;
+
+/// A read-only Type 2 operation with optional PWD_AUTH credentials.
+pub struct Type2ReadRequest {
+    pub auth: Option<Type2Auth>,
+    pub cancel: CancelToken,
+}
+
+impl Type2ReadRequest {
+    pub fn new(cancel: CancelToken) -> Self {
+        Self { auth: None, cancel }
+    }
+
+    /// Supply the PWD_AUTH password and expected PACK.
+    pub fn auth(mut self, auth: Option<Type2Auth>) -> Self {
+        self.auth = auth;
+        self
+    }
+}
 
 /// A read with its identity, image, and explicit partial-read warnings.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -45,6 +64,7 @@ pub struct Type2PageWrite<'a> {
     /// Identity of the image the write was composed from. A live card with a
     /// different UID, ATQA, or SAK is refused before the backup.
     pub expected_card: Option<CardInfo>,
+    pub auth: Option<Type2Auth>,
     pub backup: &'a BackupStore,
     pub cancel: CancelToken,
 }
@@ -57,9 +77,16 @@ impl<'a> Type2PageWrite<'a> {
             advanced: false,
             confirm: false,
             expected_card: None,
+            auth: None,
             backup,
             cancel: CancelToken::new(),
         }
+    }
+
+    /// Supply the PWD_AUTH password and expected PACK.
+    pub fn auth(mut self, auth: Option<Type2Auth>) -> Self {
+        self.auth = auth;
+        self
     }
 
     pub fn advanced(mut self, advanced: bool) -> Self {
@@ -101,6 +128,7 @@ pub struct Type2NdefWrite<'a> {
     pub message: NdefMessage,
     /// Identity of the image the write was composed from.
     pub expected_card: Option<CardInfo>,
+    pub auth: Option<Type2Auth>,
     pub backup: &'a BackupStore,
     pub cancel: CancelToken,
 }
@@ -110,9 +138,16 @@ impl<'a> Type2NdefWrite<'a> {
         Self {
             message,
             expected_card: None,
+            auth: None,
             backup,
             cancel: CancelToken::new(),
         }
+    }
+
+    /// Supply the PWD_AUTH password and expected PACK.
+    pub fn auth(mut self, auth: Option<Type2Auth>) -> Self {
+        self.auth = auth;
+        self
     }
 
     pub fn expected_card(mut self, card: CardInfo) -> Self {
@@ -131,6 +166,7 @@ pub struct Type2Format<'a> {
     pub confirm: bool,
     /// Identity of the image the format was composed from.
     pub expected_card: Option<CardInfo>,
+    pub auth: Option<Type2Auth>,
     pub backup: &'a BackupStore,
     pub cancel: CancelToken,
 }
@@ -140,9 +176,16 @@ impl<'a> Type2Format<'a> {
         Self {
             confirm: false,
             expected_card: None,
+            auth: None,
             backup,
             cancel: CancelToken::new(),
         }
+    }
+
+    /// Supply the PWD_AUTH password and expected PACK.
+    pub fn auth(mut self, auth: Option<Type2Auth>) -> Self {
+        self.auth = auth;
+        self
     }
 
     pub fn confirm(mut self, confirm: bool) -> Self {
@@ -178,6 +221,7 @@ pub struct Type2Restore<'a> {
     pub confirm: bool,
     /// Identity of the card the restore targets.
     pub expected_card: Option<CardInfo>,
+    pub auth: Option<Type2Auth>,
     pub backup: &'a BackupStore,
     pub cancel: CancelToken,
 }
@@ -192,9 +236,16 @@ impl<'a> Type2Restore<'a> {
             },
             confirm: false,
             expected_card: None,
+            auth: None,
             backup,
             cancel: CancelToken::new(),
         }
+    }
+
+    /// Supply the PWD_AUTH password and expected PACK.
+    pub fn auth(mut self, auth: Option<Type2Auth>) -> Self {
+        self.auth = auth;
+        self
     }
 
     pub fn options(mut self, options: RestoreOptions) -> Self {
@@ -224,6 +275,7 @@ pub struct Type2Lock<'a> {
     pub confirm: bool,
     /// Identity of the card the lock applies to.
     pub expected_card: Option<CardInfo>,
+    pub auth: Option<Type2Auth>,
     pub backup: &'a BackupStore,
     pub cancel: CancelToken,
 }
@@ -234,9 +286,16 @@ impl<'a> Type2Lock<'a> {
             pages,
             confirm: false,
             expected_card: None,
+            auth: None,
             backup,
             cancel: CancelToken::new(),
         }
+    }
+
+    /// Supply the PWD_AUTH password and expected PACK.
+    pub fn auth(mut self, auth: Option<Type2Auth>) -> Self {
+        self.auth = auth;
+        self
     }
 
     pub fn confirm(mut self, confirm: bool) -> Self {
@@ -274,6 +333,8 @@ pub struct Type2Password<'a> {
     pub confirm: bool,
     /// Identity of the card the configuration applies to.
     pub expected_card: Option<CardInfo>,
+    /// Credentials of the currently protected configuration.
+    pub current: Option<Type2Auth>,
     pub backup: &'a BackupStore,
     pub cancel: CancelToken,
 }
@@ -293,9 +354,16 @@ impl<'a> Type2Password<'a> {
             pack,
             confirm: false,
             expected_card: None,
+            current: None,
             backup,
             cancel: CancelToken::new(),
         }
+    }
+
+    /// Supply the current password and PACK when the tag is already protected.
+    pub fn current(mut self, current: Option<Type2Auth>) -> Self {
+        self.current = current;
+        self
     }
 
     pub fn confirm(mut self, confirm: bool) -> Self {
@@ -315,8 +383,10 @@ impl<'a> Type2Password<'a> {
 }
 
 /// Read the complete Type 2 memory.
-pub fn read(operation: &mut Operation<'_>, cancel: &CancelToken) -> Result<Type2ReadResult> {
-    let result = read_current(operation, cancel)?;
+pub fn read(operation: &mut Operation<'_>, request: Type2ReadRequest) -> Result<Type2ReadResult> {
+    let cancel = request.cancel;
+    let mut access = Type2AuthSession::from_option(request.auth.as_ref());
+    let result = read_current(operation, &mut access, &cancel)?;
     operation.check_card()?;
     Ok(Type2ReadResult {
         card: operation.card().clone(),
@@ -328,9 +398,11 @@ pub fn read(operation: &mut Operation<'_>, cancel: &CancelToken) -> Result<Type2
 /// Read the NDEF state without mutating the tag.
 pub fn read_ndef_state(
     operation: &mut Operation<'_>,
-    cancel: &CancelToken,
+    request: Type2ReadRequest,
 ) -> Result<Type2NdefResult> {
-    let result = read_current(operation, cancel)?;
+    let cancel = request.cancel;
+    let mut access = Type2AuthSession::from_option(request.auth.as_ref());
+    let result = read_current(operation, &mut access, &cancel)?;
     let ndef = read_ndef(&result.image)?;
     operation.check_card()?;
     Ok(Type2NdefResult {
@@ -358,7 +430,8 @@ pub fn write_page(
     } else {
         WritePolicy::user()
     };
-    let read = read_current(operation, &request.cancel)?;
+    let mut access = Type2AuthSession::from_option(request.auth.as_ref());
+    let read = read_current(operation, &mut access, &request.cancel)?;
     let mut image = read.image;
     let previous = *image.page(request.page).ok_or_else(|| {
         NfcError::VerificationFailed(format!("page {} is not readable", request.page))
@@ -381,6 +454,7 @@ pub fn write_page(
         request.page,
         request.data,
         policy,
+        &mut access,
         &request.cancel,
     )?;
     operation.check_card()?;
@@ -402,7 +476,8 @@ pub fn write_ndef_message(
 ) -> Result<Type2MutationResult> {
     request.cancel.check()?;
     check_expected_card(operation.card(), request.expected_card.as_ref())?;
-    let read = read_current(operation, &request.cancel)?;
+    let mut access = Type2AuthSession::from_option(request.auth.as_ref());
+    let read = read_current(operation, &mut access, &request.cancel)?;
     let mut image = read.image;
     ensure_ndef_writable(&image)?;
     let backup = save_backup(&image, request.backup, "ndef-write")?;
@@ -410,6 +485,7 @@ pub fn write_ndef_message(
         operation.reader_mut(),
         &mut image,
         &request.message,
+        &mut access,
         &request.cancel,
     )?;
     operation.check_card()?;
@@ -433,11 +509,17 @@ pub fn format_ndef_area(
         ));
     }
     check_expected_card(operation.card(), request.expected_card.as_ref())?;
-    let read = read_current(operation, &request.cancel)?;
+    let mut access = Type2AuthSession::from_option(request.auth.as_ref());
+    let read = read_current(operation, &mut access, &request.cancel)?;
     let mut image = read.image;
     ensure_ndef_writable(&image)?;
     let backup = save_backup(&image, request.backup, "ndef-format")?;
-    let summary = format_ndef(operation.reader_mut(), &mut image, &request.cancel)?;
+    let summary = format_ndef(
+        operation.reader_mut(),
+        &mut image,
+        &mut access,
+        &request.cancel,
+    )?;
     operation.check_card()?;
     Ok(Type2MutationResult {
         image,
@@ -459,7 +541,8 @@ pub fn restore(
         ));
     }
     check_expected_card(operation.card(), request.expected_card.as_ref())?;
-    let read = read_current(operation, &request.cancel)?;
+    let mut access = Type2AuthSession::from_option(request.auth.as_ref());
+    let read = read_current(operation, &mut access, &request.cancel)?;
     let mut image = read.image;
     let backup = save_backup(&image, request.backup, "restore")?;
     let summary = restore_image(
@@ -467,6 +550,7 @@ pub fn restore(
         &mut image,
         &request.source,
         request.options,
+        &mut access,
         &request.cancel,
     )?;
     operation.check_card()?;
@@ -492,13 +576,15 @@ pub fn lock(operation: &mut Operation<'_>, request: Type2Lock<'_>) -> Result<Typ
         ));
     }
     check_expected_card(operation.card(), request.expected_card.as_ref())?;
-    let read = read_current(operation, &request.cancel)?;
+    let mut access = Type2AuthSession::from_option(request.auth.as_ref());
+    let read = read_current(operation, &mut access, &request.cancel)?;
     let mut image = read.image;
     let backup = save_backup(&image, request.backup, "lock")?;
     let update = lock_pages(
         operation.reader_mut(),
         &mut image,
         &request.pages,
+        &mut access,
         &request.cancel,
     )?;
     operation.check_card()?;
@@ -522,16 +608,20 @@ pub fn password(
         ));
     }
     check_expected_card(operation.card(), request.expected_card.as_ref())?;
-    let read = read_current(operation, &request.cancel)?;
+    let mut access = Type2AuthSession::from_option(request.current.as_ref());
+    let read = read_current(operation, &mut access, &request.cancel)?;
     let mut image = read.image;
     let backup = save_backup(&image, request.backup, "password")?;
     set_password(
         operation.reader_mut(),
         &mut image,
-        request.auth0,
-        request.access,
-        request.password,
-        request.pack,
+        &mut access,
+        PasswordUpdate {
+            auth0: request.auth0,
+            access: request.access,
+            password: request.password,
+            pack: request.pack,
+        },
         &request.cancel,
     )?;
     operation.check_card()?;
@@ -547,26 +637,28 @@ pub fn password(
 pub fn dump(
     operation: &mut Operation<'_>,
     backup: &BackupStore,
-    cancel: &CancelToken,
+    request: Type2ReadRequest,
 ) -> Result<BackupRecord> {
-    let result = read_current(operation, cancel)?;
+    let cancel = request.cancel;
+    let mut access = Type2AuthSession::from_option(request.auth.as_ref());
+    let result = read_current(operation, &mut access, &cancel)?;
     operation.check_card()?;
     save_backup(&result.image, backup, "dump")
 }
 
 impl crate::Service {
     /// Read the complete Type 2 memory with explicit partial-read warnings.
-    pub fn type2_read(&mut self, cancel: CancelToken) -> Result<Type2ReadResult> {
-        let mut operation =
-            self.begin_operation(crate::operation::OperationKind::Read, cancel.clone())?;
-        read(&mut operation, &cancel)
+    pub fn type2_read(&mut self, request: Type2ReadRequest) -> Result<Type2ReadResult> {
+        let cancel = request.cancel.clone();
+        let mut operation = self.begin_operation(crate::operation::OperationKind::Read, cancel)?;
+        read(&mut operation, request)
     }
 
     /// Read the Type 2 NDEF state without mutating the tag.
-    pub fn type2_ndef_read(&mut self, cancel: CancelToken) -> Result<Type2NdefResult> {
-        let mut operation =
-            self.begin_operation(crate::operation::OperationKind::Read, cancel.clone())?;
-        read_ndef_state(&mut operation, &cancel)
+    pub fn type2_ndef_read(&mut self, request: Type2ReadRequest) -> Result<Type2NdefResult> {
+        let cancel = request.cancel.clone();
+        let mut operation = self.begin_operation(crate::operation::OperationKind::Read, cancel)?;
+        read_ndef_state(&mut operation, request)
     }
 
     /// Write one page with a backup and read-back verification.
@@ -615,20 +707,21 @@ impl crate::Service {
     pub fn type2_dump(
         &mut self,
         backup: &BackupStore,
-        cancel: CancelToken,
+        request: Type2ReadRequest,
     ) -> Result<BackupRecord> {
-        let mut operation =
-            self.begin_operation(crate::operation::OperationKind::Read, cancel.clone())?;
-        dump(&mut operation, backup, &cancel)
+        let cancel = request.cancel.clone();
+        let mut operation = self.begin_operation(crate::operation::OperationKind::Read, cancel)?;
+        dump(&mut operation, backup, request)
     }
 }
 
 fn read_current(
     operation: &mut Operation<'_>,
+    access: &mut Type2AuthSession<'_>,
     cancel: &CancelToken,
 ) -> Result<nfc_type2::Type2ReadResult> {
     let card = operation.card().clone();
-    read_tag(operation.reader_mut(), &card, cancel)
+    read_tag(operation.reader_mut(), &card, access, cancel)
 }
 
 fn ensure_ndef_writable(image: &Type2Image) -> Result<()> {

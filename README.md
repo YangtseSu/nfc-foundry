@@ -56,8 +56,10 @@ NDEF writes over both readers. `nfctl type2|ndef` uses the shared `nfc-app`
 services, with backups, read-back verification, and confirmation dialogs for
 one-way locks and configuration. A PN532 UART
 NTAG215 read plus authorized NDEF write/read/restore round trip is recorded for
-2026-11-10; the ACR122U record and lock/password paths remain pending. The read
-path was validated earlier on both readers. Classic NDEF maps NDEF onto MAD1,
+2026-11-10. Authenticated access after AUTH0 is validated on PN532 UART with
+an owned NTAG216 on 2026-11-12; the ACR122U record, lock path, and ACR122U
+password path remain pending. The read path was validated earlier on both
+readers. Classic NDEF maps NDEF onto MAD1,
 MAD2, and NFC sectors: the adapter parses the directory and per-sector GPB,
 reads and writes the mandatory NDEF Message TLV with access checks, and formats
 a blank card after a confirmation and backup. `nfctl classic ndef` uses
@@ -86,7 +88,11 @@ The path is hardware-validated on PN532 UART and ACR122U with an owned Gen1A
 card. S3b (restore with UID) is complete:
 a full restore runs under one preflight token, verifies the restored sector 0,
 and only then writes the target UID. It is hardware-validated on PN532 UART and
-ACR122U with an owned Gen1A Classic 1K. Remaining work is the Type 4 read
+ACR122U with an owned Gen1A Classic 1K. S6 adds Type 2 authenticated access:
+one PWD_AUTH session per operation covers protected reads, page writes, NDEF
+writes/formats, lock updates, restore, and configuration changes, and can clear
+AUTH0 back to 0xFF. It is hardware-validated on PN532 UART with an owned
+NTAG216; the ACR122U record is pending. Remaining work is the Type 4 read
 surface (hardware-gated) and phases 13-17.
 
 ## Product scope
@@ -339,13 +345,19 @@ cargo run -p nfctl -- --device acr122_usb:001:017 ndef write --text "hello"
 cargo run -p nfctl -- --device acr122_usb:001:017 ndef read
 cargo run -p nfctl -- --device acr122_usb:001:017 \
   type2 lock --pages 4 --yes
+cargo run -p nfctl -- --device acr122_usb:001:017 \
+  --type2-password 11223344 --type2-pack AABB \
+  ndef write --text "hello"
 ```
 
 Type 2 reads are hardware-validated on both readers. The PN532 UART path also
 passed an authorized NTAG215 NDEF write/read/restore round trip with backups
-and read-back verification. The ACR122U write record, one-way locks, and
-password configuration still need the hardware record described in
-[Testing](docs/testing.md).
+and read-back verification. A protected tag uses `--type2-password` and
+`--type2-pack`, or the equivalent environment variables, for reads and writes;
+the GUI uses the masked Protected access fields. The ACR122U write record and
+one-way locks still need the hardware record described in
+[Testing](docs/testing.md); authenticated access is validated on PN532 UART
+with an NTAG216.
 
 Classic NDEF commands use the same readers:
 

@@ -4,12 +4,12 @@ use nfc_core::{CancelToken, NfcError, PAGE_SIZE, Result};
 use nfc_ndef::NdefMessage;
 use nfc_transport::Reader;
 
-use crate::config::Configuration;
+use crate::auth::{Type2Auth, Type2AuthSession};
+use crate::config::{Configuration, PasswordUpdate};
 use crate::layout::{PageRole, Type2Layout};
 use crate::lock::{LockBits, LockUpdate};
 use crate::ndef::{encode_ndef_area, format_ndef_area};
 use crate::page::Type2Image;
-use crate::read::read_page;
 
 /// Which page classes a write may touch. Defaults allow user memory and the
 /// NDEF data area only.
@@ -103,6 +103,24 @@ pub fn check_writable(image: &Type2Image, page: u8, policy: WritePolicy) -> Resu
     Ok(role)
 }
 
+/// Authenticate before a multi-page mutation when any target page needs a
+/// password, so a wrong credential cannot leave an earlier page written.
+fn authenticate_for_pages(
+    reader: &mut dyn Reader,
+    image: &Type2Image,
+    pages: impl IntoIterator<Item = u8>,
+    access: &mut Type2AuthSession<'_>,
+    cancel: &CancelToken,
+) -> Result<()> {
+    let Some(config) = Configuration::from_image(image).ok() else {
+        return Ok(());
+    };
+    if pages.into_iter().any(|page| config.requires_password(page)) {
+        access.authenticate(reader, cancel)?;
+    }
+    Ok(())
+}
+
 /// Write one page, read it back, compare the expected post-write value, and
 /// update the in-memory image. A failed read-back is an error; a write that
 /// was ignored is detected here.
@@ -112,10 +130,14 @@ pub fn write_page_verified(
     page: u8,
     data: [u8; PAGE_SIZE],
     policy: WritePolicy,
+    access: &mut Type2AuthSession<'_>,
     cancel: &CancelToken,
 ) -> Result<PageWriteResult> {
     cancel.check()?;
     let role = check_writable(image, page, policy)?;
+    if Configuration::from_image(image).is_ok_and(|config| config.requires_password(page)) {
+        access.authenticate(reader, cancel)?;
+    }
     let previous = *image.page(page).ok_or_else(|| {
         NfcError::VerificationFailed(format!("page {page} was not readable before the write"))
     })?;
@@ -125,7 +147,8 @@ pub fn write_page_verified(
         ));
     }
     let expected = expected_after_write(role, previous, data)?;
-    if expected == previous {
+    let secret = matches!(role, PageRole::Password | PageRole::PasswordAck);
+    if expected == previous && !secret {
         return Ok(PageWriteResult {
             page,
             previous,
@@ -149,9 +172,11 @@ pub fn write_page_verified(
     cancel.check()?;
     reader.write_page(page, data)?;
     cancel.check()?;
-    if role == PageRole::Password || role == PageRole::PasswordAck {
-        // PWD and PACK read as zero; the caller verifies them with PWD_AUTH.
-        // Keep the in-memory image equal to what the tag would report.
+    if secret {
+        // PWD and PACK read as zero, so a zero PACK cannot be compared with
+        // the previous read-back. The write is always issued and the caller
+        // verifies the secret with PWD_AUTH. Keep the in-memory image equal to
+        // what the tag would report.
         image.set_page(page, [0; PAGE_SIZE])?;
         return Ok(PageWriteResult {
             page,
@@ -160,7 +185,7 @@ pub fn write_page_verified(
             changed: true,
         });
     }
-    let read_back = read_page(reader, page)?;
+    let read_back = crate::read::read_page_bounded(reader, page, image.layout.total_pages)?;
     let matches = if role == PageRole::DynamicLock {
         read_back[..3] == expected[..3]
     } else {
@@ -225,6 +250,7 @@ pub fn write_area(
     image: &mut Type2Image,
     area: &[u8],
     policy: WritePolicy,
+    access: &mut Type2AuthSession<'_>,
     cancel: &CancelToken,
 ) -> Result<WriteSummary> {
     if !area.len().is_multiple_of(PAGE_SIZE) {
@@ -239,6 +265,14 @@ pub fn write_area(
             image.cc.size
         )));
     }
+    let page_count = area.len() / PAGE_SIZE;
+    authenticate_for_pages(
+        reader,
+        image,
+        (0..page_count).map(|index| image.layout.user_first.saturating_add(index as u8)),
+        access,
+        cancel,
+    )?;
     let mut summary = WriteSummary::default();
     for (index, chunk) in area.chunks(PAGE_SIZE).enumerate() {
         cancel.check()?;
@@ -249,7 +283,7 @@ pub fn write_area(
             .ok_or_else(|| NfcError::InvalidArgument("NDEF page overflows".to_owned()))?;
         let mut data = [0u8; PAGE_SIZE];
         data.copy_from_slice(chunk);
-        let result = write_page_verified(reader, image, page, data, policy, cancel)?;
+        let result = write_page_verified(reader, image, page, data, policy, access, cancel)?;
         if result.changed {
             summary.written_pages += 1;
         } else {
@@ -264,20 +298,22 @@ pub fn write_ndef(
     reader: &mut dyn Reader,
     image: &mut Type2Image,
     message: &NdefMessage,
+    access: &mut Type2AuthSession<'_>,
     cancel: &CancelToken,
 ) -> Result<WriteSummary> {
     let area = encode_ndef_area(image, message)?;
-    write_area(reader, image, &area, WritePolicy::user(), cancel)
+    write_area(reader, image, &area, WritePolicy::user(), access, cancel)
 }
 
 /// Replace the NDEF data area with an empty formatted tag.
 pub fn format_ndef(
     reader: &mut dyn Reader,
     image: &mut Type2Image,
+    access: &mut Type2AuthSession<'_>,
     cancel: &CancelToken,
 ) -> Result<WriteSummary> {
     let area = format_ndef_area(image)?;
-    write_area(reader, image, &area, WritePolicy::user(), cancel)
+    write_area(reader, image, &area, WritePolicy::user(), access, cancel)
 }
 
 /// Lock a set of pages. Lock bits are one-way, so every bit is verified.
@@ -285,6 +321,7 @@ pub fn lock_pages(
     reader: &mut dyn Reader,
     image: &mut Type2Image,
     pages: &[u8],
+    access: &mut Type2AuthSession<'_>,
     cancel: &CancelToken,
 ) -> Result<LockUpdate> {
     let current = LockBits::from_image(image)?;
@@ -292,6 +329,16 @@ pub fn lock_pages(
     if update.is_empty() {
         return Ok(update);
     }
+    let mut targets = Vec::new();
+    if update.static_changed {
+        targets.push(2);
+    }
+    if update.dynamic_changed
+        && let Some(page) = image.layout.dynamic_lock
+    {
+        targets.push(page);
+    }
+    authenticate_for_pages(reader, image, targets, access, cancel)?;
     if update.static_changed {
         let mut data = current.static_lock;
         data[0] |= update.static_lock[0];
@@ -308,6 +355,7 @@ pub fn lock_pages(
             page,
             payload,
             WritePolicy::advanced(),
+            access,
             cancel,
         )?;
     }
@@ -326,6 +374,7 @@ pub fn lock_pages(
             page,
             payload,
             WritePolicy::advanced(),
+            access,
             cancel,
         )?;
     }
@@ -335,66 +384,212 @@ pub fn lock_pages(
 /// Program PWD/PACK and the AUTH0/ACCESS configuration, then verify the new
 /// password with a fresh PWD_AUTH. PWD and PACK are written before AUTH0 so a
 /// protected tag is never left with an unknown secret.
+///
+/// `current` carries the password of an already protected tag. It is required
+/// before the first write when the current configuration protects any
+/// configuration page. `auth0 = 0xFF` with `access = 0` clears protection.
 pub fn set_password(
     reader: &mut dyn Reader,
     image: &mut Type2Image,
-    auth0: u8,
-    access: u8,
-    password: [u8; PAGE_SIZE],
-    pack: [u8; 2],
+    current: &mut Type2AuthSession<'_>,
+    update: PasswordUpdate,
     cancel: &CancelToken,
 ) -> Result<()> {
+    let PasswordUpdate {
+        auth0,
+        access,
+        password,
+        pack,
+    } = update;
     let pages = image.layout.config.ok_or(NfcError::Unsupported(
         "this tag has no NTAG configuration pages",
     ))?;
-    let current = Configuration::from_image(image)?;
-    if current.cfg_locked() {
+    let config = Configuration::from_image(image)?;
+    if config.cfg_locked() {
         return Err(NfcError::Unsupported(
             "the NTAG configuration is permanently locked",
         ));
     }
-    write_page_verified(
+    if auth0 != 0xFF && !(image.layout.user_first..=image.layout.user_last).contains(&auth0) {
+        return Err(NfcError::InvalidArgument(format!(
+            "AUTH0 must be a user-memory page ({}..={}) or 255 to disable protection",
+            image.layout.user_first, image.layout.user_last
+        )));
+    }
+    if access & 0x78 != 0 {
+        return Err(NfcError::InvalidArgument(
+            "ACCESS contains the CFGLCK bit or reserved bits; only PROT and AUTHLIM may be set"
+                .to_owned(),
+        ));
+    }
+    let protected_now = [pages.pwd, pages.pack, pages.cfg0, pages.cfg1]
+        .into_iter()
+        .any(|page| config.requires_password(page));
+    if protected_now {
+        current.authenticate(reader, cancel)?;
+    }
+
+    let mut committed = Vec::new();
+    if let Err(error) = write_and_record(
         reader,
         image,
         pages.pwd,
         Configuration::password_page(password),
-        WritePolicy::advanced(),
+        current,
         cancel,
-    )?;
-    write_page_verified(
+        &mut committed,
+    ) {
+        return Err(password_failure(error, &committed, pages, config, update));
+    }
+    if let Err(error) = write_and_record(
         reader,
         image,
         pages.pack,
         Configuration::pack_page(pack),
-        WritePolicy::advanced(),
+        current,
         cancel,
-    )?;
+        &mut committed,
+    ) {
+        return Err(password_failure(error, &committed, pages, config, update));
+    }
+
+    // The new credentials replace the old session for the configuration
+    // writes. This also proves PWD/PACK were programmed before AUTH0 changes.
+    let new_auth = Type2Auth::new(password, pack);
+    let mut new_session = Type2AuthSession::new(&new_auth);
+    if let Err(error) = new_session.authenticate(reader, cancel) {
+        return Err(password_failure(error, &committed, pages, config, update));
+    }
     let [cfg0, cfg1] =
-        Configuration::config_pages(current.mirror, current.mirror_page, auth0, access);
-    write_page_verified(
+        Configuration::config_pages(config.mirror, config.mirror_page, auth0, access);
+    if let Err(error) = write_and_record(
         reader,
         image,
         pages.cfg1,
         cfg1,
-        WritePolicy::advanced(),
+        &mut new_session,
         cancel,
-    )?;
-    write_page_verified(
+        &mut committed,
+    ) {
+        return Err(password_failure(error, &committed, pages, config, update));
+    }
+    if let Err(error) = write_and_record(
         reader,
         image,
         pages.cfg0,
         cfg0,
-        WritePolicy::advanced(),
+        &mut new_session,
         cancel,
-    )?;
-    let acknowledged = reader.password_auth(password)?;
-    if acknowledged != pack {
-        return Err(NfcError::VerificationFailed(format!(
-            "PWD_AUTH returned {:02X?} instead of the configured PACK {:02X?}",
-            acknowledged, pack
-        )));
+        &mut committed,
+    ) {
+        return Err(password_failure(error, &committed, pages, config, update));
+    }
+
+    // Re-authenticate after AUTH0/ACCESS and require the new PACK, then read
+    // both configuration pages back as the tag now reports them.
+    new_session.reset();
+    if let Err(error) = new_session.authenticate(reader, cancel) {
+        return Err(password_failure(error, &committed, pages, config, update));
+    }
+    for (page, expected) in [(pages.cfg0, cfg0), (pages.cfg1, cfg1)] {
+        match crate::read::read_page_bounded(reader, page, image.layout.total_pages) {
+            Ok(observed) if observed == expected => {}
+            Ok(observed) => {
+                return Err(password_failure(
+                    NfcError::VerificationFailed(format!(
+                        "page {page} read back as {:02X?}, expected {:02X?}",
+                        observed, expected
+                    )),
+                    &committed,
+                    pages,
+                    config,
+                    update,
+                ));
+            }
+            Err(error) => {
+                return Err(password_failure(error, &committed, pages, config, update));
+            }
+        }
     }
     Ok(())
+}
+
+fn write_and_record(
+    reader: &mut dyn Reader,
+    image: &mut Type2Image,
+    page: u8,
+    data: [u8; PAGE_SIZE],
+    access: &mut Type2AuthSession<'_>,
+    cancel: &CancelToken,
+    committed: &mut Vec<u8>,
+) -> Result<()> {
+    write_page_verified(
+        reader,
+        image,
+        page,
+        data,
+        WritePolicy::advanced(),
+        access,
+        cancel,
+    )?;
+    committed.push(page);
+    Ok(())
+}
+
+fn password_failure(
+    error: NfcError,
+    committed: &[u8],
+    pages: crate::layout::ConfigPages,
+    current: Configuration,
+    update: PasswordUpdate,
+) -> NfcError {
+    if committed.is_empty() && matches!(error, NfcError::Cancelled) {
+        return error;
+    }
+    let list = if committed.is_empty() {
+        "no page".to_owned()
+    } else {
+        format!(
+            "page(s) {}",
+            committed
+                .iter()
+                .map(u8::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    };
+    let secret = match (
+        committed.contains(&pages.pwd),
+        committed.contains(&pages.pack),
+    ) {
+        (true, true) => "PWD and PACK may now hold the new values".to_owned(),
+        (true, false) => {
+            "PWD may hold the new value; PACK may still hold the previous value".to_owned()
+        }
+        (false, true) => {
+            "PACK may hold the new value; PWD may still hold the previous value".to_owned()
+        }
+        (false, false) => "PWD and PACK may still hold the previous values".to_owned(),
+    };
+    let configuration = if committed.contains(&pages.cfg0) {
+        format!(
+            "AUTH0 now reads {} and ACCESS now reads {:02X}",
+            update.auth0, update.access
+        )
+    } else if committed.contains(&pages.cfg1) {
+        format!(
+            "ACCESS now reads {:02X}; AUTH0 remains {:02X}",
+            update.access, current.auth0
+        )
+    } else {
+        format!(
+            "AUTH0 {:02X} and ACCESS {:02X} remain the previous values",
+            current.auth0, current.access
+        )
+    };
+    NfcError::VerificationFailed(format!(
+        "password configuration stopped after {list}: {secret}; {configuration}; {error}. Authenticate with the known password before any further change."
+    ))
 }
 
 /// Options for restoring a Type 2 image.
@@ -416,6 +611,7 @@ pub fn restore_image(
     image: &mut Type2Image,
     source: &Type2Image,
     options: RestoreOptions,
+    access: &mut Type2AuthSession<'_>,
     cancel: &CancelToken,
 ) -> Result<WriteSummary> {
     if source.layout != image.layout {
@@ -438,14 +634,22 @@ pub fn restore_image(
             )));
         }
     }
+    authenticate_for_pages(reader, image, plan.iter().copied(), access, cancel)?;
     let mut summary = WriteSummary::default();
     for page in plan {
         cancel.check()?;
         let data = *source
             .page(page)
             .ok_or_else(|| NfcError::InvalidArgument(format!("page {page} is unknown")))?;
-        let change =
-            write_page_verified(reader, image, page, data, WritePolicy::advanced(), cancel)?;
+        let change = write_page_verified(
+            reader,
+            image,
+            page,
+            data,
+            WritePolicy::advanced(),
+            access,
+            cancel,
+        )?;
         if change.changed {
             summary.written_pages += 1;
         } else {
@@ -514,23 +718,51 @@ mod tests {
         reader
     }
 
+    fn protected_reader() -> MockReader {
+        let mut reader = reader();
+        for page in 4..40u8 {
+            reader.set_page(page, [0; 4]);
+        }
+        reader.set_page(4, [0x03, 0x00, 0xFE, 0x00]);
+        reader.set_password([1, 2, 3, 4], [0xAA, 0x55]);
+        reader.set_page(41, [0x00, 0x00, 0x00, 0x20]);
+        reader.set_page(42, [0x80, 0x00, 0x00, 0x00]);
+        reader
+    }
+
+    fn read(reader: &mut MockReader) -> Type2Image {
+        let mut access = Type2AuthSession::none();
+        read_tag(reader, &card(), &mut access, &CancelToken::new())
+            .expect("read")
+            .image
+    }
+
     fn image() -> (MockReader, Type2Image) {
         let mut reader = reader();
-        let image = read_tag(&mut reader, &card(), &CancelToken::new())
-            .expect("read")
-            .image;
+        let image = read(&mut reader);
         (reader, image)
+    }
+
+    fn update(auth0: u8, access: u8, password: [u8; 4], pack: [u8; 2]) -> PasswordUpdate {
+        PasswordUpdate {
+            auth0,
+            access,
+            password,
+            pack,
+        }
     }
 
     #[test]
     fn user_page_write_is_verified_and_updates_the_image() {
         let (mut reader, mut image) = image();
+        let mut access = Type2AuthSession::none();
         let result = write_page_verified(
             &mut reader,
             &mut image,
             8,
             [0xAA; 4],
             WritePolicy::user(),
+            &mut access,
             &CancelToken::new(),
         )
         .expect("write");
@@ -542,6 +774,7 @@ mod tests {
     #[test]
     fn ignored_page_write_is_caught_by_read_back() {
         let (mut reader, mut image) = image();
+        let mut access = Type2AuthSession::none();
         reader.fail_next(MockCall::WritePage, MockFault::WriteIgnored);
         assert!(matches!(
             write_page_verified(
@@ -550,6 +783,7 @@ mod tests {
                 8,
                 [0xAA; 4],
                 WritePolicy::user(),
+                &mut access,
                 &CancelToken::new(),
             ),
             Err(NfcError::VerificationFailed(_))
@@ -569,12 +803,14 @@ mod tests {
     #[test]
     fn capability_container_write_updates_the_parsed_cc() {
         let (mut reader, mut image) = image();
+        let mut access = Type2AuthSession::none();
         write_page_verified(
             &mut reader,
             &mut image,
             3,
             [0xE1, 0x10, 0x12, 0xF0],
             WritePolicy::advanced(),
+            &mut access,
             &CancelToken::new(),
         )
         .expect("CC write");
@@ -586,6 +822,7 @@ mod tests {
     #[test]
     fn capability_container_size_change_is_refused_before_the_write() {
         let (mut reader, mut image) = image();
+        let mut access = Type2AuthSession::none();
         assert!(matches!(
             write_page_verified(
                 &mut reader,
@@ -593,6 +830,7 @@ mod tests {
                 3,
                 [0xE1, 0x10, 0x3E, 0x00],
                 WritePolicy::advanced(),
+                &mut access,
                 &CancelToken::new(),
             ),
             Err(NfcError::InvalidArgument(_))
@@ -610,9 +848,51 @@ mod tests {
     }
 
     #[test]
-    fn ndef_write_and_format_round_trip() {
-        let (mut reader, mut image) = image();
-        format_ndef(&mut reader, &mut image, &CancelToken::new()).expect("initial format");
+    fn protected_page_write_requires_authentication() {
+        let mut reader = protected_reader();
+        let auth = Type2Auth::new([1, 2, 3, 4], [0xAA, 0x55]);
+        let mut access = Type2AuthSession::new(&auth);
+        let mut image = read_tag(&mut reader, &card(), &mut access, &CancelToken::new())
+            .expect("authenticated read")
+            .image;
+        assert_eq!(reader.password_auths(), 1);
+
+        let mut none = Type2AuthSession::none();
+        let error = write_page_verified(
+            &mut reader,
+            &mut image,
+            32,
+            [0xA5; 4],
+            WritePolicy::user(),
+            &mut none,
+            &CancelToken::new(),
+        )
+        .expect_err("missing credentials");
+        assert!(matches!(error, NfcError::AuthenticationRequired(_)));
+        assert_eq!(reader.page(32), Some([0; 4]));
+
+        write_page_verified(
+            &mut reader,
+            &mut image,
+            32,
+            [0xA5; 4],
+            WritePolicy::user(),
+            &mut access,
+            &CancelToken::new(),
+        )
+        .expect("authenticated write");
+        assert_eq!(reader.page(32), Some([0xA5; 4]));
+        assert_eq!(reader.password_auths(), 1);
+    }
+
+    #[test]
+    fn protected_ndef_write_authenticates_once() {
+        let mut reader = protected_reader();
+        let auth = Type2Auth::new([1, 2, 3, 4], [0xAA, 0x55]);
+        let mut access = Type2AuthSession::new(&auth);
+        let mut image = read_tag(&mut reader, &card(), &mut access, &CancelToken::new())
+            .expect("authenticated read")
+            .image;
         let message = NdefMessage::new(vec![
             nfc_ndef::TextRecord::new("hello", "en")
                 .expect("text")
@@ -620,8 +900,43 @@ mod tests {
                 .expect("record"),
         ])
         .expect("message");
-        let summary =
-            write_ndef(&mut reader, &mut image, &message, &CancelToken::new()).expect("write NDEF");
+        let summary = write_ndef(
+            &mut reader,
+            &mut image,
+            &message,
+            &mut access,
+            &CancelToken::new(),
+        )
+        .expect("write NDEF");
+        assert!(summary.written_pages > 0);
+        assert_eq!(reader.password_auths(), 1);
+        assert!(matches!(
+            crate::ndef::read_ndef(&image).expect("read NDEF").state,
+            crate::ndef::NdefState::Message(_)
+        ));
+    }
+
+    #[test]
+    fn ndef_write_and_format_round_trip() {
+        let (mut reader, mut image) = image();
+        let mut access = Type2AuthSession::none();
+        format_ndef(&mut reader, &mut image, &mut access, &CancelToken::new())
+            .expect("initial format");
+        let message = NdefMessage::new(vec![
+            nfc_ndef::TextRecord::new("hello", "en")
+                .expect("text")
+                .to_record()
+                .expect("record"),
+        ])
+        .expect("message");
+        let summary = write_ndef(
+            &mut reader,
+            &mut image,
+            &message,
+            &mut access,
+            &CancelToken::new(),
+        )
+        .expect("write NDEF");
         assert!(summary.written_pages > 0);
         let ndef = crate::ndef::read_ndef(&image).expect("read NDEF");
         assert!(matches!(ndef.state, crate::ndef::NdefState::Message(_)));
@@ -631,10 +946,12 @@ mod tests {
             4,
             [0xFF; 4],
             WritePolicy::user(),
+            &mut access,
             &CancelToken::new(),
         )
         .expect("corrupt NDEF");
-        let summary = format_ndef(&mut reader, &mut image, &CancelToken::new()).expect("format");
+        let summary =
+            format_ndef(&mut reader, &mut image, &mut access, &CancelToken::new()).expect("format");
         assert!(summary.written_pages > 0);
         assert_eq!(
             crate::ndef::read_ndef(&image).expect("read").state,
@@ -645,8 +962,15 @@ mod tests {
     #[test]
     fn lock_write_sets_bits_without_clearing_uid_bytes() {
         let (mut reader, mut image) = image();
-        let update =
-            lock_pages(&mut reader, &mut image, &[3, 16], &CancelToken::new()).expect("lock");
+        let mut access = Type2AuthSession::none();
+        let update = lock_pages(
+            &mut reader,
+            &mut image,
+            &[3, 16],
+            &mut access,
+            &CancelToken::new(),
+        )
+        .expect("lock");
         assert!(update.static_changed);
         assert!(update.dynamic_changed);
         assert_eq!(image.page(2).expect("page 2")[0..2], [2, 2]);
@@ -658,14 +982,12 @@ mod tests {
     #[test]
     fn password_write_verifies_with_pwd_auth() {
         let (mut reader, mut image) = image();
-        reader.set_password([1, 2, 3, 4], [0xAA, 0x55]);
+        let mut access = Type2AuthSession::none();
         set_password(
             &mut reader,
             &mut image,
-            0x20,
-            0x00,
-            [1, 2, 3, 4],
-            [0xAA, 0x55],
+            &mut access,
+            update(0x20, 0x00, [1, 2, 3, 4], [0xAA, 0x55]),
             &CancelToken::new(),
         )
         .expect("password");
@@ -674,8 +996,237 @@ mod tests {
     }
 
     #[test]
+    fn a_zero_pack_is_written_instead_of_skipped_as_unchanged() {
+        let (mut reader, mut image) = image();
+        let mut access = Type2AuthSession::none();
+        set_password(
+            &mut reader,
+            &mut image,
+            &mut access,
+            update(0x20, 0x80, [1, 2, 3, 4], [0xAA, 0x55]),
+            &CancelToken::new(),
+        )
+        .expect("initial password");
+        let old = Type2Auth::new([1, 2, 3, 4], [0xAA, 0x55]);
+        let mut access = Type2AuthSession::new(&old);
+        set_password(
+            &mut reader,
+            &mut image,
+            &mut access,
+            update(0x20, 0x80, [1, 2, 3, 4], [0x00, 0x00]),
+            &CancelToken::new(),
+        )
+        .expect("zero PACK");
+        assert_eq!(reader.page(44).expect("PACK page")[..2], [0x00, 0x00]);
+        let zero = Type2Auth::new([1, 2, 3, 4], [0x00, 0x00]);
+        let mut session = Type2AuthSession::new(&zero);
+        session
+            .authenticate(&mut reader, &CancelToken::new())
+            .expect("zero PACK authenticates");
+    }
+
+    #[test]
+    fn protected_password_change_uses_current_credentials() {
+        let mut reader = protected_reader();
+        let old = Type2Auth::new([1, 2, 3, 4], [0xAA, 0x55]);
+        let mut access = Type2AuthSession::new(&old);
+        let mut image = read_tag(&mut reader, &card(), &mut access, &CancelToken::new())
+            .expect("authenticated read")
+            .image;
+
+        let mut none = Type2AuthSession::none();
+        let error = set_password(
+            &mut reader,
+            &mut image,
+            &mut none,
+            update(0x20, 0x80, [5, 6, 7, 8], [0x12, 0x34]),
+            &CancelToken::new(),
+        )
+        .expect_err("current credentials are required");
+        assert!(matches!(error, NfcError::AuthenticationRequired(_)));
+        assert_eq!(reader.page(43), Some([0xFF; 4]));
+
+        set_password(
+            &mut reader,
+            &mut image,
+            &mut access,
+            update(0x20, 0x80, [5, 6, 7, 8], [0x12, 0x34]),
+            &CancelToken::new(),
+        )
+        .expect("change password");
+        let config = Configuration::from_image(&image).expect("config");
+        assert_eq!(config.auth0, 0x20);
+        assert!(config.read_and_write_protected());
+        assert_eq!(reader.page(43), Some([5, 6, 7, 8]));
+        assert_eq!(reader.page(44).expect("pack page")[..2], [0x12, 0x34]);
+    }
+
+    #[test]
+    fn protection_can_be_cleared_with_the_current_password() {
+        let mut reader = protected_reader();
+        let auth = Type2Auth::new([1, 2, 3, 4], [0xAA, 0x55]);
+        let mut access = Type2AuthSession::new(&auth);
+        let mut image = read_tag(&mut reader, &card(), &mut access, &CancelToken::new())
+            .expect("authenticated read")
+            .image;
+        set_password(
+            &mut reader,
+            &mut image,
+            &mut access,
+            update(0xFF, 0x00, [5, 6, 7, 8], [0x12, 0x34]),
+            &CancelToken::new(),
+        )
+        .expect("clear protection");
+        let config = Configuration::from_image(&image).expect("config");
+        assert_eq!(config.auth0, 0xFF);
+        assert_eq!(config.access, 0x00);
+
+        let mut none = Type2AuthSession::none();
+        let read = read_tag(&mut reader, &card(), &mut none, &CancelToken::new())
+            .expect("unprotected read");
+        assert!(read.image.is_complete());
+    }
+
+    #[test]
+    fn a_protected_reconfiguration_without_credentials_fails_before_mutation() {
+        let mut reader = protected_reader();
+        let auth = Type2Auth::new([1, 2, 3, 4], [0xAA, 0x55]);
+        let mut access = Type2AuthSession::new(&auth);
+        let mut image = read_tag(&mut reader, &card(), &mut access, &CancelToken::new())
+            .expect("authenticated read")
+            .image;
+        let before: Vec<_> = (0..45).map(|page| reader.page(page)).collect();
+        let mut none = Type2AuthSession::none();
+        let error = set_password(
+            &mut reader,
+            &mut image,
+            &mut none,
+            update(0x20, 0x80, [5, 6, 7, 8], [0x12, 0x34]),
+            &CancelToken::new(),
+        )
+        .expect_err("missing current password");
+        assert!(matches!(error, NfcError::AuthenticationRequired(_)));
+        let after: Vec<_> = (0..45).map(|page| reader.page(page)).collect();
+        assert_eq!(before, after);
+    }
+
+    #[test]
+    fn a_wrong_password_never_writes_the_unprotected_pages_first() {
+        let mut reader = protected_reader();
+        let auth = Type2Auth::new([1, 2, 3, 4], [0xAA, 0x55]);
+        let mut access = Type2AuthSession::new(&auth);
+        let mut image = read_tag(&mut reader, &card(), &mut access, &CancelToken::new())
+            .expect("authenticated read")
+            .image;
+        let before: Vec<_> = (4..40).map(|page| reader.page(page)).collect();
+        let wrong = Type2Auth::new([1, 2, 3, 4], [0x00, 0x00]);
+        let mut wrong = Type2AuthSession::new(&wrong);
+        let message = NdefMessage::new(vec![
+            nfc_ndef::TextRecord::new("wrong", "en")
+                .expect("text")
+                .to_record()
+                .expect("record"),
+        ])
+        .expect("message");
+        assert!(matches!(
+            write_ndef(
+                &mut reader,
+                &mut image,
+                &message,
+                &mut wrong,
+                &CancelToken::new(),
+            ),
+            Err(NfcError::VerificationFailed(_))
+        ));
+        let after: Vec<_> = (4..40).map(|page| reader.page(page)).collect();
+        assert_eq!(before, after);
+    }
+
+    #[test]
+    fn a_protected_lock_update_fails_before_the_static_lock_page() {
+        let mut reader = protected_reader();
+        let auth = Type2Auth::new([1, 2, 3, 4], [0xAA, 0x55]);
+        let mut access = Type2AuthSession::new(&auth);
+        let mut image = read_tag(&mut reader, &card(), &mut access, &CancelToken::new())
+            .expect("authenticated read")
+            .image;
+        let before = reader.page(2).expect("page 2");
+        let mut none = Type2AuthSession::none();
+        assert!(matches!(
+            lock_pages(
+                &mut reader,
+                &mut image,
+                &[4, 16],
+                &mut none,
+                &CancelToken::new(),
+            ),
+            Err(NfcError::AuthenticationRequired(_))
+        ));
+        assert_eq!(reader.page(2), Some(before));
+    }
+
+    #[test]
+    fn a_protected_restore_fails_before_any_page() {
+        let mut reader = protected_reader();
+        let auth = Type2Auth::new([1, 2, 3, 4], [0xAA, 0x55]);
+        let mut access = Type2AuthSession::new(&auth);
+        let mut image = read_tag(&mut reader, &card(), &mut access, &CancelToken::new())
+            .expect("authenticated read")
+            .image;
+        let mut source = image.clone();
+        for page in 4..40u8 {
+            source.set_page(page, [0xEE; 4]).expect("source page");
+        }
+        let before: Vec<_> = (4..40).map(|page| reader.page(page)).collect();
+        let mut none = Type2AuthSession::none();
+        assert!(matches!(
+            restore_image(
+                &mut reader,
+                &mut image,
+                &source,
+                RestoreOptions {
+                    restore_user_memory: true,
+                    ..RestoreOptions::default()
+                },
+                &mut none,
+                &CancelToken::new(),
+            ),
+            Err(NfcError::AuthenticationRequired(_))
+        ));
+        let after: Vec<_> = (4..40).map(|page| reader.page(page)).collect();
+        assert_eq!(before, after);
+    }
+
+    #[test]
+    fn protected_write_stops_on_cancellation_before_the_first_page() {
+        let mut reader = protected_reader();
+        let auth = Type2Auth::new([1, 2, 3, 4], [0xAA, 0x55]);
+        let mut access = Type2AuthSession::new(&auth);
+        let mut image = read_tag(&mut reader, &card(), &mut access, &CancelToken::new())
+            .expect("authenticated read")
+            .image;
+        let before: Vec<_> = (0..45).map(|page| reader.page(page)).collect();
+        let cancel = CancelToken::new();
+        cancel.cancel();
+        let error = write_page_verified(
+            &mut reader,
+            &mut image,
+            32,
+            [0xA5; 4],
+            WritePolicy::user(),
+            &mut access,
+            &cancel,
+        )
+        .expect_err("cancelled write");
+        assert!(matches!(error, NfcError::Cancelled));
+        let after: Vec<_> = (0..45).map(|page| reader.page(page)).collect();
+        assert_eq!(before, after);
+    }
+
+    #[test]
     fn restore_rejects_a_different_capability_container() {
         let (mut reader, mut image) = image();
+        let mut access = Type2AuthSession::none();
         let other_cc = CapabilityContainer::parse(&[0xE1, 0x10, 0x3E, 0x00]).expect("CC");
         let source = Type2Image::new(
             Type2Layout::from_cc(&other_cc).expect("layout"),
@@ -691,6 +1242,7 @@ mod tests {
                     restore_user_memory: true,
                     ..RestoreOptions::default()
                 },
+                &mut access,
                 &CancelToken::new(),
             )
             .is_err()
@@ -700,6 +1252,7 @@ mod tests {
     #[test]
     fn restore_writes_changed_user_pages_only() {
         let (mut reader, mut image) = image();
+        let mut access = Type2AuthSession::none();
         let source = image.clone();
         let summary = restore_image(
             &mut reader,
@@ -709,6 +1262,7 @@ mod tests {
                 restore_user_memory: true,
                 ..RestoreOptions::default()
             },
+            &mut access,
             &CancelToken::new(),
         )
         .expect("restore");

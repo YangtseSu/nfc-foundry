@@ -21,8 +21,8 @@ use nfc_app::classic::{
     WorkbenchSnapshot, format_uid, parse_block_list, parse_uid,
 };
 use nfc_app::type2::{
-    Type2Format, Type2Lock, Type2LockResult, Type2MutationResult, Type2NdefWrite, Type2PageResult,
-    Type2PageWrite, Type2Password, Type2Restore,
+    Type2Auth, Type2Format, Type2Lock, Type2LockResult, Type2MutationResult, Type2NdefWrite,
+    Type2PageResult, Type2PageWrite, Type2Password, Type2Restore,
 };
 use nfc_app::{CardReadResult, ClassicNdefInfo, ClassicNdefState, Service};
 use nfc_classic::{Dump, DumpFormat, DumpLoad, diff, exchange};
@@ -928,6 +928,8 @@ struct Type2View {
     lock_apply: gtk::Button,
     auth0: gtk::Entry,
     access: gtk::Entry,
+    auth_pwd: gtk::Entry,
+    auth_pack: gtk::Entry,
     pwd: gtk::Entry,
     pack: gtk::Entry,
     password_apply: gtk::Button,
@@ -1500,6 +1502,25 @@ fn build_type2_view() -> Type2View {
     lock_card.append(&lock_row);
     lock_card.append(&lock_preview);
 
+    let access_card = gtk::Box::new(Orientation::Vertical, 6);
+    access_card.add_css_class("card");
+    let access_title = gtk::Label::new(Some("Protected access"));
+    access_title.set_xalign(0.0);
+    access_title.add_css_class("title-4");
+    let auth_pwd = secret_field_row("Access PWD", "8 hex digits");
+    let auth_pack = secret_field_row("Access PACK", "4 hex digits");
+    let access_note = gtk::Label::new(Some(
+        "Used for reads and writes on a tag protected by AUTH0, and as the current credentials when changing the configuration. Cleared after each operation and never saved.",
+    ));
+    access_note.set_xalign(0.0);
+    access_note.set_wrap(true);
+    access_note.add_css_class("caption");
+    access_note.add_css_class("dim-label");
+    access_card.append(&access_title);
+    access_card.append(&auth_pwd.0);
+    access_card.append(&auth_pack.0);
+    access_card.append(&access_note);
+
     let password_card = gtk::Box::new(Orientation::Vertical, 6);
     password_card.add_css_class("card");
     let password_title = gtk::Label::new(Some("Password and access"));
@@ -1507,8 +1528,8 @@ fn build_type2_view() -> Type2View {
     password_title.add_css_class("title-4");
     let auth0 = field_row("AUTH0", "255");
     let access = field_row("ACCESS", "00");
-    let pwd = field_row("PWD", "8 hex digits");
-    let pack = field_row("PACK", "4 hex digits");
+    let pwd = secret_field_row("PWD", "8 hex digits");
+    let pack = secret_field_row("PACK", "4 hex digits");
     let password_apply = gtk::Button::with_label("Apply password configuration…");
     password_apply.add_css_class("destructive-action");
     password_apply.set_sensitive(false);
@@ -1528,6 +1549,7 @@ fn build_type2_view() -> Type2View {
     password_card.append(&password_note);
 
     protection_root.append(&config_card);
+    protection_root.append(&access_card);
     protection_root.append(&lock_card);
     protection_root.append(&password_card);
     tabs.add_titled(&protection_scroll, Some("protection"), "Protection");
@@ -1575,6 +1597,8 @@ fn build_type2_view() -> Type2View {
         lock_apply,
         auth0: auth0.1,
         access: access.1,
+        auth_pwd: auth_pwd.1,
+        auth_pack: auth_pack.1,
         pwd: pwd.1,
         pack: pack.1,
         password_apply,
@@ -1593,6 +1617,13 @@ fn field_row(label: &str, placeholder: &str) -> (gtk::Box, gtk::Entry) {
         .build();
     row.append(&name);
     row.append(&entry);
+    (row, entry)
+}
+
+fn secret_field_row(label: &str, placeholder: &str) -> (gtk::Box, gtk::Entry) {
+    let (row, entry) = field_row(label, placeholder);
+    entry.set_visibility(false);
+    entry.set_input_purpose(gtk::InputPurpose::Password);
     (row, entry)
 }
 
@@ -2727,11 +2758,16 @@ fn connect_signals(ui: &Rc<Ui>) {
     for entry in [
         &ui.type2_view.auth0,
         &ui.type2_view.access,
+        &ui.type2_view.auth_pwd,
+        &ui.type2_view.auth_pack,
         &ui.type2_view.pwd,
         &ui.type2_view.pack,
     ] {
         let ui2 = ui.clone();
-        entry.connect_changed(move |_| update_type2_actions(&ui2));
+        entry.connect_changed(move |_| {
+            update_type2_actions(&ui2);
+            update_ndef_actions(&ui2);
+        });
     }
     let ui2 = ui.clone();
     ui.type2_view
@@ -3801,6 +3837,13 @@ fn start_read(ui: Rc<Ui>) {
         toast_error(&ui, "No reader selected");
         return;
     }
+    let type2_auth = match type2_auth_from_ui(&ui) {
+        Ok(auth) => auth,
+        Err(error) => {
+            toast_error(&ui, &error);
+            return;
+        }
+    };
     reset_advanced(&ui);
     set_busy(&ui, true);
     ui.status.set_localized("Reading card…");
@@ -3810,7 +3853,9 @@ fn start_read(ui: Rc<Ui>) {
     let (sender, receiver) = async_channel::bounded(1);
     std::thread::spawn(move || {
         let result = match service.lock() {
-            Ok(mut service) => service.read_card(&keys, include_common_keys, CancelToken::new()),
+            Ok(mut service) => {
+                service.read_card(&keys, include_common_keys, type2_auth, CancelToken::new())
+            }
             Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
         };
         let _ = sender.send_blocking(result);
@@ -3884,6 +3929,9 @@ fn finish_read(ui: &Rc<Ui>, result: NfcResult<CardReadResult>) {
                 .unwrap_or_else(|error| error.to_owned());
             let warnings = session.warnings.clone();
             show_type2_session(ui, session, true);
+            clear_type2_auth(ui);
+            update_type2_actions(ui);
+            update_ndef_actions(ui);
             ui.status
                 .set_localized(&format!("Read complete · {known}/{total} pages"));
             append_log(
@@ -5300,7 +5348,7 @@ fn update_type2_inspector(ui: &Ui) {
         return;
     };
     let advanced = ui.type2_view.advanced.is_active();
-    let Some(insight) = type2_ui::inspect(session, row.page, advanced) else {
+    let Some(insight) = type2_ui::inspect(session, row.page, advanced, type2_auth_ready(ui)) else {
         return;
     };
     let editor = &ui.type2_view.editor;
@@ -5316,6 +5364,28 @@ fn update_type2_inspector(ui: &Ui) {
     update_type2_write_sensitivity(ui);
 }
 
+fn type2_auth_from_ui(ui: &Ui) -> std::result::Result<Option<Type2Auth>, String> {
+    let password = ui.type2_view.auth_pwd.text();
+    let pack = ui.type2_view.auth_pack.text();
+    let password = password.trim();
+    let pack = pack.trim();
+    if password.is_empty() && pack.is_empty() {
+        return Ok(None);
+    }
+    let password = type2_ui::parse_hex_bytes::<4>(password, "access password")?;
+    let pack = type2_ui::parse_hex_bytes::<2>(pack, "access PACK")?;
+    Ok(Some(Type2Auth::new(password, pack)))
+}
+
+fn type2_auth_ready(ui: &Ui) -> bool {
+    type2_auth_from_ui(ui).ok().flatten().is_some()
+}
+
+fn clear_type2_auth(ui: &Ui) {
+    ui.type2_view.auth_pwd.set_text("");
+    ui.type2_view.auth_pack.set_text("");
+}
+
 fn update_type2_write_sensitivity(ui: &Ui) {
     let session = ui.type2.borrow();
     let Some(session) = session.as_ref() else {
@@ -5327,7 +5397,7 @@ fn update_type2_write_sensitivity(ui: &Ui) {
         return;
     };
     let advanced = ui.type2_view.advanced.is_active();
-    let gate = type2_ui::write_gate(session, row.page, advanced);
+    let gate = type2_ui::write_gate(session, row.page, advanced, type2_auth_ready(ui));
     let ready = ui.live.get() && !ui.busy.get() && row.complete;
     let editor = &ui.type2_view.editor;
     let mut text = String::new();
@@ -5382,24 +5452,37 @@ fn update_type2_actions(ui: &Ui) {
     let busy = ui.busy.get();
     let live = ui.live.get();
     let advanced = view.advanced.is_active();
+    let auth_ready = type2_auth_ready(ui);
     let has_session = session.is_some();
     let has_configuration = session
         .as_ref()
         .is_some_and(|session| session.configuration().is_some());
+    let needs_current = session.as_ref().is_some_and(|session| {
+        session.image.layout.config.is_some_and(|pages| {
+            session.configuration().is_some_and(|config| {
+                [pages.cfg0, pages.cfg1]
+                    .into_iter()
+                    .any(|page| config.requires_password(page))
+            })
+        })
+    });
     view.save.set_sensitive(has_session && !busy);
     view.load.set_sensitive(!busy);
     view.advanced.set_sensitive(has_session && !busy);
     view.restore_load.set_sensitive(has_session && !busy);
-    view.password_apply
-        .set_sensitive(live && !busy && advanced && has_configuration);
+    view.password_apply.set_sensitive(
+        live && !busy && advanced && has_configuration && (!needs_current || auth_ready),
+    );
     view.password_note.set_localized(if !has_session {
         "Read a Type 2 tag to inspect its password configuration."
     } else if !has_configuration {
         "This tag has no readable NTAG configuration pages."
-    } else if advanced {
-        "PWD and PACK are write-only; the service verifies PACK with PWD_AUTH after the write."
-    } else {
+    } else if !advanced {
         "Enable Advanced mode to change locks, configuration, or the password."
+    } else if needs_current && !auth_ready {
+        "This configuration is protected; enter the current access password and PACK first."
+    } else {
+        "PWD and PACK are write-only; the service verifies PACK with PWD_AUTH after the write."
     });
 
     let mut lock_ready = false;
@@ -5425,8 +5508,8 @@ fn update_type2_actions(ui: &Ui) {
                                         .dynamic_lock
                                         .is_some_and(|page| config.requires_password(page))
                             });
-                            if protected {
-                                lock_text = "Password protection covers the lock pages; PWD_AUTH is required first.".to_owned();
+                            if protected && !auth_ready {
+                                lock_text = "Password protection covers the lock pages; enter the access password and PACK first.".to_owned();
                             } else {
                                 lock_ready = true;
                                 lock_text = format!(
@@ -5692,6 +5775,13 @@ fn confirm_type2_restore(ui: Rc<Ui>) {
         toast_error(&ui, "Select at least one page class to restore");
         return;
     }
+    let auth = match type2_auth_from_ui(&ui) {
+        Ok(auth) => auth,
+        Err(error) => {
+            toast_error(&ui, &error);
+            return;
+        }
+    };
     let mut classes = Vec::new();
     if options.restore_user_memory {
         classes.push("user memory");
@@ -5718,7 +5808,7 @@ fn confirm_type2_restore(ui: Rc<Ui>) {
     dialog.connect_response(None, move |_, response| {
         ui2.pending_type2_restore_dialog.replace(None);
         if response == "confirm" {
-            start_type2_restore(ui2.clone(), source.clone(), options);
+            start_type2_restore(ui2.clone(), source.clone(), options, auth);
         }
     });
     ui.pending_type2_restore_dialog
@@ -5726,7 +5816,12 @@ fn confirm_type2_restore(ui: Rc<Ui>) {
     present_alert(&dialog, &ui.window);
 }
 
-fn start_type2_restore(ui: Rc<Ui>, source: Type2Image, options: RestoreOptions) {
+fn start_type2_restore(
+    ui: Rc<Ui>,
+    source: Type2Image,
+    options: RestoreOptions,
+    auth: Option<Type2Auth>,
+) {
     set_busy(&ui, true);
     ui.status.set_localized("Restoring the Type 2 image…");
     let service = ui.service.clone();
@@ -5742,6 +5837,7 @@ fn start_type2_restore(ui: Rc<Ui>, source: Type2Image, options: RestoreOptions) 
             Ok(mut service) => {
                 let mut request = Type2Restore::new(source, &backup)
                     .options(options)
+                    .auth(auth)
                     .confirm(true);
                 if let Some(card) = expected {
                     request = request.expected_card(card);
@@ -5767,6 +5863,7 @@ fn finish_type2_restore(ui: &Rc<Ui>, result: NfcResult<Type2MutationResult>) {
     match result {
         Ok(result) => {
             let backup = result.backup.path.display().to_string();
+            clear_type2_auth(ui);
             apply_type2_image(ui, result.image, result.warnings);
             ui.status.set_localized(&format!(
                 "Restore complete · {} written, {} unchanged",
@@ -5808,7 +5905,14 @@ fn confirm_type2_page_write(ui: Rc<Ui>) {
     };
     let advanced_page = row.advanced;
     let advanced = ui.type2_view.advanced.is_active();
-    if let Err(error) = type2_ui::write_gate(&session, row.page, advanced) {
+    let auth = match type2_auth_from_ui(&ui) {
+        Ok(auth) => auth,
+        Err(error) => {
+            toast_error(&ui, &error);
+            return;
+        }
+    };
+    if let Err(error) = type2_ui::write_gate(&session, row.page, advanced, auth.is_some()) {
         toast_error(&ui, &error);
         return;
     }
@@ -5842,7 +5946,7 @@ fn confirm_type2_page_write(ui: Rc<Ui>) {
         dialog.connect_response(None, move |_, response| {
             ui2.pending_type2_advanced_dialog.replace(None);
             if response == "confirm" {
-                start_type2_page_write(ui2.clone(), row.page, data, true);
+                start_type2_page_write(ui2.clone(), row.page, data, true, auth);
             }
         });
         ui.pending_type2_advanced_dialog
@@ -5862,7 +5966,7 @@ fn confirm_type2_page_write(ui: Rc<Ui>) {
         dialog.connect_response(None, move |_, response| {
             ui2.pending_type2_page_dialog.replace(None);
             if response == "write" {
-                start_type2_page_write(ui2.clone(), row.page, data, false);
+                start_type2_page_write(ui2.clone(), row.page, data, false, auth);
             }
         });
         ui.pending_type2_page_dialog.replace(Some(dialog.clone()));
@@ -5870,7 +5974,13 @@ fn confirm_type2_page_write(ui: Rc<Ui>) {
     }
 }
 
-fn start_type2_page_write(ui: Rc<Ui>, page: u8, data: [u8; 4], advanced: bool) {
+fn start_type2_page_write(
+    ui: Rc<Ui>,
+    page: u8,
+    data: [u8; 4],
+    advanced: bool,
+    auth: Option<Type2Auth>,
+) {
     set_busy(&ui, true);
     ui.status.set_localized(&format!("Writing page {page:03}…"));
     let service = ui.service.clone();
@@ -5886,7 +5996,8 @@ fn start_type2_page_write(ui: Rc<Ui>, page: u8, data: [u8; 4], advanced: bool) {
             Ok(mut service) => {
                 let mut request = Type2PageWrite::new(page, data, &backup)
                     .advanced(advanced)
-                    .confirm(advanced);
+                    .confirm(advanced)
+                    .auth(auth);
                 if let Some(card) = expected {
                     request = request.expected_card(card);
                 }
@@ -5918,6 +6029,7 @@ fn finish_type2_page_write(ui: &Rc<Ui>, page: u8, result: NfcResult<Type2PageRes
                 .as_ref()
                 .map(|backup| backup.path.display().to_string())
                 .unwrap_or_else(|| "no backup".to_owned());
+            clear_type2_auth(ui);
             apply_type2_image(ui, result.image, result.warnings);
             select_type2_page(ui, page);
             update_type2_inspector(ui);
@@ -5969,6 +6081,13 @@ fn confirm_type2_lock(ui: Rc<Ui>) {
         toast_info(&ui, "The requested pages are already locked");
         return;
     }
+    let auth = match type2_auth_from_ui(&ui) {
+        Ok(auth) => auth,
+        Err(error) => {
+            toast_error(&ui, &error);
+            return;
+        }
+    };
     let body = format!(
         "{} · UID {}\nPages {}\n\nStatic lock {} → {}\nDynamic lock {} → {}\n\nLock bits are one-way; set bits can never be cleared. A project backup is written first, and the lock pages are read back.",
         session.image.layout.product.name(),
@@ -5988,14 +6107,14 @@ fn confirm_type2_lock(ui: Rc<Ui>) {
     dialog.connect_response(None, move |_, response| {
         ui2.pending_type2_lock_dialog.replace(None);
         if response == "confirm" {
-            start_type2_lock(ui2.clone(), pages.clone());
+            start_type2_lock(ui2.clone(), pages.clone(), auth);
         }
     });
     ui.pending_type2_lock_dialog.replace(Some(dialog.clone()));
     present_alert(&dialog, &ui.window);
 }
 
-fn start_type2_lock(ui: Rc<Ui>, pages: Vec<u8>) {
+fn start_type2_lock(ui: Rc<Ui>, pages: Vec<u8>, auth: Option<Type2Auth>) {
     set_busy(&ui, true);
     ui.status.set_localized("Writing Type 2 lock bits…");
     let service = ui.service.clone();
@@ -6009,7 +6128,7 @@ fn start_type2_lock(ui: Rc<Ui>, pages: Vec<u8>) {
     std::thread::spawn(move || {
         let result = match service.lock() {
             Ok(mut service) => {
-                let mut request = Type2Lock::new(pages, &backup).confirm(true);
+                let mut request = Type2Lock::new(pages, &backup).confirm(true).auth(auth);
                 if let Some(card) = expected {
                     request = request.expected_card(card);
                 }
@@ -6037,6 +6156,7 @@ fn finish_type2_lock(ui: &Rc<Ui>, result: NfcResult<Type2LockResult>) {
                 .as_ref()
                 .map(|backup| backup.path.display().to_string())
                 .unwrap_or_else(|| "no backup".to_owned());
+            clear_type2_auth(ui);
             apply_type2_image(ui, result.image, result.warnings);
             ui.type2_view.lock_pages.set_text("");
             if empty {
@@ -6096,17 +6216,22 @@ fn confirm_type2_password(ui: Rc<Ui>) {
             return;
         }
     };
+    let auth = match type2_auth_from_ui(&ui) {
+        Ok(auth) => auth,
+        Err(error) => {
+            toast_error(&ui, &error);
+            return;
+        }
+    };
     let old = session
         .configuration()
         .map(|config| format!("AUTH0 {} · ACCESS {:02X}", config.auth0, config.access))
         .unwrap_or_else(|| "configuration unavailable".to_owned());
     let body = format!(
-        "{} · UID {}\n\nOld  {}\nNew  AUTH0 {auth0} · ACCESS {access:02X}\nPWD  {}\nPACK {}\n\nPWD and PACK are write-only. A project backup is written first; the service writes PWD, PACK, ACCESS, and AUTH0, then verifies PACK with a fresh PWD_AUTH.",
+        "{} · UID {}\n\nOld  {}\nNew  AUTH0 {auth0} · ACCESS {access:02X}\nPWD and PACK are replaced with the new values.\n\nPWD and PACK are write-only. A project backup is written first; the service writes PWD, PACK, ACCESS, and AUTH0, then verifies PACK with a fresh PWD_AUTH.",
         session.image.layout.product.name(),
         session.card.uid_hex(),
         old,
-        type2_ui::hex_bytes(&password),
-        type2_ui::hex_bytes(&pack)
     );
     let dialog = confirmation_dialog(
         "Change the Type 2 password configuration?",
@@ -6117,7 +6242,7 @@ fn confirm_type2_password(ui: Rc<Ui>) {
     dialog.connect_response(None, move |_, response| {
         ui2.pending_type2_password_dialog.replace(None);
         if response == "confirm" {
-            start_type2_password(ui2.clone(), auth0, access, password, pack);
+            start_type2_password(ui2.clone(), auth0, access, password, pack, auth);
         }
     });
     ui.pending_type2_password_dialog
@@ -6125,7 +6250,14 @@ fn confirm_type2_password(ui: Rc<Ui>) {
     present_alert(&dialog, &ui.window);
 }
 
-fn start_type2_password(ui: Rc<Ui>, auth0: u8, access: u8, password: [u8; 4], pack: [u8; 2]) {
+fn start_type2_password(
+    ui: Rc<Ui>,
+    auth0: u8,
+    access: u8,
+    password: [u8; 4],
+    pack: [u8; 2],
+    current: Option<Type2Auth>,
+) {
     set_busy(&ui, true);
     ui.status.set_localized("Writing password configuration…");
     let service = ui.service.clone();
@@ -6139,8 +6271,9 @@ fn start_type2_password(ui: Rc<Ui>, auth0: u8, access: u8, password: [u8; 4], pa
     std::thread::spawn(move || {
         let result = match service.lock() {
             Ok(mut service) => {
-                let mut request =
-                    Type2Password::new(auth0, access, password, pack, &backup).confirm(true);
+                let mut request = Type2Password::new(auth0, access, password, pack, &backup)
+                    .current(current)
+                    .confirm(true);
                 if let Some(card) = expected {
                     request = request.expected_card(card);
                 }
@@ -6165,6 +6298,7 @@ fn finish_type2_password(ui: &Rc<Ui>, result: NfcResult<Type2MutationResult>) {
     match result {
         Ok(result) => {
             let backup = result.backup.path.display().to_string();
+            clear_type2_auth(ui);
             apply_type2_image(ui, result.image, result.warnings);
             populate_type2_forms(ui);
             ui.status
@@ -6318,7 +6452,10 @@ fn ndef_preview(
     lines.join("\n")
 }
 
-fn type2_format_gate(session: &Type2Session) -> std::result::Result<(), String> {
+fn type2_format_gate(
+    session: &Type2Session,
+    auth_supplied: bool,
+) -> std::result::Result<(), String> {
     if session.image.layout.config.is_some() && session.configuration().is_none() {
         return Err(
             "The NTAG configuration pages are not readable; protection state is unknown."
@@ -6342,16 +6479,16 @@ fn type2_format_gate(session: &Type2Session) -> std::result::Result<(), String> 
                 .join(", ")
         ));
     }
-    if let Some(page) = type2_ui::ndef_password_page(session) {
+    if !auth_supplied && let Some(page) = type2_ui::ndef_password_page(session) {
         return Err(format!(
-            "Password protection covers the data area from page {page}; PWD_AUTH is required first."
+            "Password protection covers the data area from page {page}; enter the access password and PACK in the Protection tab."
         ));
     }
     Ok(())
 }
 
-fn type2_ndef_gate(session: &Type2Session) -> std::result::Result<(), String> {
-    type2_format_gate(session)?;
+fn type2_ndef_gate(session: &Type2Session, auth_supplied: bool) -> std::result::Result<(), String> {
+    type2_format_gate(session, auth_supplied)?;
     let ndef = session.ndef().map_err(str::to_owned)?;
     if ndef.read_only {
         return Err("The capability container marks the NDEF data area read-only.".to_owned());
@@ -6369,8 +6506,10 @@ fn update_type2_composer(ui: &Ui, session: &Type2Session) {
     let encoded = encoded_draft(&draft);
     let ndef = session.ndef().ok();
     let capacity = ndef.map(|ndef| ndef.capacity);
-    let write_gate = type2_ndef_gate(session);
-    let format_ready = ui.live.get() && !ui.busy.get() && type2_format_gate(session).is_ok();
+    let auth_ready = type2_auth_ready(ui);
+    let write_gate = type2_ndef_gate(session, auth_ready);
+    let format_ready =
+        ui.live.get() && !ui.busy.get() && type2_format_gate(session, auth_ready).is_ok();
     let same = ndef
         .and_then(Type2Ndef::message)
         .zip(encoded.as_ref().ok())
@@ -6430,7 +6569,14 @@ fn confirm_type2_ndef_write(ui: Rc<Ui>) {
         toast_error(&ui, "Read a Type 2 tag first");
         return;
     };
-    if let Err(error) = type2_ndef_gate(&session) {
+    let auth = match type2_auth_from_ui(&ui) {
+        Ok(auth) => auth,
+        Err(error) => {
+            toast_error(&ui, &error);
+            return;
+        }
+    };
+    if let Err(error) = type2_ndef_gate(&session, auth.is_some()) {
         toast_error(&ui, &error);
         return;
     }
@@ -6480,14 +6626,14 @@ fn confirm_type2_ndef_write(ui: Rc<Ui>) {
     dialog.connect_response(None, move |_, response| {
         ui2.pending_ndef_write_dialog.replace(None);
         if response == "write" {
-            start_type2_ndef_write(ui2.clone(), message.clone());
+            start_type2_ndef_write(ui2.clone(), message.clone(), auth);
         }
     });
     ui.pending_ndef_write_dialog.replace(Some(dialog.clone()));
     present_alert(&dialog, &ui.window);
 }
 
-fn start_type2_ndef_write(ui: Rc<Ui>, message: NdefMessage) {
+fn start_type2_ndef_write(ui: Rc<Ui>, message: NdefMessage, auth: Option<Type2Auth>) {
     set_busy(&ui, true);
     ui.status.set_localized("Writing NDEF message…");
     let service = ui.service.clone();
@@ -6501,7 +6647,7 @@ fn start_type2_ndef_write(ui: Rc<Ui>, message: NdefMessage) {
     std::thread::spawn(move || {
         let result = match service.lock() {
             Ok(mut service) => {
-                let mut request = Type2NdefWrite::new(message, &backup);
+                let mut request = Type2NdefWrite::new(message, &backup).auth(auth);
                 if let Some(card) = expected {
                     request = request.expected_card(card);
                 }
@@ -6526,6 +6672,7 @@ fn finish_type2_ndef_write(ui: &Rc<Ui>, result: NfcResult<Type2MutationResult>) 
     match result {
         Ok(result) => {
             let backup = result.backup.path.display().to_string();
+            clear_type2_auth(ui);
             apply_type2_image(ui, result.image, result.warnings);
             ui.status.set_localized(&format!(
                 "NDEF written · {} page(s)",
@@ -6556,7 +6703,14 @@ fn confirm_type2_ndef_format(ui: Rc<Ui>) {
         toast_error(&ui, "Read a Type 2 tag first");
         return;
     };
-    if let Err(error) = type2_format_gate(&session) {
+    let auth = match type2_auth_from_ui(&ui) {
+        Ok(auth) => auth,
+        Err(error) => {
+            toast_error(&ui, &error);
+            return;
+        }
+    };
+    if let Err(error) = type2_format_gate(&session, auth.is_some()) {
         toast_error(&ui, &error);
         return;
     }
@@ -6577,14 +6731,14 @@ fn confirm_type2_ndef_format(ui: Rc<Ui>) {
     dialog.connect_response(None, move |_, response| {
         ui2.pending_type2_format_dialog.replace(None);
         if response == "confirm" {
-            start_type2_ndef_format(ui2.clone());
+            start_type2_ndef_format(ui2.clone(), auth);
         }
     });
     ui.pending_type2_format_dialog.replace(Some(dialog.clone()));
     present_alert(&dialog, &ui.window);
 }
 
-fn start_type2_ndef_format(ui: Rc<Ui>) {
+fn start_type2_ndef_format(ui: Rc<Ui>, auth: Option<Type2Auth>) {
     set_busy(&ui, true);
     ui.status.set_localized("Formatting the NDEF data area…");
     let service = ui.service.clone();
@@ -6598,7 +6752,7 @@ fn start_type2_ndef_format(ui: Rc<Ui>) {
     std::thread::spawn(move || {
         let result = match service.lock() {
             Ok(mut service) => {
-                let mut request = Type2Format::new(&backup).confirm(true);
+                let mut request = Type2Format::new(&backup).confirm(true).auth(auth);
                 if let Some(card) = expected {
                     request = request.expected_card(card);
                 }
@@ -6623,6 +6777,7 @@ fn finish_type2_ndef_format(ui: &Rc<Ui>, result: NfcResult<Type2MutationResult>)
     match result {
         Ok(result) => {
             let backup = result.backup.path.display().to_string();
+            clear_type2_auth(ui);
             apply_type2_image(ui, result.image, result.warnings);
             ui.status.set_localized(&format!(
                 "NDEF formatted · {} page(s)",
@@ -8762,6 +8917,13 @@ mod tests {
         pages
     }
 
+    fn protected_ntag_pages() -> Vec<[u8; 4]> {
+        let mut pages = ntag_pages(false, false, true);
+        pages[41] = [0x00, 0x00, 0x00, 0x20];
+        pages[42] = [0x80, 0x00, 0x00, 0x00];
+        pages
+    }
+
     fn install_ntag(handle: &MockHandle, pages: &[[u8; 4]]) {
         handle.set_card(Some(type2_card(0x80)));
         handle.clear_pages();
@@ -9036,6 +9198,8 @@ mod tests {
         ui.type2_view.lock_pages.set_text("");
         ui.type2_view.auth0.set_text("");
         ui.type2_view.access.set_text("");
+        ui.type2_view.auth_pwd.set_text("");
+        ui.type2_view.auth_pack.set_text("");
         ui.type2_view.pwd.set_text("");
         ui.type2_view.pack.set_text("");
         ui.type2_view.include_memory.set_active(true);
@@ -9253,6 +9417,7 @@ mod tests {
         type2_user_page_write(&harness);
         type2_advanced_page_write(&harness);
         type2_lock_and_password(&harness);
+        type2_protected_access(&harness);
         type2_ndef_write_and_format(&harness);
         type2_partial_ndef(&harness);
         type2_dump_and_restore(&harness);
@@ -10798,7 +10963,11 @@ mod tests {
         let body = dialog.body();
         assert!(body.contains("04 5B 1C 2A 3B 4C 80"), "{body}");
         assert!(body.contains("AUTH0 32"), "{body}");
-        assert!(body.contains("PWD  11 22 33 44"), "{body}");
+        assert!(
+            body.contains("PWD and PACK are replaced with the new values"),
+            "{body}"
+        );
+        assert!(!body.contains("11 22 33 44"), "{body}");
         emit_response(&dialog, "confirm");
         pump_until(ui, "Type 2 password", || {
             !ui.busy.get() && ui.status.label().contains("Password configuration written")
@@ -10817,6 +10986,104 @@ mod tests {
                 .count(),
             2
         );
+    }
+
+    fn type2_protected_access(harness: &Harness) {
+        let pages = protected_ntag_pages();
+        reset(harness);
+        install_ntag(&harness.ntag, &pages);
+        harness
+            .ntag
+            .set_password([0x11, 0x22, 0x33, 0x44], [0xAA, 0xBB]);
+        choose_reader(harness, "mock:ntag");
+        let ui = &harness.ui;
+
+        start_read(ui.clone());
+        pump_until(ui, "protected read refusal", || {
+            !ui.busy.get() && ui.status.label().contains("Read failed")
+        });
+        assert!(ui.type2.borrow().is_none());
+
+        ui.type2_view.auth_pwd.set_text("11223344");
+        ui.type2_view.auth_pack.set_text("AABB");
+        start_read(ui.clone());
+        pump_until(ui, "protected read", || {
+            !ui.busy.get() && ui.status.label().contains("Read complete")
+        });
+        assert!(ui.type2.borrow().is_some());
+        assert_eq!(ui.type2_view.auth_pwd.text(), "");
+        assert_eq!(ui.type2_view.auth_pack.text(), "");
+
+        ui.type2_view.advanced.set_active(true);
+        select_type2_page(ui, 32);
+        update_type2_inspector(ui);
+        assert!(!ui.type2_view.editor.write.is_sensitive());
+        assert!(
+            ui.type2_view
+                .editor
+                .feedback
+                .label()
+                .contains("enter the access password"),
+            "{}",
+            ui.type2_view.editor.feedback.label()
+        );
+        ui.type2_view.auth_pwd.set_text("11223344");
+        ui.type2_view.auth_pack.set_text("AABB");
+        ui.type2_view.editor.hex.set_text("AA BB CC DD");
+        update_type2_write_sensitivity(ui);
+        assert!(ui.type2_view.editor.write.is_sensitive());
+        confirm_type2_page_write(ui.clone());
+        let dialog = alert_pending(&ui.pending_type2_page_dialog);
+        emit_response(&dialog, "write");
+        pump_until(ui, "protected page write", || {
+            !ui.busy.get() && ui.status.label().contains("Type 2 page 032 written")
+        });
+        assert_eq!(harness.ntag.page(32), Some([0xAA, 0xBB, 0xCC, 0xDD]));
+        assert_eq!(ui.type2_view.auth_pwd.text(), "");
+
+        ui.ndef_view.text.buffer().set_text("Protected");
+        update_ndef_actions(ui);
+        assert!(!ui.ndef_view.write.is_sensitive());
+        ui.type2_view.auth_pwd.set_text("11223344");
+        ui.type2_view.auth_pack.set_text("AABB");
+        update_ndef_actions(ui);
+        assert!(
+            ui.ndef_view.write.is_sensitive(),
+            "{}",
+            ui.ndef_view.feedback.label()
+        );
+        confirm_ndef_write(ui.clone());
+        let dialog = alert_pending(&ui.pending_ndef_write_dialog);
+        emit_response(&dialog, "write");
+        pump_until(ui, "protected NDEF write", || {
+            !ui.busy.get() && ui.status.label().contains("NDEF written")
+        });
+
+        ui.type2_view.auth0.set_text("255");
+        ui.type2_view.access.set_text("00");
+        ui.type2_view.pwd.set_text("11223344");
+        ui.type2_view.pack.set_text("AABB");
+        update_type2_actions(ui);
+        assert!(!ui.type2_view.password_apply.is_sensitive());
+        ui.type2_view.auth_pwd.set_text("11223344");
+        ui.type2_view.auth_pack.set_text("AABB");
+        update_type2_actions(ui);
+        assert!(ui.type2_view.password_apply.is_sensitive());
+        confirm_type2_password(ui.clone());
+        let dialog = alert_pending(&ui.pending_type2_password_dialog);
+        emit_response(&dialog, "confirm");
+        pump_until(ui, "protection clear", || {
+            !ui.busy.get() && ui.status.label().contains("Password configuration written")
+        });
+        assert_eq!(harness.ntag.page(41).expect("cfg0")[3], 0xFF);
+        assert_eq!(harness.ntag.page(42).expect("cfg1")[0], 0x00);
+        assert_eq!(ui.type2_view.auth_pwd.text(), "");
+
+        start_read(ui.clone());
+        pump_until(ui, "unprotected read", || {
+            !ui.busy.get() && ui.status.label().contains("Read complete")
+        });
+        assert!(ui.type2.borrow().is_some());
     }
 
     fn type2_ndef_write_and_format(harness: &Harness) {

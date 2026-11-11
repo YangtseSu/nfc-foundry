@@ -35,8 +35,8 @@ phase adds no Type 4 command or surface.
   reports the backup path.
 - A locked data page blocks NDEF write and format before the backup. A
   read-only capability container blocks both. Password-protected data pages and
-  lock pages are denied because the product has no PWD_AUTH workflow for
-  mutations.
+  lock pages authenticate through `Type2Auth`; without the access password and
+  PACK, the operation is denied before mutation. Phase 24 S6 added this path.
 - Partial reads remain partial; unknown pages are never zero-filled.
 - A capability-container write must keep the product and data-area size; the
   parsed CC is refreshed after a verified write.

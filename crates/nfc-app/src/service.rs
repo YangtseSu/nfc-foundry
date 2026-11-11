@@ -16,7 +16,7 @@ use crate::classic::{
 };
 use crate::device::DeviceManager;
 use crate::operation::{Operation, OperationKind};
-use crate::type2::Type2ReadResult;
+use crate::type2::{Type2ReadRequest, Type2ReadResult};
 
 /// Result of reading whichever supported card family is selected.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -91,15 +91,18 @@ impl Service {
         &mut self,
         keys: &KeyStore,
         include_common_keys: bool,
+        type2_auth: Option<nfc_type2::Type2Auth>,
         cancel: CancelToken,
     ) -> Result<CardReadResult> {
         let device = self.devices.selected().map(str::to_owned);
         let mut operation = self.begin_operation(OperationKind::Read, cancel)?;
         let cancel = operation.cancel().clone();
         match operation.card().card_type {
-            CardType::Type2 => {
-                crate::type2::read(&mut operation, &cancel).map(CardReadResult::Type2)
-            }
+            CardType::Type2 => crate::type2::read(
+                &mut operation,
+                Type2ReadRequest::new(cancel).auth(type2_auth),
+            )
+            .map(CardReadResult::Type2),
             CardType::MifareClassic1K | CardType::MifareClassic4K => {
                 let mut result =
                     crate::classic::read::read_dump(&mut operation, keys, include_common_keys)?;
@@ -659,7 +662,7 @@ mod tests {
 
         service.select_device("mock:ntag").expect("select tag");
         let read = service
-            .read_card(&KeyStore::new(), true, CancelToken::new())
+            .read_card(&KeyStore::new(), true, None, CancelToken::new())
             .expect("type 2 read");
         match read {
             CardReadResult::Type2(read) => {
@@ -674,7 +677,7 @@ mod tests {
             .select_device("mock:classic")
             .expect("select classic");
         let read = service
-            .read_card(&KeyStore::new(), true, CancelToken::new())
+            .read_card(&KeyStore::new(), true, None, CancelToken::new())
             .expect("classic read");
         assert!(matches!(read, CardReadResult::Classic(_)));
     }

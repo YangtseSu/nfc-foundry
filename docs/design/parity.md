@@ -58,21 +58,26 @@ message bytes that `nfctl classic ndef read --output` writes.
 | Operation | CLI | GUI | Gate | Hardware |
 |---|---|---|---|---|
 | Facts | `type2 info` | Type 2 summary, configuration, NDEF facts | R | PN532, ACR122U |
-| Read pages | `type2 read [--page]` | Type 2 table and page inspector | R | PN532, ACR122U |
-| Write user page | `type2 write --page --data` | Page inspector → Write page… | C, B | PN532; ACR n/r |
+| Read pages | `type2 read [--page] [--type2-password --type2-pack]` | Type 2 table and page inspector; Protected access fields | R | PN532, ACR122U protected n/r |
+| Write user page | `type2 write --page --data [--type2-password --type2-pack]` | Page inspector → Write page… with Protected access credentials | C, B | PN532; ACR n/r |
 | Write Advanced page | `type2 write --advanced` | Advanced mode → page inspector → Write page… | A, B | n/r |
 | Dump | `type2 dump --output` | Memory → Save dump… | R | n/r |
 | Restore | `type2 restore --input --include-*` | NFC Forum Type 2 → Dumps → Choose project image… → Restore image… | C, B | n/r |
 | Lock pages | `type2 lock --pages` | Protection → One-way locks → Apply lock bits… | A, C, B | n/r |
-| Password configuration | `type2 password` | Protection → Password and access → Apply password configuration… | A, C, B | n/r |
+| Password configuration | `type2 password [--current-pwd --current-pack]` | Protection → Password and access → Apply password configuration… | A, C, B | PN532, NTAG216 |
+| Clear protection | `type2 password --auth0 255 --access 00 [--current-pwd --current-pack]` | Protection → Password and access with AUTH0 255 and ACCESS 00 | A, C, B | PN532, NTAG216 |
+| Authenticated read/write after AUTH0 | `--type2-password --type2-pack` on Type 2 and NDEF commands | Protected access fields | R, C, B | PN532, NTAG216; ACR n/r |
 | NDEF read | `ndef read [--output]` | Type 2 NDEF facts; Export message… | R | PN532 |
 | NDEF write | `ndef write` | NDEF composer → Write NDEF | C, B | PN532; ACR n/r |
 | NDEF format | `ndef format` | NDEF → Format NDEF area… | C, B | PN532; ACR n/r |
 
 Both surfaces refuse a different card identity, a mismatched capability
-container, an incomplete NDEF area, a locked data page, a password-protected
-data page, a read-only CC, and a capacity overflow. Restore class selection is
-the same four flags/checkboxes in both surfaces.
+container, an incomplete NDEF area, a locked data page, a read-only CC, and a
+capacity overflow. A page or NDEF area protected by AUTH0 uses the supplied
+PWD_AUTH credentials; without them the operation is denied before mutation.
+The credentials are per operation, are never saved, and are cleared from the
+GUI entries after a successful operation. Restore class selection is the same
+four flags/checkboxes in both surfaces.
 
 ## Recovery and system
 

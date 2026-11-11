@@ -79,9 +79,8 @@ Kit workspace for memory, NDEF, and protection. The GUI and CLI call the same
   default. Restore defaults to user memory; the other classes are explicit
   flags.
 - PWD and PACK cannot be restored from a dump because they are not readable.
-- No Type 2 password authentication input in the GUI beyond programming the
-  configuration; protected reads after AUTH0 is set are planned in
-  [24e-type2-auth.md](24e-type2-auth.md) (plan 24 S6), not in this phase.
+- No Type 2 password authentication input in phase 09. Phase 24 S6 added
+  protected access through [24e-type2-auth.md](24e-type2-auth.md).
 - No automatic key/secret retrieval from the network.
 
 ## Safety
@@ -127,5 +126,6 @@ Kit workspace for memory, NDEF, and protection. The GUI and CLI call the same
   lock confirmation, and protection controls.
 - Hardware: NTAG215 read/write/NDEF round trip on PN532 UART and ACR122U,
   recorded in `docs/notes/09-type2-ndef.md`. The PN532 UART read and authorized
-  NDEF write/read/restore round trip passed on 2026-11-10; the ACR122U record,
-  one-way locks, and password configuration remain pending.
+  NDEF write/read/restore round trip passed on 2026-11-10. Password
+  configuration and authenticated access passed on PN532 UART with an NTAG216
+  on 2026-11-12; the ACR122U record and one-way locks remain pending.

@@ -1,7 +1,9 @@
 # Spec: phase 24e Type 2 authenticated access
 
-Status: planned. Plan: [24-parity-recovery.md](../plan/24-parity-recovery.md).
-Slice: S6.
+Status: implemented 2026-11-12 and hardware-validated on PN532 UART with an
+owned NTAG216; the ACR122U record is pending. Plan:
+[24-parity-recovery.md](../plan/24-parity-recovery.md). Note:
+[24e-type2-auth.md](../notes/24e-type2-auth.md). Slice: S6.
 
 ## Problem
 
@@ -67,10 +69,12 @@ tag is unprotected or usable.
 ## CLI
 
 `nfctl type2 password --auth0 N --access HEX --pwd HEX --pack HEX
-[--current-pwd HEX]` and the protected read/write paths accept
-`--type2-password HEX`. Secrets are read from the environment or an explicit
-flag, never printed in the plan. Non-interactive use requires the existing
-confirmation flag plus the password flag.
+[--current-pwd HEX --current-pack HEX]` and the protected read/write paths
+accept `--type2-password HEX --type2-pack HEX`. `--current-pwd` and
+`--current-pack` are aliases for the same credential pair; the environment
+variables are `NFC_FOUNDRY_TYPE2_PASSWORD` and `NFC_FOUNDRY_TYPE2_PACK`.
+Secrets are never printed in the plan. Non-interactive use requires the
+existing confirmation flag plus the password and PACK flags.
 
 ## GUI
 
@@ -86,10 +90,13 @@ The entry is masked, cleared after the operation, and never written to
   and cancellation before the first write.
 - Service tests prove a wrong password leaves the tag unchanged and that no
   backup, dump, activity row, or error contains the secret.
-- Hardware test on an owned NTAG215: read the original vCard, set
-  `AUTH0=0x20` with a known password, read and rewrite the NDEF message
-  through authentication, restore `AUTH0=0xFF`/`ACCESS=0x00`, and verify the
-  original vCard. Use a dedicated tag if the test fails partway.
+- Hardware test on an owned NTAG21x: read the original NDEF state, set
+  `AUTH0=0x20` with a known password and `PROT`, read and write NDEF through
+  authentication, restore `AUTH0=0xFF`/`ACCESS=0x00`, restore the original
+  user memory, and verify the original NDEF state, configuration, and locks.
+  Validated on 2026-11-12 with a PN532 UART and NTAG216
+  (`04 14 B5 7F DD 2A 81`); the tag started and ended with empty NDEF, no
+  locks, and `AUTH0=0xFF`/`ACCESS=0x00`.
 
 ## Safety
 

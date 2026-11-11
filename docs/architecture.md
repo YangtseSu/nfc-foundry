@@ -294,6 +294,11 @@ owns:
   RFUI and read-back compares only the first three bytes.
 - NTAG configuration (`MIRROR`, `AUTH0`, `ACCESS`, `CFGLCK`, `AUTHLIM`,
   PWD/PACK). PWD and PACK always read as zero and are verified with PWD_AUTH.
+- `Type2Auth` and `Type2AuthSession`: per-operation PWD_AUTH with a mandatory
+  expected PACK. Reading a protected tag authenticates once after the
+  configuration read; writes, NDEF operations, locks, restore, and password
+  changes reuse that session. PWD/PACK pages are masked in images, dumps, and
+  backups, and the password is redacted from `Debug`.
 - NDEF state and mapping: unformatted, empty, and message; in-place NDEF TLV
   replacement; unknown/proprietary TLV preservation; zero padding and
   Terminator handling; exact capacity.
@@ -303,8 +308,11 @@ owns:
 
 `nfc-app::type2` adds the service policy: backups before mutation, user-memory
 defaults, Advanced confirmations for lock/config/CC/password, NDEF format and
-restore confirmation, read-back verification, and card identity checks. The
-CLI and GUI call those same services.
+restore confirmation, read-back verification, and card identity checks.
+Protected reads and writes take an optional `Type2Auth`; password changes take
+the current credentials separately, write PWD/PACK before AUTH0/ACCESS, and
+verify the new PACK before reading the configuration back. The CLI and GUI call
+those same services.
 
 Both drivers implement the Type 2 READ, WRITE, and PWD_AUTH primitives. They
 enter raw framing, append CRC-A, verify the response CRC when present, and

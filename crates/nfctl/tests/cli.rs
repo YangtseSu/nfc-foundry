@@ -605,6 +605,75 @@ fn type2_info_and_dump_describe_the_ntag() {
 }
 
 #[test]
+fn type2_auth_flags_are_explicit_and_never_echo_secrets() {
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:ntag215",
+        "--type2-password",
+        "11223344",
+        "type2",
+        "read",
+    ]);
+    assert!(!output.status.success());
+    let text = stderr(&output);
+    assert!(text.contains("must be supplied together"), "{text}");
+    assert!(!text.contains("11223344"), "{text}");
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:ntag215",
+        "--type2-password",
+        "FFFFFFFF",
+        "--type2-pack",
+        "0000",
+        "type2",
+        "read",
+        "--page",
+        "4",
+    ]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("page 4"), "{text}");
+    assert!(!text.contains("11223344"), "{text}");
+    assert!(!text.contains("AABB"), "{text}");
+}
+
+#[test]
+fn type2_password_accepts_current_credential_aliases() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backups = directory.path().join("backups");
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:ntag215",
+        "--backup-dir",
+        backups.to_str().expect("path"),
+        "--current-pwd",
+        "FFFFFFFF",
+        "--current-pack",
+        "0000",
+        "type2",
+        "password",
+        "--auth0",
+        "32",
+        "--access",
+        "80",
+        "--pwd",
+        "11223344",
+        "--pack",
+        "AABB",
+        "--yes",
+    ]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("password configuration written"), "{text}");
+    assert!(!text.contains("11223344"), "{text}");
+    assert!(!text.contains("AABB"), "{text}");
+}
+
+#[test]
 fn type2_page_write_is_verified_and_advanced_write_needs_confirmation() {
     let directory = tempfile::tempdir().expect("temp dir");
     let backups = directory.path().join("backups");

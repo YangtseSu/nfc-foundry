@@ -5,7 +5,8 @@ use std::sync::Arc;
 use nfc_app::Service;
 use nfc_app::classic::BackupStore;
 use nfc_app::type2::{
-    Type2Format, Type2Lock, Type2NdefWrite, Type2PageWrite, Type2Password, Type2Restore,
+    Type2Auth, Type2Format, Type2Lock, Type2NdefWrite, Type2PageWrite, Type2Password,
+    Type2ReadRequest, Type2Restore,
 };
 use nfc_core::{CancelToken, CardInfo, CardType, NfcError};
 use nfc_ndef::{NdefMessage, TextRecord};
@@ -69,7 +70,7 @@ fn message(text: &str) -> NdefMessage {
 fn reads_a_complete_ntag215_image() {
     let (mut service, _handle) = service();
     let result = service
-        .type2_read(CancelToken::new())
+        .type2_read(Type2ReadRequest::new(CancelToken::new()))
         .expect("read NTAG215");
     assert_eq!(result.image.layout.product, Type2Product::Ntag215);
     assert_eq!(result.image.layout.total_pages, 135);
@@ -132,7 +133,7 @@ fn ndef_write_read_and_format_round_trip() {
         .expect("write NDEF");
     assert!(written.summary.written_pages > 0);
     let read = service
-        .type2_ndef_read(CancelToken::new())
+        .type2_ndef_read(Type2ReadRequest::new(CancelToken::new()))
         .expect("read NDEF");
     assert_eq!(read.ndef.state, NdefState::Message(message("hello")));
 
@@ -143,7 +144,7 @@ fn ndef_write_read_and_format_round_trip() {
         .expect("format");
     assert!(formatted.summary.written_pages > 0);
     let read = service
-        .type2_ndef_read(CancelToken::new())
+        .type2_ndef_read(Type2ReadRequest::new(CancelToken::new()))
         .expect("read NDEF");
     assert_eq!(read.ndef.state, NdefState::Empty);
 }
@@ -158,7 +159,9 @@ fn ndef_write_preserves_unknown_tlvs() {
     service
         .type2_ndef_write(Type2NdefWrite::new(message("kept"), &backup))
         .expect("write NDEF");
-    let read = service.type2_read(CancelToken::new()).expect("read");
+    let read = service
+        .type2_read(Type2ReadRequest::new(CancelToken::new()))
+        .expect("read");
     let area = read.image.ndef_area().expect("area");
     assert!(
         area.windows(4)
@@ -178,7 +181,10 @@ fn locks_are_one_way_and_confirmed() {
         .type2_lock(Type2Lock::new(vec![4], &backup).confirm(true))
         .expect("lock page 4");
     assert!(result.update.static_changed);
-    let image = service.type2_read(CancelToken::new()).expect("read").image;
+    let image = service
+        .type2_read(Type2ReadRequest::new(CancelToken::new()))
+        .expect("read")
+        .image;
     assert_eq!(image.page(2).expect("page 2")[2] & 0x10, 0x10);
     let denied = service.type2_write_page(Type2PageWrite::new(4, [0; 4], &backup));
     assert!(matches!(denied, Err(NfcError::Unsupported(_))));
@@ -211,7 +217,10 @@ fn restore_requires_confirmation_and_checks_the_layout() {
     let (mut service, _handle) = service();
     let directory = tempfile::tempdir().expect("temp dir");
     let backup = BackupStore::new(directory.path());
-    let source = service.type2_read(CancelToken::new()).expect("read").image;
+    let source = service
+        .type2_read(Type2ReadRequest::new(CancelToken::new()))
+        .expect("read")
+        .image;
     let unconfirmed = service.type2_restore(Type2Restore::new(source.clone(), &backup));
     assert!(matches!(unconfirmed, Err(NfcError::InvalidArgument(_))));
     let result = service
@@ -243,16 +252,19 @@ fn restore_requires_confirmation_and_checks_the_layout() {
 fn partial_reads_stay_explicit() {
     let (mut service, handle) = service();
     handle.clear_pages();
-    for (page, data) in ntag215_pages().into_iter().take(4) {
+    for (page, data) in ntag215_pages()
+        .into_iter()
+        .filter(|(page, _)| *page < 4 || *page >= 128)
+    {
         handle.set_page(page, data);
     }
     let result = service
-        .type2_read(CancelToken::new())
+        .type2_read(Type2ReadRequest::new(CancelToken::new()))
         .expect("partial read");
-    assert_eq!(result.image.known_pages(), 4);
+    assert_eq!(result.image.known_pages(), 11);
     assert!(!result.warnings.is_empty());
     let error = service
-        .type2_ndef_read(CancelToken::new())
+        .type2_ndef_read(Type2ReadRequest::new(CancelToken::new()))
         .expect_err("NDEF area is incomplete");
     assert!(matches!(error, NfcError::InvalidArgument(_)));
 }
@@ -263,7 +275,7 @@ fn dump_and_restore_round_trip_through_json() {
     let directory = tempfile::tempdir().expect("temp dir");
     let backup = BackupStore::new(directory.path());
     let record = service
-        .type2_dump(&backup, CancelToken::new())
+        .type2_dump(&backup, Type2ReadRequest::new(CancelToken::new()))
         .expect("dump");
     let source = exchange::load(&std::fs::read(&record.path).expect("dump file")).expect("load");
     handle.set_page(8, [0x77; 4]);
@@ -271,4 +283,106 @@ fn dump_and_restore_round_trip_through_json() {
         .type2_restore(Type2Restore::new(source, &backup).confirm(true))
         .expect("restore");
     assert_eq!(handle.page(8), Some([0; 4]));
+}
+
+fn protect_ntag215(handle: &MockHandle, password: [u8; 4], pack: [u8; 2]) {
+    handle.set_page(131, [0x00, 0x00, 0x00, 0x20]);
+    handle.set_page(132, [0x80, 0x00, 0x00, 0x00]);
+    handle.set_password(password, pack);
+}
+
+#[test]
+fn protected_access_uses_one_session_per_operation() {
+    let (mut service, handle) = service();
+    let password = [0xDE, 0xAD, 0xBE, 0xEF];
+    let pack = [0xCA, 0xFE];
+    protect_ntag215(&handle, password, pack);
+
+    let error = service
+        .type2_read(Type2ReadRequest::new(CancelToken::new()))
+        .expect_err("protected read needs credentials");
+    assert!(matches!(error, NfcError::AuthenticationRequired(_)));
+    assert_eq!(handle.password_auths(), 0);
+
+    let auth = Type2Auth::new(password, pack);
+    let read = service
+        .type2_read(Type2ReadRequest::new(CancelToken::new()).auth(Some(auth)))
+        .expect("authenticated read");
+    assert!(read.image.is_complete());
+    assert_eq!(handle.password_auths(), 1);
+
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+    let auth = Type2Auth::new(password, pack);
+    service
+        .type2_ndef_write(Type2NdefWrite::new(message("protected"), &backup).auth(Some(auth)))
+        .expect("authenticated NDEF write");
+    assert_eq!(
+        handle.password_auths(),
+        2,
+        "the NDEF write operation must authenticate once"
+    );
+    let auth = Type2Auth::new(password, pack);
+    let ndef = service
+        .type2_ndef_read(Type2ReadRequest::new(CancelToken::new()).auth(Some(auth)))
+        .expect("authenticated NDEF read");
+    assert_eq!(ndef.ndef.state, NdefState::Message(message("protected")));
+
+    let bad = Type2Auth::new(password, [0x00, 0x00]);
+    let error = service
+        .type2_write_page(Type2PageWrite::new(32, [0xAA; 4], &backup).auth(Some(bad)))
+        .expect_err("wrong PACK");
+    assert!(matches!(error, NfcError::VerificationFailed(_)));
+    assert!(!error.to_string().contains("CAFE"));
+    assert_eq!(handle.page(32), Some([0; 4]));
+}
+
+#[test]
+fn password_change_and_clear_restore_authenticated_access() {
+    let (mut service, handle) = service();
+    let old = Type2Auth::new([0xDE, 0xAD, 0xBE, 0xEF], [0xCA, 0xFE]);
+    protect_ntag215(&handle, [0xDE, 0xAD, 0xBE, 0xEF], [0xCA, 0xFE]);
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+
+    let result = service
+        .type2_password(
+            Type2Password::new(0x20, 0x80, [1, 2, 3, 4], [0x12, 0x34], &backup)
+                .current(Some(old))
+                .confirm(true),
+        )
+        .expect("change password");
+    assert_eq!(result.image.page(131).expect("cfg0")[3], 0x20);
+
+    let read = service
+        .type2_read(
+            Type2ReadRequest::new(CancelToken::new())
+                .auth(Some(Type2Auth::new([1, 2, 3, 4], [0x12, 0x34]))),
+        )
+        .expect("new credentials");
+    assert!(read.image.is_complete());
+
+    for entry in std::fs::read_dir(directory.path()).expect("backup dir") {
+        let bytes = std::fs::read(entry.expect("entry").path()).expect("backup file");
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(!text.contains("DEADBEEF"), "backup leaked the old password");
+        assert!(!text.contains("CAFE"), "backup leaked the old PACK");
+        assert!(!text.contains("01020304"), "backup leaked the new password");
+        assert!(!text.contains("1234"), "backup leaked the new PACK");
+    }
+
+    let current = Type2Auth::new([1, 2, 3, 4], [0x12, 0x34]);
+    service
+        .type2_password(
+            Type2Password::new(0xFF, 0x00, [1, 2, 3, 4], [0x12, 0x34], &backup)
+                .current(Some(current))
+                .confirm(true),
+        )
+        .expect("clear protection");
+    let read = service
+        .type2_read(Type2ReadRequest::new(CancelToken::new()))
+        .expect("unprotected read");
+    assert!(read.image.is_complete());
+    assert_eq!(read.image.page(131).expect("cfg0")[3], 0xFF);
+    assert_eq!(read.image.page(132).expect("cfg1")[0], 0x00);
 }

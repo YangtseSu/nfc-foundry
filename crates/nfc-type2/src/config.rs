@@ -4,6 +4,15 @@ use nfc_core::{NfcError, PAGE_SIZE, Result};
 
 use crate::page::Type2Image;
 
+/// Requested PWD/PACK and AUTH0/ACCESS values for one configuration write.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PasswordUpdate {
+    pub auth0: u8,
+    pub access: u8,
+    pub password: [u8; PAGE_SIZE],
+    pub pack: [u8; 2],
+}
+
 /// Parsed configuration pages.
 ///
 /// PWD and PACK are never readable from the tag; their fields are zero when

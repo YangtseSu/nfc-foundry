@@ -4,7 +4,7 @@ use nfc_core::{NfcError, PAGE_SIZE, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::cc::CapabilityContainer;
-use crate::layout::Type2Layout;
+use crate::layout::{PageRole, Type2Layout};
 use crate::page::Type2Image;
 
 const FORMAT: &str = "nfc-foundry-type2";
@@ -29,7 +29,7 @@ pub fn export(image: &Type2Image) -> Result<Vec<u8>> {
         cc: hex(&image.cc.to_bytes()),
         pages: image
             .pages()
-            .map(|(_, page)| page.map(|data| hex(data)))
+            .map(|(page, data)| data.map(|data| hex(&masked_page(&image.layout, page, *data))))
             .collect(),
     };
     serde_json::to_vec_pretty(&file)
@@ -64,13 +64,13 @@ pub fn load(bytes: &[u8]) -> Result<Type2Image> {
         )));
     }
     let mut pages = Vec::with_capacity(file.pages.len());
-    for value in &file.pages {
+    for (index, value) in file.pages.iter().enumerate() {
         let page = match value {
             Some(value) => {
                 let data = parse_hex(value, PAGE_SIZE)?;
                 let mut page = [0u8; PAGE_SIZE];
                 page.copy_from_slice(&data);
-                Some(page)
+                Some(masked_page(&layout, index as u8, page))
             }
             None => None,
         };
@@ -95,6 +95,17 @@ impl Type2Image {
             .map(|byte| format!("{byte:02X}"))
             .collect::<Vec<_>>()
             .join(" ")
+    }
+}
+
+fn masked_page(layout: &Type2Layout, page: u8, data: [u8; PAGE_SIZE]) -> [u8; PAGE_SIZE] {
+    if matches!(
+        layout.role(page),
+        PageRole::Password | PageRole::PasswordAck
+    ) {
+        [0; PAGE_SIZE]
+    } else {
+        data
     }
 }
 
@@ -181,6 +192,24 @@ mod tests {
         let loaded = load(&bytes).expect("load");
         assert_eq!(loaded, source);
         assert!(loaded.page(5).is_none());
+    }
+
+    #[test]
+    fn password_pages_are_masked_in_dumps_and_loads() {
+        let mut source = image();
+        source
+            .set_page(43, [0xDE, 0xAD, 0xBE, 0xEF])
+            .expect("PWD page");
+        source
+            .set_page(44, [0xCA, 0xFE, 0x00, 0x00])
+            .expect("PACK page");
+        let bytes = export(&source).expect("export");
+        let text = String::from_utf8(bytes.clone()).expect("utf8");
+        assert!(!text.contains("DEADBEEF"), "{text}");
+        assert!(!text.contains("CAFE"), "{text}");
+        let loaded = load(&bytes).expect("load");
+        assert_eq!(loaded.page(43), Some(&[0; 4]));
+        assert_eq!(loaded.page(44), Some(&[0; 4]));
     }
 
     #[test]

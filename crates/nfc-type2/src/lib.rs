@@ -5,6 +5,7 @@
 //! reader-backed read/write workflows. It reaches hardware only through
 //! [`nfc_transport::Reader`].
 
+pub mod auth;
 pub mod cc;
 pub mod config;
 pub mod exchange;
@@ -15,8 +16,9 @@ pub mod page;
 pub mod read;
 pub mod write;
 
+pub use auth::{Type2Auth, Type2AuthSession};
 pub use cc::CapabilityContainer;
-pub use config::Configuration;
+pub use config::{Configuration, PasswordUpdate};
 pub use layout::{ConfigPages, PageRole, Type2Layout, Type2Product};
 pub use lock::{LockBits, LockUpdate};
 pub use ndef::{NdefState, Type2Ndef, encode_ndef_area, format_ndef_area, read_ndef};

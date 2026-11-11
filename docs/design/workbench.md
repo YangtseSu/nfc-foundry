@@ -216,8 +216,9 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
   format is destructive, removes proprietary TLVs, and uses the confirmation
   dialog.
 - Type 2 write is refused for a partial data area, read-only CC, locked data
-  page, password-protected data page, capacity overflow, or an unchanged
-  message. The service preserves other TLVs on a write.
+  page, capacity overflow, or an unchanged message. A password-protected data
+  page uses the masked Protected access credentials; without them the write is
+  refused before mutation. The service preserves other TLVs on a write.
 - Composer sources: `Text` (text and IANA language), `URI`, or a raw NDEF file
   decoded through `NdefMessage::decode`. Exactly one source is active.
 - The preview shows the source summary, encoded message size against capacity,

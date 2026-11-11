@@ -127,9 +127,10 @@ authorization. The gated tests live in `nfctl/tests/hardware_type2.rs`.
 - `GET_VERSION`, `FAST_READ`, `READ_CNT`, and `READ_SIG` are not implemented.
   The CC is sufficient for layout selection and the phase plan did not require
   these commands.
-- The GUI exposes programming PWD/PACK/ACCESS but not a PWD_AUTH prompt for
-  subsequent protected reads. The CLI and service API also have no
-  authenticate-only command yet.
+- Phase 09 exposed programming PWD/PACK/ACCESS but no PWD_AUTH prompt. Phase 24
+  S6 added per-operation protected access through
+  [24e-type2-auth.md](24e-type2-auth.md); the CLI and service now authenticate
+  protected reads and writes.
 - NDEF write uses the Text record in the GUI; the CLI additionally supports
   raw NDEF files and URI records. Template editors remain phase 10 work.
 - Dynamic lock block-locking bits are preserved and displayed but not exposed
@@ -137,12 +138,11 @@ authorization. The gated tests live in `nfctl/tests/hardware_type2.rs`.
 
 ## Remaining blockers
 
-- Hardware validation of lock and password paths on an owned tag.
-- Authenticated reads/writes after AUTH0 are planned in
-  [24e-type2-auth.md](../specs/24e-type2-auth.md) (plan 24 S6). The password
-  hardware test must not run on a shared tag until that slice lands.
+- Hardware validation of the one-way lock path on an owned tag.
+- Password configuration and authenticated reads/writes after AUTH0 are
+  implemented in [24e-type2-auth.md](24e-type2-auth.md) (plan 24 S6) and passed
+  on PN532 UART with an NTAG216 on 2026-11-12; the ACR122U record is pending.
 - `GET_VERSION`/`FAST_READ` for tags whose CC is absent or non-standard.
-- Type 2 password authentication for reads and writes after AUTH0 is set.
 - Classic MAD/CC NDEF belongs to phase 10.
 
 ## 2026-11-11 ACR122U hardware record

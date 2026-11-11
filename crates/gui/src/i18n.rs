@@ -851,6 +851,25 @@ keys! {
     ApplyLockBitsShort => ("Apply lock bits", "应用锁定位"),
     LockPreviewHint => ("Enter pages to preview the lock bytes.", "输入页号以预览锁定位。"),
     PasswordAndAccess => ("Password and access", "密码与访问"),
+    ProtectedAccess => ("Protected access", "受保护访问"),
+    AccessPwd => ("Access PWD", "访问 PWD"),
+    AccessPack => ("Access PACK", "访问 PACK"),
+    ProtectedAccessNote => (
+        "Used for reads and writes on a tag protected by AUTH0, and as the current credentials when changing the configuration. Cleared after each operation and never saved.",
+        "用于受 AUTH0 保护标签的读写，以及更改配置时的当前凭据。每次操作后清除，绝不保存。"
+    ),
+    CurrentCredentialsRequired => (
+        "This configuration is protected; enter the current access password and PACK first.",
+        "此配置受保护；请先输入当前访问密码和 PACK。"
+    ),
+    PasswordReplaced => (
+        "PWD and PACK are replaced with the new values.",
+        "PWD 和 PACK 将替换为新值。"
+    ),
+    PasswordProtectionStartsPage => (
+        "Password protection starts at page {}; enter the access password and PACK in the Protection tab.",
+        "密码保护从第 {} 页开始；请在保护页输入访问密码和 PACK。"
+    ),
     ApplyPasswordConfiguration => ("Apply password configuration…", "应用密码配置…"),
     ApplyConfiguration => ("Apply configuration", "应用配置"),
     PasswordNote => (
@@ -920,8 +939,8 @@ keys! {
     ),
     EnableAdvancedForLocks => ("Enable Advanced mode to change lock bits.", "启用高级模式后可更改锁定位。"),
     PasswordProtectionCoversLockPages => (
-        "Password protection covers the lock pages; PWD_AUTH is required first.",
-        "密码保护覆盖锁定位页；需要先执行 PWD_AUTH。"
+        "Password protection covers the lock pages; enter the access password and PACK first.",
+        "密码保护覆盖锁定位页；请先输入访问密码和 PACK。"
     ),
     LockPreview => (
         "Pages {}\nStatic lock {} → {}\nDynamic lock {} → {}\nOne-way: set bits cannot be cleared. The service backs up the image and reads every lock page back.",
@@ -971,8 +990,8 @@ keys! {
     CcWritable => ("capability container writable", "容量容器可写"),
     LockedPages => ("{} · locked pages: {}", "{} · 已锁定页：{}"),
     PasswordProtectionFromPage => (
-        "Password protection covers the data area from page {page}; PWD_AUTH is required before writing.",
-        "密码保护从第 {page} 页起覆盖数据区域；写入前需要 PWD_AUTH。"
+        "Password protection covers the data area from page {page}; enter the access password and PACK in the Protection tab.",
+        "密码保护从第 {page} 页起覆盖数据区域；请在保护页输入访问密码和 PACK。"
     ),
     NdefAreaSize => ("{} bytes", "{} 字节"),
     NdefFormatDataQuestion => ("Format the NDEF data area?", "格式化 NDEF 数据区域？"),
@@ -994,8 +1013,8 @@ keys! {
     ),
     PagesLockedReadOnly => ("Pages {} are locked read-only.", "页 {} 已锁定为只读。"),
     PasswordProtectionFromPageFirst => (
-        "Password protection covers the data area from page {page}; PWD_AUTH is required first.",
-        "密码保护从第 {page} 页起覆盖数据区域；需要先执行 PWD_AUTH。"
+        "Password protection covers the data area from page {page}; enter the access password and PACK in the Protection tab.",
+        "密码保护从第 {page} 页起覆盖数据区域；请在保护页输入访问密码和 PACK。"
     ),
     NdefNoCardHint => (
         "Read a card to inspect its MAD mapping and NDEF message.",
@@ -1627,8 +1646,8 @@ keys! {
     ),
     ReservedNoWrite => ("Reserved page; no write path.", "保留页；无写入路径。"),
     PasswordStartsPage => (
-        "Password protection starts at page {}; this page needs PWD_AUTH before a write.",
-        "密码保护从第 {} 页开始；此页写入前需要 PWD_AUTH。"
+        "Password protection starts at page {}; enter the access password and PACK in the Protection tab.",
+        "密码保护从第 {} 页开始；请在保护页输入访问密码和 PACK。"
     ),
     WriteReady => ("Write: ready.", "写入：就绪。"),
     WriteLabel => ("Write: {}", "写入：{}"),

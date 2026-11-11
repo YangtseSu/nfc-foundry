@@ -41,7 +41,8 @@ add no reader path of their own.
 | Classic full restore with UID through the guarded `nfc-app` service | validated | validated | phase 24d, 2026-11-11: full dump with one changed data block, UID `FA B9 CF F4` -> `FA B9 CF F5`, full read verified, original data and UID restored and diffed byte for byte on both readers. PN532 used the ordinary backend; ACR122U used Gen1A. |
 | Type 2 page read | validated | validated | phase 02, phase 05 |
 | Type 2 / NTAG215 NDEF format, write, read, restore | validated | validated | PN532 phase 09: 135/135 pages, 33-byte Text record, restore. ACR122U 2026-11-11: NTAG215 `04 34 4C C2 83 5C 80`, 135/135 pages, 33-byte Text record written and read, original 75-byte vCard NDEF restored. |
-| Type 2 one-way lock and password configuration | not recorded | not recorded | phase 09; the NTAG215 was not put into a protected state. |
+| Type 2 one-way lock | not recorded | not recorded | phase 09; no lock bits were set. |
+| Type 2 password configuration and authenticated access after AUTH0 | validated | not recorded | phase 24 S6, 2026-11-12: PN532 UART, NTAG216 `04 14 B5 7F DD 2A 81`; wrong PACK refused, 231/231 authenticated read, authenticated format/write/read, cleared to AUTH0=0xFF/ACCESS=0x00, original empty NDEF, CC, locks, and configuration restored; PWD/PACK reset to factory defaults after the run. |
 | Classic NDEF format, write, read, restore | validated | validated | PN532 phase 10: blank Classic 1K UID `6A 31 5E 28`, byte-for-byte restore. ACR122U 2026-11-11: 715-byte capacity, 3 blocks written, 18 blocks restored, full dump diff 0 changed. |
 | Crypto1 parity probe and full software authentication | validated | validated | phase 06 |
 | Nested, static-nested, and auto recovery | validated | validated | phase 06: recovered and re-verified target keys |
@@ -70,8 +71,9 @@ card under test.
 
 - PN532 UART: **PASS** for every row marked `validated`.
 - ACR122U: **PASS** for every row marked `validated`.
-- The matrix is not symmetric. ACR122U Type 2 NDEF, one-way locks, and password
-  configuration are not part of the release claim.
+- The matrix is not symmetric. ACR122U Type 2 NDEF, one-way locks, password
+  configuration, and authenticated access after AUTH0 are not part of the
+  release claim.
 - Type 4 NDEF is implemented but has no hardware record; it is not advertised.
 - Classic 4K has no hardware record; it is not part of the release claim.
 - Classic sector-trailer writes and the guarded UID service are validated on

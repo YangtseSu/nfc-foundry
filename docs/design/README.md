@@ -52,8 +52,8 @@ The implemented screen contract is
 - Type 2 memory table with page role, lock state, and data.
 - Page inspector with hex, ASCII, and a verified user-page editor.
 - NDEF tab: state, capacity, records, Text write, and Format.
-- Protection: static/dynamic locks, AUTH0/ACCESS/CFGLCK/AUTHLIM, lock form,
-  and password form.
+- Protection: static/dynamic locks, AUTH0/ACCESS/CFGLCK/AUTHLIM, masked
+  protected-access credentials, lock form, and password form.
 - Type 2 Advanced writes, locks, password configuration, and NDEF format
   require confirmation; lock/config/password use the same destructive dialog.
 - Classic NDEF: MAD/CC/sector mapping from phase 10 is presented as its own

@@ -70,12 +70,15 @@ Implemented in `nfc-type2`:
   a raw caller-managed command stream.
 - `nfctl type2|ndef`.
 
+PWD_AUTH is implemented for every protected path: reads, page writes, NDEF
+read/write/format, lock updates, restore, and configuration changes take the
+password and expected PACK through `Type2Auth`. One session authenticates per
+operation and is discarded afterwards. `nfctl` uses `--type2-password` and
+`--type2-pack`; the GUI uses the masked Protected access fields.
+
 Not implemented yet:
 
 - `GET_VERSION`, `READ_CNT`, `FAST_READ`, and `READ_SIG`.
-- Password authentication for reads/writes after AUTH0 is set. The current
-  service programs and verifies PWD/PACK but does not expose an
-  authenticate-only request.
 - Card-to-card copy and whole-memory erase.
 
 Safety:
@@ -85,7 +88,8 @@ Safety:
   Advanced and need confirmation.
 - Full-image project backup before the first change.
 - A lock update may set bits but never clear them.
-- PWD/PACK writes are verified with PWD_AUTH; secrets are not logged.
+- PWD/PACK writes are verified with PWD_AUTH; secrets are not logged, stored in
+  images, dumps, backups, or key stores, and are redacted from errors.
 - Genuine Type 2 UID pages are read-only.
 - A partial image is explicit and is never written as if complete.
 
