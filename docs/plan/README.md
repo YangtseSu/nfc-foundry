@@ -39,6 +39,7 @@ work; their current equivalents are the GTK4 workspaces.
 | 19c | Type 2 / NTAG workbench and hardware-gated Type 4 read | done |
 | 19d | Recovery, keyscan, diagnostics, activity, settings | done |
 | 19e | Bilingual UI, parity audit, UI tests, packaging | done |
+| 24 | Parity recovery: verified keys, workbench, UID, reader lifecycle, diagnostics | pending (S1 next) |
 
 ## Rules
 
@@ -729,3 +730,16 @@ covers every shell page, navigation, focus, dialogs, Chinese reads and
 writes; and the AUR package and release tarball install both binaries, the
 hicolor icons, and the desktop entry. See
 [docs/notes/19e-completion.md](../notes/19e-completion.md).
+
+### 24: Parity recovery
+
+Goal: port the remaining old-service capabilities that have no Rust
+equivalent, in vertical slices: verified-key capture and dump key metadata,
+editable workbench, selective restore and write preflight, UID/block-0 writes,
+reader polling/reconnect and capability reporting, then details, key-catalog,
+and diagnostics gaps.
+
+Detailed plan: [24-parity-recovery.md](24-parity-recovery.md). Status:
+pending; S1 (verified-key capture and dump key metadata) is the first slice.
+Each slice needs a spec in `docs/specs/` before implementation and a note in
+`docs/notes/` when complete.
