@@ -639,7 +639,6 @@ keys! {
     RailCard => ("CARD", "卡片"),
     RailKeys => ("SECTOR KEYS", "扇区密钥"),
     RailSelected => ("SELECTED", "选中项"),
-    RailLog => ("TASK & SECURITY LOG", "任务与安全日志"),
     RefreshReaders => ("Refresh readers", "刷新读卡器"),
     NoReaderSelected => ("No reader selected", "未选择读卡器"),
     NoCard => ("No card", "无卡片"),

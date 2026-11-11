@@ -129,7 +129,7 @@ GPUI rules for new UI work.
 - `GtkColumnView` with `Time`, `Operation`, `Result`, and `Detail`.
 - Session-only; warnings and backup paths appear in `Detail`. Key material and
   NDEF payloads are not logged.
-- `Clear activity` empties the list and the rail log.
+- `Clear activity` empties the session list. Activity is the only audit surface; the left rail no longer duplicates it.
 
 ## Language
 

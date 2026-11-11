@@ -149,3 +149,8 @@ page. The GTK scenario asserts the save action stays inside the window after a
 Keyscan remains the standalone authentication scan and the source of
 dictionary import/export; `classic keyscan` stays in `nfctl`. Auto no longer
 requires the user to run it first.
+
+The left rail's raw `TASK & SECURITY LOG` was removed. `append_log` used to
+write the same event to the rail text buffer and the Activity table, and
+`Clear activity` cleared both. Activity keeps the structured Time/Operation/
+Result/Detail table; the rail duplicates no longer exist.

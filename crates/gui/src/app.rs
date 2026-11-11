@@ -306,21 +306,6 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
     selected_label.add_css_class("caption");
     selected_body.append(&selected_label);
 
-    let (log_card, _, log_body) = rail_card("TASK & SECURITY LOG");
-    let log_view = gtk::TextView::new();
-    log_view.set_editable(false);
-    log_view.set_monospace(true);
-    log_view.set_wrap_mode(gtk::WrapMode::WordChar);
-    let log_buffer = log_view.buffer();
-    let log_scroll = gtk::ScrolledWindow::builder()
-        .child(&log_view)
-        .min_content_height(150)
-        .vexpand(true)
-        .build();
-    log_scroll.set_has_frame(true);
-    log_scroll.set_overlay_scrolling(false);
-    log_body.append(&log_scroll);
-
     let rail = gtk::Box::new(Orientation::Vertical, 10);
     rail.set_size_request(280, -1);
     rail.set_halign(gtk::Align::Start);
@@ -328,7 +313,6 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
     rail.append(&card_card);
     rail.append(&key_card);
     rail.append(&selected_card);
-    rail.append(&log_card);
 
     let body = gtk::Paned::new(Orientation::Horizontal);
     body.set_margin_top(12);
@@ -409,7 +393,6 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
         card_detail,
         key_value,
         selected_label,
-        log_buffer,
         ndef_view,
         inspector,
         keys_view,
@@ -754,7 +737,6 @@ struct Ui {
     card_detail: gtk::Label,
     key_value: gtk::Label,
     selected_label: gtk::Label,
-    log_buffer: gtk::TextBuffer,
     ndef_view: NdefView,
     inspector: Inspector,
     keys_view: KeysView,
@@ -7276,9 +7258,6 @@ fn append_log(ui: &Ui, message: &str) {
         .rows
         .append(&glib::BoxedAnyObject::new(row.clone()));
     ui.activity.borrow_mut().push(row);
-    let mut end = ui.log_buffer.end_iter();
-    ui.log_buffer
-        .insert(&mut end, &format!("{time}  {message}\n"));
 }
 
 fn split_log_message(message: &str) -> (String, String, String) {
@@ -7307,7 +7286,6 @@ fn activity_time() -> String {
 fn clear_activity(ui: &Rc<Ui>) {
     ui.activity.borrow_mut().clear();
     ui.activity_view.rows.remove_all();
-    ui.log_buffer.set_text("");
 }
 
 #[cfg(test)]
@@ -7700,7 +7678,6 @@ mod tests {
         ui.recovery_view.elapsed.set_localized("Elapsed —");
         ui.activity.borrow_mut().clear();
         ui.activity_view.rows.remove_all();
-        ui.log_buffer.set_text("");
         ui.settings_view.status.set_localized("");
         render_settings(ui);
         render_diagnostics(ui);
@@ -8157,14 +8134,10 @@ mod tests {
             harness.ui.status.label() == "Write failed"
         });
         assert_eq!(harness.handle.block(4), Some(image()[4]));
-        let log = harness.ui.log_buffer.text(
-            &harness.ui.log_buffer.start_iter(),
-            &harness.ui.log_buffer.end_iter(),
-            false,
-        );
+        let log = activity_text(&harness.ui);
         assert!(
             log.contains("the card identity changed"),
-            "log did not report the identity refusal: {log}"
+            "activity did not report the identity refusal: {log}"
         );
     }
 
@@ -8501,15 +8474,6 @@ mod tests {
         clear_activity(ui);
         assert!(ui.activity.borrow().is_empty());
         assert_eq!(ui.activity_view.rows.n_items(), 0);
-        assert!(
-            ui.log_buffer
-                .text(
-                    &ui.log_buffer.start_iter(),
-                    &ui.log_buffer.end_iter(),
-                    false
-                )
-                .is_empty()
-        );
     }
 
     fn settings_persist_and_reject(harness: &Harness) {
@@ -8572,13 +8536,7 @@ mod tests {
     }
 
     fn ndef_log(ui: &Ui) -> String {
-        ui.log_buffer
-            .text(
-                &ui.log_buffer.start_iter(),
-                &ui.log_buffer.end_iter(),
-                false,
-            )
-            .to_string()
+        activity_text(ui)
     }
 
     fn ndef_composer_sources(harness: &Harness) {

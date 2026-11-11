@@ -64,7 +64,7 @@ Plan: [19d-recovery-system.md](../plan/19d-recovery-system.md). Spec:
   and detail. The existing log writes feed it through `append_log`; warnings
   and backup paths stay in the detail. Key material is no longer written when
   a key is added, and NDEF payloads are not logged. Clear empties both the
-  table and the rail log.
+  table. The left rail raw log was removed later; Activity is the only audit surface.
 - **Settings** edits the persisted fields, validates before saving, reports the
   preference path, and reloads the key store after a save. Invalid paths leave
   the previous preferences and store in effect and show the error.
