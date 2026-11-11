@@ -317,17 +317,9 @@ enum NdefCommand {
 
 #[derive(Clone, Debug, Subcommand)]
 enum RecoveryCommand {
-    /// Classify the card and try dictionary, nested, or darkside recovery.
-    Auto {
-        #[arg(long, default_value = "4", value_name = "BLOCK")]
-        known_block: usize,
-        #[arg(long, default_value = "A", value_name = "A|B")]
-        known_type: String,
-        #[arg(long, default_value = "0", value_name = "BLOCK")]
-        target_block: usize,
-        #[arg(long, default_value = "A", value_name = "A|B")]
-        target_type: String,
-    },
+    /// Scan every sector, seed with darkside when needed, then run nested and
+    /// hardnested and verify the result with a full read.
+    Auto,
     /// Card-only darkside recovery.
     Darkside {
         #[arg(long, default_value = "0", value_name = "BLOCK")]
@@ -421,18 +413,7 @@ fn run(cli: Cli) -> Result<()> {
 
 fn recovery(cli: &Cli, service: &mut Service, command: RecoveryCommand) -> Result<()> {
     let (strategy, known_block, known_type, target_block, target_type) = match command {
-        RecoveryCommand::Auto {
-            known_block,
-            known_type,
-            target_block,
-            target_type,
-        } => (
-            RecoveryStrategy::Auto,
-            known_block,
-            known_type,
-            target_block,
-            target_type,
-        ),
+        RecoveryCommand::Auto => (RecoveryStrategy::Auto, 4, "A".to_owned(), 0, "A".to_owned()),
         RecoveryCommand::Darkside {
             target_block,
             target_type,
@@ -493,7 +474,7 @@ fn recovery(cli: &Cli, service: &mut Service, command: RecoveryCommand) -> Resul
     };
     prepare(service, cli.device.as_deref())?;
     let candidates = recovery_candidates(cli)?;
-    if candidates.is_empty() {
+    if candidates.is_empty() && strategy != RecoveryStrategy::Auto {
         eprintln!("warning: no candidate keys; nested and hardnested recovery need a known key");
     }
     let printer = Arc::new(CliProgress::default());
@@ -520,8 +501,18 @@ fn recovery(cli: &Cli, service: &mut Service, command: RecoveryCommand) -> Resul
             profile.prng, profile.has_known_key
         );
     }
-    for (key_type, key) in &result.keys {
-        println!("verified key {}: {}", key_type.label(), key.to_hex());
+    for entry in &result.sector_keys {
+        println!(
+            "verified sector {} key {}: {}",
+            entry.sector,
+            entry.key_type.label(),
+            entry.key.to_hex()
+        );
+    }
+    if result.sector_keys.is_empty() {
+        for (key_type, key) in &result.keys {
+            println!("verified key {}: {}", key_type.label(), key.to_hex());
+        }
     }
     println!("strategy: {:?}", result.attempts);
     if !result.note.is_empty() {
@@ -550,6 +541,10 @@ impl CliProgress {
         };
         let now = std::time::Instant::now();
         let stage = match event {
+            RecoveryProgress::Dictionary { .. }
+            | RecoveryProgress::Darkside { .. }
+            | RecoveryProgress::Sector { .. }
+            | RecoveryProgress::Verify { .. } => 0,
             RecoveryProgress::Acquiring { .. } => 1,
             RecoveryProgress::Filtering { .. } => 2,
             RecoveryProgress::BruteForce { .. } => 3,
@@ -558,6 +553,48 @@ impl CliProgress {
             .last
             .is_none_or(|last| now.duration_since(last).as_secs() >= 2);
         match event {
+            RecoveryProgress::Dictionary {
+                sector,
+                sector_count,
+                found,
+            } => {
+                if state.last_stage != stage || elapsed {
+                    eprintln!(
+                        "scan: sector {}/{sector_count}, {found} key(s) verified",
+                        sector + 1
+                    );
+                    state.last = Some(now);
+                }
+            }
+            RecoveryProgress::Darkside { attempts } => {
+                if state.last_stage != stage || elapsed {
+                    eprintln!("darkside: {attempts} probes");
+                    state.last = Some(now);
+                }
+            }
+            RecoveryProgress::Sector {
+                sector,
+                sector_count,
+                hardnested,
+            } => {
+                if state.last_stage != stage || elapsed {
+                    eprintln!(
+                        "{}: sector {}/{sector_count}",
+                        if hardnested { "hardnested" } else { "nested" },
+                        sector + 1
+                    );
+                    state.last = Some(now);
+                }
+            }
+            RecoveryProgress::Verify {
+                sector,
+                sector_count,
+            } => {
+                if state.last_stage != stage || elapsed {
+                    eprintln!("verify: sector {}/{sector_count}", sector + 1);
+                    state.last = Some(now);
+                }
+            }
             RecoveryProgress::Acquiring {
                 received,
                 distinct_nonces,
@@ -618,22 +655,25 @@ fn parse_key_type(value: &str) -> Result<KeyType> {
 fn recovery_candidates(cli: &Cli) -> Result<Vec<(KeyType, Key)>> {
     let store = load_key_store(cli)?;
     let mut candidates = Vec::new();
+    let mut push = |candidate: (KeyType, Key)| {
+        if !candidates.contains(&candidate) {
+            candidates.push(candidate);
+        }
+    };
     for entry in store.entries() {
         for key_type in [KeyType::A, KeyType::B] {
             if entry.kind.includes(key_type) {
-                candidates.push((key_type, entry.key));
+                push((key_type, entry.key));
             }
         }
     }
     if !cli.no_common_keys {
         for key in common_keys() {
             for key_type in [KeyType::A, KeyType::B] {
-                candidates.push((key_type, key));
+                push((key_type, key));
             }
         }
     }
-    candidates.sort_by_key(|(key_type, key)| (key_type.label(), key.to_hex()));
-    candidates.dedup();
     Ok(candidates)
 }
 

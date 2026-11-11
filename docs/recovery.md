@@ -22,6 +22,8 @@ Required PM3 areas:
 
 The PM3 firmware protocol (`CMD_HF_*`) is not ported. The Rust transport
 implements the equivalent partial authentication and nonce acquisition.
+Darkside acquisition follows MFCUK 0.3.8's host-driven sequence; its solver is
+the PM3/Crapto1 `nonce2key` path.
 
 ## Card profiles
 
@@ -39,23 +41,25 @@ Classify before choosing an attack:
 
 ## Attack sequence
 
-The `auto` strategy follows PM3 autopwn ordering:
+The `auto` strategy is a full autopwn and needs no block or key input beyond
+the configured candidate store:
 
-1. Classifies the card with three partial authentications.
-2. Checks for the EV1/QL88 originality signature and uses the signature key as
-   a known key when no supplied candidate works.
-3. Tries the supplied key store, `--key`, `--key-file`, and common candidates
-   against the known block.
-4. With a known key, checks for a static encrypted nonce. A static encrypted
+1. Scans every sector with the key store, `--key`, `--key-file`, and common
+   candidates. A successful authentication records the key; the trailer read
+   is attempted as an extra check and is not required when access bits forbid
+   it.
+2. When nothing authenticates on a 4K card, checks for the EV1/QL88
+   originality signature and uses the signature key as a known key.
+3. When there is still no known key, runs host-driven darkside on sector 0
+   Key A then Key B and verifies every candidate before using it as a seed.
+4. With a seed key, checks for a static encrypted nonce. A static encrypted
    card reports the FM11RF08S profile and the transport limitation instead of
    running an attack that cannot work.
-5. With a known key and a normal or hard PRNG, runs nested first. A nested
-   failure falls back to hardnested.
-6. Without a known key, runs darkside only when the card reports weak PRNG and
-   usable authentication. If darkside finds no repeatable sample, the error
-   says that hardnested needs one known key.
-7. Verifies every recovered key with a fresh authentication before returning
-   it.
+5. Recovers every missing sector key with nested first and hardnested as the
+   fallback. Each recovered key is verified with a fresh authentication.
+6. Reads every recovered sector with its verified key and reports the
+   read-verification coverage. A partial card is returned with explicit notes
+   instead of being reported as complete.
 
 `recover hardnested` loads the PM3 tables, collects encrypted nonces with fast
 select, filters the state space, and runs the bit-sliced solver. It needs a
@@ -68,22 +72,25 @@ ACR122U transports do not expose.
 
 The GTK Recovery page runs the same `nfc-app` service and `nfc-recover` engine
 as `nfctl`. It exposes Auto, Darkside, Nested, Static nested, Hardnested, and
-FM11RF08S, with known block/type, target block/type, the hardnested table
-directory, an acquisition cap, and key-store/common candidates. Acquisition,
-filtering, and brute-force events update one progress line and an elapsed
-timer. Cancel sets the same `CancelToken` used by the engine, so it stops
-before the next reader exchange.
+FM11RF08S. Auto scans all sectors and disables the known/target block inputs;
+the single-target strategies use them. The hardnested table directory, an
+acquisition cap, and the key-store/common candidate controls stay shared.
+Scan, darkside probe, nested/hardnested sector, acquisition, filtering,
+brute-force, and read-verification events update one progress line and an
+elapsed timer. Cancel sets the same `CancelToken` used by the engine, so it
+stops before the next reader exchange.
 
-A recovered key is shown only after the service authenticates it again. Saving
-to the key store is a separate action and records the `recovery` provenance.
-Engine limitations are shown verbatim: darkside no-sample, FM11RF08S
-transport limits, and missing or empty hardnested tables are not collapsed
-into a generic failure.
+A recovered key is shown only after the service authenticates it again. Auto
+reports each key with its sector and saves them per sector; single-target
+results keep the old target-block attribution. Saving to the key store is a
+separate action and records the `recovery` provenance. Engine limitations are
+shown verbatim: darkside no-sample, FM11RF08S transport limits, and missing or
+empty hardnested tables are not collapsed into a generic failure.
 
-`nfctl recover` accepts `--known-type A|B` for every strategy that uses a
-known key. The GUI and CLI use the same settings for the default hardnested
-table directory; `nfctl diag` reports the resolved table path and enumerated
-readers.
+`nfctl recover auto` takes no block arguments. The other strategies accept
+`--known-type A|B` and their block inputs. The GUI and CLI use the same settings
+for the default hardnested table directory; `nfctl diag` reports the resolved
+table path and enumerated readers.
 
 ## Reader behavior
 
@@ -93,11 +100,13 @@ Crypto1 authentication and nested recovery. A known response size skips the
 post-response trailing-bits reset and status read, removing two round trips
 between the tag nonce and the reader response.
 
-Darkside needs eight parity probes against one tag nonce. PM3 produces them
-with FPGA-scheduled authentication frames. PN532/ACR122U host commands cannot
-schedule frames at the PRNG boundary, so the collector returns no sample and
-`nfctl recover darkside` reports the limitation. This is a transport limit, not
-a missing solver; the PM3 `nonce2key` vector is covered by a golden test.
+Darkside uses the MFCUK host-driven sequence: each probe reselects the card,
+reads one tag nonce, sends one crafted 64-bit reader answer with spoofed nonce
+and parity bits, and records the encrypted four-bit NACK. Eight NACKs that
+share one tag nonce are solved with `lfsr_common_prefix`. The collector caches
+up to 65,536 tag nonces and sweeps the low five parity bits per slot, matching
+MFCUK. A card whose PRNG never repeats a tag nonce produces no sample; the
+engine reports that limitation instead of guessing.
 
 ## Implementation boundaries
 
@@ -139,9 +148,10 @@ opens a device itself and never spawns an external attack process.
   and candidate state lists; the solver reports tested and total state pairs.
 - Cancellation is an atomic token checked during acquisition, filtering,
   candidate generation, and brute force.
-- Nonce storage is bounded per attack. Darkside keeps at most 64 candidate
-  nonce groups and eight observations per group; hardnested stops at the PM3
-  reduction criterion or the configured `--max-nonces` cap.
+- Nonce storage is bounded per attack. Darkside caches at most 65,536 tag
+  nonces with eight observations each, matching MFCUK, and the seed attempt
+  budget is 20,000 probes; hardnested stops at the PM3 reduction criterion or
+  the configured `--max-nonces` cap.
 - The 64-lane kernel is portable Rust. No SIMD runtime dispatch is required;
   release builds are used for real acquisitions.
 

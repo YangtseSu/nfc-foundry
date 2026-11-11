@@ -1862,7 +1862,7 @@ fn build_recovery_view(preferences: &UiPreferences) -> RecoveryView {
     progress.set_hexpand(true);
 
     let summary = gtk::Label::new(Some(
-        "Auto classifies the PRNG and tries dictionary, nested, or darkside recovery.",
+        "Auto scans every sector with the key store and common keys, takes a darkside seed when nothing matches, then recovers the remaining keys with nested or hardnested.",
     ));
     summary.set_xalign(0.0);
     summary.set_wrap(true);
@@ -6398,7 +6398,8 @@ fn update_recovery_sensitivity(ui: &Ui) {
     let has_result = ui.recovery_result.borrow().is_some();
     let view = &ui.recovery_view;
     let strategy = recovery_strategy(view.strategy.selected());
-    let uses_known = !matches!(strategy, RecoveryStrategy::DarkSide);
+    let auto = strategy == RecoveryStrategy::Auto;
+    let uses_known = !matches!(strategy, RecoveryStrategy::DarkSide) && !auto;
     let uses_tables = matches!(
         strategy,
         RecoveryStrategy::Auto | RecoveryStrategy::HardNested
@@ -6412,8 +6413,8 @@ fn update_recovery_sensitivity(ui: &Ui) {
     view.save.set_sensitive(!busy && has_result);
     view.known_block.set_sensitive(editable && uses_known);
     view.known_type.set_sensitive(editable && uses_known);
-    view.target_block.set_sensitive(editable);
-    view.target_type.set_sensitive(editable);
+    view.target_block.set_sensitive(editable && !auto);
+    view.target_type.set_sensitive(editable && !auto);
     view.tables.set_sensitive(editable && uses_tables);
     view.choose_tables.set_sensitive(editable && uses_tables);
     view.max_nonces.set_sensitive(editable && uses_tables);
@@ -6462,18 +6463,27 @@ fn start_recovery(ui: Rc<Ui>) {
     }
     let view = &ui.recovery_view;
     let strategy = recovery_strategy(view.strategy.selected());
-    let known_block = match parse_block_entry(&view.known_block, "known block") {
-        Ok(block) => block,
-        Err(error) => {
-            toast_error(&ui, &error);
-            return;
+    let auto = strategy == RecoveryStrategy::Auto;
+    let known_block = if auto {
+        4
+    } else {
+        match parse_block_entry(&view.known_block, "known block") {
+            Ok(block) => block,
+            Err(error) => {
+                toast_error(&ui, &error);
+                return;
+            }
         }
     };
-    let target_block = match parse_block_entry(&view.target_block, "target block") {
-        Ok(block) => block,
-        Err(error) => {
-            toast_error(&ui, &error);
-            return;
+    let target_block = if auto {
+        0
+    } else {
+        match parse_block_entry(&view.target_block, "target block") {
+            Ok(block) => block,
+            Err(error) => {
+                toast_error(&ui, &error);
+                return;
+            }
         }
     };
     let known_key_type = key_type_from(view.known_type.selected());
@@ -6595,6 +6605,30 @@ fn format_elapsed(elapsed: Duration) -> String {
 
 fn recovery_progress_text(progress: RecoveryProgress) -> String {
     match progress {
+        RecoveryProgress::Dictionary {
+            sector,
+            sector_count,
+            found,
+        } => format!(
+            "Dictionary · sector {}/{sector_count} · {found} key(s) verified",
+            sector + 1
+        ),
+        RecoveryProgress::Darkside { attempts } => {
+            format!("Darkside · {attempts} probes")
+        }
+        RecoveryProgress::Sector {
+            sector,
+            sector_count,
+            hardnested,
+        } => format!(
+            "{} · sector {}/{sector_count}",
+            if hardnested { "Hardnested" } else { "Nested" },
+            sector + 1
+        ),
+        RecoveryProgress::Verify {
+            sector,
+            sector_count,
+        } => format!("Read verification · sector {}/{sector_count}", sector + 1),
         RecoveryProgress::Acquiring {
             received,
             distinct_nonces,
@@ -6646,12 +6680,23 @@ fn finish_recovery(
     match result {
         Ok(result) => {
             let mut lines = Vec::new();
-            for (key_type, key) in &result.keys {
-                lines.push(format!(
-                    "{} · {} · verified",
-                    key_type.label(),
-                    key.to_hex()
-                ));
+            if result.sector_keys.is_empty() {
+                for (key_type, key) in &result.keys {
+                    lines.push(format!(
+                        "{} · {} · verified",
+                        key_type.label(),
+                        key.to_hex()
+                    ));
+                }
+            } else {
+                for entry in &result.sector_keys {
+                    lines.push(format!(
+                        "sector {} · {} · {} · verified",
+                        entry.sector,
+                        entry.key_type.label(),
+                        entry.key.to_hex()
+                    ));
+                }
             }
             ui.recovery_view.keys.set_localized(&lines.join("\n"));
             let attempts = result
@@ -6755,18 +6800,34 @@ fn save_recovered_key(ui: &Rc<Ui>) {
         toast_error(ui, "Set a key store path in Settings first");
         return;
     }
-    let sector = ui.dump.borrow().as_ref().and_then(|dump| {
-        dump.layout
-            .sector_for_block(outcome.target_block as usize)
-            .ok()
-    });
+    let entries: Vec<(Option<usize>, nfc_core::KeyType, nfc_core::Key)> =
+        if outcome.result.sector_keys.is_empty() {
+            let sector = ui.dump.borrow().as_ref().and_then(|dump| {
+                dump.layout
+                    .sector_for_block(outcome.target_block as usize)
+                    .ok()
+            });
+            outcome
+                .result
+                .keys
+                .iter()
+                .map(|(key_type, key)| (sector, *key_type, *key))
+                .collect()
+        } else {
+            outcome
+                .result
+                .sector_keys
+                .iter()
+                .map(|entry| (Some(entry.sector), entry.key_type, entry.key))
+                .collect()
+        };
     let mut added = 0;
-    for (key_type, key) in &outcome.result.keys {
+    for (sector, key_type, key) in entries {
         let kind = match key_type {
             nfc_core::KeyType::A => KeyKind::A,
             nfc_core::KeyType::B => KeyKind::B,
         };
-        let entry = KeyEntry::new(sector, kind, *key, KeySource::Recovery);
+        let entry = KeyEntry::new(sector, kind, key, KeySource::Recovery);
         match ui.keys.borrow_mut().add(entry) {
             Ok(true) => added += 1,
             Ok(false) => {}
@@ -6782,16 +6843,12 @@ fn save_recovered_key(ui: &Rc<Ui>) {
         return;
     }
     save_keys(ui, false);
-    let location = sector
-        .map(|sector| format!("sector {sector}"))
-        .unwrap_or_else(|| "all sectors".to_owned());
-    append_log(
-        ui,
-        &format!(
-            "recovery · saved {added} key(s) · {} · {location}",
-            outcome.target_key_type.label()
-        ),
-    );
+    let detail = if outcome.result.sector_keys.is_empty() {
+        outcome.target_key_type.label().to_string()
+    } else {
+        "per-sector".to_owned()
+    };
+    append_log(ui, &format!("recovery · saved {added} key(s) · {detail}"));
     toast_info(ui, &format!("Saved {added} recovered key(s)"));
 }
 
@@ -8218,6 +8275,7 @@ mod tests {
         let key = Key::from_hex("B0B1B2B3B4B5").expect("key");
         let result = RecoveryResult {
             keys: vec![(nfc_core::KeyType::A, key)],
+            sector_keys: Vec::new(),
             attempts: vec![nfc_recover::AttackKind::Dictionary],
             profile: None,
             note: "dictionary hit".to_owned(),

@@ -15,6 +15,7 @@ pub mod mfkey;
 pub mod nested;
 
 pub use attack::{
-    AttackKind, ProgressSink, RecoveryProgress, RecoveryRequest, RecoveryResult, recover,
+    AttackKind, ProgressSink, RecoveredKey, RecoveryProgress, RecoveryRequest, RecoveryResult,
+    recover,
 };
 pub use auto::{CardProfile, PrngProfile, RecoveryStrategy};

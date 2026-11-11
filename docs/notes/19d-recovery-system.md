@@ -106,3 +106,7 @@ The gated scenario adds coverage for:
 No card path or recovery algorithm changed in this phase. Hardware recovery
 behavior remains the phase 06/07 record; darkside no-sample and FM11RF08S
 detection-only are presented from the engine's existing results.
+
+Superseded after this phase: `recover auto` is now an all-sector autopwn and
+darkside uses the host-driven MFCUK sequence. See
+[20-autopwn.md](20-autopwn.md).

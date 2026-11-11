@@ -443,6 +443,17 @@ fn dump_auto_uses_pm3_raw_and_keys_export_round_trips() {
 }
 
 #[test]
+fn auto_recovery_scans_every_sector_and_verifies_the_read() {
+    let output = nfctl(&["--mock", "--device", "mock:classic-1k", "recover", "auto"]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("verified sector 0 key A:"), "{text}");
+    assert!(text.contains("verified sector 15 key B:"), "{text}");
+    assert!(text.contains("sector keys 32/32"), "{text}");
+    assert!(text.contains("read verification 16/16"), "{text}");
+}
+
+#[test]
 fn nested_recovery_without_parity_fails_honestly() {
     let output = nfctl(&[
         "--mock",

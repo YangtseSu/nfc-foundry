@@ -1204,8 +1204,8 @@ keys! {
     NoRecoveryRunning => ("No recovery running.", "没有正在运行的恢复。"),
     ElapsedDash => ("Elapsed —", "耗时 —"),
     RecoveryAutoSummary => (
-        "Auto classifies the PRNG and tries dictionary, nested, or darkside recovery.",
-        "自动模式会分类 PRNG，并尝试字典、Nested 或 Darkside 恢复。"
+        "Auto scans every sector with the key store and common keys, takes a darkside seed when nothing matches, then recovers the remaining keys with nested or hardnested.",
+        "自动模式会用密钥库和常见密钥扫描所有扇区；全部未命中时先用 Darkside 取种子密钥，再用 Nested 或 Hardnested 恢复剩余密钥。"
     ),
     NoRecoveredKey => ("No recovered key.", "尚无恢复的密钥。"),
     SaveVerifiedKey => ("Save verified key", "保存已验证密钥"),

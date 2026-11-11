@@ -12,16 +12,65 @@ const MAX_SECTOR: usize = 39;
 
 /// Well-known factory and common keys. They are authentication candidates
 /// only; a key is trusted after the card accepts it and a trailer read
-/// succeeds.
-pub const COMMON_KEYS: [&str; 8] = [
+/// succeeds. The set matches the previous NFC Foundry conservative defaults.
+pub const COMMON_KEYS: [&str; 57] = [
     "FFFFFFFFFFFF",
-    "A0A1A2A3A4A5",
-    "D3F7D3F7D3F7",
     "000000000000",
-    "AABBCCDDEEFF",
-    "1A982C7E459A",
-    "4D3A99C351DD",
+    "A0A1A2A3A4A5",
     "B0B1B2B3B4B5",
+    "C0C1C2C3C4C5",
+    "D0D1D2D3D4D5",
+    "D3F7D3F7D3F7",
+    "4D3A99C351DD",
+    "1A982C7E459A",
+    "AABBCCDDEEFF",
+    "714C5C886E97",
+    "587EE5F9350F",
+    "A0478CC39091",
+    "533CB6C723F6",
+    "8FD0A4F256E9",
+    "B5FF67CAB8E0",
+    "96A301B48D30",
+    "A64598A77478",
+    "26940B21FF5D",
+    "FC00018778F7",
+    "00000FFE2488",
+    "5C598C9C58B5",
+    "E4D2770A89BE",
+    "434F4D4D4F41",
+    "434F4D4D4F42",
+    "47524F555041",
+    "47524F555042",
+    "54726176656C",
+    "776974687573",
+    "4B4559313233",
+    "A396EFA4E24F",
+    "A31667A8CEC1",
+    "123456789ABC",
+    "1234567890AB",
+    "000000000001",
+    "112233445566",
+    "A1B2C3D4E5F6",
+    "AA55AA55AA55",
+    "55AA55AA55AA",
+    "ABABABABABAB",
+    "BABABABABABA",
+    "010203040506",
+    "060504030201",
+    "ABCDEF123456",
+    "123456ABCDEF",
+    "FEDCBA987654",
+    "13579BDF0246",
+    "02468ACE1357",
+    "6B4C5C886E97",
+    "4E3A99C351DD",
+    "6E7A2C7E459A",
+    "B0C0D0E0F000",
+    "A1A2A3A4A5A6",
+    "B1B2B3B4B5B6",
+    "C1C2C3C4C5C6",
+    "D1D2D3D4D5D6",
+    "E0E1E2E3E4E5",
 ];
 
 /// Parsed common keys. Entries in [`COMMON_KEYS`] are valid by construction.
@@ -381,8 +430,9 @@ impl KeyStore {
     }
 
     /// Candidates for recovery: every stored key tried as both key types,
-    /// followed by the built-in common keys when requested. Duplicates are
-    /// removed and the order is stable by key type and key value.
+    /// followed by the built-in common keys when requested. The order follows
+    /// the store and then the declared common-key order so factory keys such as
+    /// `FFFFFFFFFFFF` are tried first.
     pub fn recovery_candidates(&self, include_common_keys: bool) -> Vec<(KeyType, Key)> {
         let mut candidates = Vec::new();
         for entry in &self.entries {
@@ -403,8 +453,6 @@ impl KeyStore {
                 }
             }
         }
-        candidates.sort_by_key(|(key_type, key)| (key_type.label(), key.to_hex()));
-        candidates.dedup();
         candidates
     }
 
@@ -599,9 +647,15 @@ mod tests {
 
         let with_common = store.recovery_candidates(true);
         assert_eq!(with_common.len(), 2 + COMMON_KEYS.len() * 2);
-        assert!(with_common.windows(2).all(|pair| {
-            (pair[0].0.label(), pair[0].1.to_hex()) <= (pair[1].0.label(), pair[1].1.to_hex())
-        }));
+        assert_eq!(
+            &with_common[..2],
+            &[(KeyType::A, key(0x22)), (KeyType::B, key(0x22))]
+        );
+        let first_common = Key::from_hex(COMMON_KEYS[0]).expect("common key");
+        assert_eq!(
+            &with_common[2..4],
+            &[(KeyType::A, first_common), (KeyType::B, first_common)]
+        );
         assert_eq!(
             with_common
                 .iter()

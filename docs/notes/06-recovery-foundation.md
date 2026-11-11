@@ -131,7 +131,9 @@ Date: 2026-11-10
   one tag nonce for eight parity probes. Host-driven PN532/ACR122U commands
   cannot reproduce that scheduling. The collector tries a tight selected-card
   loop, then returns no sample; `nfctl recover darkside` reports the limitation
-  instead of claiming a key.
+  instead of claiming a key. **Superseded by [20-autopwn.md](20-autopwn.md):**
+  the old collector was the limitation; the host-driven MFCUK sequence does
+  not require FPGA scheduling.
 - The first PN532 full-authentication attempt used the ACR card's
   `D3F7D3F7D3F7` key on the PN532 card. Both cards share UID
   `FA B9 CF F4`, so the mistake was invisible in selection, but the PN532 card
@@ -158,9 +160,10 @@ Date: 2026-11-10
 
 ## Remaining blockers
 
-- Darkside over host-driven PN532/ACR122U is not possible without
-  reader-scheduled frame timing. Golden solver coverage and the honest failure
-  are the phase 06 result.
+- ~~Darkside over host-driven PN532/ACR122U is not possible without
+  reader-scheduled frame timing.~~ Superseded by
+  [20-autopwn.md](20-autopwn.md): the MFCUK host-driven sequence was ported and
+  does not need reader scheduling; hardware validation is pending.
 - Physical unplug/replug during recovery was not tested; the engine's reopen
   retry is covered by a scripted transport error.
 - Hardnested and static encrypted nonce recovery remain phase 07.

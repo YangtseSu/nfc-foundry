@@ -32,8 +32,11 @@ darkside collection, and hardnested with the PM3 state tables and 64-lane
 bit-sliced solver, exposed as
 `nfctl recover auto|darkside|nested|staticnested|hardnested`. Both readers
 complete software Crypto1 authentication, collect hardnested encrypted nonces
-with fast select, and verify recovered keys. Darkside requires
-reader-scheduled frames and reports no sample on these host-driven readers.
+with fast select, and verify recovered keys. `recover auto` is a full autopwn:
+it scans every sector, seeds with an EV1 signature key or host-driven
+darkside, recovers the remaining keys with nested then hardnested, and
+read-verifies the result. Darkside acquisition follows MFCUK's host-driven
+sequence; it needs a card whose PRNG repeats a tag nonce.
 Static encrypted nonce cards are detected and report the FM11RF08S profile and
 the transport limitation instead of a key. EV1/QL88 signature detection uses
 the originality-signature block as a known key when no supplied key works.
@@ -282,11 +285,14 @@ cargo run -p nfctl -- \
   recover nested --known-block 4 --target-block 0 --target-type A
 ```
 
-`recover auto` classifies the card first, `recover staticnested` uses the
+`recover auto` is a full autopwn over every sector and needs no block inputs:
+it scans the key store and common keys, seeds with an EV1 signature key or
+host-driven darkside, then runs nested with hardnested fallback and
+read-verifies each recovered sector. `recover staticnested` uses the
 static-nonce path, `recover hardnested` loads the PM3 tables and runs the
 bit-sliced solver with `--max-nonces` and throttled progress, and `recover
-darkside` reports a no-sample failure when the card does not expose eight
-probes against one tag nonce.
+darkside` reports a no-sample failure when the card never repeats a tag nonce
+across eight darkside probes.
 
 Hardnested tables are read from `/usr/share/nfc-foundry/hardnested_tables`,
 the checkout's `resources/hardnested_tables`, or

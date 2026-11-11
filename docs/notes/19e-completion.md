@@ -126,3 +126,7 @@ rejection of an unknown language code.
   rule, hardnested tables, and licenses/notices with the expected runtime and
   make dependencies. `namcap` is clean and `.SRCINFO` was regenerated.
   Publishing the AUR package from this change still requires a commit and tag.
+
+Superseded after this phase: `recover auto` now scans every sector, seeds with
+EV1 or host-driven darkside, and read-verifies the result. See
+[20-autopwn.md](20-autopwn.md).
