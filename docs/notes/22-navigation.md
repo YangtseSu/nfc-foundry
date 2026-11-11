@@ -56,3 +56,6 @@ re-renders when its system sub-tab becomes visible.
     button visibility, no label focus, and no label selection;
   - clicks `←` and returns to `Card`;
   - keeps the Type 2 Protection focus and selection checks.
+
+Superseded by [23-workspaces.md](23-workspaces.md): the primary tabs are now
+card-family workspaces with the workspace selector in the header.

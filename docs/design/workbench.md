@@ -6,19 +6,23 @@ GPUI rules for new UI work.
 ## Shell
 
 - One window, 1360×880 default, resizable.
-- Header: `NFC Foundry` title, primary `Read card`, and a `☰` main menu. A
-  `←` back button appears only while a system page is shown. The reader
-  selector is not duplicated in the header.
+- Header: `NFC Foundry` title, workspace selector (`Classic` / `Type 2`),
+  primary `Read card`, and a `☰` main menu. A `←` back button appears only
+  while a system page is shown. The reader selector is not duplicated in the
+  header.
 - Left rail (fixed start pane, `GtkPaned`): reader menu with refresh, card
   identity/size/readability, key-store status, and selected block.
-- Primary content tabs: `Card`, `Type 2`, `NDEF`, `Keys`, `Recovery`, and
-  `Dumps`. `Keys` owns `Key store` and `Key scan` sub-tabs; `Dumps` owns `Diff`
-  and `Restore`. `Read card` detects the card family and switches to `Card` or
-  `Type 2`. The tab bar scrolls horizontally when the localized labels exceed
-  the window width.
-- `Diagnostics`, `Activity`, and `Settings` are not primary tabs. The `☰` menu
-  opens a hidden `System` page at the requested sub-tab; `←` returns to the
-  last primary page. `About NFC Foundry` opens `AdwAboutDialog`.
+- Workspaces: `Classic` shows `Card`, `NDEF`, `Keys`, `Recovery`, and `Dumps`;
+  `Type 2` shows `Pages`, `Protection`, `NDEF`, and `Dumps`. `Keys` owns
+  `Key store` / `Key scan`; Classic `Dumps` owns Save/Load plus `Diff` /
+  `Restore`; Type 2 `Dumps` owns Save/Load plus Restore. The NDEF view is
+  shared and moved into the active workspace; it renders Classic MAD/NDEF for
+  Classic and Type 2 CC/TLV/NDEF for Type 2.
+- `Read card` detects the card family, selects the workspace, and selects the
+  card or pages tab. The header selector switches manually for file-only work.
+- `Diagnostics`, `Activity`, and `Settings` are not workspace tabs. The `☰`
+  menu opens a hidden `System` page at the requested sub-tab; `←` returns to
+  the last workspace. `About NFC Foundry` opens `AdwAboutDialog`.
 - Status bar: operation text, spinner, and layout/card facts.
 
 ## Card
@@ -42,11 +46,14 @@ GPUI rules for new UI work.
 
 ## Type 2
 
-- The `Type 2` tab has `Memory` and `Protection`. It is active after a Type 2
-  read or a loaded Type 2 project image; a Classic read clears it.
-- Memory: identity/product summary, partial-read warnings, `Advanced mode`
-  switch, page table (`Page`, `Role`, `Lock`, `Data`), page inspector, project
-  save/load, and restore options.
+- The Type 2 workspace has `Pages`, `Protection`, `NDEF`, and `Dumps`. It is
+  active after a Type 2 read or a loaded Type 2 project image; a Classic read
+  clears it.
+- Pages: identity/product summary, partial-read warnings, `Advanced mode`
+  switch, page table (`Page`, `Role`, `Lock`, `Data`), and page inspector.
+- Dumps: project save/load and restore options. The Pages tab no longer
+  duplicates them.
+- NDEF: the shared NDEF view, rendering Type 2 CC/TLV facts and records.
 - The default page filter shows manufacturer, user, and reserved pages. CC,
   static/dynamic lock, configuration, and PWD/PACK pages appear only in Advanced
   mode. Unknown pages show `—`.
@@ -226,13 +233,18 @@ GPUI rules for new UI work.
   service result without an extra card read. Failure keeps the previous image
   and reports the error once in the toast and log.
 
+## Workspace selector
+
+The header selector is a compact `MenuButton` labelled `Classic` or `Type 2`.
+It switches the workspace stack and moves the shared NDEF view into that
+workspace. Reading a card selects the matching workspace automatically; the
+manual selector covers loading dumps and inspecting pages without a live card.
+
 ## Main menu
 
 The header `☰` menu groups application-level actions:
 
 - Reader: Refresh readers.
-- Dump: Save dump… (format chooser, completeness-sensitive default) and
-  Load dump… (format detection; inspection only, writes disabled).
 - System: Diagnostics, Activity, Settings. These switch the hidden System page
   and show the header back button.
 - About NFC Foundry: `AdwAboutDialog` with the application name, version,

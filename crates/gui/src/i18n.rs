@@ -641,6 +641,7 @@ keys! {
     RailSelected => ("SELECTED", "选中项"),
     RefreshReaders => ("Refresh readers", "刷新读卡器"),
     MainMenu => ("Main menu", "主菜单"),
+    ClassicWorkspace => ("Classic", "经典"),
     BackAction => ("Back", "返回"),
     DumpSection => ("Dump", "转储"),
     DumpsPage => ("Dumps", "转储"),

@@ -249,39 +249,41 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
     system_tabs.add_titled(&settings_view.root, Some("settings"), "Settings");
     let (system_group, system_switcher) = grouped_page(&system_tabs);
 
+    let classic_ndef_slot = gtk::Box::new(Orientation::Vertical, 0);
+    classic_ndef_slot.set_vexpand(true);
+    classic_ndef_slot.append(&ndef_view.root);
+
+    let classic_save_dump = gtk::Button::with_label("Save dump…");
+    let classic_load_dump = gtk::Button::with_label("Load dump…");
+    let classic_toolbar = gtk::Box::new(Orientation::Horizontal, 8);
+    classic_toolbar.append(&classic_save_dump);
+    classic_toolbar.append(&classic_load_dump);
+    let classic_dumps = gtk::Box::new(Orientation::Vertical, 8);
+    classic_dumps.set_vexpand(true);
+    classic_dumps.append(&classic_toolbar);
+    classic_dumps.append(&dumps_group);
+
+    let classic_tabs = gtk::Stack::new();
+    classic_tabs.set_transition_type(gtk::StackTransitionType::Crossfade);
+    classic_tabs.set_vexpand(true);
+    classic_tabs.add_titled(&card_page, Some("card"), "Card");
+    classic_tabs.add_titled(&classic_ndef_slot, Some("ndef"), "NDEF");
+    classic_tabs.add_titled(&keys_group, Some("keys"), "Keys");
+    classic_tabs.add_titled(&recovery_view.root, Some("recovery"), "Recovery");
+    classic_tabs.add_titled(&classic_dumps, Some("dumps"), "Dumps");
+    let (classic_root, classic_switcher) = grouped_page(&classic_tabs);
+
     let views = gtk::Stack::new();
     views.set_transition_type(gtk::StackTransitionType::Crossfade);
     views.set_vexpand(true);
-    views.add_titled(&card_page, Some("card"), "Card");
-    views.add_titled(&type2_view.root, Some("type2"), "Type 2");
-    views.add_titled(&ndef_view.root, Some("ndef"), "NDEF");
-    views.add_titled(&keys_group, Some("keys"), "Keys");
-    views.add_titled(&recovery_view.root, Some("recovery"), "Recovery");
-    views.add_titled(&dumps_group, Some("dumps"), "Dumps");
+    views.add_named(&classic_root, Some("classic"));
+    views.add_named(&type2_view.root, Some("type2"));
     views.add_named(&system_group, Some("system"));
-    let switcher = gtk::StackSwitcher::new();
-    switcher.set_stack(Some(&views));
-    switcher.set_halign(gtk::Align::Start);
-    switcher.set_hexpand(false);
-    let switcher_scroll = gtk::ScrolledWindow::builder()
-        .child(&switcher)
-        .hscrollbar_policy(gtk::PolicyType::Automatic)
-        .vscrollbar_policy(gtk::PolicyType::Never)
-        .has_frame(false)
-        .propagate_natural_height(true)
-        .build();
-    switcher_scroll.set_hexpand(true);
-    let switcher_row = gtk::Box::new(Orientation::Horizontal, 0);
-    switcher_row.set_halign(gtk::Align::Fill);
-    switcher_row.set_margin_top(8);
-    switcher_row.set_margin_start(12);
-    switcher_row.set_margin_end(12);
-    switcher_row.append(&switcher_scroll);
+    views.set_visible_child_name("classic");
     let center = gtk::Box::new(Orientation::Vertical, 0);
     center.set_hexpand(true);
     center.set_vexpand(true);
     center.set_halign(gtk::Align::Fill);
-    center.append(&switcher_row);
     center.append(&views);
 
     let (reader_card, reader_head, reader_body) = rail_card("READER");
@@ -378,6 +380,10 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
     back.add_css_class("flat");
     back.set_visible(false);
     header.pack_start(&back);
+    let workspace_button = gtk::MenuButton::new();
+    workspace_button.set_label("Classic");
+    workspace_button.add_css_class("flat");
+    header.pack_start(&workspace_button);
     let read_button = gtk::Button::with_label("Read card");
     read_button.add_css_class("suggested-action");
     header.pack_end(&read_button);
@@ -436,11 +442,17 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
         settings_view,
         activity: RefCell::new(Vec::new()),
         views: views.clone(),
-        switcher: switcher.clone(),
+        workspace: Cell::new(Workspace::Classic),
+        workspace_button: workspace_button.clone(),
+        classic_tabs,
+        classic_switcher,
+        classic_ndef_slot,
+        classic_save_dump,
+        classic_load_dump,
         back,
         #[cfg(test)]
         menu: actions_button.clone(),
-        last_primary: RefCell::new("card".to_owned()),
+        last_primary: RefCell::new("classic".to_owned()),
         keys_tabs,
         keys_switcher,
         dumps_tabs,
@@ -475,6 +487,7 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
     });
 
     connect_signals(&ui);
+    build_workspace_menu(&ui, &workspace_button);
     build_actions_menu(&ui, &actions_button);
     update_card(&ui);
     update_ndef(&ui);
@@ -591,6 +604,28 @@ struct SectorKeyRow {
     sector: String,
     key_a: String,
     key_b: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Workspace {
+    Classic,
+    Type2,
+}
+
+impl Workspace {
+    const fn stack_name(self) -> &'static str {
+        match self {
+            Self::Classic => "classic",
+            Self::Type2 => "type2",
+        }
+    }
+
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Classic => "Classic",
+            Self::Type2 => "Type 2",
+        }
+    }
 }
 
 struct RecoveryView {
@@ -793,7 +828,13 @@ struct Ui {
     settings_view: SettingsView,
     activity: RefCell<Vec<ActivityRow>>,
     views: gtk::Stack,
-    switcher: gtk::StackSwitcher,
+    workspace: Cell<Workspace>,
+    workspace_button: gtk::MenuButton,
+    classic_tabs: gtk::Stack,
+    classic_switcher: gtk::StackSwitcher,
+    classic_ndef_slot: gtk::Box,
+    classic_save_dump: gtk::Button,
+    classic_load_dump: gtk::Button,
     back: gtk::Button,
     #[cfg(test)]
     menu: gtk::MenuButton,
@@ -841,6 +882,7 @@ struct Type2View {
     root: gtk::Box,
     tabs: gtk::Stack,
     switcher: gtk::StackSwitcher,
+    ndef_slot: gtk::Box,
     advanced: gtk::Switch,
     summary: gtk::Label,
     warnings: gtk::Label,
@@ -1231,7 +1273,6 @@ fn build_type2_view() -> Type2View {
     let load = gtk::Button::with_label("Load dump…");
     toolbar.append(&save);
     toolbar.append(&load);
-    memory.append(&toolbar);
 
     let rows = gio::ListStore::new::<glib::BoxedAnyObject>();
     let selection = gtk::SingleSelection::new(Some(rows.clone()));
@@ -1330,8 +1371,7 @@ fn build_type2_view() -> Type2View {
     restore_card.append(&restore_row);
     restore_card.append(&options);
     restore_card.append(&restore_actions);
-    memory.append(&restore_card);
-    tabs.add_titled(&memory, Some("memory"), "Memory");
+    tabs.add_titled(&memory, Some("pages"), "Pages");
 
     let protection_root = gtk::Box::new(Orientation::Vertical, 10);
     let protection_scroll = gtk::ScrolledWindow::builder()
@@ -1411,6 +1451,16 @@ fn build_type2_view() -> Type2View {
     protection_root.append(&password_card);
     tabs.add_titled(&protection_scroll, Some("protection"), "Protection");
 
+    let ndef_slot = gtk::Box::new(Orientation::Vertical, 0);
+    ndef_slot.set_vexpand(true);
+    tabs.add_titled(&ndef_slot, Some("ndef"), "NDEF");
+
+    let type2_dumps = gtk::Box::new(Orientation::Vertical, 10);
+    type2_dumps.set_vexpand(true);
+    type2_dumps.append(&toolbar);
+    type2_dumps.append(&restore_card);
+    tabs.add_titled(&type2_dumps, Some("dumps"), "Dumps");
+
     root.append(&header);
     root.append(&warnings);
     root.append(&switcher_row);
@@ -1420,6 +1470,7 @@ fn build_type2_view() -> Type2View {
         root,
         tabs,
         switcher,
+        ndef_slot,
         advanced,
         summary,
         warnings,
@@ -2355,8 +2406,18 @@ fn connect_signals(ui: &Rc<Ui>) {
     let ui2 = ui.clone();
     ui.back.connect_clicked(move |_| {
         let target = ui2.last_primary.borrow().clone();
-        ui2.views.set_visible_child_name(&target);
+        match target.as_str() {
+            "classic" => switch_workspace(&ui2, Workspace::Classic),
+            "type2" => switch_workspace(&ui2, Workspace::Type2),
+            _ => switch_workspace(&ui2, Workspace::Classic),
+        }
     });
+    let ui2 = ui.clone();
+    ui.classic_save_dump
+        .connect_clicked(move |_| save_dump(&ui2));
+    let ui2 = ui.clone();
+    ui.classic_load_dump
+        .connect_clicked(move |_| load_dump(&ui2));
     let ui2 = ui.clone();
     ui.views.connect_visible_child_name_notify(move |views| {
         let name = views
@@ -2378,7 +2439,7 @@ fn connect_signals(ui: &Rc<Ui>) {
             if ui3.views.visible_child_name().as_deref() == Some("system") {
                 ui3.back.grab_focus();
             } else {
-                ui3.switcher.grab_focus();
+                active_switcher(&ui3).grab_focus();
             }
         });
     });
@@ -2716,30 +2777,6 @@ fn build_actions_menu(ui: &Rc<Ui>, button: &gtk::MenuButton) {
     menu.append(&refresh);
 
     menu.append(&gtk::Separator::new(Orientation::Horizontal));
-    menu.append(&menu_section("Dump"));
-    let save = menu_button("Save dump…");
-    {
-        let ui = ui.clone();
-        let popover = popover.clone();
-        save.connect_clicked(move |_| {
-            popover.popdown();
-            save_dump(&ui);
-        });
-    }
-    menu.append(&save);
-
-    let load = menu_button("Load dump…");
-    {
-        let ui = ui.clone();
-        let popover = popover.clone();
-        load.connect_clicked(move |_| {
-            popover.popdown();
-            load_dump(&ui);
-        });
-    }
-    menu.append(&load);
-
-    menu.append(&gtk::Separator::new(Orientation::Horizontal));
     menu.append(&menu_section("System"));
     for (label, page) in [
         ("Diagnostics", "diagnostics"),
@@ -2781,6 +2818,45 @@ fn menu_section(title: &str) -> gtk::Label {
     label.add_css_class("caption");
     label.add_css_class("dim-label");
     label
+}
+
+fn active_switcher(ui: &Ui) -> gtk::StackSwitcher {
+    match ui.workspace.get() {
+        Workspace::Classic => ui.classic_switcher.clone(),
+        Workspace::Type2 => ui.type2_view.switcher.clone(),
+    }
+}
+
+fn build_workspace_menu(ui: &Rc<Ui>, button: &gtk::MenuButton) {
+    let popover = gtk::Popover::new();
+    let menu = gtk::Box::new(Orientation::Vertical, 2);
+    for workspace in [Workspace::Classic, Workspace::Type2] {
+        let item = menu_button(workspace.label());
+        let ui = ui.clone();
+        let popover = popover.clone();
+        item.connect_clicked(move |_| {
+            popover.popdown();
+            switch_workspace(&ui, workspace);
+        });
+        menu.append(&item);
+    }
+    popover.set_child(Some(&menu));
+    button.set_popover(Some(&popover));
+}
+
+fn switch_workspace(ui: &Rc<Ui>, workspace: Workspace) {
+    ui.workspace.set(workspace);
+    ui.workspace_button.set_localized(workspace.label());
+    ui.views.set_visible_child_name(workspace.stack_name());
+    let ndef = ui.ndef_view.root.upcast_ref::<gtk::Widget>();
+    ndef.unparent();
+    match workspace {
+        Workspace::Classic => ui.classic_ndef_slot.append(&ui.ndef_view.root),
+        Workspace::Type2 => ui.type2_view.ndef_slot.append(&ui.ndef_view.root),
+    }
+    update_ndef(ui);
+    update_ndef_actions(ui);
+    update_card(ui);
 }
 
 fn show_system_page(ui: &Rc<Ui>, page: &str) {
@@ -3048,10 +3124,15 @@ fn update_card(ui: &Ui) {
 }
 
 fn update_ndef(ui: &Ui) {
-    let type2 = ui.type2.borrow().clone();
-    if let Some(session) = type2 {
+    if ui.workspace.get() == Workspace::Type2 {
+        let type2 = ui.type2.borrow().clone();
+        if let Some(session) = type2 {
+            ui.ndef.replace(None);
+            render_type2_ndef(ui, &session);
+            return;
+        }
         ui.ndef.replace(None);
-        render_type2_ndef(ui, &session);
+        render_ndef(ui, None, None);
         return;
     }
     let dump = match ui.dump.borrow().clone() {
@@ -3199,10 +3280,12 @@ fn ndef_note(text: &str) -> gtk::Label {
 
 /// Button state and preview for the composer. The service keeps its own gates.
 fn update_ndef_actions(ui: &Ui) {
-    let type2 = ui.type2.borrow().clone();
-    if let Some(session) = type2 {
-        update_type2_composer(ui, &session);
-        return;
+    if ui.workspace.get() == Workspace::Type2 {
+        let type2 = ui.type2.borrow().clone();
+        if let Some(session) = type2 {
+            update_type2_composer(ui, &session);
+            return;
+        }
     }
     let view = &ui.ndef_view;
     let info = ui.ndef.borrow();
@@ -3578,7 +3661,8 @@ fn finish_read(ui: &Rc<Ui>, result: NfcResult<CardReadResult>) {
             ui.live.set(true);
             ui.dump.replace(Some(dump.clone()));
             populate_rows(ui, &dump);
-            ui.views.set_visible_child_name("card");
+            switch_workspace(ui, Workspace::Classic);
+            ui.classic_tabs.set_visible_child_name("card");
             update_card(ui);
             update_ndef(ui);
             update_restore_sensitivity(ui);
@@ -4016,8 +4100,16 @@ fn export_ndef_message(ui: &Rc<Ui>) {
 }
 
 fn confirm_ndef_write(ui: Rc<Ui>) {
-    if ui.type2.borrow().is_some() {
-        confirm_type2_ndef_write(ui);
+    if ui.workspace.get() == Workspace::Type2 {
+        if ui.type2.borrow().is_some() {
+            confirm_type2_ndef_write(ui);
+        } else {
+            toast_error(&ui, "Read a Type 2 tag first");
+        }
+        return;
+    }
+    if ui.type2.borrow().is_some() && ui.dump.borrow().is_none() {
+        toast_error(&ui, "Read a Classic card first");
         return;
     }
     if ui.busy.get() || !ui.live.get() {
@@ -4162,7 +4254,7 @@ fn finish_ndef_write(ui: &Rc<Ui>, result: NfcResult<ClassicNdefWriteResult>) {
 }
 
 fn confirm_ndef_format(ui: Rc<Ui>) {
-    if ui.type2.borrow().is_some() {
+    if ui.workspace.get() == Workspace::Type2 && ui.type2.borrow().is_some() {
         confirm_type2_ndef_format(ui);
         return;
     }
@@ -4686,8 +4778,8 @@ fn show_type2_session(ui: &Rc<Ui>, session: Type2Session, live: bool) {
         .restore_label
         .set_localized("No restore image loaded");
     ui.live.set(live);
-    ui.type2_view.tabs.set_visible_child_name("memory");
-    ui.views.set_visible_child_name("type2");
+    ui.type2_view.tabs.set_visible_child_name("pages");
+    switch_workspace(ui, Workspace::Type2);
     populate_type2_forms(ui);
     render_type2(ui);
     update_card(ui);
@@ -6505,7 +6597,8 @@ fn load_dump_file(ui: &Rc<Ui>, path: &Path) -> Result<(), String> {
     ui.live.set(false);
     ui.dump.replace(Some(loaded.dump.clone()));
     populate_rows(ui, &loaded.dump);
-    ui.views.set_visible_child_name("card");
+    switch_workspace(ui, Workspace::Classic);
+    ui.classic_tabs.set_visible_child_name("card");
     update_card(ui);
     update_ndef(ui);
     update_restore_sensitivity(ui);
@@ -8209,11 +8302,12 @@ mod tests {
     fn navigation_busy_and_focus(harness: &Harness) {
         reset(harness);
         let ui = &harness.ui;
-        for page in ["card", "type2", "ndef", "keys", "recovery", "dumps"] {
-            ui.views.set_visible_child_name(page);
-            assert_eq!(ui.views.visible_child_name().as_deref(), Some(page));
+        switch_workspace(ui, Workspace::Classic);
+        for page in ["card", "ndef", "keys", "recovery", "dumps"] {
+            ui.classic_tabs.set_visible_child_name(page);
+            assert_eq!(ui.classic_tabs.visible_child_name().as_deref(), Some(page));
         }
-        ui.views.set_visible_child_name("card");
+        ui.classic_tabs.set_visible_child_name("card");
         assert_eq!(
             ui.table_stack.visible_child_name().as_deref(),
             Some("empty")
@@ -8263,10 +8357,10 @@ mod tests {
         for _ in 0..5 {
             while context.iteration(false) {}
         }
-        assert_eq!(ui.views.visible_child_name().as_deref(), Some("card"));
+        assert_eq!(ui.views.visible_child_name().as_deref(), Some("classic"));
         assert!(!ui.back.is_visible());
 
-        ui.views.set_visible_child_name("type2");
+        switch_workspace(ui, Workspace::Type2);
         let protection_title = i18n::translate_lines("Protection");
         let protection_button = find_button(&ui.type2_view.switcher, "Protection")
             .or_else(|| find_button(&ui.type2_view.switcher, &protection_title))
@@ -8296,6 +8390,30 @@ mod tests {
                 .is_some_and(|widget| widget.is::<gtk::Label>()),
             "a label holds focus after the tab switch"
         );
+        assert!(ui.type2_view.ndef_slot.first_child().is_some());
+        let classic_item = find_button(
+            &ui.workspace_button
+                .popover()
+                .expect("workspace menu popover"),
+            "Classic",
+        )
+        .or_else(|| {
+            find_button(
+                &ui.workspace_button
+                    .popover()
+                    .expect("workspace menu popover"),
+                &i18n::translate_lines("Classic"),
+            )
+        })
+        .expect("classic workspace item");
+        classic_item.emit_clicked();
+        for _ in 0..5 {
+            while context.iteration(false) {}
+        }
+        assert_eq!(ui.workspace.get(), Workspace::Classic);
+        assert_eq!(ui.views.visible_child_name().as_deref(), Some("classic"));
+        assert!(ui.classic_ndef_slot.first_child().is_some());
+        assert!(ui.type2_view.ndef_slot.first_child().is_none());
         assert!(ui.read_button.is_focusable());
         assert!(ui.window.child_focus(gtk::DirectionType::TabForward));
     }
@@ -8386,7 +8504,8 @@ mod tests {
         reset(harness);
         show_dump(&harness.ui);
         harness.ui.selection.set_selected(4);
-        harness.ui.views.set_visible_child_name("card");
+        switch_workspace(&harness.ui, Workspace::Classic);
+        harness.ui.classic_tabs.set_visible_child_name("card");
         let uid = harness
             .ui
             .dump
@@ -8402,7 +8521,7 @@ mod tests {
         assert!(
             harness
                 .ui
-                .views
+                .classic_tabs
                 .pages()
                 .item(0)
                 .and_downcast::<gtk::StackPage>()
@@ -8411,7 +8530,7 @@ mod tests {
         );
         assert_eq!(
             harness.ui.views.visible_child_name().as_deref(),
-            Some("card")
+            Some("classic")
         );
         assert_eq!(harness.ui.selection.selected(), 4);
         assert_eq!(harness.ui.reader_combo.selected(), reader);
@@ -8906,7 +9025,8 @@ mod tests {
             0,
             nfc_core::KeyType::A,
         );
-        ui.views.set_visible_child_name("recovery");
+        switch_workspace(ui, Workspace::Classic);
+        ui.classic_tabs.set_visible_child_name("recovery");
         pump_until(ui, "recovery page", || {
             ui.recovery_view.log.text().contains("sector 15")
         });

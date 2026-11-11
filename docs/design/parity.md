@@ -27,17 +27,17 @@ the image when the reader changes. No CLI-only card capability is hidden there.
 | Operation | CLI | GUI | Gate | Hardware |
 |---|---|---|---|---|
 | Read block | `classic read --block` | Blocks → Read block | R | PN532, ACR122U |
-| Dump | `classic dump --output --format` | ☰ → Save dump… (format dialog) | R | PN532; ACR n/r |
+| Dump | `classic dump --output --format` | Classic → Dumps → Save dump… (format dialog) | R | PN532; ACR n/r |
 | Write block | `classic write --block --data` | Blocks inspector → Write block | C, B | PN532; ACR n/r |
 | Write sector trailer | `classic write --confirm-trailer` | Write block with the trailer button when the block is a trailer | C, B | n/r |
-| Restore | `classic restore --input [--continue-on-error]` | Dumps → Restore → Load dump… → Restore to card | C, B | PN532; ACR n/r |
-| Key scan | `classic keyscan [--save] [--types]` | Keys → Key scan → Start scan → Save discovered keys | R | PN532; ACR n/r |
+| Restore | `classic restore --input [--continue-on-error]` | Classic → Dumps → Restore → Load dump… → Restore to card | C, B | PN532; ACR n/r |
+| Key scan | `classic keyscan [--save] [--types]` | Classic → Keys → Key scan → Start scan → Save discovered keys | R | PN532; ACR n/r |
 | Key list | `classic keys list` | Keys table | R | file only |
 | Key import | `classic keys import` | Keys → Import .dic / JSON… | explicit | file only |
 | Key add | `classic keys add` | Keys → Add key | explicit | file only |
 | Key export `.dic` | `classic keys export --format dic` | Keys → Export .dic… | explicit | file only |
 | Key export JSON | `classic keys export --format json` | Keys → Save store | explicit | file only |
-| Dump diff | `classic diff BEFORE AFTER` | Dumps → Diff → Load before/after → Compare | R | file only |
+| Dump diff | `classic diff BEFORE AFTER` | Classic → Dumps → Diff → Load before/after → Compare | R | file only |
 | Classic NDEF facts | `classic ndef info` | NDEF page facts for the loaded Classic image | R | PN532 |
 | Classic NDEF read | `classic ndef read [--output]` | NDEF page records; Export message… writes the raw message | R | PN532 |
 | Classic NDEF write | `classic ndef write` | NDEF composer → Write NDEF | C, B | PN532; ACR n/r |
@@ -57,7 +57,7 @@ message bytes that `nfctl classic ndef read --output` writes.
 | Write user page | `type2 write --page --data` | Page inspector → Write page… | C, B | PN532; ACR n/r |
 | Write Advanced page | `type2 write --advanced` | Advanced mode → page inspector → Write page… | A, T, B | n/r |
 | Dump | `type2 dump --output` | Memory → Save dump… | R | n/r |
-| Restore | `type2 restore --input --include-*` | Memory → Choose project image… → Restore image… | T, B | n/r |
+| Restore | `type2 restore --input --include-*` | Type 2 → Dumps → Choose project image… → Restore image… | T, B | n/r |
 | Lock pages | `type2 lock --pages` | Protection → One-way locks → Apply lock bits… | A, T, B | n/r |
 | Password configuration | `type2 password` | Protection → Password and access → Apply password configuration… | A, T, B | n/r |
 | NDEF read | `ndef read [--output]` | Type 2 NDEF facts; Export message… | R | PN532 |
