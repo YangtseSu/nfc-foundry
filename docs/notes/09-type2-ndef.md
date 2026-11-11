@@ -49,12 +49,12 @@ Date: 2026-11-10
 - `nfctl`:
   - `type2 info|read|write|dump|restore|lock|password` and
     `ndef read|write|format`.
-  - Confirmation token `I_OWN_THIS_CARD`; Advanced page writes require it.
+  - Advanced page writes require a destructive confirmation dialog.
   - Mock NTAG215 with a complete 135-page image and an empty NDEF TLV.
 - GPUI Kit:
   - `nfc-type2-gui` with Memory, NDEF, and Protection tabs, page inspector,
     verified writes, dump/restore, Text NDEF editor, lock and password forms,
-    and typed confirmation dialogs for one-way/Advanced actions.
+    and confirmation dialogs for one-way/Advanced actions.
   - The desktop shell switches between the Classic and Type 2 workspaces.
 
 ## Tested
@@ -74,7 +74,7 @@ Date: 2026-11-10
 - `nfctl`: 4 new CLI mock tests covering info, dump, page write, Advanced
   confirmation, restore, lock, and NDEF write/read/format.
 - `nfc-type2-gui`: 5 UI integration tests covering read and page selection,
-  NDEF write/format, Advanced write confirmation, lock typed confirmation, and
+  NDEF write/format, Advanced write confirmation, lock confirmation, and
   protection controls.
 - Driver tests cover the Type 2 READ CRC and raw-mode restoration on both
   transports.
@@ -86,7 +86,7 @@ firmware 1.6), NTAG215 UID `04 52 F5 67 D3 2A 81`:
   496-byte NDEF data area, 491-byte NDEF capacity, no warnings;
 - original NDEF: one URI record, `https://www.m5stack.com`;
 - locks `00 00` / `00 00 00`; AUTH0 `FF`, ACCESS `00`, CFGLCK off, AUTHLIM 0;
-- authorized write round trip with `NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD`:
+- authorized write round trip with `NFC_FOUNDRY_HARDWARE_WRITE=yes`:
   formatted NDEF, wrote a 33-byte Text record, read it back as the expected
   message, then restored the original user memory from a project backup;
 - post-restore read: the original URI record and page image are back;
@@ -117,7 +117,7 @@ authorization. The gated tests live in `nfctl/tests/hardware_type2.rs`.
 - A GUI test fixture left every page number at zero while filling data; the
   mock only exposed pages 0..4. The fixture now enumerates pages explicitly.
 - The NDEF tab test clicked format and confirmed with the dialog default OK
-  button; the dialog input is only used for typed one-way confirmations.
+  button; the dialog input is only used for one-way confirmations.
 
 ## Deviations from the spec
 

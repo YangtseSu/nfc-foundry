@@ -102,20 +102,20 @@ unchanged.
 
 - `--uid` accepts compact hex, spaces, colons, or dashes.
 - `--advanced` is required in every mode.
-- `--dry-run` prints the plan and exits without a backup or write.
+- `--dry-run` prints the plan and exits without a backup or write. It needs no
+  confirmation.
 - Execution prints old/new block 0, sector-0 key, access, backend order, result
   backend, reselected UID, and the backup path.
-- Interactive execution requires typing the exact target UID. `--yes` is the
-  non-interactive confirmation and is accepted only together with
-  `--advanced`.
+- Execution requires confirmation; `--yes` is the non-interactive form and is
+  accepted only together with `--advanced`.
 
 ## GUI
 
 The Classic Blocks inspector gains a session Advanced-mode switch and a
 "Write UID…" destructive action. The action is available only for a live
 four-byte Classic 1K image. The first dialog takes the target UID and refuses an
-invalid or unchanged value. The preflight plan is shown in a second dialog that
-requires typing the exact target UID. Execution calls the same service methods
+invalid or unchanged value. The preflight plan is shown in a destructive
+confirmation dialog. Execution calls the same service methods
 as `nfctl`. A successful change invalidates the live image and re-reads the
 card, because the card identity, keys, and workbench no longer apply. An error
 also invalidates the image; the user must read the card again.
@@ -141,7 +141,7 @@ also invalidates the image; the user must read the card again.
   and an ordinary immutable card that changes nothing.
 - CLI mock tests: dry run, advance gate, non-interactive confirmation gate,
   successful write with reselect evidence, and invalid UID input.
-- Gated GTK scenario: Advanced switch, target dialog, typed UID plan, cancel,
+- Gated GTK scenario: Advanced switch, target dialog, plan confirmation, cancel,
   successful write, and image invalidation.
 - Environment-gated hardware test for an owned magic Classic 1K: change the
   UID, reselect, verify block 0 and BCC, then restore the original UID.

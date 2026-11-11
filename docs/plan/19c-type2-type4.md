@@ -28,9 +28,9 @@ Advanced and confirmation-gated. Type 4 stays read-only and hardware-gated.
   reader change, and application restart. It is a confirmation/
   discoverability layer, not a protocol bypass.
 - Lock pages: exact page list, current/new lock state, one-way warning,
-  backup path, read-back plan; typed confirmation before the service call.
+  backup path, read-back plan; confirmation before the service call.
 - Password/AUTH0/ACCESS: exact PWD/PACK/AUTH0/ACCESS values, old/new state,
-  backup path, read-back plan; typed confirmation.
+  backup path, read-back plan; confirmation.
 - Configuration and CC writes use the same Advanced gate.
 - Every Advanced action names the card identity and refuses on a card change.
 - Add an optional expected `CardInfo` to the Type 2 page/NDEF/format/restore/
@@ -71,7 +71,7 @@ Advanced and confirmation-gated. Type 4 stays read-only and hardware-gated.
   configuration, and NDEF state.
 - A user-page write is backed up and read back; a locked/read-only page is
   refused.
-- Advanced pages require Advanced mode plus the typed confirmation and show
+- Advanced pages require Advanced mode plus the confirmation and show
   the exact pages/values/backup.
 - Type 2 NDEF write/format preserves unknown TLVs and refuses locked/read-only
   tags.
@@ -103,7 +103,7 @@ Type 2 from one selection. Capability-container writes validate the resulting
 product and refresh the parsed CC after verification.
 
 The GTK workbench adds the Type 2 Memory/Protection tab and makes the NDEF tab
-family-aware. Advanced mode, typed confirmations, lock/password forms,
+family-aware. Advanced mode, confirmation dialogs, lock/password forms,
 dump/restore, and the NDEF write/format gates are implemented. The gated GTK
 scenario covers the new surfaces against a scripted NTAG213.
 

@@ -72,8 +72,8 @@ block-write path.
 - `--uid` accepts compact hex, spaces, colons, or dashes.
 - The plan prints current/target UID, sector-0 key, access key types, backend
   order with notes, and old/new block 0.
-- Interactive execution requires typing the exact target UID. `--yes` is the
-  non-interactive confirmation. `--advanced` is always required.
+- Execution requires confirmation; `--yes` is the non-interactive form.
+  `--advanced` is always required.
 - Success prints the old and new UID, the backend, the full new block 0, the
   BCC/reselect statement, and the backup path. An unchanged target exits
   without a backup.
@@ -84,7 +84,7 @@ block-write path.
   UID entry plus "Write UID…" destructive action. The controls are sensitive
   only for a live four-byte UID Classic 1K image.
 - The target dialog rejects an invalid or unchanged UID. The preflight plan is
-  shown in a typed dialog whose phrase is the exact compact target UID.
+  shown in a destructive confirmation dialog.
 - Execution uses the same service methods as `nfctl`. A changed UID invalidates
   the live image and workbench and triggers a full re-read, so the header,
   block table, keys, and NDEF state reflect the new identity. Any execution
@@ -92,6 +92,10 @@ block-write path.
 - Advanced mode resets on card read, reader change, reader refresh, UID change,
   and application restart. New strings are in the English and `zh-CN`
   catalogs.
+- The phrase-typing gate was removed from every GUI mutation flow.
+  Type 2 Advanced pages, locks, password configuration, restore, NDEF format,
+  Classic restores, and the UID plan now use one destructive confirmation
+  dialog. The CLI uses the existing `--yes` confirmation.
 
 ## Tests
 
@@ -106,7 +110,7 @@ block-write path.
 - `nfctl` mock tests: Advanced gate, confirmation gate, invalid UID, dry run,
   successful write, and an unchanged target.
 - Gated GTK scenario: Advanced switch, unchanged-target refusal, plan cancel,
-  typed target confirmation, write, and automatic re-read.
+  plan confirmation, write, and automatic re-read.
 - Environment-gated `nfctl` hardware test changes the UID and restores the
   original block 0 on an owned magic card.
 

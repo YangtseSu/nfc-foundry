@@ -37,29 +37,29 @@ Plan: [19c-type2-type4.md](../plan/19c-type2-type4.md). Spec:
   access, NDEF data-area offset, configuration fields, and write gate. PWD and
   PACK are marked write-only.
 - User-page writes use the ordinary confirmation. Advanced page writes require
-  Advanced mode and the typed `I_OWN_THIS_CARD` phrase. Both call
+  Advanced mode and a destructive confirmation dialog. Both call
   `Service::type2_write_page` with the session identity and refresh the page
   table, inspector, card summary, and NDEF facts from the result.
 - Memory save uses the Type 2 project JSON format. Load detects the
   `nfc-foundry-type2` marker before the Classic formats and shows the image as
   inspection-only. Restore exposes user-memory, configuration, capability
   container, and lock-byte includes, defaults to user memory only, and requires
-  the typed phrase. The service backs up the live tag and reads every written
+  the confirmation dialog. The service backs up the live tag and reads every written
   page back.
 - Protection shows the parsed configuration. The lock form parses page lists
   (`4,8,16-20`), previews the exact static/dynamic lock bytes before/after, and
-  applies through `Service::type2_lock` after the typed confirmation. The
+  applies through `Service::type2_lock` after the confirmation. The
   password form programs AUTH0/ACCESS/PWD/PACK through `Service::type2_password`
   and reports the PWD_AUTH verification.
 - Advanced mode resets on every card read, reader refresh/change, and loaded
-  dump. The typed dialog's response handler checks the phrase again; the
-  disabled button is not the only gate.
+  dump. The confirmation response handler is the execution gate; the dialog is
+  built only after the action's preconditions pass.
 - The NDEF tab reuses `NdefDraft`/`NdefMessage` from 19b. For a Type 2 card it
   shows product/UID, CC bytes, data-area size, capacity, locked pages, and
   password protection. `Write NDEF` is gated on a live complete data area, a
   writable CC, no locked data page, no password-protected data page, an
   encodable message, capacity, and a message different from the stored TLV.
-  `Format NDEF area…` requires the typed phrase and removes proprietary TLVs,
+  `Format NDEF area…` requires the confirmation dialog and removes proprietary TLVs,
   matching the service behavior. NDEF writes pass the session identity.
 - Type 4 has no surface. No hardware record exists for a reader/card path, so
   the read-only view and a matching `nfctl` command are left out.
@@ -79,13 +79,13 @@ The gated scenario adds a scripted NTAG213 and covers:
 
 - page roles, unknown-page rendering, Advanced filtering, and CC/config facts;
 - a user-page write with cancel and read-back, and a locked-page refusal;
-- an Advanced CC write with the typed phrase, its `image.cc` refresh, and the
+- an Advanced CC write with the confirmation dialog, its `image.cc` refresh, and the
   resulting read-only NDEF gate;
 - one-way locks with the byte preview and the already-locked state;
 - AUTH0/ACCESS/PWD/PACK programming with PWD_AUTH verification;
 - Type 2 NDEF write, format, read-only, unformatted, locked-page, partial-area,
   and identity-change gates;
-- Type 2 dump save/load, restore with cancel and typed confirmation, restore
+- Type 2 dump save/load, restore with cancel and confirmation, restore
   identity refusal, and the include-option gate.
 
 Unit tests cover NTAG213/215/216 page-row visibility and roles, lock previews,

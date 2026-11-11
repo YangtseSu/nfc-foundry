@@ -40,7 +40,7 @@ use nfc_type2::{NdefState, RestoreOptions, Type2Image, Type2Ndef, exchange as ty
 use crate::classic::{self, BlockRow, NdefDraft, NdefSource};
 use crate::i18n::{self, Language, Localized};
 use crate::settings::{UiPreferences, preferences_path};
-use crate::type2::{self as type2_ui, ADVANCED_PHRASE, Session as Type2Session};
+use crate::type2::{self as type2_ui, Session as Type2Session};
 
 pub fn install_css() {
     let provider = gtk::CssProvider::new();
@@ -876,15 +876,15 @@ struct Ui {
     pending_plan: RefCell<Option<PendingPlan>>,
     pending_plan_dialog: RefCell<Option<adw::AlertDialog>>,
     pending_uid_plan: RefCell<Option<ClassicUidPlan>>,
-    pending_uid_dialog: RefCell<Option<TypedDialog>>,
+    pending_uid_dialog: RefCell<Option<adw::AlertDialog>>,
     pending_ndef_write_dialog: RefCell<Option<adw::AlertDialog>>,
     pending_ndef_format_dialog: RefCell<Option<adw::AlertDialog>>,
     pending_type2_page_dialog: RefCell<Option<adw::AlertDialog>>,
-    pending_type2_advanced_dialog: RefCell<Option<TypedDialog>>,
-    pending_type2_lock_dialog: RefCell<Option<TypedDialog>>,
-    pending_type2_password_dialog: RefCell<Option<TypedDialog>>,
-    pending_type2_restore_dialog: RefCell<Option<TypedDialog>>,
-    pending_type2_format_dialog: RefCell<Option<TypedDialog>>,
+    pending_type2_advanced_dialog: RefCell<Option<adw::AlertDialog>>,
+    pending_type2_lock_dialog: RefCell<Option<adw::AlertDialog>>,
+    pending_type2_password_dialog: RefCell<Option<adw::AlertDialog>>,
+    pending_type2_restore_dialog: RefCell<Option<adw::AlertDialog>>,
+    pending_type2_format_dialog: RefCell<Option<adw::AlertDialog>>,
     devices: RefCell<Vec<DeviceInfo>>,
     keyscan_cancel: RefCell<Option<CancelToken>>,
     keyscan_result: RefCell<Option<ClassicKeyscanResult>>,
@@ -895,12 +895,6 @@ struct Ui {
     recovery_timer: RefCell<Option<glib::SourceId>>,
     recovery_run: Cell<u64>,
     language_updating: Cell<bool>,
-}
-
-#[derive(Clone)]
-struct TypedDialog {
-    dialog: adw::AlertDialog,
-    entry: gtk::Entry,
 }
 
 struct Type2View {
@@ -1074,7 +1068,7 @@ fn build_inspector() -> Inspector {
     uid_actions.append(&uid_write);
     let uid_note = gtk::Label::new(Some(
         "UID writes need Advanced mode, a magic CUID/Gen2 Classic 1K card, a sector-0 backup, \
-         and an exact typed confirmation. An ordinary card refuses the write unchanged.",
+         and a confirmation dialog. An ordinary card refuses the write unchanged.",
     ));
     uid_note.set_xalign(0.0);
     uid_note.set_wrap(true);
@@ -1443,7 +1437,7 @@ fn build_type2_view() -> Type2View {
     restore.add_css_class("destructive-action");
     restore.set_sensitive(false);
     let restore_status = gtk::Label::new(Some(
-        "Restore writes only the selected page classes after the typed confirmation.",
+        "Restore writes only the selected page classes after the confirmation dialog.",
     ));
     restore_status.set_xalign(0.0);
     restore_status.set_wrap(true);
@@ -1641,7 +1635,7 @@ fn build_type2_editor() -> Type2Editor {
     write.add_css_class("suggested-action");
     write.set_sensitive(false);
     let note = gtk::Label::new(Some(
-        "User pages are backed up and read back. Advanced pages need Advanced mode and the typed confirmation.",
+        "User pages are backed up and read back. Advanced pages need Advanced mode and a confirmation dialog.",
     ));
     note.set_xalign(0.0);
     note.set_wrap(true);
@@ -4518,15 +4512,13 @@ fn uid_plan_body(plan: &ClassicUidPlan) -> String {
 }
 
 fn show_uid_plan_dialog(ui: &Rc<Ui>, plan: ClassicUidPlan) {
-    let phrase = format_uid(&plan.target_uid);
-    let typed = typed_dialog_with_phrase(
+    let dialog = confirmation_dialog(
         "Write manufacturer block 0?",
         &uid_plan_body(&plan),
         "Write UID",
-        &phrase,
     );
     let ui2 = ui.clone();
-    typed.dialog.connect_response(None, move |_, response| {
+    dialog.connect_response(None, move |_, response| {
         ui2.pending_uid_dialog.replace(None);
         let plan = ui2.pending_uid_plan.borrow_mut().take();
         if response == "confirm"
@@ -4536,8 +4528,8 @@ fn show_uid_plan_dialog(ui: &Rc<Ui>, plan: ClassicUidPlan) {
         }
     });
     ui.pending_uid_plan.replace(Some(plan));
-    ui.pending_uid_dialog.replace(Some(typed.clone()));
-    present_alert(&typed.dialog, &ui.window);
+    ui.pending_uid_dialog.replace(Some(dialog.clone()));
+    present_alert(&dialog, &ui.window);
 }
 
 fn start_uid_execution(ui: &Rc<Ui>, plan: ClassicUidPlan) {
@@ -5061,43 +5053,17 @@ fn apply_ndef_result(ui: &Rc<Ui>, dump: &Dump, info: &ClassicNdefInfo) {
     record_dump_metadata_keys(ui, dump);
 }
 
-fn typed_dialog(heading: &str, body: &str, confirm_label: &str) -> TypedDialog {
-    typed_dialog_with_phrase(heading, body, confirm_label, ADVANCED_PHRASE)
-}
-
-fn typed_dialog_with_phrase(
-    heading: &str,
-    body: &str,
-    confirm_label: &str,
-    phrase: &str,
-) -> TypedDialog {
+fn confirmation_dialog(heading: &str, body: &str, confirm_label: &str) -> adw::AlertDialog {
     let dialog = adw::AlertDialog::builder()
         .heading(heading)
         .body(body)
         .build();
-    let entry = gtk::Entry::new();
-    entry.set_placeholder_text(Some(phrase));
-    let hint = gtk::Label::new(None);
-    hint.set_localized(&format!("Type {phrase} to enable the action."));
-    hint.set_xalign(0.0);
-    hint.set_wrap(true);
-    hint.add_css_class("caption");
-    let extra = gtk::Box::new(Orientation::Vertical, 6);
-    extra.append(&hint);
-    extra.append(&entry);
-    dialog.set_extra_child(Some(&extra));
     add_response(&dialog, "cancel", "Cancel");
     add_response(&dialog, "confirm", confirm_label);
     dialog.set_response_appearance("confirm", adw::ResponseAppearance::Destructive);
     dialog.set_default_response(Some("cancel"));
     dialog.set_close_response("cancel");
-    dialog.set_response_enabled("confirm", false);
-    let dialog2 = dialog.clone();
-    let expected = phrase.to_owned();
-    entry.connect_changed(move |entry| {
-        dialog2.set_response_enabled("confirm", entry.text() == expected);
-    });
-    TypedDialog { dialog, entry }
+    dialog
 }
 
 fn reset_advanced(ui: &Ui) {
@@ -5108,8 +5074,8 @@ fn reset_advanced(ui: &Ui) {
         .set_localized("No restore image loaded");
     ui.inspector.uid_advanced.set_active(false);
     ui.inspector.uid.set_text("");
-    if let Some(typed) = ui.pending_uid_dialog.borrow_mut().take() {
-        typed.dialog.force_close();
+    if let Some(dialog) = ui.pending_uid_dialog.borrow_mut().take() {
+        dialog.force_close();
     }
     ui.pending_uid_plan.replace(None);
     update_classic_uid_actions(ui);
@@ -5666,18 +5632,17 @@ fn confirm_type2_restore(ui: Rc<Ui>) {
         source.uid_hex(),
         classes.join(", ")
     );
-    let typed = typed_dialog("Restore the Type 2 image?", &body, "Restore image");
+    let dialog = confirmation_dialog("Restore the Type 2 image?", &body, "Restore image");
     let ui2 = ui.clone();
-    let typed2 = typed.clone();
-    typed.dialog.connect_response(None, move |_, response| {
-        if response != "confirm" || typed2.entry.text() != ADVANCED_PHRASE {
-            return;
-        }
+    dialog.connect_response(None, move |_, response| {
         ui2.pending_type2_restore_dialog.replace(None);
-        start_type2_restore(ui2.clone(), source.clone(), options);
+        if response == "confirm" {
+            start_type2_restore(ui2.clone(), source.clone(), options);
+        }
     });
-    ui.pending_type2_restore_dialog.replace(Some(typed.clone()));
-    present_alert(&typed.dialog, &ui.window);
+    ui.pending_type2_restore_dialog
+        .replace(Some(dialog.clone()));
+    present_alert(&dialog, &ui.window);
 }
 
 fn start_type2_restore(ui: Rc<Ui>, source: Type2Image, options: RestoreOptions) {
@@ -5791,19 +5756,17 @@ fn confirm_type2_page_write(ui: Rc<Ui>) {
         type2_ui::hex4(&data)
     );
     if advanced_page {
-        let typed = typed_dialog("Write an Advanced Type 2 page?", &body, "Write page");
+        let dialog = confirmation_dialog("Write an Advanced Type 2 page?", &body, "Write page");
         let ui2 = ui.clone();
-        let typed2 = typed.clone();
-        typed.dialog.connect_response(None, move |_, response| {
-            if response != "confirm" || typed2.entry.text() != ADVANCED_PHRASE {
-                return;
-            }
+        dialog.connect_response(None, move |_, response| {
             ui2.pending_type2_advanced_dialog.replace(None);
-            start_type2_page_write(ui2.clone(), row.page, data, true);
+            if response == "confirm" {
+                start_type2_page_write(ui2.clone(), row.page, data, true);
+            }
         });
         ui.pending_type2_advanced_dialog
-            .replace(Some(typed.clone()));
-        present_alert(&typed.dialog, &ui.window);
+            .replace(Some(dialog.clone()));
+        present_alert(&dialog, &ui.window);
     } else {
         let dialog = adw::AlertDialog::builder()
             .heading(format!("Write page {:03}?", row.page))
@@ -5939,18 +5902,16 @@ fn confirm_type2_lock(ui: Rc<Ui>) {
         type2_ui::hex_bytes(&preview.dynamic_before),
         type2_ui::hex_bytes(&preview.dynamic_after)
     );
-    let typed = typed_dialog("Apply one-way lock bits?", &body, "Apply lock bits");
+    let dialog = confirmation_dialog("Apply one-way lock bits?", &body, "Apply lock bits");
     let ui2 = ui.clone();
-    let typed2 = typed.clone();
-    typed.dialog.connect_response(None, move |_, response| {
-        if response != "confirm" || typed2.entry.text() != ADVANCED_PHRASE {
-            return;
-        }
+    dialog.connect_response(None, move |_, response| {
         ui2.pending_type2_lock_dialog.replace(None);
-        start_type2_lock(ui2.clone(), pages.clone());
+        if response == "confirm" {
+            start_type2_lock(ui2.clone(), pages.clone());
+        }
     });
-    ui.pending_type2_lock_dialog.replace(Some(typed.clone()));
-    present_alert(&typed.dialog, &ui.window);
+    ui.pending_type2_lock_dialog.replace(Some(dialog.clone()));
+    present_alert(&dialog, &ui.window);
 }
 
 fn start_type2_lock(ui: Rc<Ui>, pages: Vec<u8>) {
@@ -6066,23 +6027,21 @@ fn confirm_type2_password(ui: Rc<Ui>) {
         type2_ui::hex_bytes(&password),
         type2_ui::hex_bytes(&pack)
     );
-    let typed = typed_dialog(
+    let dialog = confirmation_dialog(
         "Change the Type 2 password configuration?",
         &body,
         "Apply configuration",
     );
     let ui2 = ui.clone();
-    let typed2 = typed.clone();
-    typed.dialog.connect_response(None, move |_, response| {
-        if response != "confirm" || typed2.entry.text() != ADVANCED_PHRASE {
-            return;
-        }
+    dialog.connect_response(None, move |_, response| {
         ui2.pending_type2_password_dialog.replace(None);
-        start_type2_password(ui2.clone(), auth0, access, password, pack);
+        if response == "confirm" {
+            start_type2_password(ui2.clone(), auth0, access, password, pack);
+        }
     });
     ui.pending_type2_password_dialog
-        .replace(Some(typed.clone()));
-    present_alert(&typed.dialog, &ui.window);
+        .replace(Some(dialog.clone()));
+    present_alert(&dialog, &ui.window);
 }
 
 fn start_type2_password(ui: Rc<Ui>, auth0: u8, access: u8, password: [u8; 4], pack: [u8; 2]) {
@@ -6532,18 +6491,16 @@ fn confirm_type2_ndef_format(ui: Rc<Ui>) {
         session.image.layout.product.name(),
         session.card.uid_hex(),
     );
-    let typed = typed_dialog("Format the NDEF data area?", &body, "Format NDEF area");
+    let dialog = confirmation_dialog("Format the NDEF data area?", &body, "Format NDEF area");
     let ui2 = ui.clone();
-    let typed2 = typed.clone();
-    typed.dialog.connect_response(None, move |_, response| {
-        if response != "confirm" || typed2.entry.text() != ADVANCED_PHRASE {
-            return;
-        }
+    dialog.connect_response(None, move |_, response| {
         ui2.pending_type2_format_dialog.replace(None);
-        start_type2_ndef_format(ui2.clone());
+        if response == "confirm" {
+            start_type2_ndef_format(ui2.clone());
+        }
     });
-    ui.pending_type2_format_dialog.replace(Some(typed.clone()));
-    present_alert(&typed.dialog, &ui.window);
+    ui.pending_type2_format_dialog.replace(Some(dialog.clone()));
+    present_alert(&dialog, &ui.window);
 }
 
 fn start_type2_ndef_format(ui: Rc<Ui>) {
@@ -8674,8 +8631,8 @@ mod tests {
         assert!(harness.ui.type2.borrow().is_some());
     }
 
-    fn typed_pending(slot: &RefCell<Option<TypedDialog>>) -> TypedDialog {
-        slot.borrow().clone().expect("typed dialog")
+    fn alert_pending(slot: &RefCell<Option<adw::AlertDialog>>) -> adw::AlertDialog {
+        slot.borrow().clone().expect("alert dialog")
     }
 
     fn other_card() -> CardInfo {
@@ -8853,12 +8810,6 @@ mod tests {
         }
     }
 
-    fn close_typed(slot: &RefCell<Option<TypedDialog>>) {
-        if let Some(typed) = slot.borrow_mut().take() {
-            typed.dialog.force_close();
-        }
-    }
-
     fn reset(harness: &Harness) {
         harness.handle.set_card(Some(test_card()));
         for (block, data) in image().into_iter().enumerate() {
@@ -8887,18 +8838,18 @@ mod tests {
         ui.dirty_blocks.replace(Vec::new());
         ui.undo_depth.set(0);
         ui.pending_plan.replace(None);
-        close_typed(&ui.pending_uid_dialog);
+        close_alert(&ui.pending_uid_dialog);
         ui.pending_uid_plan.replace(None);
         ui.inspector.uid_advanced.set_active(false);
         ui.inspector.uid.set_text("");
         ui.type2.replace(None);
         ui.type2_restore.replace(None);
         close_alert(&ui.pending_type2_page_dialog);
-        close_typed(&ui.pending_type2_advanced_dialog);
-        close_typed(&ui.pending_type2_lock_dialog);
-        close_typed(&ui.pending_type2_password_dialog);
-        close_typed(&ui.pending_type2_restore_dialog);
-        close_typed(&ui.pending_type2_format_dialog);
+        close_alert(&ui.pending_type2_advanced_dialog);
+        close_alert(&ui.pending_type2_lock_dialog);
+        close_alert(&ui.pending_type2_password_dialog);
+        close_alert(&ui.pending_type2_restore_dialog);
+        close_alert(&ui.pending_type2_format_dialog);
         ui.type2_view.advanced.set_active(false);
         ui.type2_view.rows.remove_all();
         ui.type2_view.table_stack.set_visible_child_name("empty");
@@ -9301,7 +9252,6 @@ mod tests {
                 "Nested",
                 "Hardnested",
                 "unsupported:",
-                "I_OWN_THIS_CARD",
                 "URI",
             ]
             .iter()
@@ -9848,18 +9798,16 @@ mod tests {
         ui.inspector.uid.set_text("DEADBEEF");
         ui.inspector.uid_write.emit_clicked();
         pump_until(ui, "UID plan", || ui.pending_uid_dialog.borrow().is_some());
-        let typed = typed_pending(&ui.pending_uid_dialog);
-        assert_eq!(typed.entry.placeholder_text().as_deref(), Some("DEADBEEF"));
-        emit_response(&typed.dialog, "cancel");
+        let dialog = alert_pending(&ui.pending_uid_dialog);
+        emit_response(&dialog, "cancel");
         assert!(ui.pending_uid_plan.borrow().is_none());
         assert_eq!(harness.handle.block(0).expect("block 0")[0..4], TEST_UID);
 
         ui.inspector.uid.set_text("DE:AD:BE:EF");
         ui.inspector.uid_write.emit_clicked();
         pump_until(ui, "UID plan", || ui.pending_uid_dialog.borrow().is_some());
-        let typed = typed_pending(&ui.pending_uid_dialog);
-        typed.entry.set_text("DEADBEEF");
-        emit_response(&typed.dialog, "confirm");
+        let dialog = alert_pending(&ui.pending_uid_dialog);
+        emit_response(&dialog, "confirm");
         pump_until(ui, "UID write and re-read", || {
             !ui.busy.get() && ui.status.label().contains("Read complete")
         });
@@ -10536,20 +10484,13 @@ mod tests {
         assert!(ui.type2_view.editor.write.is_sensitive());
 
         confirm_type2_page_write(ui.clone());
-        let typed = typed_pending(&ui.pending_type2_advanced_dialog);
-        let body = typed.dialog.body();
+        let dialog = alert_pending(&ui.pending_type2_advanced_dialog);
+        let body = dialog.body();
         assert!(body.contains("04 5B 1C 2A 3B 4C 80"), "{body}");
         assert!(body.contains("Old  E1 10 12 00"), "{body}");
         assert!(body.contains("New  E1 10 12 F0"), "{body}");
         assert!(body.contains("backup"), "{body}");
-        typed.dialog.emit_by_name::<()>("response", &[&"confirm"]);
-        assert!(
-            ui.pending_type2_advanced_dialog.borrow().is_some(),
-            "the typed phrase is required"
-        );
-        assert_eq!(harness.ntag.page(3), Some([0xE1, 0x10, 0x12, 0x00]));
-        typed.entry.set_text(ADVANCED_PHRASE);
-        typed.dialog.emit_by_name::<()>("response", &[&"confirm"]);
+        emit_response(&dialog, "confirm");
         pump_until(ui, "Advanced page write", || {
             !ui.busy.get() && ui.status.label().contains("Type 2 page 003 written")
         });
@@ -10582,15 +10523,12 @@ mod tests {
         );
 
         confirm_type2_lock(ui.clone());
-        let typed = typed_pending(&ui.pending_type2_lock_dialog);
-        let body = typed.dialog.body();
+        let dialog = alert_pending(&ui.pending_type2_lock_dialog);
+        let body = dialog.body();
         assert!(body.contains("04 5B 1C 2A 3B 4C 80"), "{body}");
         assert!(body.contains("Static lock 00 00 → 30 00"), "{body}");
         assert!(body.contains("one-way"), "{body}");
-        typed.dialog.emit_by_name::<()>("response", &[&"confirm"]);
-        assert!(ui.pending_type2_lock_dialog.borrow().is_some());
-        typed.entry.set_text(ADVANCED_PHRASE);
-        typed.dialog.emit_by_name::<()>("response", &[&"confirm"]);
+        emit_response(&dialog, "confirm");
         pump_until(ui, "Type 2 lock", || {
             !ui.busy.get() && ui.status.label().contains("Lock bits written")
         });
@@ -10621,13 +10559,12 @@ mod tests {
         update_type2_actions(ui);
         assert!(ui.type2_view.password_apply.is_sensitive());
         confirm_type2_password(ui.clone());
-        let typed = typed_pending(&ui.pending_type2_password_dialog);
-        let body = typed.dialog.body();
+        let dialog = alert_pending(&ui.pending_type2_password_dialog);
+        let body = dialog.body();
         assert!(body.contains("04 5B 1C 2A 3B 4C 80"), "{body}");
         assert!(body.contains("AUTH0 32"), "{body}");
         assert!(body.contains("PWD  11 22 33 44"), "{body}");
-        typed.entry.set_text(ADVANCED_PHRASE);
-        typed.dialog.emit_by_name::<()>("response", &[&"confirm"]);
+        emit_response(&dialog, "confirm");
         pump_until(ui, "Type 2 password", || {
             !ui.busy.get() && ui.status.label().contains("Password configuration written")
         });
@@ -10699,12 +10636,11 @@ mod tests {
         );
 
         confirm_ndef_format(ui.clone());
-        let typed = typed_pending(&ui.pending_type2_format_dialog);
-        let body = typed.dialog.body();
+        let dialog = alert_pending(&ui.pending_type2_format_dialog);
+        let body = dialog.body();
         assert!(body.contains("NDEF data area"), "{body}");
         assert!(body.contains("read back"), "{body}");
-        typed.entry.set_text(ADVANCED_PHRASE);
-        typed.dialog.emit_by_name::<()>("response", &[&"confirm"]);
+        emit_response(&dialog, "confirm");
         pump_until(ui, "Type 2 NDEF format", || {
             !ui.busy.get() && ui.status.label().contains("NDEF formatted")
         });
@@ -10819,18 +10755,17 @@ mod tests {
         assert!(ui.type2_view.restore.is_sensitive());
 
         confirm_type2_restore(ui.clone());
-        let typed = typed_pending(&ui.pending_type2_restore_dialog);
-        emit_response(&typed.dialog, "cancel");
+        let dialog = alert_pending(&ui.pending_type2_restore_dialog);
+        emit_response(&dialog, "cancel");
         assert_eq!(harness.ntag.page(6), Some([0; 4]));
 
         confirm_type2_restore(ui.clone());
-        let typed = typed_pending(&ui.pending_type2_restore_dialog);
-        let body = typed.dialog.body();
+        let dialog = alert_pending(&ui.pending_type2_restore_dialog);
+        let body = dialog.body();
         assert!(body.contains("Target NTAG213"), "{body}");
         assert!(body.contains("Restore user memory"), "{body}");
         assert!(body.contains("04 5B 1C 2A 3B 4C 80"), "{body}");
-        typed.entry.set_text(ADVANCED_PHRASE);
-        typed.dialog.emit_by_name::<()>("response", &[&"confirm"]);
+        emit_response(&dialog, "confirm");
         pump_until(ui, "Type 2 restore", || {
             !ui.busy.get() && ui.status.label().contains("Restore complete")
         });
@@ -10847,9 +10782,8 @@ mod tests {
         load_type2_restore_file(ui, &source_path).expect("load restore source");
         harness.ntag.set_card(Some(other_type2_card()));
         confirm_type2_restore(ui.clone());
-        let typed = typed_pending(&ui.pending_type2_restore_dialog);
-        typed.entry.set_text(ADVANCED_PHRASE);
-        typed.dialog.emit_by_name::<()>("response", &[&"confirm"]);
+        let dialog = alert_pending(&ui.pending_type2_restore_dialog);
+        emit_response(&dialog, "confirm");
         pump_until(ui, "Type 2 restore identity refusal", || {
             !ui.busy.get() && ui.status.label() == "Type 2 restore failed"
         });

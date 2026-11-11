@@ -795,7 +795,7 @@
               <div class="card-body"><div class="form-grid"><div><div class="tiny">Static lock</div><div class="mono" style="font-size:10px;margin-top:3px">00 00 00</div></div><div><div class="tiny">Dynamic lock</div><div class="mono" style="font-size:10px;margin-top:3px">00 00 00</div></div><div><div class="tiny">Locked pages</div><div class="mono" style="font-size:10px;margin-top:3px">none</div></div><div><div class="tiny">Writable user pages</div><div class="mono" style="font-size:10px;margin-top:3px">4–129</div></div></div></div>
             </div>
             <div class="card">
-              <div class="card-head"><div><div class="card-title">Lock pages</div><div class="card-sub">Advanced · typed confirmation required</div></div></div>
+              <div class="card-head"><div><div class="card-title">Lock pages</div><div class="card-sub">Advanced · confirmation required</div></div></div>
               <div class="card-body">
                 <div class="field"><label for="lockPages">Pages</label><input id="lockPages" class="mono" type="text" value="4, 8" placeholder="4,8,16-20"></div>
                 <button class="btn danger-outline" data-action="lock-pages"><svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg>Apply locks…</button>
@@ -824,7 +824,7 @@
           </aside>
         </div>
         <div class="card" style="margin-top:14px">
-          <div class="card-head"><div><div class="card-title">Advanced action plan</div><div class="card-sub">Shown in the confirmation dialog before any write</div></div><div class="spacer"></div><span class="pill warn"><span class="dot"></span>typed confirmation</span></div>
+          <div class="card-head"><div><div class="card-title">Advanced action plan</div><div class="card-sub">Shown in the confirmation dialog before any write</div></div><div class="spacer"></div><span class="pill warn"><span class="dot"></span>confirmation</span></div>
           <div class="card-body">
             <div class="form-grid" style="grid-template-columns:repeat(4,minmax(0,1fr))">
               <div><div class="tiny">Exact target</div><div class="mono" style="font-size:10px;margin-top:3px">pages 4, 8</div></div>
@@ -891,7 +891,7 @@
             <div class="card-head"><div><div class="card-title">Safety</div><div class="card-sub">Rules applied to every mutation</div></div></div>
             <div class="card-body">
               <div class="callout info"><svg class="ico" aria-hidden="true"><use href="#i-shield"/></svg><span>Every write creates a project backup, writes, reads back, and checks card identity.</span></div>
-              <div class="callout warn"><svg class="ico" aria-hidden="true"><use href="#i-alert"/></svg><span>Lock, configuration, password, and format actions require typed confirmation.</span></div>
+              <div class="callout warn"><svg class="ico" aria-hidden="true"><use href="#i-alert"/></svg><span>Lock, configuration, password, and format actions require confirmation.</span></div>
               <div class="callout danger"><svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg><span>Block 0 is read-only in this build. UID and factory-format actions are not exposed.</span></div>
             </div>
           </aside>
@@ -918,7 +918,6 @@
     <div class="dialog-body">
       <p id="dialogBody">This changes card state.</p>
       <div id="dialogExtra"></div>
-      <div class="field" id="dialogTyped" style="display:none"><label for="dialogToken">Type <span class="mono">I_OWN_THIS_CARD</span> to continue</label><input id="dialogToken" class="mono" type="text" autocomplete="off"></div>
       <div class="dialog-error" id="dialogError"></div>
     </div>
     <div class="dialog-foot"><button class="btn" data-action="close-dialog">Cancel</button><button class="btn" id="dialogConfirm">Continue</button></div>
@@ -1268,34 +1267,21 @@
     $("#dialogTitle").textContent = options.title || "Confirm action";
     $("#dialogBody").textContent = options.body || "";
     $("#dialogExtra").innerHTML = options.extra || "";
-    const typed = $("#dialogTyped");
-    typed.style.display = options.typed ? "" : "none";
-    $("#dialogToken").value = "";
     $("#dialogError").classList.remove("show");
     const confirm = $("#dialogConfirm");
     confirm.textContent = options.confirmLabel || "Continue";
     confirm.className = "btn " + (options.danger ? "danger" : "primary");
-    confirm.disabled = Boolean(options.typed);
+    confirm.disabled = false;
     dialogConfirmHandler = options.onConfirm || null;
     dialog.showModal();
-    setTimeout(() => (options.typed ? $("#dialogToken") : confirm).focus({ preventScroll: true }), 50);
+    setTimeout(() => confirm.focus({ preventScroll: true }), 50);
   }
   function closeDialog() { dialog.close(); dialogConfirmHandler = null; }
   function confirmDialog() {
-    const typed = $("#dialogTyped").style.display !== "none";
-    if (typed && $("#dialogToken").value.trim() !== "I_OWN_THIS_CARD") {
-      $("#dialogError").textContent = "Type I_OWN_THIS_CARD exactly.";
-      $("#dialogError").classList.add("show");
-      return;
-    }
     const handler = dialogConfirmHandler;
     closeDialog();
     if (handler) handler();
   }
-  $("#dialogToken").addEventListener("input", () => {
-    $("#dialogConfirm").disabled = $("#dialogToken").value.trim() !== "I_OWN_THIS_CARD";
-    $("#dialogError").classList.remove("show");
-  });
   $("#dialogConfirm").addEventListener("click", confirmDialog);
   dialog.addEventListener("cancel", (event) => { event.preventDefault(); closeDialog(); });
 
@@ -1308,7 +1294,6 @@
       title: isTrailer ? `Write trailer for sector ${block.sector}` : `Write block ${String(block.number).padStart(2, "0")}`,
       body: isTrailer ? "This changes Key A, access bits, and Key B. A backup is written first and the block is read back." : "The block is backed up, written, read back, and the card identity is checked.",
       extra: `<div class="field"><label for="dialogBlockData">New block data</label><input id="dialogBlockData" class="mono" type="text" maxlength="32" value="${block.data}"></div>`,
-      typed: isTrailer,
       confirmLabel: isTrailer ? "Write trailer" : "Write block",
       danger: isTrailer,
       onConfirm: () => {
@@ -1396,7 +1381,6 @@
       title: "Restore card image",
       body: isType2 ? "Restore defaults to user memory only. Configuration, CC, and lock bytes are optional Advanced choices. A backup is written first." : "Restore writes every block in the image. Data blocks are written before trailers; the default stops at the first failure.",
       extra,
-      typed: true,
       danger: true,
       confirmLabel: "Restore",
       onConfirm: () => {
@@ -1409,19 +1393,19 @@
   }
 
   function openFormat(family) {
-    openDialog({ kicker: "DESTRUCTIVE", title: family === "classic" ? "Format Classic NDEF area" : "Format Type 2 tag", body: family === "classic" ? "The MAD and every NFC sector are rewritten. Sector keys and access bits change. A backup is written first." : "The user-memory NDEF TLV is rewritten. A backup is written before the first change.", typed: true, danger: true, confirmLabel: "Format",
+    openDialog({ kicker: "DESTRUCTIVE", title: family === "classic" ? "Format Classic NDEF area" : "Format Type 2 tag", body: family === "classic" ? "The MAD and every NFC sector are rewritten. Sector keys and access bits change. A backup is written first." : "The user-memory NDEF TLV is rewritten. A backup is written before the first change.", danger: true, confirmLabel: "Format",
       extra: family === "classic" ? `<label class="check"><input type="checkbox" id="dialogReadOnly"> <span>Read-only after format</span></label>` : "",
       onConfirm: () => { setStatus("Format complete", "NDEF state: empty · backup 20261110T143208-format.json", "ok"); $("#backupPath").textContent = "backup: 20261110T143208-format.json"; toast("Format complete"); }
     });
   }
   function openLock() {
     const pages = $("#lockPages").value.trim() || "4";
-    openDialog({ kicker: "ONE-WAY LOCK", title: "Apply lock bits", body: `Lock pages ${pages}. Lock bits are one-way; this cannot be undone. A backup is written first.`, typed: true, danger: true, confirmLabel: "Lock pages",
+    openDialog({ kicker: "ONE-WAY LOCK", title: "Apply lock bits", body: `Lock pages ${pages}. Lock bits are one-way; this cannot be undone. A backup is written first.`, danger: true, confirmLabel: "Lock pages",
       onConfirm: () => { setStatus("Lock bits applied", `pages ${pages} · backup 20261110T143208-lock.json`, "ok"); toast("Lock bits applied"); }
     });
   }
   function openPassword() {
-    openDialog({ kicker: "ADVANCED", title: "Set NTAG password", body: "Writes AUTH0, ACCESS, PWD, and PACK. PWD/PACK never read back; the result is verified with PWD_AUTH. A backup is written first.", typed: true, danger: true, confirmLabel: "Set password",
+    openDialog({ kicker: "ADVANCED", title: "Set NTAG password", body: "Writes AUTH0, ACCESS, PWD, and PACK. PWD/PACK never read back; the result is verified with PWD_AUTH. A backup is written first.", danger: true, confirmLabel: "Set password",
       onConfirm: () => { setStatus("Password configuration written", "verified with PWD_AUTH · backup 20261110T143208-password.json", "ok"); toast("Password configuration verified"); }
     });
   }
@@ -1429,7 +1413,7 @@
     const page = t2Pages[state.selectedPage];
     if (!page) return;
     const advanced = page.group === "config" || page.group === "lock";
-    openDialog({ kicker: advanced ? "ADVANCED PAGE" : "PAGE WRITE", title: `Write page ${String(page.page).padStart(3, "0")}`, body: advanced ? "This is an Advanced page. A backup is written first and the page is read back." : "The page is backed up, written, read back, and the card identity is checked.", typed: advanced, danger: advanced, confirmLabel: advanced ? "Write page" : "Write page",
+    openDialog({ kicker: advanced ? "ADVANCED PAGE" : "PAGE WRITE", title: `Write page ${String(page.page).padStart(3, "0")}`, body: advanced ? "This is an Advanced page. A backup is written first and the page is read back." : "The page is backed up, written, read back, and the card identity is checked.", danger: advanced, confirmLabel: advanced ? "Write page" : "Write page",
       extra: `<div class="field"><label for="dialogPageData">New page data</label><input id="dialogPageData" class="mono" type="text" maxlength="8" value="${page.data || ""}"></div>`,
       onConfirm: () => { const input = $("#dialogPageData"); const data = bytes(input ? input.value : page.data || ""); if (data.length !== 8) { toast("Page data must be 8 hex digits"); return; } page.data = data; renderType2Table(); setStatus(`Page ${String(page.page).padStart(3, "0")} written and verified`, "backup 20261110T143208-page.json", "ok"); $("#backupPath").textContent = "backup: 20261110T143208-page.json"; toast("Page write verified"); }
     });

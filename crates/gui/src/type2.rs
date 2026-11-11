@@ -10,9 +10,6 @@ use nfc_type2::{
     Type2Ndef, WritePolicy, check_writable, read_ndef,
 };
 
-/// Phrase required by the typed confirmation for every Advanced mutation.
-pub const ADVANCED_PHRASE: &str = "I_OWN_THIS_CARD";
-
 /// The displayed Type 2 image together with its card identity and NDEF facts.
 #[derive(Clone, Debug)]
 pub struct Session {

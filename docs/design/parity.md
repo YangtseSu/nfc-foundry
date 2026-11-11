@@ -4,8 +4,8 @@ Status: phase 19e audit. Both surfaces call the same `nfc-app` services. A row
 is complete only when the GUI path has the same semantics and confirmation
 gate as `nfctl`.
 
-Legend: `R` read-only, `C` confirmation dialog (CLI `--yes`), `T` typed phrase
-(`I_OWN_THIS_CARD`), `A` Advanced mode required, `B` backup plus read-back.
+Legend: `R` read-only, `C` confirmation dialog (CLI `--yes`), `A` Advanced
+mode required, `B` backup plus read-back.
 Hardware status is the release claim from
 [hardware-matrix.md](../hardware-matrix.md); `n/r` means not recorded.
 
@@ -32,7 +32,7 @@ the image when the reader changes. No CLI-only card capability is hidden there.
 | Write block | `classic write --block --data` | Blocks inspector → Stage edit → Write changes… | C, B | PN532; ACR n/r |
 | Write sector trailer | `classic write --confirm-trailer` | Stage the trailer edit, then Write changes… | C, B | n/r |
 | Write preflight | `classic write --dry-run` / `classic restore --dry-run` | Plan dialog before Write changes… / Restore to card | R | PN532; ACR n/r |
-| Change UID / manufacturer block 0 | `classic uid --uid --advanced [--dry-run]` | Blocks inspector → Advanced mode → Write UID… → target UID → typed plan | A, T, B, C | n/r |
+| Change UID / manufacturer block 0 | `classic uid --uid --advanced [--dry-run]` | Blocks inspector → Advanced mode → Write UID… → target UID → plan dialog | A, B, C | n/r |
 | Edit working image | — (staged by the GUI; `--dry-run` previews the plan) | Stage edit, Undo edit, Revert edits; dirty rows show `edited` | none | file only |
 | Restore | `classic restore --input [--blocks] [--changes-only] [--continue-on-error] [--dry-run]` | MIFARE Classic → Dumps → Restore → Load dump… → mode → Restore to card | C, B | PN532; ACR n/r |
 | Key scan | `classic keyscan [--save] [--types]` | MIFARE Classic → Keys → Key scan → Start scan; verified keys are captured automatically, Save remains available | R | PN532; ACR n/r |
@@ -59,14 +59,14 @@ message bytes that `nfctl classic ndef read --output` writes.
 | Facts | `type2 info` | Type 2 summary, configuration, NDEF facts | R | PN532, ACR122U |
 | Read pages | `type2 read [--page]` | Type 2 table and page inspector | R | PN532, ACR122U |
 | Write user page | `type2 write --page --data` | Page inspector → Write page… | C, B | PN532; ACR n/r |
-| Write Advanced page | `type2 write --advanced` | Advanced mode → page inspector → Write page… | A, T, B | n/r |
+| Write Advanced page | `type2 write --advanced` | Advanced mode → page inspector → Write page… | A, B | n/r |
 | Dump | `type2 dump --output` | Memory → Save dump… | R | n/r |
-| Restore | `type2 restore --input --include-*` | NFC Forum Type 2 → Dumps → Choose project image… → Restore image… | T, B | n/r |
-| Lock pages | `type2 lock --pages` | Protection → One-way locks → Apply lock bits… | A, T, B | n/r |
-| Password configuration | `type2 password` | Protection → Password and access → Apply password configuration… | A, T, B | n/r |
+| Restore | `type2 restore --input --include-*` | NFC Forum Type 2 → Dumps → Choose project image… → Restore image… | C, B | n/r |
+| Lock pages | `type2 lock --pages` | Protection → One-way locks → Apply lock bits… | A, C, B | n/r |
+| Password configuration | `type2 password` | Protection → Password and access → Apply password configuration… | A, C, B | n/r |
 | NDEF read | `ndef read [--output]` | Type 2 NDEF facts; Export message… | R | PN532 |
 | NDEF write | `ndef write` | NDEF composer → Write NDEF | C, B | PN532; ACR n/r |
-| NDEF format | `ndef format` | NDEF → Format NDEF area… | T, B | PN532; ACR n/r |
+| NDEF format | `ndef format` | NDEF → Format NDEF area… | C, B | PN532; ACR n/r |
 
 Both surfaces refuse a different card identity, a mismatched capability
 container, an incomplete NDEF area, a locked data page, a password-protected

@@ -62,10 +62,11 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
   NDEF offset, configuration fields, hex/ASCII, write feedback, and
   `Write page…`. PWD/PACK are labeled write-only.
 - User-page writes use the ordinary confirmation. Advanced pages require
-  Advanced mode and the typed `I_OWN_THIS_CARD` phrase.
+  Advanced mode and the destructive confirmation dialog.
 - Protection: parsed configuration, a page-list lock form with exact
   static/dynamic lock byte preview, and AUTH0/ACCESS/PWD/PACK fields. Lock,
-  password, restore, and Advanced page writes use the typed phrase.
+  password, restore, and Advanced page writes use the destructive confirmation
+  dialog.
 - Restore defaults to user memory; configuration, capability container, and
   lock bytes are opt-in. The live tag is backed up before the restore.
 - Advanced mode is off by default and resets on card read, reader change,
@@ -212,7 +213,8 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
   select and copy a field directly. Other binary media payloads render as hex;
   they are never passed through a lossy UTF-8 preview.
 - Unformatted cards state that Format is required before writing. A Type 2
-  format is destructive, removes proprietary TLVs, and uses the typed phrase.
+  format is destructive, removes proprietary TLVs, and uses the confirmation
+  dialog.
 - Type 2 write is refused for a partial data area, read-only CC, locked data
   page, password-protected data page, capacity overflow, or an unchanged
   message. The service preserves other TLVs on a write.

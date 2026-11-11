@@ -55,7 +55,7 @@ The implemented screen contract is
 - Protection: static/dynamic locks, AUTH0/ACCESS/CFGLCK/AUTHLIM, lock form,
   and password form.
 - Type 2 Advanced writes, locks, password configuration, and NDEF format
-  require confirmation; lock/config/password use typed confirmation.
+  require confirmation; lock/config/password use the same destructive dialog.
 - Classic NDEF: MAD/CC/sector mapping from phase 10 is presented as its own
   screen.
 - Recovery, Diagnostics, Activity, and Settings are first-class shell screens.
@@ -66,7 +66,7 @@ The implemented screen contract is
 - [03-workbench.html](03-workbench.html) is the current expanded workbench
   prototype. It covers the reader/card shell, Classic blocks, Classic NDEF,
   diff, keys, native recovery, Type 2 memory, NDEF, protection, diagnostics,
-  activity, and typed confirmation flows. It is a design sample, not a second
+  activity, and confirmation flows. It is a design sample, not a second
   implementation. The sample keeps English copy and shows the language-switch
   placement. Phase 18 added the complete `zh-CN` catalog and the persistent
   workbench shell.

@@ -42,7 +42,7 @@ Date: 2026-11-09
     `NFC_FOUNDRY_HARDWARE_KEY`, `NFC_FOUNDRY_HARDWARE_KEY_TYPE`, and `NFC_FOUNDRY_HARDWARE_BLOCK`,
     or reads Type 2 pages with a raw `READ` command;
   - a same-value Classic write behind the `hardware-write` feature and
-    `NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD`, refusing block 0 and sector trailers
+    `NFC_FOUNDRY_HARDWARE_WRITE=yes`, refusing block 0 and sector trailers
     and verifying read-back.
 
 ## Tested
@@ -154,7 +154,7 @@ Date: 2026-11-09
 - The physical disconnect path is covered by scripted tests only; a hardware
   unplug/replug run remains for the release hardware matrix.
 - The same-value write test needs explicit
-  `NFC_FOUNDRY_HARDWARE_WRITE=I_OWN_THIS_CARD` authorization.
+  `NFC_FOUNDRY_HARDWARE_WRITE=yes` authorization.
 - ACR122U USB/CCID remains a stub.
 - Classic geometry, workflows, recovery, and NDEF build on this driver in later
   phases.

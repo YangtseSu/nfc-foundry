@@ -838,7 +838,7 @@ keys! {
     RestoreImageAction => ("Restore image…", "恢复写入镜像…"),
     RestoreImageActionShort => ("Restore image", "恢复写入镜像"),
     RestoreSelectiveNote => (
-        "Restore writes only the selected page classes after the typed confirmation.",
+        "Restore writes only the selected page classes after the confirmation dialog.",
         "恢复写入仅在输入确认短语后写入所选页类别。"
     ),
     MemoryTab => ("Memory", "存储"),
@@ -866,7 +866,7 @@ keys! {
     WritePageShort => ("Write page", "写入页"),
     WriteAdvancedPageQuestion => ("Write an Advanced Type 2 page?", "写入高级 Type 2 页？"),
     PageWriteNote => (
-        "User pages are backed up and read back. Advanced pages need Advanced mode and the typed confirmation.",
+        "User pages are backed up and read back. Advanced pages need Advanced mode and a confirmation dialog.",
         "用户页写入前备份并写入后回读。高级页需要高级模式和输入确认短语。"
     ),
     PageNotReadableReadAgain => ("This page was not readable; read the tag again.", "此页不可读；请重新读取标签。"),
@@ -1507,7 +1507,6 @@ keys! {
 
     // Settings field values and dialog labels.
     DialogConfirm => ("Confirm", "确认"),
-    TypeTokenHint => ("Type {token} to enable the action.", "输入 {token} 以启用该操作。"),
     CancelResponse => ("Cancel", "取消"),
     SaveResponse => ("Choose file…", "选择文件…"),
 
@@ -1682,7 +1681,7 @@ keys! {
     ClassicUidWrite => ("Write UID…", "写入 UID…"),
     ClassicUidPlaceholder => ("Target UID, e.g. 04A2248A", "目标 UID，例如 04A2248A"),
     ClassicUidNote => (
-        "UID writes need Advanced mode, a magic CUID/Gen2 Classic 1K card, a sector-0 backup, and an exact typed confirmation. An ordinary card refuses the write unchanged.",
+        "UID writes need Advanced mode, a magic CUID/Gen2 Classic 1K card, a sector-0 backup, and a confirmation dialog. An ordinary card refuses the write unchanged.",
         "UID 写入需要高级模式、魔术 CUID/Gen2 Classic 1K 卡、扇区 0 备份以及精确输入确认。普通卡会拒绝写入且数据不变。"
     ),
     ClassicUidAdvancedRequired => (

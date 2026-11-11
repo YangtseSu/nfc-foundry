@@ -48,19 +48,19 @@ action bar           status · detail · last backup · Scan keys · Read card
 ## Safety
 
 - Block 0 is read-only in the ordinary editor. The separate Advanced-mode UID
-  action requires a live four-byte-UID Classic 1K image, a one-shot plan, an
-  exact typed target UID, a sector-0 backup, and post-write reselect and
-  verification. An ordinary card refuses the write unchanged.
-- A sector trailer opens the typed confirmation dialog and names the block and
-  sector.
-- Restore opens the typed dialog with the image layout and UID; the safe stop
+  action requires a live four-byte-UID Classic 1K image, a one-shot plan, a
+  destructive confirmation dialog, a sector-0 backup, and post-write reselect
+  and verification. An ordinary card refuses the write unchanged.
+- A sector trailer opens the confirmation dialog and names the block and sector.
+- Restore opens the plan dialog with the image layout and UID; the safe stop
   policy is the default, and the CLI continue policy is exposed as a checkbox.
-- Classic NDEF format uses the typed dialog and the pre-write backup.
+- Classic NDEF format uses the confirmation dialog and the pre-write backup.
 - Recovery authenticates only, exposes cancel, logs every phase and verified key in one scrollable pane, and keeps the save action in the footer.
 - The status bar shows the last backup path after a mutation.
 
 ## Tests
 
 `crates/gui/nfc-foundry/tests/ui.rs` covers read, block selection, inspector
-state, diff after a second read, key add, screen navigation, the trailer typed
-dialog, the block 0 refusal, settings persistence, and language switching.
+state, diff after a second read, key add, screen navigation, the trailer
+confirmation dialog, the block 0 refusal, settings persistence, and language
+switching.

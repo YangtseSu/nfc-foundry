@@ -35,13 +35,13 @@ action bar           status · detail · last backup · Read card
 - Locked page: the inspector explains that the page cannot be written.
 - PWD/PACK pages never read back; the inspector says so.
 - Advanced actions: the dialog names the card identity, pages, old/new values,
-  backup, and read-back plan, and requires `I_OWN_THIS_CARD`.
+  backup, and read-back plan, and requires an explicit destructive confirmation.
 
 ## Safety
 
 - User memory is the default write scope.
 - Lock, configuration, password, restore, Advanced page writes, and Type 2 NDEF
-  format require Advanced mode and the typed dialog.
+  format require Advanced mode and the destructive confirmation dialog.
 - Every mutation passes the session `CardInfo` as the expected identity; a card
   change is refused before the backup or card I/O.
 - Advanced mode resets on card read, reader change, refresh, and loaded dump.

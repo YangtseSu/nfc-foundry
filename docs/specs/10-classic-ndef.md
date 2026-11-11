@@ -84,8 +84,8 @@ not invent an `E1 10` capability container on a Classic card.
 
 ## Safety
 
-- Formatting changes sector keys and access bits. It requires the typed
-  confirmation token, a complete read, and an atomic project backup.
+- Formatting changes sector keys and access bits. It requires the destructive
+  confirmation dialog, a complete read, and an atomic project backup.
 - Manufacturer block 0 is never written. The UID/BCC/ATQA/SAK are rechecked
   after every mutation.
 - NDEF writes never replace a sector trailer.

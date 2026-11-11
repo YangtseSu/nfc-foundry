@@ -697,7 +697,7 @@ Detailed plan: [19c-type2-type4.md](19c-type2-type4.md). Spec:
 [19c-type2-type4.md](../specs/19c-type2-type4.md). Status: complete 2026-11-11.
 The service read returns card identity, all Type 2 mutations take an expected
 `CardInfo`, and `Service::read_card` dispatches Classic/Type 2 from one
-selection. The GUI adds Type 2 Memory/Protection, Advanced and typed
+selection. The GUI adds Type 2 Memory/Protection, Advanced page and destructive
 confirmations, lock/password forms, dump/restore, and Type 2 NDEF write/format.
 CC writes keep the product and refresh the parsed CC. Type 4 remains out of the
 UI and CLI because no hardware record exists. See

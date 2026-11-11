@@ -40,7 +40,7 @@ corrected accordingly.
   and available keys, saves a project backup, writes the length field as zero,
   writes the value and Terminator, writes the final length field, verifies each
   block by read-back, checks card identity, and re-reads the mapping.
-- Format requires `I_OWN_THIS_CARD`, a complete read, key availability for every
+- Format requires a destructive confirmation, a complete read, key availability for every
   data block and trailer, a project backup, and a final full read. Data blocks
   are written before trailers. After each trailer write the workflow
   re-authenticates with the new public Key A before reading the block back, so
@@ -53,7 +53,7 @@ corrected accordingly.
 ### CLI and GUI
 
 `nfctl classic ndef info|read|write|format` shares the same services. Format
-requires the typed token; read-only format is a flag. The Text and URI message
+requires the confirmation; read-only format is a flag. The Text and URI message
 sources match the Type 2 `nfctl ndef` command.
 
 The GPUI Kit Classic workspace has a NDEF tab showing mapping, sector list,

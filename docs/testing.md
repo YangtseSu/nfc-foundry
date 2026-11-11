@@ -124,7 +124,7 @@ card change before execution, token reuse and expiry, and an immutable-UID
 card that changes nothing. `nfctl` covers the Advanced and confirmation gates,
 dry run, invalid UID input, and a successful mock write with reselect evidence.
 The GTK scenario covers the Advanced switch, the target dialog, cancel, the
-typed UID plan, and the automatic re-read. The hardware UID test is
+plan dialog, and the automatic re-read. The hardware UID test is
 environment-gated and has no recorded run yet.
 
 The phase 10 Classic NDEF tests are hardware-free. `nfc-classic-ndef` covers

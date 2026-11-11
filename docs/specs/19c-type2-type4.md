@@ -29,8 +29,8 @@ phase adds no Type 4 command or surface.
 - Every Type 2 mutation request carries an optional expected `CardInfo`. The
   service compares it with the selected card after cancellation/confirmation
   and before the read, backup, or card I/O; a mismatch is `CardChanged`.
-- Advanced page writes, lock, password, restore, and NDEF format require the
-  typed `I_OWN_THIS_CARD` phrase. The response handler rechecks the phrase.
+- Advanced page writes, lock, password, restore, and NDEF format require a
+  destructive confirmation dialog. The handler requires the confirmation response.
 - The service owns backups, read-back verification, and card identity. The GUI
   reports the backup path.
 - A locked data page blocks NDEF write and format before the backup. A

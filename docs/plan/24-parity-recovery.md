@@ -122,7 +122,7 @@ Deliver:
   Gen1A as the first protected-writer backend.
 - 4-byte UID MIFARE Classic 1K only. The service verifies sector 0 access
   conditions, the current block-0 UID/BCC, and the target UID's BCC.
-- Exact typed UID confirmation, explicit Advanced-mode requirement, and a
+- Destructive plan confirmation, explicit Advanced-mode requirement, and a
   pre-write backup record containing the old and new block 0.
 - `nfctl classic uid` and the GTK dialog use the same service.
 - PN532 Gen1A is not advertised by this slice unless a native PN532

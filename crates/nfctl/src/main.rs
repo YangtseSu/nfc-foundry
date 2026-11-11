@@ -12,7 +12,7 @@ use nfc_app::classic::{
     ClassicNdefRead, ClassicNdefWrite, ClassicRead, ClassicUidExecution, ClassicUidPlan,
     ClassicUidPreflight, ClassicWriteExecution, ClassicWritePlan, ClassicWritePreflight, KeyEntry,
     KeyKind, KeySource, KeyStore, KeyTypes, RestoreSelection, common_keys, format_uid,
-    normalize_uid_text, parse_block_list, parse_uid,
+    parse_block_list, parse_uid,
 };
 use nfc_app::type2::{
     Type2Format, Type2Lock, Type2NdefWrite, Type2PageWrite, Type2Password, Type2Restore,
@@ -943,7 +943,7 @@ fn classic_uid(
         println!("dry run: no card writes were performed");
         return Ok(());
     }
-    require_uid_confirmation(cli.yes, &target)?;
+    require_confirmation(cli.yes, "changing the manufacturer block 0 UID")?;
     let result = service.classic_uid_execute(
         ClassicUidExecution::new(plan.token, &keys, &backup)
             .include_common_keys(!cli.no_common_keys)
@@ -1007,32 +1007,6 @@ fn print_uid_plan(plan: &ClassicUidPlan) {
     println!("  new {}", hex_bytes(&plan.new_block0));
     for warning in &plan.warnings {
         eprintln!("warning: {warning}");
-    }
-}
-
-fn require_uid_confirmation(yes: bool, uid: &[u8; 4]) -> Result<()> {
-    if yes {
-        return Ok(());
-    }
-    let stdin = io::stdin();
-    if !stdin.is_terminal() {
-        return Err(NfcError::InvalidArgument(
-            "a UID change needs confirmation; pass --yes".to_owned(),
-        ));
-    }
-    let expected = format_uid(uid);
-    eprint!("Type the target UID {expected} to confirm the manufacturer-block write: ");
-    io::stderr()
-        .flush()
-        .map_err(|error| NfcError::Io(error.to_string()))?;
-    let mut answer = String::new();
-    stdin
-        .read_line(&mut answer)
-        .map_err(|error| NfcError::Io(error.to_string()))?;
-    if normalize_uid_text(&answer) == expected {
-        Ok(())
-    } else {
-        Err(NfcError::Cancelled)
     }
 }
 

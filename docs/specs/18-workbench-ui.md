@@ -82,8 +82,8 @@ the preference when a path exists.
 - Locked pages and manufacturer pages stay disabled.
 - A read-only capability container blocks NDEF writes and formats.
 - Trailer writes, Classic NDEF format, Type 2 Advanced pages, locks, password
-  configuration, restores, and Type 2 format require the typed dialog token
-  `I_OWN_THIS_CARD`.
+  configuration, restores, and Type 2 format require a destructive confirmation
+  dialog that names the target, old/new state, backup, and read-back plan.
 - Every mutation keeps the service-level backup, read-back, and card-identity
   checks unchanged.
 - Recovery authenticates only and exposes cancel plus the verified result.

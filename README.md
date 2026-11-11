@@ -53,14 +53,14 @@ LE OOB, and DPP templates; and message/TLV capacity checks. The Type 2 / NTAG
 adapter is implemented: CC and product layouts, static/dynamic locks, NTAG
 configuration, project dumps, NDEF TLV preservation, and verified page and
 NDEF writes over both readers. `nfctl type2|ndef` uses the shared `nfc-app`
-services, with backups, read-back verification, and typed confirmations for
+services, with backups, read-back verification, and confirmation dialogs for
 one-way locks and configuration. A PN532 UART
 NTAG215 read plus authorized NDEF write/read/restore round trip is recorded for
 2026-11-10; the ACR122U record and lock/password paths remain pending. The read
 path was validated earlier on both readers. Classic NDEF maps NDEF onto MAD1,
 MAD2, and NFC sectors: the adapter parses the directory and per-sector GPB,
 reads and writes the mandatory NDEF Message TLV with access checks, and formats
-a blank card after a typed confirmation and backup. `nfctl classic ndef` uses
+a blank card after a confirmation and backup. `nfctl classic ndef` uses
 the same services. The Classic mapping has no capability-container record; the
 GPB carries the mapping version and access state. The GPUI Kit shell was
 removed on `feat/gtk4-ui`. The GTK4 workbench in `crates/gui` provides the
@@ -366,8 +366,8 @@ with format selection, Keys, Key scan, Recovery, Diff, Restore, a family-aware
 NDEF composer with verified write and format, Type 2 Memory/Protection, and
 Diagnostics/Activity/Settings screens. A Type 2 read shows page roles, locks,
 CC, configuration, and NDEF state; user pages and Advanced pages use the
-service write path, and locks/password/restore/format require the typed
-confirmation. Writes, restores, and NDEF mutations pass the loaded image's card
+service write path, and locks/password/restore/format require the destructive confirmation
+dialog. Writes, restores, and NDEF mutations pass the loaded image's card
 identity to the service and are refused with `CardChanged` before any backup if
 the live card differs. Key scan authenticates candidates per sector and merges
 only on request. Recovery exposes every native strategy with acquisition,

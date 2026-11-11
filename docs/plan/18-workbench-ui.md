@@ -127,7 +127,7 @@ the same paths.
 3. **M2** — Classic/Type 2 NDEF, Diff, Keys; dump/restore formats, key import,
    raw NDEF/URI writes.
 4. **M3** — Recovery, Diagnostics, Activity; recovery progress and cancel.
-5. **M4** — Protection, Settings, typed confirmation/action plan, icon/desktop,
+5. **M4** — Protection, Settings, confirmation/action plan, icon/desktop,
    complete `zh-CN` coverage, keyboard/accessibility.
 6. **M5** — remove old UI code/tests/contracts, update docs, run checks and
    package validation.

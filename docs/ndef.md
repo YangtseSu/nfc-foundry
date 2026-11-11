@@ -82,7 +82,7 @@ Safety:
 
 - Default to user-memory reads and writes.
 - Lock bytes, configuration, PWD/PACK, AUTH0/ACCESS, CFGLCK, and the CC are
-  Advanced and need typed confirmation.
+  Advanced and need confirmation.
 - Full-image project backup before the first change.
 - A lock update may set bits but never clear them.
 - PWD/PACK writes are verified with PWD_AUTH; secrets are not logged.

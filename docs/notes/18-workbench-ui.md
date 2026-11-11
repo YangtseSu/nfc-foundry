@@ -41,8 +41,8 @@ Run on 2026-11-10:
 - `cargo test -p nfc-foundry` — 8 shell/UI tests and 3 unit tests passed.
   Covered: Classic read and screen navigation, diff after a second read, key
   add and settings persistence, language switch and `ui.json`, Type 2 read and
-  page selection, Advanced page typed dialog and Escape dismissal, trailer
-  typed dialog, block 0 refusal, and settings reset.
+  page selection, Advanced page confirmation dialog and Escape dismissal, trailer
+  confirmation dialog, block 0 refusal, and settings reset.
 - `cargo test -p nfctl --test cli help_and_errors_stay_english_under_a_chinese_locale`
   passed.
 - `desktop-file-validate resources/nfc-foundry.desktop` passed, including the
@@ -164,7 +164,7 @@ Changes:
 Verification on 2026-11-10:
 
 - `cargo test -p nfc-foundry --test ui` — 12 tests pass, including automatic
-  Type 2 routing without a domain click, the trailer typed dialog after an
+  Type 2 routing without a domain click, the trailer confirmation dialog after an
   edited trailer, the unchanged-write refusal, block 0 refusal, settings,
   language, and reader-menu click-through.
 - The GUI was rendered on a private `Xvfb :99` display with the real GNOME
