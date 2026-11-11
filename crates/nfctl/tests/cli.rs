@@ -4,15 +4,19 @@ use std::path::Path;
 use std::process::{Command, Output};
 
 fn nfctl(args: &[&str]) -> Output {
+    let config = tempfile::tempdir().expect("config dir");
     Command::new(env!("CARGO_BIN_EXE_nfctl"))
         .args(args)
+        .env("XDG_CONFIG_HOME", config.path())
         .output()
         .expect("run nfctl")
 }
 
 fn nfctl_chinese_locale(args: &[&str]) -> Output {
+    let config = tempfile::tempdir().expect("config dir");
     Command::new(env!("CARGO_BIN_EXE_nfctl"))
         .args(args)
+        .env("XDG_CONFIG_HOME", config.path())
         .env("LANG", "zh_CN.UTF-8")
         .env("LC_ALL", "zh_CN.UTF-8")
         .env("LC_MESSAGES", "zh_CN.UTF-8")
@@ -438,8 +442,97 @@ fn dump_auto_uses_pm3_raw_and_keys_export_round_trips() {
     ]);
     assert_success(&output);
     let json: serde_json::Value = serde_json::from_str(&stdout(&output)).expect("json");
-    assert_eq!(json["version"], 1);
+    assert_eq!(json["version"], 2);
     assert_eq!(json["keys"][0]["key"], "A0A1A2A3A4A5");
+}
+
+#[test]
+fn read_and_project_dump_preserve_verified_keys() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let store = directory.path().join("keys.json");
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "--key-store",
+        store.to_str().expect("path"),
+        "classic",
+        "read",
+        "--block",
+        "4",
+    ]);
+    assert_success(&output);
+    assert!(
+        stdout(&output).contains("captured 1 key(s)"),
+        "{}",
+        stdout(&output)
+    );
+    let json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&store).expect("store")).expect("json");
+    assert_eq!(json["version"], 2);
+    assert_eq!(json["verifications"][0]["card"], "04A2248A/0004/08");
+    assert_eq!(json["verifications"][0]["sector"], 1);
+
+    let project = directory.path().join("card.nfc-foundry.json");
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "--key-store",
+        store.to_str().expect("path"),
+        "classic",
+        "dump",
+        "--format",
+        "project",
+        "--output",
+        project.to_str().expect("path"),
+    ]);
+    assert_success(&output);
+    let json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&project).expect("project"))
+            .expect("project json");
+    assert_eq!(json["version"], 2);
+    assert_eq!(json["device"], "mock:classic-1k");
+    assert!(json["keys"].as_array().is_some_and(|keys| keys.len() == 16));
+    assert_eq!(json["keys"][0]["source"], "common");
+}
+
+#[test]
+fn key_import_reports_bad_lines_and_keeps_valid_keys() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let file = directory.path().join("keys.dic");
+    std::fs::write(
+        &file,
+        "A0A1A2A3A4A5\n\
+         not-a-key\n\
+         FFFFFFFFFFFF\n\
+         FFFFFFFFFFFF\n",
+    )
+    .expect("dictionary");
+    let store = directory.path().join("keys.json");
+    let output = nfctl(&[
+        "classic",
+        "keys",
+        "import",
+        file.to_str().expect("path"),
+        "--key-store",
+        store.to_str().expect("path"),
+    ]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("imported 2 key(s)"), "{text}");
+    assert!(text.contains("1 duplicate"), "{text}");
+    assert!(text.contains("1 issue"), "{text}");
+    let output = nfctl(&[
+        "classic",
+        "keys",
+        "list",
+        "--key-store",
+        store.to_str().expect("path"),
+    ]);
+    assert_success(&output);
+    assert!(stdout(&output).contains("A0A1A2A3A4A5"));
+    assert!(stdout(&output).contains("FFFFFFFFFFFF"));
 }
 
 #[test]

@@ -20,8 +20,9 @@ impl Service {
     ) -> Result<RecoveryResult> {
         let cancel = request.cancel.clone();
         let mut operation = self.begin_operation(OperationKind::Recovery, cancel)?;
-        let result = nfc_recover::recover(operation.reader_mut(), strategy, &request)?;
+        let mut result = nfc_recover::recover(operation.reader_mut(), strategy, &request)?;
         operation.check_card()?;
+        result.card = Some(operation.card().clone());
         Ok(result)
     }
 }

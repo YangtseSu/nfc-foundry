@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
-use nfc_classic::{BlockStatus, Dump, DumpFormat, Layout, exchange};
+use nfc_classic::{BlockStatus, Dump, DumpFormat, DumpKey, DumpMetadata, Layout, exchange};
+use nfc_core::{Key, KeyType};
 use serde_json::json;
 
 fn complete_dump(layout: Layout) -> Dump {
@@ -31,11 +32,87 @@ fn project_round_trip_preserves_partial_state() {
 }
 
 #[test]
+fn project_round_trip_preserves_keys_device_and_times() {
+    let mut dump = complete_dump(Layout::Classic1K);
+    dump.metadata = DumpMetadata {
+        device: Some("pn532_uart:/dev/ttyUSB0".to_owned()),
+        started_at: Some(1_762_819_200),
+        finished_at: Some(1_762_819_205),
+        keys: vec![
+            DumpKey {
+                sector: 0,
+                key_type: KeyType::A,
+                key: Key::from_hex("FFFFFFFFFFFF").expect("key"),
+                source: Some("read_context".to_owned()),
+            },
+            DumpKey {
+                sector: 1,
+                key_type: KeyType::B,
+                key: Key::from_hex("A0A1A2A3A4A5").expect("key"),
+                source: Some("recovery".to_owned()),
+            },
+        ],
+    };
+    assert_eq!(DumpFormat::Auto.resolve(&dump), DumpFormat::Raw);
+    let encoded = exchange::export(&dump, DumpFormat::Project).expect("project export");
+    let text = String::from_utf8_lossy(&encoded);
+    assert!(text.contains("\"device\": \"pn532_uart:/dev/ttyUSB0\""));
+    assert!(text.contains("\"startedAt\": 1762819200"));
+    assert!(text.contains("\"source\": \"read_context\""));
+    let loaded = exchange::load_as(&encoded, DumpFormat::Project).expect("project import");
+    assert_eq!(loaded.dump.metadata, dump.metadata);
+    assert_eq!(
+        DumpFormat::Auto.resolve(&complete_dump(Layout::Classic1K)),
+        DumpFormat::Raw
+    );
+}
+
+#[test]
+fn version_one_project_loads_with_empty_metadata() {
+    let dump = complete_dump(Layout::Classic1K);
+    let encoded = exchange::export(&dump, DumpFormat::Project).expect("project export");
+    let text =
+        String::from_utf8(encoded)
+            .expect("utf-8")
+            .replacen("\"version\": 2", "\"version\": 1", 1);
+    let loaded = exchange::load_as(text.as_bytes(), DumpFormat::Project).expect("v1 import");
+    assert_eq!(loaded.dump.metadata, DumpMetadata::default());
+    assert_eq!(loaded.dump, dump);
+}
+
+#[test]
+fn project_key_metadata_is_validated() {
+    let dump = complete_dump(Layout::Classic1K);
+    let encoded = exchange::export(&dump, DumpFormat::Project).expect("project export");
+    let text = String::from_utf8(encoded).expect("utf-8");
+    for key in [
+        json!({"sector": 16, "type": "A", "key": "FFFFFFFFFFFF"}),
+        json!({"sector": 0, "type": "C", "key": "FFFFFFFFFFFF"}),
+        json!({"sector": 0, "type": "A", "key": "FFFFFFFF"}),
+    ] {
+        let mut value: serde_json::Value = serde_json::from_str(&text).expect("json");
+        value["keys"] = json!([key]);
+        let tampered = serde_json::to_string(&value).expect("json");
+        assert!(
+            exchange::load_as(tampered.as_bytes(), DumpFormat::Project).is_err(),
+            "{tampered}"
+        );
+    }
+    let mut value: serde_json::Value = serde_json::from_str(&text).expect("json");
+    value["keys"] = json!([
+        {"sector": 0, "type": "A", "key": "FFFFFFFFFFFF"},
+        {"sector": 0, "type": "A", "key": "000000000000"}
+    ]);
+    let tampered = serde_json::to_string(&value).expect("json");
+    assert!(exchange::load_as(tampered.as_bytes(), DumpFormat::Project).is_err());
+}
+
+#[test]
 fn duplicate_json_keys_are_rejected() {
     let dump = complete_dump(Layout::Classic1K);
     let encoded = exchange::export(&dump, DumpFormat::Project).expect("project export");
     let text = String::from_utf8(encoded).expect("utf-8");
-    let tampered = text.replacen("\"version\": 1,", "\"version\": 1,\n  \"version\": 1,", 1);
+    let tampered = text.replacen("\"version\": 2,", "\"version\": 2,\n  \"version\": 2,", 1);
     assert!(exchange::load(tampered.as_bytes()).is_err());
 }
 
@@ -46,7 +123,7 @@ fn project_structural_errors_are_rejected() {
     let text = String::from_utf8(encoded).expect("utf-8");
 
     let cases = [
-        text.replacen("\"version\": 1", "\"version\": 2", 1),
+        text.replacen("\"version\": 2", "\"version\": 3", 1),
         text.replacen(
             "\"layout\": \"classic_1k\"",
             "\"layout\": \"classic_mini\"",

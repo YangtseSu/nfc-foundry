@@ -2,12 +2,14 @@
 
 use std::path::{Path, PathBuf};
 
-use nfc_core::{Key, KeyType, NfcError, Result};
+use nfc_classic::DumpKey;
+use nfc_core::{CardInfo, Key, KeyType, NfcError, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::fsutil::{read_text, write_atomic};
 
-const STORE_VERSION: u32 = 1;
+const STORE_VERSION: u32 = 2;
+const STORE_MIN_VERSION: u32 = 1;
 const MAX_SECTOR: usize = 39;
 
 /// Well-known factory and common keys. They are authentication candidates
@@ -137,6 +139,7 @@ pub enum KeySource {
     KeyScan,
     Recovery,
     Common,
+    ReadContext,
 }
 
 impl KeySource {
@@ -147,18 +150,71 @@ impl KeySource {
             Self::KeyScan => "scan",
             Self::Recovery => "recovery",
             Self::Common => "common",
+            Self::ReadContext => "read",
         }
     }
 
-    fn stored(self) -> &'static str {
+    pub const fn stored(self) -> &'static str {
         match self {
             Self::Manual => "manual",
             Self::KeyFile => "key_file",
             Self::KeyScan => "key_scan",
             Self::Recovery => "recovery",
             Self::Common => "common",
+            Self::ReadContext => "read_context",
         }
     }
+
+    pub fn parse(value: &str) -> Result<Self> {
+        match value.trim().to_ascii_lowercase().replace('-', "_").as_str() {
+            "" | "manual" => Ok(Self::Manual),
+            "key_file" | "file" => Ok(Self::KeyFile),
+            "key_scan" | "scan" => Ok(Self::KeyScan),
+            "recovery" => Ok(Self::Recovery),
+            "common" => Ok(Self::Common),
+            "read_context" | "read" => Ok(Self::ReadContext),
+            other => Err(NfcError::InvalidArgument(format!(
+                "unknown key source {other:?}"
+            ))),
+        }
+    }
+}
+
+/// A key that authenticated a sector during a read or scan. The key is not a
+/// persistent record; `KeyStore::record_verified` assigns card and time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AuthenticatedKey {
+    pub sector: usize,
+    pub key_type: KeyType,
+    pub key: Key,
+    pub source: KeySource,
+}
+
+/// Card-scoped key verification. One record exists per card, sector, and key
+/// type.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct KeyVerification {
+    pub sector: usize,
+    pub key_type: KeyType,
+    pub key: Key,
+    pub source: KeySource,
+    pub verified_at: u64,
+}
+
+/// Non-fatal issue found while importing a key file.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeyImportIssue {
+    pub line: usize,
+    pub message: String,
+}
+
+/// Result of importing a key file. Malformed entries do not abort the import.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct KeyImportReport {
+    pub added: usize,
+    pub duplicates: usize,
+    pub ignored: usize,
+    pub issues: Vec<KeyImportIssue>,
 }
 
 /// One key entry. A missing sector applies the key to every sector.
@@ -190,10 +246,30 @@ impl KeyEntry {
 }
 
 /// In-memory key store with stable candidate ordering: explicit sector keys
-/// first, then wildcard keys, each in insertion order.
+/// first, then wildcard keys, each in insertion order. Verifications are
+/// card-scoped and survive storage.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct KeyStore {
     entries: Vec<KeyEntry>,
+    verifications: Vec<StoredVerificationRecord>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct StoredVerificationRecord {
+    card: String,
+    verification: KeyVerification,
+}
+
+/// Card identity used to scope key verifications.
+pub fn card_id(card: &CardInfo) -> String {
+    card.identity_key()
+}
+
+fn now_seconds() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 impl KeyStore {
@@ -230,8 +306,8 @@ impl KeyStore {
         write_atomic(path, &self.to_json()?)
     }
 
-    /// Internal JSON store as UTF-8 bytes, including sector, key type, and
-    /// provenance.
+    /// Internal JSON store as UTF-8 bytes, including sector, key type,
+    /// provenance, and card-scoped verifications.
     pub fn to_json(&self) -> Result<Vec<u8>> {
         let document = StoreDocument {
             version: STORE_VERSION,
@@ -243,6 +319,18 @@ impl KeyStore {
                     kind: entry.kind.stored().to_owned(),
                     key: entry.key.to_hex(),
                     source: entry.source.stored().to_owned(),
+                })
+                .collect(),
+            verifications: self
+                .verifications
+                .iter()
+                .map(|record| StoredVerification {
+                    card: record.card.clone(),
+                    sector: record.verification.sector,
+                    kind: record.verification.key_type.label().to_string(),
+                    key: record.verification.key.to_hex(),
+                    source: record.verification.source.stored().to_owned(),
+                    verified_at: record.verification.verified_at,
                 })
                 .collect(),
         };
@@ -267,10 +355,10 @@ impl KeyStore {
         let document: StoreDocument = serde_json::from_str(text).map_err(|error| {
             NfcError::InvalidArgument(format!("invalid key store JSON: {error}"))
         })?;
-        if document.version != STORE_VERSION {
+        if document.version < STORE_MIN_VERSION || document.version > STORE_VERSION {
             return Err(NfcError::InvalidArgument(format!(
-                "unsupported key store version {}; expected {STORE_VERSION}",
-                document.version
+                "unsupported key store version {}; expected {}..={STORE_VERSION}",
+                document.version, STORE_MIN_VERSION
             )));
         }
         let mut store = Self::default();
@@ -286,10 +374,58 @@ impl KeyStore {
             let key = Key::from_hex(&stored.key).map_err(|error| {
                 NfcError::InvalidArgument(format!("key store entry {index}: {error}"))
             })?;
-            let source = parse_source(&stored.source)?;
+            let source = KeySource::parse(&stored.source)?;
             store
                 .entries
                 .push(KeyEntry::new(stored.sector, kind, key, source));
+        }
+        for (index, stored) in document.verifications.into_iter().enumerate() {
+            let card = stored.card.trim().to_owned();
+            if card.is_empty() {
+                return Err(NfcError::InvalidArgument(format!(
+                    "key verification {index} has an empty card identity"
+                )));
+            }
+            if stored.sector > MAX_SECTOR {
+                return Err(NfcError::InvalidArgument(format!(
+                    "key verification {index} names sector {}, outside 0..={MAX_SECTOR}",
+                    stored.sector
+                )));
+            }
+            let key_type = match stored.kind.trim().to_ascii_uppercase().as_str() {
+                "A" => KeyType::A,
+                "B" => KeyType::B,
+                other => {
+                    return Err(NfcError::InvalidArgument(format!(
+                        "key verification {index} has key type {other:?}; use A or B"
+                    )));
+                }
+            };
+            let key = Key::from_hex(&stored.key).map_err(|error| {
+                NfcError::InvalidArgument(format!("key verification {index}: {error}"))
+            })?;
+            let source = KeySource::parse(&stored.source)?;
+            if store.verifications.iter().any(|record| {
+                record.card == card
+                    && record.verification.sector == stored.sector
+                    && record.verification.key_type == key_type
+            }) {
+                return Err(NfcError::InvalidArgument(format!(
+                    "key verification {index} repeats card {card} sector {} key {}",
+                    stored.sector,
+                    key_type.label()
+                )));
+            }
+            store.verifications.push(StoredVerificationRecord {
+                card,
+                verification: KeyVerification {
+                    sector: stored.sector,
+                    key_type,
+                    key,
+                    source,
+                    verified_at: stored.verified_at,
+                },
+            });
         }
         Ok(store)
     }
@@ -324,14 +460,14 @@ impl KeyStore {
     }
 
     /// Adds a wildcard key from a text key file.
-    pub fn import_text(&mut self, path: &Path) -> Result<usize> {
+    pub fn import_text(&mut self, path: &Path) -> Result<KeyImportReport> {
         let text = read_text(path)?;
         self.import_text_str(&text)
     }
 
     /// Imports a key file by content: JSON documents use the structured
     /// importer, everything else uses the Proxmark3 `.dic` text dialect.
-    pub fn import_text_str(&mut self, text: &str) -> Result<usize> {
+    pub fn import_text_str(&mut self, text: &str) -> Result<KeyImportReport> {
         if text.trim_start().starts_with('{') {
             return self.import_json_str(text);
         }
@@ -340,69 +476,125 @@ impl KeyStore {
 
     /// Imports Proxmark3 `.dic` text: one 12-hex key per line, blank lines and
     /// `#` comments accepted, inline comments allowed. Keys become wildcard
-    /// `any` entries.
-    pub fn import_dic_str(&mut self, text: &str) -> Result<usize> {
-        let mut added = 0;
+    /// `any` entries. Malformed lines are reported and skipped.
+    pub fn import_dic_str(&mut self, text: &str) -> Result<KeyImportReport> {
+        let mut report = KeyImportReport::default();
         for (index, line) in text.lines().enumerate() {
+            let line_number = index + 1;
             let line = line.split('#').next().unwrap_or("").trim();
             if line.is_empty() {
+                report.ignored += 1;
                 continue;
             }
             let mut fields = line.split_whitespace();
             let Some(hex) = fields.next() else {
+                report.ignored += 1;
                 continue;
             };
             if fields.next().is_some() {
-                return Err(NfcError::InvalidArgument(format!(
-                    "key file line {}: expected one 12-digit key per line",
-                    index + 1
-                )));
+                report.ignored += 1;
+                report.issues.push(KeyImportIssue {
+                    line: line_number,
+                    message: "expected one 12-digit key per line".to_owned(),
+                });
+                continue;
             }
-            let key = Key::from_hex(hex).map_err(|error| {
-                NfcError::InvalidArgument(format!("key file line {}: {error}", index + 1))
-            })?;
-            if self.add(KeyEntry::new(None, KeyKind::Any, key, KeySource::KeyFile))? {
-                added += 1;
+            let key = match Key::from_hex(hex) {
+                Ok(key) => key,
+                Err(error) => {
+                    report.ignored += 1;
+                    report.issues.push(KeyImportIssue {
+                        line: line_number,
+                        message: error.to_string(),
+                    });
+                    continue;
+                }
+            };
+            match self.add(KeyEntry::new(None, KeyKind::Any, key, KeySource::KeyFile)) {
+                Ok(true) => report.added += 1,
+                Ok(false) => report.duplicates += 1,
+                Err(error) => {
+                    report.ignored += 1;
+                    report.issues.push(KeyImportIssue {
+                        line: line_number,
+                        message: error.to_string(),
+                    });
+                }
             }
         }
-        Ok(added)
+        Ok(report)
     }
 
     /// Import a JSON key file. Accepts the previous application's
     /// `{"keys":[{"value":"…"}]}` document and this store's own schema;
     /// sector/type/provenance are preserved when present.
-    pub fn import_json_str(&mut self, text: &str) -> Result<usize> {
+    pub fn import_json_str(&mut self, text: &str) -> Result<KeyImportReport> {
         let document: ImportDocument = serde_json::from_str(text)
             .map_err(|error| NfcError::InvalidArgument(format!("invalid key JSON: {error}")))?;
+        let mut report = KeyImportReport::default();
         if document.keys.is_empty() {
-            return Err(NfcError::InvalidArgument(
-                "the JSON key file contains no keys".to_owned(),
-            ));
+            report.issues.push(KeyImportIssue {
+                line: 0,
+                message: "the JSON key file contains no keys".to_owned(),
+            });
+            return Ok(report);
         }
-        let mut added = 0;
         for (index, stored) in document.keys.into_iter().enumerate() {
-            let hex = stored.value.or(stored.key).ok_or_else(|| {
-                NfcError::InvalidArgument(format!("key {index}: missing value or key"))
-            })?;
-            let kind = stored
-                .kind
-                .as_deref()
-                .map(KeyKind::parse)
-                .transpose()?
-                .unwrap_or(KeyKind::Any);
-            let source = stored
-                .source
-                .as_deref()
-                .map(parse_source)
-                .transpose()?
-                .unwrap_or(KeySource::KeyFile);
-            let key = Key::from_hex(&hex)
-                .map_err(|error| NfcError::InvalidArgument(format!("key {index}: {error}")))?;
-            if self.add(KeyEntry::new(stored.sector, kind, key, source))? {
-                added += 1;
+            let line = index + 1;
+            let Some(hex) = stored.value.or(stored.key) else {
+                report.ignored += 1;
+                report.issues.push(KeyImportIssue {
+                    line,
+                    message: "missing value or key".to_owned(),
+                });
+                continue;
+            };
+            let kind = match stored.kind.as_deref().map(KeyKind::parse).transpose() {
+                Ok(kind) => kind.unwrap_or(KeyKind::Any),
+                Err(error) => {
+                    report.ignored += 1;
+                    report.issues.push(KeyImportIssue {
+                        line,
+                        message: error.to_string(),
+                    });
+                    continue;
+                }
+            };
+            let source = match stored.source.as_deref().map(KeySource::parse).transpose() {
+                Ok(source) => source.unwrap_or(KeySource::KeyFile),
+                Err(error) => {
+                    report.ignored += 1;
+                    report.issues.push(KeyImportIssue {
+                        line,
+                        message: error.to_string(),
+                    });
+                    continue;
+                }
+            };
+            let key = match Key::from_hex(&hex) {
+                Ok(key) => key,
+                Err(error) => {
+                    report.ignored += 1;
+                    report.issues.push(KeyImportIssue {
+                        line,
+                        message: error.to_string(),
+                    });
+                    continue;
+                }
+            };
+            match self.add(KeyEntry::new(stored.sector, kind, key, source)) {
+                Ok(true) => report.added += 1,
+                Ok(false) => report.duplicates += 1,
+                Err(error) => {
+                    report.ignored += 1;
+                    report.issues.push(KeyImportIssue {
+                        line,
+                        message: error.to_string(),
+                    });
+                }
             }
         }
-        Ok(added)
+        Ok(report)
     }
 
     /// Candidate keys for a sector, with the key types that may be tried.
@@ -427,6 +619,152 @@ impl KeyStore {
             }
         }
         candidates
+    }
+
+    /// Candidate keys for one card and sector, with provenance. Verified keys
+    /// for this card come first, then stored sector entries and wildcards.
+    pub fn candidates_for_card(
+        &self,
+        card: &CardInfo,
+        sector: usize,
+    ) -> Vec<(KeyType, Key, KeySource)> {
+        let card = card_id(card);
+        let mut candidates = Vec::new();
+        for record in &self.verifications {
+            if record.card != card || record.verification.sector != sector {
+                continue;
+            }
+            let candidate = (
+                record.verification.key_type,
+                record.verification.key,
+                record.verification.source,
+            );
+            if !candidates.iter().any(|entry: &(KeyType, Key, KeySource)| {
+                entry.0 == candidate.0 && entry.1 == candidate.1
+            }) {
+                candidates.push(candidate);
+            }
+        }
+        for sector_specific in [true, false] {
+            for entry in &self.entries {
+                let applies = if sector_specific {
+                    entry.sector == Some(sector)
+                } else {
+                    entry.sector.is_none()
+                };
+                if !applies {
+                    continue;
+                }
+                for key_type in [KeyType::A, KeyType::B] {
+                    if !entry.kind.includes(key_type) {
+                        continue;
+                    }
+                    let candidate = (key_type, entry.key, entry.source);
+                    if !candidates.iter().any(|entry: &(KeyType, Key, KeySource)| {
+                        entry.0 == candidate.0 && entry.1 == candidate.1
+                    }) {
+                        candidates.push(candidate);
+                    }
+                }
+            }
+        }
+        candidates
+    }
+
+    /// Verification records for one card.
+    pub fn verifications_for(&self, card: &CardInfo) -> Vec<KeyVerification> {
+        let card = card_id(card);
+        self.verifications
+            .iter()
+            .filter(|record| record.card == card)
+            .map(|record| record.verification)
+            .collect()
+    }
+
+    /// Number of verified key slots for one card.
+    pub fn verified_count(&self, card: &CardInfo) -> usize {
+        let card = card_id(card);
+        self.verifications
+            .iter()
+            .filter(|record| record.card == card)
+            .count()
+    }
+
+    /// Records authenticated keys for a card and persists them in memory.
+    /// Returns the number of keys processed.
+    pub fn record_verified(&mut self, card: &CardInfo, keys: &[AuthenticatedKey]) -> Result<usize> {
+        let card = card_id(card);
+        let now = now_seconds();
+        let mut recorded = 0;
+        for entry in keys {
+            if entry.sector > MAX_SECTOR {
+                return Err(NfcError::InvalidArgument(format!(
+                    "sector {} is outside 0..={MAX_SECTOR}",
+                    entry.sector
+                )));
+            }
+            let kind = match entry.key_type {
+                KeyType::A => KeyKind::A,
+                KeyType::B => KeyKind::B,
+            };
+            let already_applies = self.entries.iter().any(|stored| {
+                stored.key == entry.key
+                    && stored.kind.includes(entry.key_type)
+                    && (stored.sector.is_none() || stored.sector == Some(entry.sector))
+            });
+            if !already_applies {
+                self.add(KeyEntry::new(
+                    Some(entry.sector),
+                    kind,
+                    entry.key,
+                    entry.source,
+                ))?;
+            }
+            self.upsert_verification(
+                card.clone(),
+                KeyVerification {
+                    sector: entry.sector,
+                    key_type: entry.key_type,
+                    key: entry.key,
+                    source: entry.source,
+                    verified_at: now,
+                },
+            );
+            recorded += 1;
+        }
+        Ok(recorded)
+    }
+
+    /// Records keys loaded from a dump's metadata. Unknown source labels fall
+    /// back to `manual` because metadata is informational.
+    pub fn record_dump_keys(&mut self, card: &CardInfo, keys: &[DumpKey]) -> Result<usize> {
+        let authenticated: Vec<_> = keys
+            .iter()
+            .map(|entry| AuthenticatedKey {
+                sector: entry.sector,
+                key_type: entry.key_type,
+                key: entry.key,
+                source: entry
+                    .source
+                    .as_deref()
+                    .and_then(|source| KeySource::parse(source).ok())
+                    .unwrap_or(KeySource::Manual),
+            })
+            .collect();
+        self.record_verified(card, &authenticated)
+    }
+
+    fn upsert_verification(&mut self, card: String, verification: KeyVerification) {
+        if let Some(existing) = self.verifications.iter_mut().find(|record| {
+            record.card == card
+                && record.verification.sector == verification.sector
+                && record.verification.key_type == verification.key_type
+        }) {
+            existing.verification = verification;
+        } else {
+            self.verifications
+                .push(StoredVerificationRecord { card, verification });
+        }
     }
 
     /// Candidates for recovery: every stored key tried as both key types,
@@ -492,32 +830,40 @@ impl KeyStore {
                 added += 1;
             }
         }
+        for record in &other.verifications {
+            if let Some(existing) = self.verifications.iter_mut().find(|existing| {
+                existing.card == record.card
+                    && existing.verification.sector == record.verification.sector
+                    && existing.verification.key_type == record.verification.key_type
+            }) {
+                if record.verification.verified_at >= existing.verification.verified_at {
+                    existing.verification = record.verification;
+                }
+            } else {
+                self.verifications.push(record.clone());
+            }
+        }
         Ok(added)
     }
 
     pub fn remove(&mut self, index: usize) -> Option<KeyEntry> {
-        if index < self.entries.len() {
-            Some(self.entries.remove(index))
-        } else {
-            None
+        if index >= self.entries.len() {
+            return None;
         }
+        let removed = self.entries.remove(index);
+        if let Some(sector) = removed.sector {
+            self.verifications.retain(|record| {
+                !(record.verification.sector == sector
+                    && record.verification.key == removed.key
+                    && removed.kind.includes(record.verification.key_type))
+            });
+        }
+        Some(removed)
     }
 
     pub fn clear(&mut self) {
         self.entries.clear();
-    }
-}
-
-fn parse_source(value: &str) -> Result<KeySource> {
-    match value.trim().to_ascii_lowercase().replace('-', "_").as_str() {
-        "" | "manual" => Ok(KeySource::Manual),
-        "key_file" => Ok(KeySource::KeyFile),
-        "key_scan" | "scan" => Ok(KeySource::KeyScan),
-        "recovery" => Ok(KeySource::Recovery),
-        "common" => Ok(KeySource::Common),
-        other => Err(NfcError::InvalidArgument(format!(
-            "unknown key source {other:?}"
-        ))),
+        self.verifications.clear();
     }
 }
 
@@ -526,6 +872,8 @@ struct StoreDocument {
     version: u32,
     #[serde(default)]
     keys: Vec<StoredKey>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    verifications: Vec<StoredVerification>,
 }
 
 #[derive(Deserialize)]
@@ -572,12 +920,34 @@ struct StoredKey {
     source: String,
 }
 
+#[derive(Serialize, Deserialize)]
+struct StoredVerification {
+    card: String,
+    sector: usize,
+    #[serde(rename = "type")]
+    kind: String,
+    key: String,
+    #[serde(default)]
+    source: String,
+    #[serde(default, rename = "verifiedAt")]
+    verified_at: u64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn key(byte: u8) -> Key {
         Key::new([byte; 6])
+    }
+
+    fn card() -> CardInfo {
+        CardInfo::new(
+            vec![0x04, 0xA2, 0x24, 0x8A],
+            [0x00, 0x04],
+            0x08,
+            nfc_core::CardType::MifareClassic1K,
+        )
     }
 
     #[test]
@@ -696,6 +1066,7 @@ mod tests {
                     source: entry.source.stored().to_owned(),
                 })
                 .collect(),
+            verifications: Vec::new(),
         })
         .expect("serialize");
         let loaded = KeyStore::from_json(&json).expect("load");
@@ -707,7 +1078,7 @@ mod tests {
     #[test]
     fn json_import_accepts_previous_and_structured_stores() {
         let mut store = KeyStore::new();
-        let added = store
+        let report = store
             .import_text_str(
                 r#"{"version":1,"keys":[
                     {"value":"D3F7D3F7D3F7","sources":["read_context"]},
@@ -715,7 +1086,7 @@ mod tests {
                 ]}"#,
             )
             .expect("import");
-        assert_eq!(added, 2);
+        assert_eq!(report.added, 2);
         assert_eq!(store.entries()[0].sector, None);
         assert_eq!(store.entries()[0].kind, KeyKind::Any);
         assert_eq!(store.entries()[0].source, KeySource::KeyFile);
@@ -727,14 +1098,15 @@ mod tests {
         let duplicate = store
             .import_text_str(r#"{"keys":[{"value":"D3F7D3F7D3F7"}]}"#)
             .expect("reimport");
-        assert_eq!(duplicate, 0);
+        assert_eq!(duplicate.added, 0);
+        assert_eq!(duplicate.duplicates, 1);
         assert_eq!(store.len(), 2);
     }
 
     #[test]
     fn text_import_accepts_comments_and_deduplicates() {
         let mut store = KeyStore::new();
-        let added = store
+        let report = store
             .import_text_str(
                 "# factory keys\n\
                  FFFFFFFFFFFF\n\
@@ -742,7 +1114,8 @@ mod tests {
                  FFFFFFFFFFFF\n",
             )
             .expect("import");
-        assert_eq!(added, 2);
+        assert_eq!(report.added, 2);
+        assert_eq!(report.duplicates, 1);
         assert_eq!(store.len(), 2);
         assert_eq!(store.candidates_for(0).len(), 4);
     }
@@ -781,9 +1154,9 @@ mod tests {
     }
 
     #[test]
-    fn dic_import_skips_blank_and_inline_comments_and_rejects_bad_lines() {
+    fn dic_import_skips_blank_and_inline_comments_and_reports_bad_lines() {
         let mut store = KeyStore::new();
-        let added = store
+        let report = store
             .import_dic_str(
                 "\n# PM3 dictionary\r\n\
                  ffffffffffff\r\n\
@@ -792,22 +1165,30 @@ mod tests {
                  ffffffffffff\n",
             )
             .expect("dic import");
-        assert_eq!(added, 2);
+        assert_eq!(report.added, 2);
+        assert_eq!(report.duplicates, 1);
         assert_eq!(store.len(), 2);
         assert_eq!(store.entries()[0].key.to_hex(), "FFFFFFFFFFFF");
         assert_eq!(store.entries()[0].kind, KeyKind::Any);
         assert_eq!(store.entries()[0].source, KeySource::KeyFile);
         assert_eq!(store.entries()[1].key.to_hex(), "A0A1A2A3A4A5");
 
-        assert!(store.import_dic_str("FFFFFFFFFFFF extra\n").is_err());
-        assert!(store.import_dic_str("FFFFFFFF\n").is_err());
-        assert!(store.import_dic_str("GGGGGGGGGGGG\n").is_err());
-        assert_eq!(
-            store
-                .import_dic_str("# only comments\n")
-                .expect("empty import"),
-            0
-        );
+        let report = store
+            .import_dic_str("FFFFFFFFFFFF extra\n")
+            .expect("bad line");
+        assert_eq!(report.added, 0);
+        assert_eq!(report.issues.len(), 1);
+        assert_eq!(report.issues[0].line, 1);
+
+        let report = store.import_dic_str("FFFFFFFF\n").expect("short key");
+        assert_eq!(report.issues.len(), 1);
+        let report = store.import_dic_str("GGGGGGGGGGGG\n").expect("non-hex key");
+        assert_eq!(report.issues.len(), 1);
+        let report = store
+            .import_dic_str("# only comments\n")
+            .expect("empty import");
+        assert_eq!(report.added, 0);
+        assert_eq!(report.ignored, 1);
     }
 
     #[test]
@@ -816,10 +1197,14 @@ mod tests {
         assert!(KeyStore::from_json(json).is_err());
         let json = r#"{"version":1,"keys":[{"sector":1,"type":"C","key":"FFFFFFFFFF"}]}"#;
         assert!(KeyStore::from_json(json).is_err());
-        let json = r#"{"version":2,"keys":[]}"#;
+        let json = r#"{"version":3,"keys":[]}"#;
         assert!(KeyStore::from_json(json).is_err());
+        assert!(KeyStore::from_json(r#"{"version":2,"keys":[]}"#).is_ok());
         let mut store = KeyStore::new();
-        assert!(store.import_text_str("FFFFFFFFFFFF extra").is_err());
+        let report = store
+            .import_text_str("FFFFFFFFFFFF extra")
+            .expect("bad line is reported");
+        assert_eq!(report.issues.len(), 1);
         assert!(
             store
                 .add(KeyEntry::new(
@@ -858,6 +1243,115 @@ mod tests {
                 & 0o777;
             assert_eq!(mode, 0o600);
         }
+    }
+
+    #[test]
+    fn version_one_store_loads_with_no_verifications() {
+        let store = KeyStore::from_json(
+            r#"{"version":1,"keys":[{"sector":1,"type":"A","key":"FFFFFFFFFFFF","source":"manual"}]}"#,
+        )
+        .expect("v1 load");
+        assert_eq!(store.len(), 1);
+        assert!(store.verifications_for(&card()).is_empty());
+    }
+
+    #[test]
+    fn verified_keys_are_card_scoped_and_tried_first() {
+        let mut store = KeyStore::new();
+        store
+            .add(KeyEntry::new(
+                None,
+                KeyKind::Any,
+                key(1),
+                KeySource::KeyFile,
+            ))
+            .expect("wildcard");
+        let card = card();
+        store
+            .record_verified(
+                &card,
+                &[AuthenticatedKey {
+                    sector: 2,
+                    key_type: KeyType::B,
+                    key: key(2),
+                    source: KeySource::ReadContext,
+                }],
+            )
+            .expect("record");
+        let candidates = store.candidates_for_card(&card, 2);
+        assert_eq!(candidates[0], (KeyType::B, key(2), KeySource::ReadContext));
+        assert!(candidates.contains(&(KeyType::A, key(1), KeySource::KeyFile)));
+        assert_eq!(store.verified_count(&card), 1);
+
+        let other = CardInfo::new(
+            vec![0x11, 0x22, 0x33, 0x44],
+            [0x00, 0x04],
+            0x08,
+            nfc_core::CardType::MifareClassic1K,
+        );
+        assert_eq!(store.verified_count(&other), 0);
+        assert!(store.verifications_for(&other).is_empty());
+    }
+
+    #[test]
+    fn verifications_round_trip_and_replace_the_same_slot() {
+        let card = card();
+        let mut store = KeyStore::new();
+        store
+            .record_verified(
+                &card,
+                &[AuthenticatedKey {
+                    sector: 3,
+                    key_type: KeyType::A,
+                    key: key(1),
+                    source: KeySource::ReadContext,
+                }],
+            )
+            .expect("first");
+        store
+            .record_verified(
+                &card,
+                &[AuthenticatedKey {
+                    sector: 3,
+                    key_type: KeyType::A,
+                    key: key(2),
+                    source: KeySource::Recovery,
+                }],
+            )
+            .expect("replacement");
+        let verifications = store.verifications_for(&card);
+        assert_eq!(verifications.len(), 1);
+        assert_eq!(verifications[0].key, key(2));
+        assert_eq!(verifications[0].source, KeySource::Recovery);
+
+        let json = store.to_json().expect("json");
+        let loaded = KeyStore::from_json(std::str::from_utf8(&json).expect("utf8")).expect("load");
+        assert_eq!(loaded.verifications_for(&card), verifications);
+    }
+
+    #[test]
+    fn removing_the_sector_entry_removes_its_verification() {
+        let card = card();
+        let mut store = KeyStore::new();
+        store
+            .record_verified(
+                &card,
+                &[AuthenticatedKey {
+                    sector: 4,
+                    key_type: KeyType::A,
+                    key: key(1),
+                    source: KeySource::ReadContext,
+                }],
+            )
+            .expect("record");
+        assert_eq!(store.verified_count(&card), 1);
+        let index = store
+            .entries()
+            .iter()
+            .position(|entry| entry.sector == Some(4))
+            .expect("entry");
+        store.remove(index).expect("remove");
+        assert_eq!(store.verified_count(&card), 0);
     }
 
     #[test]

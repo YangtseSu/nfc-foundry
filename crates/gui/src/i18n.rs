@@ -1016,6 +1016,12 @@ keys! {
         "JSON 存储保留扇区、A/B 和来源。Proxmark3 .dic 导出是有损的：按候选顺序输出唯一的大写密钥，导入密钥以任意扇区类型应用。"
     ),
     SectorColumn => ("Sector", "扇区"),
+    KeySector => ("Sector {}", "扇区 {}"),
+    KeySourceManual => ("manual", "手动"),
+    KeySourceFile => ("key file", "密钥文件"),
+    KeySourceScan => ("scan", "扫描"),
+    KeySourceRecovery => ("recovery", "恢复"),
+    KeySourceCommon => ("common", "常用"),
     TypeColumn => ("Type", "类型"),
     KeyColumn => ("Key", "密钥"),
     SourceColumn => ("Source", "来源"),
@@ -1161,6 +1167,10 @@ keys! {
     ScanningKeys => ("Scanning keys…", "正在扫描密钥…"),
     ScanComplete => ("Scan complete.", "扫描完成。"),
     ScanCancelled => ("Scan cancelled.", "扫描已取消。"),
+    ScanCancelledKeysKept => (
+        "Scan cancelled; confirmed keys kept.",
+        "扫描已取消；已确认密钥已保留。"
+    ),
     CancelledBeforeExchange => ("Cancelled before the next reader exchange.", "已在下次读卡器交换前取消。"),
     ScanFailed => ("Scan failed.", "扫描失败。"),
     CancellingAfterExchange => ("Cancelling after the current exchange…", "将在当前交换后取消…"),

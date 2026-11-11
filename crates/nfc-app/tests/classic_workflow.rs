@@ -264,6 +264,16 @@ fn dump_reads_block_zero_after_sector_auth_and_records_unreadable_sectors() {
     assert_eq!(result.dump.card.as_ref(), Some(&card()));
     assert!(result.dump.blocks[0].complete());
     assert_eq!(result.dump.blocks[0].data[0..4], UID);
+    assert_eq!(result.keys.len(), 15, "sector 1 was denied");
+    assert_eq!(result.dump.metadata.keys.len(), 15);
+    assert!(result.dump.metadata.started_at.is_some());
+    assert!(
+        result
+            .keys
+            .iter()
+            .all(|key| key.source == KeySource::Common)
+    );
+    assert!(!result.keys.iter().any(|key| key.sector == 1));
     for block in 4..8 {
         assert!(
             !result.dump.blocks[block].complete(),
@@ -619,6 +629,45 @@ fn keyscan_finds_a_and_b_keys_and_counts_attempts() {
 }
 
 #[test]
+fn keyscan_returns_card_scoped_verified_keys() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    {
+        let mut state = handle.lock();
+        state.accept_only(0, &[(KeyType::A, KEY_A)]);
+        state.accept_only(1, &[(KeyType::B, KEY_B)]);
+        for sector in 2..16 {
+            state.accept_only(sector, &[(KeyType::A, DENIED)]);
+        }
+    }
+    let mut service = service(&handle);
+    let store = KeyStore::new();
+    let result = service
+        .classic_keyscan(
+            ClassicKeyscan::new(&store, vec![KEY_A, KEY_B])
+                .include_common_keys(false)
+                .key_types(KeyTypes::ALL),
+        )
+        .expect("keyscan");
+    assert_eq!(result.card, card());
+    assert_eq!(result.verified_keys.len(), 2);
+    assert!(result.verified_keys.iter().all(|entry| {
+        entry.source == KeySource::KeyScan
+            && ((entry.sector == 0 && entry.key == KEY_A)
+                || (entry.sector == 1 && entry.key == KEY_B))
+    }));
+
+    let mut captured = store;
+    captured
+        .record_verified(&result.card, &result.verified_keys)
+        .expect("record");
+    assert_eq!(captured.verified_count(&card()), 2);
+    assert_eq!(
+        captured.candidates_for_card(&card(), 0)[0],
+        (KeyType::A, KEY_A, KeySource::KeyScan)
+    );
+}
+
+#[test]
 fn keyscan_reports_progress_after_each_sector() {
     let handle = TestHandle::new(TestState::with_card(card()));
     {
@@ -662,12 +711,15 @@ fn keyscan_stops_when_the_token_is_cancelled() {
     handle.lock().cancel_after_auths = Some((2, token.clone()));
     let mut service = service(&handle);
     let store = KeyStore::new();
-    let result = service.classic_keyscan(
-        ClassicKeyscan::new(&store, vec![DENIED])
-            .include_common_keys(false)
-            .cancel(token),
-    );
-    assert!(matches!(result, Err(NfcError::Cancelled)));
+    let result = service
+        .classic_keyscan(
+            ClassicKeyscan::new(&store, vec![DENIED])
+                .include_common_keys(false)
+                .cancel(token),
+        )
+        .expect("partial result");
+    assert!(result.cancelled);
+    assert!(!result.verified_keys.is_empty(), "confirmed keys are kept");
     assert_eq!(handle.lock().auth_log.len(), 2);
 }
 
@@ -685,11 +737,14 @@ fn read_block_authenticates_the_sector_for_block_zero_too() {
     let zero = service
         .classic_read_block(0, &store, true, CancelToken::new())
         .expect("block zero");
-    assert_eq!(zero[0..4], UID);
+    assert_eq!(zero.data[0..4], UID);
+    assert_eq!(zero.key.key_type, KeyType::B);
+    assert_eq!(zero.key.key, KEY_B);
     assert!(handle.lock().auth_log.contains(&(0, KeyType::B, KEY_B)));
     let block_four = service
         .classic_read_block(4, &store, false, CancelToken::new())
         .expect("block four");
-    assert_eq!(block_four, [4; BLOCK_SIZE]);
+    assert_eq!(block_four.data, [4; BLOCK_SIZE]);
+    assert_eq!(block_four.key.sector, 1);
     assert!(handle.lock().auth_log.contains(&(4, KeyType::B, KEY_B)));
 }

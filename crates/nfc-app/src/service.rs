@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use nfc_core::{BLOCK_SIZE, CancelToken, CardInfo, CardType, NfcError, Result};
+use nfc_core::{CancelToken, CardInfo, CardType, NfcError, Result};
 use nfc_transport::{DeviceInfo, Transport};
 
 use crate::classic::{
@@ -72,6 +72,7 @@ impl Service {
         include_common_keys: bool,
         cancel: CancelToken,
     ) -> Result<CardReadResult> {
+        let device = self.devices.selected().map(str::to_owned);
         let mut operation = self.begin_operation(OperationKind::Read, cancel)?;
         let cancel = operation.cancel().clone();
         match operation.card().card_type {
@@ -79,8 +80,10 @@ impl Service {
                 crate::type2::read(&mut operation, &cancel).map(CardReadResult::Type2)
             }
             CardType::MifareClassic1K | CardType::MifareClassic4K => {
-                crate::classic::read::read_dump(&mut operation, keys, include_common_keys)
-                    .map(CardReadResult::Classic)
+                let mut result =
+                    crate::classic::read::read_dump(&mut operation, keys, include_common_keys)?;
+                result.dump.metadata.device = device;
+                Ok(CardReadResult::Classic(result))
             }
             _ => Err(NfcError::Unsupported(
                 "the selected card is not a supported Classic or Type 2 tag",
@@ -96,19 +99,23 @@ impl Service {
             include_common_keys,
             cancel,
         } = request;
+        let device = self.devices.selected().map(str::to_owned);
         let mut operation = self.begin_operation(OperationKind::Read, cancel)?;
-        crate::classic::read::read_dump(&mut operation, keys, include_common_keys)
+        let mut result =
+            crate::classic::read::read_dump(&mut operation, keys, include_common_keys)?;
+        result.dump.metadata.device = device;
+        Ok(result)
     }
 
-    /// Reads one block. Block 0 needs no key; other blocks authenticate their
-    /// sector with the first candidate key the card accepts.
+    /// Reads one block after authenticating its sector with the first
+    /// candidate key the card accepts.
     pub fn classic_read_block(
         &mut self,
         block: usize,
         keys: &KeyStore,
         include_common_keys: bool,
         cancel: CancelToken,
-    ) -> Result<[u8; BLOCK_SIZE]> {
+    ) -> Result<crate::classic::read::ClassicBlockReadResult> {
         let mut operation = self.begin_operation(OperationKind::Read, cancel)?;
         crate::classic::read::read_block(&mut operation, block, keys, include_common_keys)
     }
@@ -202,7 +209,7 @@ impl Service {
 
 #[cfg(test)]
 mod tests {
-    use nfc_core::{CardType, Key, KeyType, NfcError};
+    use nfc_core::{BLOCK_SIZE, CardType, Key, KeyType, NfcError};
     use nfc_transport::mock::{MockCall, MockFault, MockHandle, MockTransport};
 
     use super::*;

@@ -6,7 +6,7 @@ use nfc_core::{CancelToken, Key, KeyType, NfcError, Result};
 
 use crate::operation::Operation;
 
-use super::keys::{KeyEntry, KeyKind, KeySource, KeyStore, common_keys};
+use super::keys::{AuthenticatedKey, KeyEntry, KeyKind, KeySource, KeyStore, common_keys};
 use super::read::layout_for_card;
 
 /// Which key types the scan attempts.
@@ -116,14 +116,19 @@ pub struct SectorKeys {
     pub key_b: Option<Key>,
 }
 
-/// Scan outcome. `store` contains only the keys discovered by this scan.
+/// Scan outcome. `store` contains only the keys discovered by this scan;
+/// `verified_keys` is the card-scoped capture list.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ClassicKeyscanResult {
+    pub card: nfc_core::CardInfo,
     pub sectors: Vec<SectorKeys>,
     pub store: KeyStore,
+    pub verified_keys: Vec<AuthenticatedKey>,
     pub attempts: usize,
     pub verified: usize,
+    /// True when the caller cancelled. Verified keys and sectors remain valid.
+    pub cancelled: bool,
 }
 
 /// Tries every candidate key as Key A and Key B per sector. A successful
@@ -132,7 +137,8 @@ pub fn keyscan(
     operation: &mut Operation<'_>,
     request: ClassicKeyscan<'_>,
 ) -> Result<ClassicKeyscanResult> {
-    let layout = layout_for_card(operation.card())?;
+    let card = operation.card().clone();
+    let layout = layout_for_card(&card)?;
     let types = request.key_types.enabled();
     if types.is_empty() {
         return Err(NfcError::InvalidArgument(
@@ -156,10 +162,15 @@ pub fn keyscan(
 
     let mut sectors = Vec::with_capacity(layout.sector_count());
     let mut store = KeyStore::new();
+    let mut verified_keys = Vec::new();
     let mut attempts = 0;
     let mut verified = 0;
-    for sector in 0..layout.sector_count() {
-        request.cancel.check()?;
+    let mut cancelled = false;
+    'sectors: for sector in 0..layout.sector_count() {
+        if request.cancel.is_cancelled() {
+            cancelled = true;
+            break;
+        }
         let first = layout
             .first_block(sector)
             .expect("sector is within the layout");
@@ -173,7 +184,10 @@ pub fn keyscan(
         };
         for key_type in types.iter().copied() {
             for key in candidates.iter().copied() {
-                request.cancel.check()?;
+                if request.cancel.is_cancelled() {
+                    cancelled = true;
+                    break 'sectors;
+                }
                 attempts += 1;
                 match operation.authenticate(first as u8, key_type, key) {
                     Ok(()) => match operation.read_block(trailer as u8) {
@@ -192,11 +206,25 @@ pub fn keyscan(
                                 key,
                                 KeySource::KeyScan,
                             ))?;
+                            verified_keys.push(AuthenticatedKey {
+                                sector,
+                                key_type,
+                                key,
+                                source: KeySource::KeyScan,
+                            });
                             break;
+                        }
+                        Err(NfcError::Cancelled) => {
+                            cancelled = true;
+                            break 'sectors;
                         }
                         Err(error) if is_fatal_scan_error(&error) => return Err(error),
                         Err(_) => continue,
                     },
+                    Err(NfcError::Cancelled) => {
+                        cancelled = true;
+                        break 'sectors;
+                    }
                     Err(NfcError::AuthenticationFailed) => continue,
                     Err(error) => return Err(error),
                 }
@@ -213,10 +241,13 @@ pub fn keyscan(
         }
     }
     Ok(ClassicKeyscanResult {
+        card,
         sectors,
         store,
+        verified_keys,
         attempts,
         verified,
+        cancelled,
     })
 }
 

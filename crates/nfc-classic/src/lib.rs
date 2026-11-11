@@ -13,7 +13,7 @@ pub mod value;
 
 pub use access::{AccessBits, AccessCondition, KeyMask, TrailerPermissions};
 pub use bcc::{BccStatus, bcc_for_uid};
-pub use block::{Block, BlockStatus, Dump, Readability};
+pub use block::{Block, BlockStatus, Dump, DumpKey, DumpMetadata, Readability};
 pub use diff::{BlockDiff, BlockKind, ByteDiff, DiffState, DumpDiff, TrailerDiff};
 pub use exchange::{DumpFormat, DumpLoad};
 pub use layout::Layout;

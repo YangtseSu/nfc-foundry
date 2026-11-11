@@ -1,16 +1,17 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use nfc_core::{BLOCK_SIZE, CardInfo, CardType, NfcError, Result};
+use nfc_core::{BLOCK_SIZE, CardInfo, CardType, Key, KeyType, NfcError, Result};
 use serde::de::{self, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Number, Value};
 
 use crate::access::{AccessBits, AccessCondition};
 use crate::bcc::BccStatus;
-use crate::{BlockStatus, Dump, Layout};
+use crate::{BlockStatus, Dump, DumpKey, Layout};
 
-const PROJECT_VERSION: u32 = 1;
+const PROJECT_VERSION: u32 = 2;
+const PROJECT_MIN_VERSION: u32 = 1;
 const CREATED_BY: &str = "NFC Foundry";
 
 /// Dump interchange formats. The project format is the only one that can
@@ -223,7 +224,29 @@ struct ProjectDocument {
     layout: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     card: Option<ProjectCard>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    device: Option<String>,
+    #[serde(default, rename = "startedAt", skip_serializing_if = "Option::is_none")]
+    started_at: Option<u64>,
+    #[serde(
+        default,
+        rename = "finishedAt",
+        skip_serializing_if = "Option::is_none"
+    )]
+    finished_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    keys: Vec<ProjectKey>,
     blocks: Vec<ProjectBlock>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ProjectKey {
+    sector: usize,
+    #[serde(rename = "type")]
+    key_type: String,
+    key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -254,6 +277,20 @@ fn encode_project(dump: &Dump) -> Result<Vec<u8>> {
         complete: Some(dump.complete()),
         layout: dump.layout.name().to_owned(),
         card: dump.card.as_ref().map(project_card),
+        device: dump.metadata.device.clone(),
+        started_at: dump.metadata.started_at,
+        finished_at: dump.metadata.finished_at,
+        keys: dump
+            .metadata
+            .keys
+            .iter()
+            .map(|entry| ProjectKey {
+                sector: entry.sector,
+                key_type: entry.key_type.label().to_string(),
+                key: entry.key.to_hex(),
+                source: entry.source.clone(),
+            })
+            .collect(),
         blocks: dump
             .blocks
             .iter()
@@ -276,10 +313,10 @@ fn encode_project(dump: &Dump) -> Result<Vec<u8>> {
 
 fn parse_project(data: &[u8]) -> Result<Dump> {
     let document: ProjectDocument = parse_json(data)?;
-    if document.version != PROJECT_VERSION {
+    if document.version < PROJECT_MIN_VERSION || document.version > PROJECT_VERSION {
         return Err(NfcError::InvalidArgument(format!(
-            "unsupported dump project version {}",
-            document.version
+            "unsupported dump project version {}; expected {}..={PROJECT_VERSION}",
+            document.version, PROJECT_MIN_VERSION
         )));
     }
     let layout = Layout::from_name(&document.layout)?;
@@ -290,6 +327,14 @@ fn parse_project(data: &[u8]) -> Result<Dump> {
         .map(decode_project_card)
         .transpose()?
         .flatten();
+    dump.metadata.device = document.device.filter(|value| !value.trim().is_empty());
+    dump.metadata.started_at = document.started_at;
+    dump.metadata.finished_at = document.finished_at;
+    dump.metadata.keys = document
+        .keys
+        .into_iter()
+        .map(|entry| decode_project_key(layout, entry))
+        .collect::<Result<Vec<_>>>()?;
     if document.blocks.len() != layout.block_count() {
         return Err(NfcError::InvalidArgument(format!(
             "dump project contains {} blocks, expected {}",
@@ -321,7 +366,41 @@ fn parse_project(data: &[u8]) -> Result<Dump> {
             "dump project completeness flag does not match block certainty".to_owned(),
         ));
     }
+    dump.validate_metadata()?;
     Ok(dump)
+}
+
+fn decode_project_key(layout: Layout, stored: ProjectKey) -> Result<DumpKey> {
+    if stored.sector >= layout.sector_count() {
+        return Err(NfcError::InvalidArgument(format!(
+            "dump project key names sector {}, outside the {} layout",
+            stored.sector,
+            layout.name()
+        )));
+    }
+    let key_type = match stored.key_type.trim().to_ascii_uppercase().as_str() {
+        "A" => KeyType::A,
+        "B" => KeyType::B,
+        other => {
+            return Err(NfcError::InvalidArgument(format!(
+                "dump project sector {} key type {other:?} must be A or B",
+                stored.sector
+            )));
+        }
+    };
+    let key = Key::from_hex(&stored.key).map_err(|error| {
+        NfcError::InvalidArgument(format!(
+            "dump project sector {} key {}: {error}",
+            stored.sector,
+            key_type.label()
+        ))
+    })?;
+    Ok(DumpKey {
+        sector: stored.sector,
+        key_type,
+        key,
+        source: stored.source.filter(|value| !value.trim().is_empty()),
+    })
 }
 
 fn project_card(card: &CardInfo) -> ProjectCard {

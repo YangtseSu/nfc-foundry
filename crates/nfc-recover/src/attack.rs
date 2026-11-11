@@ -137,6 +137,8 @@ pub struct RecoveredKey {
 
 #[derive(Clone, Debug, Default)]
 pub struct RecoveryResult {
+    /// Card selection identity for key capture; set by the application layer.
+    pub card: Option<nfc_core::CardInfo>,
     pub keys: Vec<(KeyType, Key)>,
     /// Per-sector attribution for auto recovery; empty for single-target
     /// strategies.
@@ -179,6 +181,7 @@ fn run_once(
         RecoveryStrategy::Dictionary => {
             let found = find_known_key(reader, request)?;
             Ok(RecoveryResult {
+                card: None,
                 keys: found.into_iter().collect(),
                 sector_keys: Vec::new(),
                 attempts: vec![AttackKind::Dictionary],
@@ -310,6 +313,7 @@ fn auto(reader: &mut dyn Reader, request: &RecoveryRequest) -> Result<RecoveryRe
         note.push_str(entry);
     }
     Ok(RecoveryResult {
+        card: None,
         keys,
         sector_keys: found,
         attempts,
@@ -690,6 +694,7 @@ fn nested_attack_with(
         return Err(NfcError::AuthenticationFailed);
     }
     Ok(RecoveryResult {
+        card: None,
         keys: verified,
         sector_keys: Vec::new(),
         attempts: vec![kind],
@@ -782,6 +787,7 @@ fn hardnested_attack_with(
         return Err(NfcError::AuthenticationFailed);
     }
     Ok(RecoveryResult {
+        card: None,
         keys: verified,
         sector_keys: Vec::new(),
         attempts: vec![AttackKind::HardNested],
@@ -844,6 +850,7 @@ fn darkside_attack(reader: &mut dyn Reader, request: &RecoveryRequest) -> Result
         return Err(NfcError::AuthenticationFailed);
     }
     Ok(RecoveryResult {
+        card: None,
         keys: verified,
         sector_keys: Vec::new(),
         attempts: vec![AttackKind::DarkSide],

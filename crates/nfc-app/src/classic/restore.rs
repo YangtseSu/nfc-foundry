@@ -282,11 +282,16 @@ pub fn restore(
                 "the current access bits do not permit writing every pending block",
             ));
         }
-        let candidates: Vec<(KeyType, Key)> =
-            candidate_keys(request.keys, request.include_common_keys, sector)
-                .into_iter()
-                .filter(|(key_type, _)| allowed.allows(*key_type))
-                .collect();
+        let candidates: Vec<(KeyType, Key)> = candidate_keys(
+            request.keys,
+            operation.card(),
+            request.include_common_keys,
+            sector,
+        )
+        .into_iter()
+        .filter(|(key_type, _, _)| allowed.allows(*key_type))
+        .map(|(key_type, key, _)| (key_type, key))
+        .collect();
         let first = layout
             .first_block(sector)
             .expect("sector is within the layout");

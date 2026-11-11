@@ -105,6 +105,16 @@ lock denial, password configuration, and CC mismatch. `nfctl` exercises
 mock NTAG215. Driver unit tests assert the Type 2 READ CRC (`30 04 26 EE`) and
 raw-mode restoration for both transports.
 
+The phase 24a verified-key tests are hardware-free. `nfc-core` fixes the
+`UID/ATQA/SAK` identity format; `nfc-classic` covers project version 1/2,
+metadata validation, and metadata round trips; `nfc-app` covers key-store
+version 1/2, card-scoped verification replacement, verified-key candidate
+ordering, tolerant import reports, read capture, keyscan partial capture, and
+dump metadata registration. `nfctl` covers read/dump capture, project metadata,
+and import reports; the GTK scenario reads a card and asserts the key store and
+its on-disk copy both gain the verified keys. Raw/MCT/Proxmark3 exports remain
+image-only and are tested as lossy for metadata.
+
 The phase 10 Classic NDEF tests are hardware-free. `nfc-classic-ndef` covers
 MAD1/MAD2 and CRC vectors, NFC AIDs, contiguity, GPB mapping version and
 read-only state, TLV framing/capacity, long messages, leading proprietary TLV

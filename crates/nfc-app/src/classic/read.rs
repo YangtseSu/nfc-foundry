@@ -1,11 +1,11 @@
 //! Card reading: full dumps and single blocks.
 
-use nfc_classic::{Dump, Layout};
+use nfc_classic::{Dump, DumpKey, Layout};
 use nfc_core::{BLOCK_SIZE, CancelToken, CardInfo, CardType, Key, KeyType, NfcError, Result};
 
 use crate::operation::Operation;
 
-use super::keys::{KeyStore, common_keys};
+use super::keys::{AuthenticatedKey, KeySource, KeyStore, common_keys};
 
 /// Options for a full-card read.
 pub struct ClassicRead<'a> {
@@ -34,12 +34,23 @@ impl<'a> ClassicRead<'a> {
     }
 }
 
-/// A partial or complete Classic dump with explicit warnings.
+/// A partial or complete Classic dump with explicit warnings and the keys that
+/// authenticated each read sector.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ClassicReadResult {
     pub dump: Dump,
+    pub keys: Vec<AuthenticatedKey>,
     pub warnings: Vec<String>,
+}
+
+/// Result of reading one block after authenticating its sector.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ClassicBlockReadResult {
+    pub card: CardInfo,
+    pub data: [u8; BLOCK_SIZE],
+    pub key: AuthenticatedKey,
 }
 
 /// Maps a selected card to its Classic layout. Other families are rejected
@@ -55,17 +66,23 @@ pub fn layout_for_card(card: &CardInfo) -> Result<Layout> {
 }
 
 /// Candidate keys for one sector, including common factory keys when enabled.
+/// Verified keys for this card are tried first.
 pub fn candidate_keys(
     keys: &KeyStore,
+    card: &CardInfo,
     include_common_keys: bool,
     sector: usize,
-) -> Vec<(KeyType, Key)> {
-    let mut candidates = keys.candidates_for(sector);
+) -> Vec<(KeyType, Key, KeySource)> {
+    let mut candidates = keys.candidates_for_card(card, sector);
     if include_common_keys {
         for key in common_keys() {
             for key_type in [KeyType::A, KeyType::B] {
-                if !candidates.contains(&(key_type, key)) {
-                    candidates.push((key_type, key));
+                let candidate = (key_type, key, KeySource::Common);
+                if !candidates
+                    .iter()
+                    .any(|existing| existing.0 == candidate.0 && existing.1 == candidate.1)
+                {
+                    candidates.push(candidate);
                 }
             }
         }
@@ -80,9 +97,11 @@ pub fn read_dump(
     keys: &KeyStore,
     include_common_keys: bool,
 ) -> Result<ClassicReadResult> {
+    let started_at = now_seconds();
     let card = operation.card().clone();
     let layout = layout_for_card(&card)?;
-    let mut dump = Dump::new(layout).with_card(card);
+    let mut dump = Dump::new(layout).with_card(card.clone());
+    let mut authenticated_keys = Vec::new();
     let mut warnings = Vec::new();
 
     let mut unread_sectors = Vec::new();
@@ -94,12 +113,17 @@ pub fn read_dump(
         let count = layout
             .blocks_in_sector(sector)
             .expect("sector is within the layout");
-        let mut authenticated = false;
-        for (key_type, key) in candidate_keys(keys, include_common_keys, sector) {
+        let mut authenticated = None;
+        for (key_type, key, source) in candidate_keys(keys, &card, include_common_keys, sector) {
             operation.cancel().check()?;
             match operation.authenticate(first as u8, key_type, key) {
                 Ok(()) => {
-                    authenticated = true;
+                    authenticated = Some(AuthenticatedKey {
+                        sector,
+                        key_type,
+                        key,
+                        source,
+                    });
                     break;
                 }
                 Err(NfcError::AuthenticationFailed) => continue,
@@ -110,7 +134,7 @@ pub fn read_dump(
                 }
             }
         }
-        if !authenticated {
+        let Some(authenticated) = authenticated else {
             unread_sectors.push(sector);
             warnings.push(format!("sector {sector}: no candidate key authenticated"));
             for block in first..first + count {
@@ -118,17 +142,30 @@ pub fn read_dump(
                 dump.blocks[block].error = Some("no candidate key authenticated".to_owned());
             }
             continue;
-        }
+        };
+        let mut read_any = false;
         for block in first..first + count {
             operation.cancel().check()?;
             match operation.read_block(block as u8) {
-                Ok(data) => dump.blocks[block].set_read(data),
+                Ok(data) => {
+                    dump.blocks[block].set_read(data);
+                    read_any = true;
+                }
                 Err(error) if is_fatal_read_error(&error) => return Err(error),
                 Err(error) => {
                     dump.blocks[block].status = nfc_classic::BlockStatus::ReadFailed;
                     dump.blocks[block].error = Some(error.to_string());
                 }
             }
+        }
+        if read_any {
+            dump.metadata.keys.push(DumpKey {
+                sector: authenticated.sector,
+                key_type: authenticated.key_type,
+                key: authenticated.key,
+                source: Some(authenticated.source.stored().to_owned()),
+            });
+            authenticated_keys.push(authenticated);
         }
     }
 
@@ -161,7 +198,13 @@ pub fn read_dump(
     if readability.readable_blocks == 0 {
         return Err(NfcError::AuthenticationFailed);
     }
-    Ok(ClassicReadResult { dump, warnings })
+    dump.metadata.started_at = Some(started_at);
+    dump.metadata.finished_at = Some(now_seconds());
+    Ok(ClassicReadResult {
+        dump,
+        keys: authenticated_keys,
+        warnings,
+    })
 }
 
 /// Reads one block after authenticating its sector.
@@ -170,8 +213,9 @@ pub fn read_block(
     block: usize,
     keys: &KeyStore,
     include_common_keys: bool,
-) -> Result<[u8; BLOCK_SIZE]> {
-    let layout = layout_for_card(operation.card())?;
+) -> Result<ClassicBlockReadResult> {
+    let card = operation.card().clone();
+    let layout = layout_for_card(&card)?;
     if block >= layout.block_count() {
         return Err(NfcError::InvalidArgument(format!(
             "block {block} is outside the {} layout",
@@ -184,27 +228,46 @@ pub fn read_block(
     let first = layout
         .first_block(sector)
         .expect("sector is within the layout");
-    authenticate_sector(operation, first, sector, keys, include_common_keys)?;
-    operation.read_block(block as u8)
+    let key = authenticate_sector(operation, &card, first, sector, keys, include_common_keys)?;
+    Ok(ClassicBlockReadResult {
+        card,
+        data: operation.read_block(block as u8)?,
+        key,
+    })
 }
 
 /// Authenticates one sector with the first candidate key the card accepts.
 fn authenticate_sector(
     operation: &mut Operation<'_>,
+    card: &CardInfo,
     first_block: usize,
     sector: usize,
     keys: &KeyStore,
     include_common_keys: bool,
-) -> Result<(KeyType, Key)> {
-    for (key_type, key) in candidate_keys(keys, include_common_keys, sector) {
+) -> Result<AuthenticatedKey> {
+    for (key_type, key, source) in candidate_keys(keys, card, include_common_keys, sector) {
         operation.cancel().check()?;
         match operation.authenticate(first_block as u8, key_type, key) {
-            Ok(()) => return Ok((key_type, key)),
+            Ok(()) => {
+                return Ok(AuthenticatedKey {
+                    sector,
+                    key_type,
+                    key,
+                    source,
+                });
+            }
             Err(NfcError::AuthenticationFailed) => continue,
             Err(error) => return Err(error),
         }
     }
     Err(NfcError::AuthenticationFailed)
+}
+
+fn now_seconds() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 fn is_fatal_read_error(error: &NfcError) -> bool {

@@ -8,9 +8,9 @@ use std::time::Duration;
 use clap::{Parser, Subcommand};
 use nfc_app::Service;
 use nfc_app::classic::{
-    BackupStore, ClassicBlockWrite, ClassicKeyscan, ClassicNdefFormat, ClassicNdefRead,
-    ClassicNdefWrite, ClassicRead, ClassicRestore, KeyEntry, KeyKind, KeySource, KeyStore,
-    KeyTypes, common_keys,
+    AuthenticatedKey, BackupStore, ClassicBlockWrite, ClassicKeyscan, ClassicNdefFormat,
+    ClassicNdefRead, ClassicNdefWrite, ClassicRead, ClassicRestore, KeyEntry, KeyKind, KeySource,
+    KeyStore, KeyTypes, common_keys,
 };
 use nfc_app::type2::{
     Type2Format, Type2Lock, Type2NdefWrite, Type2PageWrite, Type2Password, Type2Restore,
@@ -518,7 +518,67 @@ fn recovery(cli: &Cli, service: &mut Service, command: RecoveryCommand) -> Resul
     if !result.note.is_empty() {
         println!("{}", result.note);
     }
+    let Some(card) = &result.card else {
+        eprintln!("warning: recovery returned no card identity; keys were not saved");
+        return Ok(());
+    };
+    let mut captured = Vec::new();
+    if !result.sector_keys.is_empty() {
+        for entry in &result.sector_keys {
+            captured.push(AuthenticatedKey {
+                sector: entry.sector,
+                key_type: entry.key_type,
+                key: entry.key,
+                source: KeySource::Recovery,
+            });
+        }
+    } else if let Some(layout) = classic_layout_for(card)
+        && let Ok(sector) = layout.sector_for_block(target_block)
+    {
+        for (key_type, key) in &result.keys {
+            captured.push(AuthenticatedKey {
+                sector,
+                key_type: *key_type,
+                key: *key,
+                source: KeySource::Recovery,
+            });
+        }
+    }
+    let mut store = load_key_store(cli)?;
+    persist_recovery_keys(cli, &mut store, card, &captured);
     Ok(())
+}
+
+fn classic_layout_for(card: &CardInfo) -> Option<Layout> {
+    match card.card_type {
+        CardType::MifareClassic1K => Some(Layout::Classic1K),
+        CardType::MifareClassic4K => Some(Layout::Classic4K),
+        _ => None,
+    }
+}
+
+fn persist_recovery_keys(
+    cli: &Cli,
+    store: &mut KeyStore,
+    card: &CardInfo,
+    keys: &[AuthenticatedKey],
+) {
+    if keys.is_empty() {
+        return;
+    }
+    if let Err(error) = store.record_verified(card, keys) {
+        eprintln!("warning: recovered keys were not recorded: {error}");
+        return;
+    }
+    match persist_key_store(cli, store) {
+        Ok(Some(path)) => println!(
+            "captured {} recovered key(s) in {}",
+            keys.len(),
+            path.display()
+        ),
+        Ok(None) => {}
+        Err(error) => eprintln!("warning: recovered keys were not saved: {error}"),
+    }
 }
 
 #[derive(Default)]
@@ -702,16 +762,18 @@ fn classic(cli: &Cli, service: &mut Service, command: ClassicCommand) -> Result<
 
 fn classic_read(cli: &Cli, service: &mut Service, block: usize) -> Result<()> {
     prepare(service, cli.device.as_deref())?;
-    let keys = load_key_store(cli)?;
-    let data = service.classic_read_block(block, &keys, !cli.no_common_keys, CancelToken::new())?;
-    println!("block {block}: {}", hex_bytes(&data));
-    println!("ascii: {}", ascii(&data));
+    let mut keys = load_key_store(cli)?;
+    let result =
+        service.classic_read_block(block, &keys, !cli.no_common_keys, CancelToken::new())?;
+    println!("block {block}: {}", hex_bytes(&result.data));
+    println!("ascii: {}", ascii(&result.data));
+    capture_keys(cli, &mut keys, &result.card, &[result.key])?;
     Ok(())
 }
 
 fn classic_dump(cli: &Cli, service: &mut Service, output: &Path, format: &str) -> Result<()> {
     prepare(service, cli.device.as_deref())?;
-    let keys = load_key_store(cli)?;
+    let mut keys = load_key_store(cli)?;
     let requested = DumpFormat::parse(format)?;
     let result =
         service.classic_read(ClassicRead::new(&keys).include_common_keys(!cli.no_common_keys))?;
@@ -720,7 +782,13 @@ fn classic_dump(cli: &Cli, service: &mut Service, output: &Path, format: &str) -
     }
     let bytes = exchange::export(&result.dump, requested)?;
     let chosen = requested.resolve(&result.dump);
+    if requested == DumpFormat::Raw && !result.dump.metadata.keys.is_empty() {
+        eprintln!("warning: raw dump is image-only; sector keys and provenance were not written");
+    }
     write_output(output, &bytes)?;
+    if let Some(card) = &result.dump.card {
+        capture_keys(cli, &mut keys, card, &result.keys)?;
+    }
     let readability = result.dump.readability();
     println!(
         "{}: {}/{} blocks, {}/{} sectors readable",
@@ -795,7 +863,8 @@ fn classic_restore(
     for warning in &load.warnings {
         eprintln!("warning: {warning}");
     }
-    let keys = load_key_store(cli)?;
+    let mut keys = load_key_store(cli)?;
+    capture_dump_metadata(cli, &mut keys, &load.dump)?;
     let backup = backup_store(cli);
     let result = service.classic_restore(
         ClassicRestore::new(load.dump, &keys, &backup)
@@ -859,17 +928,39 @@ fn classic_keyscan(
         "attempts: {}, verified: {}",
         result.attempts, result.verified
     );
+    if result.cancelled {
+        println!("cancelled; keeping verified keys and sectors");
+    }
 
-    let save_path = save
-        .map(Path::to_path_buf)
-        .or_else(|| cli.key_store.clone());
-    if let Some(path) = save_path {
-        let mut store = KeyStore::load_or_default(&path)?;
-        let added = store.merge(&result.store)?;
-        store.save(&path)?;
-        println!("saved {added} key(s) to {}", path.display());
+    if let Some(path) = save {
+        let mut store = KeyStore::load_or_default(path)?;
+        store.merge(&result.store)?;
+        store.record_verified(&result.card, &result.verified_keys)?;
+        store.save(path)?;
+        println!(
+            "saved {} verified key(s) to {}",
+            result.verified_keys.len(),
+            path.display()
+        );
     } else {
-        println!("pass --save or --key-store to keep discovered keys");
+        let mut store = keys;
+        if let Err(error) = store.record_verified(&result.card, &result.verified_keys) {
+            eprintln!("warning: verified keys were not recorded: {error}");
+        } else {
+            match persist_key_store(cli, &store) {
+                Ok(Some(path)) => println!(
+                    "captured {} verified key(s) in {}",
+                    result.verified_keys.len(),
+                    path.display()
+                ),
+                Ok(None) => {
+                    println!(
+                        "no key store path; pass --save or --key-store to keep discovered keys"
+                    );
+                }
+                Err(error) => eprintln!("warning: verified keys were not saved: {error}"),
+            }
+        }
     }
     Ok(())
 }
@@ -885,7 +976,8 @@ fn keyscan_candidates(cli: &Cli) -> Result<Vec<Key>> {
     if !cli.key_file.is_empty() {
         let mut store = KeyStore::new();
         for path in &cli.key_file {
-            store.import_text(path)?;
+            let report = store.import_text(path)?;
+            report_import_issues(path, &report);
         }
         for key in store.all_keys() {
             if !candidates.contains(&key) {
@@ -917,9 +1009,17 @@ fn classic_keys(cli: &Cli, command: KeysCommand) -> Result<()> {
         }
         KeysCommand::Import { file } => {
             let (mut store, path) = management_store(cli, true)?;
-            let added = store.import_text(&file)?;
+            let report = store.import_text(&file)?;
             store.save(&path)?;
-            println!("imported {added} key(s) into {}", path.display());
+            println!(
+                "imported {} key(s) into {}; {} duplicate(s), {} ignored, {} issue(s)",
+                report.added,
+                path.display(),
+                report.duplicates,
+                report.ignored,
+                report.issues.len()
+            );
+            report_import_issues(&file, &report);
             Ok(())
         }
         KeysCommand::Add {
@@ -1026,25 +1126,27 @@ fn classic_ndef(cli: &Cli, service: &mut Service, command: ClassicNdefCommand) -
     match command {
         ClassicNdefCommand::Info => {
             prepare(service, cli.device.as_deref())?;
-            let keys = load_key_store(cli)?;
+            let mut keys = load_key_store(cli)?;
             let read = service.classic_ndef_read(
                 ClassicNdefRead::new(&keys).include_common_keys(!cli.no_common_keys),
             )?;
             for warning in &read.warnings {
                 eprintln!("warning: {warning}");
             }
+            capture_dump_metadata(cli, &mut keys, &read.dump)?;
             print_classic_ndef(&read.info);
             Ok(())
         }
         ClassicNdefCommand::Read { output } => {
             prepare(service, cli.device.as_deref())?;
-            let keys = load_key_store(cli)?;
+            let mut keys = load_key_store(cli)?;
             let read = service.classic_ndef_read(
                 ClassicNdefRead::new(&keys).include_common_keys(!cli.no_common_keys),
             )?;
             for warning in &read.warnings {
                 eprintln!("warning: {warning}");
             }
+            capture_dump_metadata(cli, &mut keys, &read.dump)?;
             print_classic_ndef(&read.info);
             match &read.info.ndef.state {
                 ClassicNdefState::Message(message) => {
@@ -1069,13 +1171,14 @@ fn classic_ndef(cli: &Cli, service: &mut Service, command: ClassicNdefCommand) -
             language,
         } => {
             prepare(service, cli.device.as_deref())?;
-            let keys = load_key_store(cli)?;
+            let mut keys = load_key_store(cli)?;
             let backup = backup_store(cli);
             let message = build_ndef_message(file.as_deref(), text, uri, &language)?;
             let result = service.classic_ndef_write(
                 ClassicNdefWrite::new(message, &keys, &backup)
                     .include_common_keys(!cli.no_common_keys),
             )?;
+            capture_dump_metadata(cli, &mut keys, &result.dump)?;
             print_classic_ndef(&result.info);
             println!(
                 "NDEF written: {} block(s), backup {}",
@@ -1087,7 +1190,7 @@ fn classic_ndef(cli: &Cli, service: &mut Service, command: ClassicNdefCommand) -
         ClassicNdefCommand::Format { read_only } => {
             require_confirmation(cli.yes, "formatting a Classic NDEF area")?;
             prepare(service, cli.device.as_deref())?;
-            let keys = load_key_store(cli)?;
+            let mut keys = load_key_store(cli)?;
             let backup = backup_store(cli);
             let result = service.classic_ndef_format(
                 ClassicNdefFormat::new(&keys, &backup)
@@ -1095,6 +1198,7 @@ fn classic_ndef(cli: &Cli, service: &mut Service, command: ClassicNdefCommand) -
                     .read_only(read_only)
                     .confirm(true),
             )?;
+            capture_dump_metadata(cli, &mut keys, &result.dump)?;
             print_classic_ndef(&result.info);
             println!(
                 "NDEF format: {} block(s) written, {} trailer(s), backup {}",
@@ -1591,7 +1695,7 @@ fn management_store(cli: &Cli, create: bool) -> Result<(KeyStore, PathBuf)> {
 
 fn load_key_store(cli: &Cli) -> Result<KeyStore> {
     let mut store = if let Some(path) = &cli.key_store {
-        KeyStore::load(path)?
+        KeyStore::load_or_default(path)?
     } else if let Some(path) = KeyStore::default_path() {
         KeyStore::load_or_default(&path)?
     } else {
@@ -1602,9 +1706,77 @@ fn load_key_store(cli: &Cli) -> Result<KeyStore> {
         store.add(KeyEntry::new(None, KeyKind::Any, key, KeySource::Manual))?;
     }
     for path in &cli.key_file {
-        store.import_text(path)?;
+        let report = store.import_text(path)?;
+        report_import_issues(path, &report);
     }
     Ok(store)
+}
+
+fn report_import_issues(path: &Path, report: &nfc_app::classic::KeyImportReport) {
+    if report.issues.is_empty() {
+        return;
+    }
+    eprintln!(
+        "warning: {}: {} line(s) ignored, {} issue(s)",
+        path.display(),
+        report.ignored,
+        report.issues.len()
+    );
+    for issue in &report.issues {
+        eprintln!("  line {}: {}", issue.line, issue.message);
+    }
+}
+
+fn persist_key_store(cli: &Cli, store: &KeyStore) -> Result<Option<PathBuf>> {
+    let path = cli.key_store.clone().or_else(KeyStore::default_path);
+    let Some(path) = path else {
+        return Ok(None);
+    };
+    store.save(&path)?;
+    Ok(Some(path))
+}
+
+fn capture_keys(
+    cli: &Cli,
+    store: &mut KeyStore,
+    card: &CardInfo,
+    keys: &[AuthenticatedKey],
+) -> Result<()> {
+    if keys.is_empty() {
+        return Ok(());
+    }
+    if let Err(error) = store.record_verified(card, keys) {
+        eprintln!("warning: captured keys were not recorded: {error}");
+        return Ok(());
+    }
+    match persist_key_store(cli, store) {
+        Ok(Some(path)) => println!("captured {} key(s) in {}", keys.len(), path.display()),
+        Ok(None) => {}
+        Err(error) => eprintln!("warning: captured keys were not saved: {error}"),
+    }
+    Ok(())
+}
+
+fn capture_dump_metadata(cli: &Cli, store: &mut KeyStore, dump: &nfc_classic::Dump) -> Result<()> {
+    let Some(card) = &dump.card else {
+        return Ok(());
+    };
+    if dump.metadata.keys.is_empty() {
+        return Ok(());
+    }
+    let recorded = match store.record_dump_keys(card, &dump.metadata.keys) {
+        Ok(recorded) => recorded,
+        Err(error) => {
+            eprintln!("warning: dump keys were not recorded: {error}");
+            return Ok(());
+        }
+    };
+    match persist_key_store(cli, store) {
+        Ok(Some(path)) => println!("captured {recorded} dump key(s) in {}", path.display()),
+        Ok(None) => {}
+        Err(error) => eprintln!("warning: dump keys were not saved: {error}"),
+    }
+    Ok(())
 }
 
 fn backup_store(cli: &Cli) -> BackupStore {

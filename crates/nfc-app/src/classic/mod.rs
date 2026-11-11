@@ -13,7 +13,10 @@ pub(crate) mod restore;
 pub(crate) mod write;
 
 pub use backup::{BackupRecord, BackupStore};
-pub use keys::{COMMON_KEYS, KeyEntry, KeyKind, KeySource, KeyStore, common_keys};
+pub use keys::{
+    AuthenticatedKey, COMMON_KEYS, KeyEntry, KeyImportIssue, KeyImportReport, KeyKind, KeySource,
+    KeyStore, KeyVerification, card_id, common_keys,
+};
 pub use keyscan::{
     ClassicKeyscan, ClassicKeyscanResult, KeyTypes, KeyscanProgress, KeyscanSink, SectorKeys,
 };
@@ -21,6 +24,6 @@ pub use ndef::{
     ClassicNdefFormat, ClassicNdefFormatResult, ClassicNdefRead, ClassicNdefReadResult,
     ClassicNdefWrite, ClassicNdefWriteResult,
 };
-pub use read::{ClassicRead, ClassicReadResult};
+pub use read::{ClassicBlockReadResult, ClassicRead, ClassicReadResult};
 pub use restore::{ClassicRestore, ClassicRestoreResult, RestoreBlockResult, RestoreBlockState};
 pub use write::{ClassicBlockWrite, ClassicWriteResult};

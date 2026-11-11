@@ -625,10 +625,12 @@ fn authenticate_for_mask(
     mask: KeyMask,
 ) -> Result<(KeyType, Key)> {
     let allowed = AllowedTypes::from(mask);
-    let candidates: Vec<(KeyType, Key)> = candidate_keys(keys, include_common_keys, sector)
-        .into_iter()
-        .filter(|(key_type, _)| allowed.allows(*key_type))
-        .collect();
+    let candidates: Vec<(KeyType, Key)> =
+        candidate_keys(keys, operation.card(), include_common_keys, sector)
+            .into_iter()
+            .filter(|(key_type, _, _)| allowed.allows(*key_type))
+            .map(|(key_type, key, _)| (key_type, key))
+            .collect();
     if candidates.is_empty() {
         return Err(NfcError::AuthenticationFailed);
     }

@@ -41,6 +41,9 @@ copy the old surface.
 
 ### S1: verified-key capture and dump key metadata
 
+Spec: [24a-verified-keys.md](../specs/24a-verified-keys.md). Status: complete
+2026-11-11. See [24a-verified-keys.md](../notes/24a-verified-keys.md).
+
 Goal: a read, key scan, or recovery should leave the application knowing which
 key authenticated each sector, and a saved dump should preserve that context.
 

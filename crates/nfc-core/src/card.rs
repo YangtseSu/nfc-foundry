@@ -55,6 +55,21 @@ impl CardInfo {
             .join(" ")
     }
 
+    /// Stable selection identity used to scope key verifications:
+    /// `UID/ATQA/SAK` in uppercase hexadecimal. UID and ATQA are concatenated
+    /// without separators; the three fields are separated by `/`.
+    pub fn identity_key(&self) -> String {
+        let uid = self
+            .uid
+            .iter()
+            .map(|byte| format!("{byte:02X}"))
+            .collect::<String>();
+        format!(
+            "{uid}/{:02X}{:02X}/{:02X}",
+            self.atqa[0], self.atqa[1], self.sak
+        )
+    }
+
     /// Same selection identity: UID, ATQA, and SAK.
     pub fn same_identity(&self, other: &Self) -> bool {
         self.uid == other.uid && self.atqa == other.atqa && self.sak == other.sak
@@ -89,5 +104,32 @@ mod tests {
         assert_eq!(CardType::infer([0x44, 0x00], 0x00), CardType::Unknown);
         assert_eq!(CardType::infer([0x00, 0x04], 0x00), CardType::Unknown);
         assert_eq!(CardType::infer([0x00, 0x44], 0x09), CardType::Unknown);
+    }
+
+    #[test]
+    fn identity_key_is_stable_across_uid_lengths() {
+        let four = CardInfo::new(
+            vec![0x04, 0xA2, 0x24, 0x8A],
+            [0x00, 0x04],
+            0x08,
+            CardType::MifareClassic1K,
+        );
+        assert_eq!(four.identity_key(), "04A2248A/0004/08");
+
+        let seven = CardInfo::new(
+            vec![0x04, 0x52, 0xF5, 0x67, 0xD3, 0x2A, 0x81],
+            [0x00, 0x44],
+            0x00,
+            CardType::Type2,
+        );
+        assert_eq!(seven.identity_key(), "0452F567D32A81/0044/00");
+
+        let ten = CardInfo::new(
+            vec![0x04, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+            [0x00, 0x02],
+            0x18,
+            CardType::MifareClassic4K,
+        );
+        assert_eq!(ten.identity_key(), "04010203040506070809/0002/18");
     }
 }

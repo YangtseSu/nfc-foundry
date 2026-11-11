@@ -1,4 +1,4 @@
-use nfc_core::{BLOCK_SIZE, CardInfo, NfcError, Result};
+use nfc_core::{BLOCK_SIZE, CardInfo, Key, KeyType, NfcError, Result};
 
 use crate::Layout;
 use crate::access::AccessBits;
@@ -12,6 +12,28 @@ pub enum BlockStatus {
     ReadFailed,
     Synthetic,
     Verified,
+}
+
+/// One sector key recorded with a dump. The key authenticated the sector when
+/// the image was read; `source` is the originating key source label.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DumpKey {
+    pub sector: usize,
+    pub key_type: KeyType,
+    pub key: Key,
+    pub source: Option<String>,
+}
+
+/// Optional provenance for a classic dump. Metadata never changes the image
+/// bytes and is ignored by diff and raw export.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DumpMetadata {
+    pub device: Option<String>,
+    /// Unix seconds when the read started, when known.
+    pub started_at: Option<u64>,
+    /// Unix seconds when the read finished, when known.
+    pub finished_at: Option<u64>,
+    pub keys: Vec<DumpKey>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -58,6 +80,7 @@ pub struct Dump {
     pub layout: Layout,
     pub card: Option<CardInfo>,
     pub blocks: Vec<Block>,
+    pub metadata: DumpMetadata,
 }
 
 impl Dump {
@@ -81,6 +104,7 @@ impl Dump {
             layout,
             card: None,
             blocks,
+            metadata: DumpMetadata::default(),
         }
     }
 
@@ -150,6 +174,33 @@ impl Dump {
                     block.number, block.sector
                 )));
             }
+        }
+        self.validate_metadata()
+    }
+
+    /// Validates optional key metadata without requiring an image.
+    pub fn validate_metadata(&self) -> Result<()> {
+        let mut seen = vec![[false; 2]; self.layout.sector_count()];
+        for entry in &self.metadata.keys {
+            if entry.sector >= self.layout.sector_count() {
+                return Err(NfcError::InvalidArgument(format!(
+                    "dump metadata names sector {}, outside the {} layout",
+                    entry.sector,
+                    self.layout.name()
+                )));
+            }
+            let slot = match entry.key_type {
+                KeyType::A => 0,
+                KeyType::B => 1,
+            };
+            if seen[entry.sector][slot] {
+                return Err(NfcError::InvalidArgument(format!(
+                    "dump metadata repeats sector {} key {}",
+                    entry.sector,
+                    entry.key_type.label()
+                )));
+            }
+            seen[entry.sector][slot] = true;
         }
         Ok(())
     }

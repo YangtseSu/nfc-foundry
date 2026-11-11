@@ -170,10 +170,16 @@ pub fn write_block(
 
     let candidates = match request.key {
         Some((key_type, key)) => vec![(key_type, key)],
-        None => candidate_keys(request.keys, request.include_common_keys, sector)
-            .into_iter()
-            .filter(|(key_type, _)| allowed.allows(*key_type))
-            .collect(),
+        None => candidate_keys(
+            request.keys,
+            operation.card(),
+            request.include_common_keys,
+            sector,
+        )
+        .into_iter()
+        .filter(|(key_type, _, _)| allowed.allows(*key_type))
+        .map(|(key_type, key, _)| (key_type, key))
+        .collect(),
     };
     if candidates.is_empty() {
         return Err(NfcError::AuthenticationFailed);

@@ -21,7 +21,10 @@ Gen1A manufacturer-block write capability. Hardware validation covered
 Classic and Type 2 reads, a raw 7-bit REQA, and a same-value Gen1A block 0
 write verified by reselection and read-back. The Classic workflow layer covers
 key stores, common-key authentication, partial dumps, single-block reads and
-writes, restores, key scans, and atomic project-format backups. `nfctl` calls the
+writes, restores, key scans, and atomic project-format backups. Reads, scans,
+and recovery capture verified sector keys into the card-scoped version-2 key
+store, and project dumps are version 2 with keys, reader, and timestamps.
+`nfctl` calls the
 shared `nfc-app` methods. Every write checks
 access conditions, saves a backup, writes the block, reads it back, and
 rechecks card identity; restore requires confirmation, refuses to change
@@ -69,8 +72,10 @@ reader, card image, and selection; the choice persists in `ui.json` and the
 system locale is used on first run. Every shipped `nfctl` card and file
 operation has a GUI path with the same gates; see the
 [parity matrix](docs/design/parity.md). The package installs both binaries, the
-hicolor icon set, and the desktop entry. Remaining work is the Type 4 read
-surface (hardware-gated) and phases 13-17.
+hicolor icon set, and the desktop entry. Phase 24 S1 (verified-key capture,
+card-scoped key verification, and project dump v2 metadata) is complete; S2
+(editable workbench and selective restore) is next. Remaining work is the
+Type 4 read surface (hardware-gated) and phases 13-17.
 
 ## Product scope
 
@@ -212,8 +217,11 @@ cargo run -p nfctl -- --mock --device mock:classic-1k classic keyscan
 Proxmark3 raw `.bin`, and a partial image as the lossless NFC Foundry project
 `.nfc-foundry.json`. `--format raw`, `proxmark3`, `mct`, and `project` select a
 format explicitly; raw, Proxmark3 JSON, and MCT are refused for partial images
-because unknown bytes cannot be represented. Backup files always use the
-project format.
+because unknown bytes cannot be represented. The project format is version 2
+and carries sector keys, the reader connstring, and read timestamps; raw,
+Proxmark3 JSON, and MCT are image-only and lose that metadata. Use
+`--format project` when the dump must preserve keys. Backup files always use
+the project format.
 
 The mock Classic NDEF 1K carries a valid MAD1 image and a Text record:
 
@@ -236,7 +244,12 @@ cargo run -p nfctl -- --mock --device mock:ntag215 type2 dump --output ntag.json
 
 `nfctl classic keys list|import|add|export` manages the JSON key store. Pass
 `--key-store <path>` to choose it explicitly; otherwise the default is
-`$XDG_CONFIG_HOME/nfc-foundry/classic-keys.json`. `keys export --format dic`
+`$XDG_CONFIG_HOME/nfc-foundry/classic-keys.json`. A successful Classic read,
+key scan, or recovery records the authenticated key per card, sector, and A/B
+slot in the store; loading a project dump restores its keys the same way.
+The store is version 2 and keeps card-scoped verifications alongside keys;
+version 1 files still load. `keys import` reports added, duplicate, and ignored
+lines and continues past malformed entries. `keys export --format dic`
 writes the Proxmark3 dictionary dialect: unique uppercase 12-hex keys, one per
 line. Import accepts that dialect plus the JSON store. `.dic` cannot carry
 sector, A/B, or provenance, and imported `.dic` keys apply to every sector as

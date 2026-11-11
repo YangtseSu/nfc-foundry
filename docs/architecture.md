@@ -191,26 +191,32 @@ by borrow and is the current boundary.
 - `DumpFormat::Auto`, which exports a complete image as Proxmark3 raw and a
   partial image as the project format, and detects either on load.
 
-The project format is the only format that represents partial images, masked
-bytes, and malformed trailers. Raw, MCT, and Proxmark3 exports require a
-complete image with valid trailers; BCC is checked when the card identity is
+The project format is version 2 and is the only format that represents partial
+images, masked bytes, malformed trailers, sector keys, device identity, and read
+timestamps. Version 1 projects still load with empty metadata. Raw, MCT, and
+Proxmark3 exports require a complete image with valid trailers; they are
+image-only and drop key metadata. BCC is checked when the card identity is
 known. Imports reject duplicate JSON keys, missing blocks, inconsistent
-addresses, broken trailer complements, and Proxmark3 SectorKeys that disagree
-with trailer bytes. Default interchange names are `card-dump.bin`,
-`card-dump.mfc.json`, `card-dump.mct`, and `card-dump.nfc-foundry.json`. The
-exchange layer works on bytes; the workflow layer owns file paths, sidecars,
-and backup policy.
+addresses, broken trailer complements, invalid key metadata, and Proxmark3
+SectorKeys that disagree with trailer bytes. Default interchange names are
+`card-dump.bin`, `card-dump.mfc.json`, `card-dump.mct`, and
+`card-dump.nfc-foundry.json`. The exchange layer works on bytes; the workflow
+layer owns file paths, sidecars, and backup policy.
 
 `nfc-app::classic` composes the model with the transport:
 
 - `KeyStore` stores sector-specific and wildcard A/B/any keys with provenance,
-  persists JSON, and imports Proxmark3 `.dic` text. `.dic` export writes unique
-  uppercase keys and drops sector, key type, and provenance; imported `.dic`
-  keys apply to every sector as `any`.
+  card-scoped verification records, and import reports. It persists JSON
+  version 2 (version 1 loads), imports Proxmark3 `.dic` text without aborting on
+  a malformed line, and restores dump key metadata. `.dic` export writes unique
+  uppercase keys and drops sector, key type, provenance, and verification;
+  imported `.dic` keys apply to every sector as `any`.
 - A full read authenticates each sector with the first accepted candidate and
   reads block 0 with sector 0. If sector 0 does not authenticate, block 0 stays
   unknown. Authentication and read failures remain visible per block; unknown
-  bytes are never reported as known.
+  bytes are never reported as known. Every sector with at least one read block
+  contributes an authenticated key to the result and to dump metadata; the CLI
+  and GUI record it in the card-scoped key store.
 - A block write checks the expected card identity, the current access bits,
   selects an allowed key type, saves a project-format backup, writes, reads
   back, and rechecks card identity. A mismatched identity returns

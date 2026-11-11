@@ -13,10 +13,10 @@ use std::time::{Duration, Instant};
 use adw::prelude::*;
 use gtk::{Orientation, gio, glib};
 use nfc_app::classic::{
-    BackupStore, ClassicBlockWrite, ClassicKeyscan, ClassicKeyscanResult, ClassicNdefFormat,
-    ClassicNdefFormatResult, ClassicNdefWrite, ClassicNdefWriteResult, ClassicRestore,
-    ClassicRestoreResult, ClassicWriteResult, KeyEntry, KeyKind, KeySource, KeyStore, KeyTypes,
-    KeyscanProgress, KeyscanSink,
+    AuthenticatedKey, BackupStore, ClassicBlockReadResult, ClassicBlockWrite, ClassicKeyscan,
+    ClassicKeyscanResult, ClassicNdefFormat, ClassicNdefFormatResult, ClassicNdefWrite,
+    ClassicNdefWriteResult, ClassicRestore, ClassicRestoreResult, ClassicWriteResult, KeyEntry,
+    KeyKind, KeySource, KeyStore, KeyTypes, KeyscanProgress, KeyscanSink,
 };
 use nfc_app::type2::{
     Type2Format, Type2Lock, Type2LockResult, Type2MutationResult, Type2NdefWrite, Type2PageResult,
@@ -24,7 +24,7 @@ use nfc_app::type2::{
 };
 use nfc_app::{CardReadResult, ClassicNdefInfo, ClassicNdefState, Service};
 use nfc_classic::{Dump, DumpFormat, DumpLoad, diff, exchange};
-use nfc_core::{CancelToken, Key, NfcError, Result as NfcResult};
+use nfc_core::{CancelToken, CardInfo, Key, NfcError, Result as NfcResult};
 use nfc_drivers::DriverRegistry;
 use nfc_ndef::{
     NdefMessage, NdefRecord, TextRecord, Tnf, UriRecord, WifiAuthentication, WifiEncryption,
@@ -1037,9 +1037,9 @@ fn build_inspector() -> Inspector {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct KeyRow {
     sector: String,
-    kind: &'static str,
+    kind: String,
     key: String,
-    source: &'static str,
+    source: String,
 }
 
 fn key_rows(store: &KeyStore) -> Vec<KeyRow> {
@@ -1047,10 +1047,13 @@ fn key_rows(store: &KeyStore) -> Vec<KeyRow> {
         .entries()
         .iter()
         .map(|entry| KeyRow {
-            sector: entry.sector_label(),
-            kind: entry.kind.label(),
+            sector: match entry.sector {
+                Some(sector) => i18n::translate_lines(&format!("Sector {sector}")),
+                None => i18n::translate_lines("all sectors"),
+            },
+            kind: i18n::translate_lines(entry.kind.label()),
             key: entry.key.to_hex(),
-            source: entry.source.label(),
+            source: i18n::translate_lines(entry.source.label()),
         })
         .collect()
 }
@@ -3654,6 +3657,8 @@ fn finish_read(ui: &Rc<Ui>, result: NfcResult<CardReadResult>) {
     set_busy(ui, false);
     match result {
         Ok(CardReadResult::Classic(read)) => {
+            let card = read.dump.card.clone();
+            let captured = read.keys.clone();
             let warnings = read.warnings;
             let dump = read.dump;
             ui.type2.replace(None);
@@ -3667,6 +3672,9 @@ fn finish_read(ui: &Rc<Ui>, result: NfcResult<CardReadResult>) {
             update_ndef(ui);
             update_restore_sensitivity(ui);
             render_type2(ui);
+            if let Some(card) = &card {
+                record_captured_keys(ui, card, &captured);
+            }
             let readable = dump.readability().readable_blocks;
             ui.status
                 .set_localized(&format!("Read complete · {readable} blocks"));
@@ -3804,21 +3812,22 @@ fn start_read_block(ui: Rc<Ui>) {
     });
 }
 
-fn finish_read_block(ui: &Rc<Ui>, block: usize, result: NfcResult<[u8; 16]>) {
+fn finish_read_block(ui: &Rc<Ui>, block: usize, result: NfcResult<ClassicBlockReadResult>) {
     set_busy(ui, false);
     match result {
-        Ok(data) => {
+        Ok(result) => {
             {
                 let mut dump = ui.dump.borrow_mut();
                 if let Some(dump) = dump.as_mut()
                     && let Some(block) = dump.blocks.get_mut(block)
                 {
-                    block.set_read(data);
+                    block.set_read(result.data);
                 }
             }
             replace_row(ui, block);
             update_inspector(ui);
             update_card(ui);
+            record_captured_keys(ui, &result.card, &[result.key]);
             ui.status.set_localized(&format!("Block {block:03} read"));
             append_log(ui, &format!("read block · {block:03}"));
         }
@@ -4385,6 +4394,7 @@ fn apply_ndef_result(ui: &Rc<Ui>, dump: &Dump, info: &ClassicNdefInfo) {
     update_card(ui);
     render_ndef(ui, Some(info), None);
     update_restore_sensitivity(ui);
+    record_dump_metadata_keys(ui, dump);
 }
 
 fn typed_dialog(heading: &str, body: &str, confirm_label: &str) -> TypedDialog {
@@ -5959,6 +5969,73 @@ fn save_keys(ui: &Rc<Ui>, notify: bool) {
     }
 }
 
+/// Record keys captured by a successful read or scan. Persistence failure is a
+/// warning, never a reason to report the card operation as failed.
+fn record_captured_keys(ui: &Rc<Ui>, card: &CardInfo, keys: &[AuthenticatedKey]) {
+    if keys.is_empty() {
+        return;
+    }
+    let result = {
+        let mut store = ui.keys.borrow_mut();
+        store.record_verified(card, keys).and_then(|_| {
+            if let Some(path) = ui.keys_path.borrow().clone() {
+                store.save(&path)
+            } else {
+                Ok(())
+            }
+        })
+    };
+    match result {
+        Ok(()) => {
+            refresh_keys(ui);
+            append_log(
+                ui,
+                &format!(
+                    "keys · captured {} verified key(s) for {}",
+                    keys.len(),
+                    card.identity_key()
+                ),
+            );
+        }
+        Err(error) => append_log(ui, &format!("keys · capture not saved: {error}")),
+    }
+}
+
+fn record_dump_metadata_keys(ui: &Rc<Ui>, dump: &Dump) {
+    let Some(card) = &dump.card else {
+        return;
+    };
+    if dump.metadata.keys.is_empty() {
+        return;
+    }
+    let result = {
+        let mut store = ui.keys.borrow_mut();
+        store
+            .record_dump_keys(card, &dump.metadata.keys)
+            .and_then(|_| {
+                if let Some(path) = ui.keys_path.borrow().clone() {
+                    store.save(&path)
+                } else {
+                    Ok(())
+                }
+            })
+    };
+    match result {
+        Ok(()) => {
+            refresh_keys(ui);
+            append_log(
+                ui,
+                &format!(
+                    "keys · loaded {} dump key(s) for {}",
+                    dump.metadata.keys.len(),
+                    card.identity_key()
+                ),
+            );
+        }
+        Err(error) => append_log(ui, &format!("keys · dump keys not saved: {error}")),
+    }
+}
+
 fn add_key(ui: &Rc<Ui>) {
     let key = match Key::from_hex(&ui.keys_view.hex.text()) {
         Ok(key) => key,
@@ -6025,15 +6102,28 @@ fn import_keys(ui: &Rc<Ui>) {
                 return;
             }
         };
-        let added = ui2.keys.borrow_mut().import_text_str(&text);
-        match added {
-            Ok(added) => {
+        let report = ui2.keys.borrow_mut().import_text_str(&text);
+        match report {
+            Ok(report) => {
                 append_log(
                     &ui2,
-                    &format!("keys · imported {added} key(s) from {}", path.display()),
+                    &format!(
+                        "keys · imported {} from {} · {} duplicate(s), {} ignored, {} issue(s)",
+                        report.added,
+                        path.display(),
+                        report.duplicates,
+                        report.ignored,
+                        report.issues.len()
+                    ),
                 );
+                for issue in &report.issues {
+                    append_log(
+                        &ui2,
+                        &format!("keys · line {}: {}", issue.line, issue.message),
+                    );
+                }
                 save_keys(&ui2, false);
-                toast_info(&ui2, &format!("Imported {added} key(s)"));
+                toast_info(&ui2, &format!("Imported {} key(s)", report.added));
             }
             Err(error) => toast_error(&ui2, &error.to_string()),
         }
@@ -6431,7 +6521,7 @@ fn save_dump(ui: &Rc<Ui>) {
         .dump_format()
         .unwrap_or(DumpFormat::Auto);
     let body = if dump.complete() {
-        "Complete image. The configured default is preselected; every format can represent it."
+        "Complete image. The configured default is preselected; every format can represent it. Raw, Proxmark3 JSON, and MCT do not carry sector keys."
     } else {
         "Partial image. Only the NFC Foundry project format can preserve unknown bytes; raw, Proxmark3 JSON, and MCT are disabled."
     };
@@ -6516,10 +6606,15 @@ fn choose_save_path(ui: &Rc<Ui>, dump: &Dump, format: DumpFormat) {
         match exchange::export(&dump, format) {
             Ok(bytes) => match std::fs::write(&path, &bytes) {
                 Ok(()) => {
+                    let keys_omitted =
+                        chosen != DumpFormat::Project && !dump.metadata.keys.is_empty();
                     append_log(
                         &ui2,
                         &format!("save · {} · {} format", path.display(), chosen.name()),
                     );
+                    if keys_omitted {
+                        append_log(&ui2, "save · sector keys were not written to this format");
+                    }
                     toast_info(
                         &ui2,
                         &format!("Saved {} ({})", path.display(), chosen.name()),
@@ -6603,6 +6698,7 @@ fn load_dump_file(ui: &Rc<Ui>, path: &Path) -> Result<(), String> {
     update_ndef(ui);
     update_restore_sensitivity(ui);
     render_type2(ui);
+    record_dump_metadata_keys(ui, &loaded.dump);
     ui.status.set_localized(&format!(
         "Loaded {} · {}",
         path.display(),
@@ -6706,11 +6802,24 @@ fn dictionary_candidates(ui: &Ui) -> std::result::Result<Vec<Key>, String> {
     let text =
         std::fs::read_to_string(path).map_err(|error| format!("Could not read {path}: {error}"))?;
     let mut store = KeyStore::new();
-    store
+    let report = store
         .import_text_str(&text)
         .map_err(|error| error.to_string())?;
+    if !report.issues.is_empty() {
+        append_log(
+            ui,
+            &format!(
+                "keyscan dictionary · {} issue(s), {} ignored",
+                report.issues.len(),
+                report.ignored
+            ),
+        );
+    }
     if store.is_empty() {
-        return Err(format!("The dictionary {path} contains no keys"));
+        return Err(format!(
+            "The dictionary {path} contains no keys ({} issue(s))",
+            report.issues.len()
+        ));
     }
     Ok(store.all_keys())
 }
@@ -6811,18 +6920,37 @@ fn finish_keyscan(ui: &Rc<Ui>, result: NfcResult<ClassicKeyscanResult>) {
                 .iter()
                 .filter(|sector| sector.key_a.is_some() || sector.key_b.is_some())
                 .count();
+            record_captured_keys(ui, &result.card, &result.verified_keys);
+            let state = if result.cancelled {
+                "Scan cancelled; confirmed keys kept."
+            } else {
+                "Scan complete."
+            };
             ui.keyscan_view.summary.set_localized(&format!(
                 "{} sector(s) with a key · {} attempts · {} verified trailer reads",
                 found, result.attempts, result.verified
             ));
-            ui.keyscan_view.progress.set_localized("Scan complete.");
-            ui.status
-                .set_localized(&format!("Key scan complete · {found} sector(s)"));
+            ui.keyscan_view.progress.set_localized(state);
+            ui.status.set_localized(&format!(
+                "{} · {found} sector(s)",
+                if result.cancelled {
+                    "Key scan cancelled"
+                } else {
+                    "Key scan complete"
+                }
+            ));
             append_log(
                 ui,
                 &format!(
-                    "keyscan · {found} sector(s) · {} attempts · {} verified",
-                    result.attempts, result.verified
+                    "keyscan · {}{} sector(s) · {} attempts · {} verified",
+                    if result.cancelled {
+                        "cancelled · "
+                    } else {
+                        ""
+                    },
+                    found,
+                    result.attempts,
+                    result.verified
                 ),
             );
             ui.keyscan_result.replace(Some(result));
@@ -6868,21 +6996,30 @@ fn save_keyscan_keys(ui: &Rc<Ui>) {
         toast_error(ui, "Set a key store path in Settings first");
         return;
     }
-    let added = match ui.keys.borrow_mut().merge(&result.store) {
+    let merged = {
+        let mut store = ui.keys.borrow_mut();
+        store.merge(&result.store)
+    };
+    let added = match merged.and_then(|added| {
+        ui.keys
+            .borrow_mut()
+            .record_verified(&result.card, &result.verified_keys)?;
+        Ok(added)
+    }) {
         Ok(added) => added,
         Err(error) => {
             toast_error(ui, &error.to_string());
             return;
         }
     };
+    save_keys(ui, false);
     if added == 0 {
         append_log(ui, "keyscan · no new keys to save");
         toast_info(ui, "Every discovered key is already stored");
-        return;
+    } else {
+        append_log(ui, &format!("keyscan · merged {added} key(s)"));
+        toast_info(ui, &format!("Merged {added} discovered key(s)"));
     }
-    save_keys(ui, false);
-    append_log(ui, &format!("keyscan · merged {added} key(s)"));
-    toast_info(ui, &format!("Merged {added} discovered key(s)"));
 }
 
 fn export_keyscan_dic(ui: &Rc<Ui>) {
@@ -7213,6 +7350,42 @@ fn recovery_progress_is_live(progress: RecoveryProgress) -> bool {
     )
 }
 
+fn recovery_captured_keys(result: &RecoveryResult, target_block: u8) -> Vec<AuthenticatedKey> {
+    if !result.sector_keys.is_empty() {
+        return result
+            .sector_keys
+            .iter()
+            .map(|entry| AuthenticatedKey {
+                sector: entry.sector,
+                key_type: entry.key_type,
+                key: entry.key,
+                source: KeySource::Recovery,
+            })
+            .collect();
+    }
+    let Some(card) = &result.card else {
+        return Vec::new();
+    };
+    let layout = match card.card_type {
+        nfc_core::CardType::MifareClassic1K => nfc_classic::Layout::Classic1K,
+        nfc_core::CardType::MifareClassic4K => nfc_classic::Layout::Classic4K,
+        _ => return Vec::new(),
+    };
+    let Ok(sector) = layout.sector_for_block(usize::from(target_block)) else {
+        return Vec::new();
+    };
+    result
+        .keys
+        .iter()
+        .map(|(key_type, key)| AuthenticatedKey {
+            sector,
+            key_type: *key_type,
+            key: *key,
+            source: KeySource::Recovery,
+        })
+        .collect()
+}
+
 fn finish_recovery(
     ui: &Rc<Ui>,
     result: NfcResult<RecoveryResult>,
@@ -7300,6 +7473,10 @@ fn finish_recovery(
                     result.keys.len()
                 ),
             );
+            let captured = recovery_captured_keys(&result, target_block);
+            if let Some(card) = &result.card {
+                record_captured_keys(ui, card, &captured);
+            }
             ui.recovery_result.replace(Some(RecoveryOutcome {
                 result,
                 target_block,
@@ -8278,6 +8455,7 @@ mod tests {
         restore_cancel_then_confirm(&harness);
         diff_screen_classifies_blocks(&harness);
         keys_screen_adds_and_saves(&harness);
+        read_captures_keys(&harness);
         keyscan_finds_and_saves(&harness);
         recovery_limitation_and_saved_key(&harness);
         diagnostics_and_activity(&harness);
@@ -8438,6 +8616,20 @@ mod tests {
             "FM11RF08S",
         ];
         TOKENS.iter().any(|token| text.contains(token))
+            || matches!(
+                text,
+                "keys"
+                    | "keyscan"
+                    | "read"
+                    | "write"
+                    | "save"
+                    | "load"
+                    | "recovery"
+                    | "diff"
+                    | "restore"
+                    | "warning"
+                    | "error"
+            )
             || [
                 "nfc-foundry",
                 ".json",
@@ -8885,6 +9077,23 @@ mod tests {
         assert_eq!(harness.ui.keys.borrow().len(), 1);
     }
 
+    fn read_captures_keys(harness: &Harness) {
+        reset(harness);
+        let ui = &harness.ui;
+        let before = ui.keys.borrow().verified_count(&test_card());
+        choose_reader(harness, "mock:classic");
+        start_read(ui.clone());
+        pump_until(ui, "classic read", || {
+            !ui.busy.get() && ui.status.label().contains("Read complete")
+        });
+        let after = ui.keys.borrow().verified_count(&test_card());
+        assert!(after > before, "verified keys were not captured");
+        let path = harness.keys_dir.path().join("classic-keys.json");
+        let loaded = KeyStore::load(&path).expect("persisted key store");
+        assert!(loaded.verified_count(&test_card()) >= after);
+        assert!(activity_text(ui).contains("captured"));
+    }
+
     fn activity_text(ui: &Ui) -> String {
         ui.activity
             .borrow()
@@ -8952,6 +9161,7 @@ mod tests {
 
         let key = Key::from_hex("B0B1B2B3B4B5").expect("key");
         let result = RecoveryResult {
+            card: None,
             keys: vec![(nfc_core::KeyType::A, key)],
             sector_keys: Vec::new(),
             attempts: vec![nfc_recover::AttackKind::Dictionary],
@@ -9001,6 +9211,7 @@ mod tests {
             })
             .collect();
         let result = RecoveryResult {
+            card: None,
             keys: sector_keys
                 .iter()
                 .map(|entry| (entry.key_type, entry.key))

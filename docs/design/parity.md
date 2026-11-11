@@ -28,11 +28,12 @@ the image when the reader changes. No CLI-only card capability is hidden there.
 |---|---|---|---|---|
 | Read block | `classic read --block` | Blocks → Read block | R | PN532, ACR122U |
 | Dump | `classic dump --output --format` | MIFARE Classic → Dumps → Save dump… (format dialog) | R | PN532; ACR n/r |
+| Verified key capture | read, `classic keyscan`, `recover` record authenticated keys | read, Key scan, Recovery record authenticated keys | R | file only |
 | Write block | `classic write --block --data` | Blocks inspector → Write block | C, B | PN532; ACR n/r |
 | Write sector trailer | `classic write --confirm-trailer` | Write block with the trailer button when the block is a trailer | C, B | n/r |
 | Restore | `classic restore --input [--continue-on-error]` | MIFARE Classic → Dumps → Restore → Load dump… → Restore to card | C, B | PN532; ACR n/r |
-| Key scan | `classic keyscan [--save] [--types]` | MIFARE Classic → Keys → Key scan → Start scan → Save discovered keys | R | PN532; ACR n/r |
-| Key list | `classic keys list` | Keys table | R | file only |
+| Key scan | `classic keyscan [--save] [--types]` | MIFARE Classic → Keys → Key scan → Start scan; verified keys are captured automatically, Save remains available | R | PN532; ACR n/r |
+| Key list | `classic keys list` | Keys table (version-2 store with card-scoped verifications) | R | file only |
 | Key import | `classic keys import` | Keys → Import .dic / JSON… | explicit | file only |
 | Key add | `classic keys add` | Keys → Add key | explicit | file only |
 | Key export `.dic` | `classic keys export --format dic` | Keys → Export .dic… | explicit | file only |
