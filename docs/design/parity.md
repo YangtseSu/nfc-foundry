@@ -13,7 +13,7 @@ Hardware status is the release claim from
 
 | Operation | CLI | GUI | Gate | Hardware |
 |---|---|---|---|---|
-| Enumerate readers | `nfctl list` | rail reader list; Actions → Refresh readers; Diagnostics | none | PN532, ACR122U |
+| Enumerate readers | `nfctl list` | rail reader list; ☰ → Refresh readers; ☰ → Diagnostics | none | PN532, ACR122U |
 | Select and read card | `nfctl scan` | header → Read card | R | PN532, ACR122U |
 | Card information | `nfctl card info` | rail card facts; Blocks inspector; Type 2 summary | R | PN532, ACR122U |
 | Watch for card changes | `nfctl scan --watch` | — | R | n/r |
@@ -27,17 +27,17 @@ the image when the reader changes. No CLI-only card capability is hidden there.
 | Operation | CLI | GUI | Gate | Hardware |
 |---|---|---|---|---|
 | Read block | `classic read --block` | Blocks → Read block | R | PN532, ACR122U |
-| Dump | `classic dump --output --format` | Actions → Save dump… (format dialog) | R | PN532; ACR n/r |
+| Dump | `classic dump --output --format` | ☰ → Save dump… (format dialog) | R | PN532; ACR n/r |
 | Write block | `classic write --block --data` | Blocks inspector → Write block | C, B | PN532; ACR n/r |
 | Write sector trailer | `classic write --confirm-trailer` | Write block with the trailer button when the block is a trailer | C, B | n/r |
-| Restore | `classic restore --input [--continue-on-error]` | Restore → Load dump… → Restore to card | C, B | PN532; ACR n/r |
-| Key scan | `classic keyscan [--save] [--types]` | Key scan → Start scan → Save discovered keys | R | PN532; ACR n/r |
+| Restore | `classic restore --input [--continue-on-error]` | Dumps → Restore → Load dump… → Restore to card | C, B | PN532; ACR n/r |
+| Key scan | `classic keyscan [--save] [--types]` | Keys → Key scan → Start scan → Save discovered keys | R | PN532; ACR n/r |
 | Key list | `classic keys list` | Keys table | R | file only |
 | Key import | `classic keys import` | Keys → Import .dic / JSON… | explicit | file only |
 | Key add | `classic keys add` | Keys → Add key | explicit | file only |
 | Key export `.dic` | `classic keys export --format dic` | Keys → Export .dic… | explicit | file only |
 | Key export JSON | `classic keys export --format json` | Keys → Save store | explicit | file only |
-| Dump diff | `classic diff BEFORE AFTER` | Diff → Load before/after → Compare | R | file only |
+| Dump diff | `classic diff BEFORE AFTER` | Dumps → Diff → Load before/after → Compare | R | file only |
 | Classic NDEF facts | `classic ndef info` | NDEF page facts for the loaded Classic image | R | PN532 |
 | Classic NDEF read | `classic ndef read [--output]` | NDEF page records; Export message… writes the raw message | R | PN532 |
 | Classic NDEF write | `classic ndef write` | NDEF composer → Write NDEF | C, B | PN532; ACR n/r |
@@ -81,7 +81,7 @@ the same four flags/checkboxes in both surfaces.
 | Hardnested | `recover hardnested` | Recovery → Hardnested | R | PN532, ACR122U |
 | FM11RF08S profile | `recover fm11rf08s` | Recovery → FM11RF08S | R | detection only |
 | Save recovered keys | `--key-store` write by the operation | Recovery → Save verified keys | explicit | file only |
-| Self-check | `nfctl diag` | Diagnostics | R (no card I/O) | no card path |
+| Self-check | `nfctl diag` | ☰ → Diagnostics | R (no card I/O) | no card path |
 
 Recovery authenticates only; it never writes the card. A recovered key is
 displayed only after the service verifies it. Saving to the key store is a

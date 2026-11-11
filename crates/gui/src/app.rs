@@ -227,20 +227,38 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
     let activity_view = build_activity_view();
     let settings_view = build_settings_view(&preferences);
 
+    let keys_tabs = gtk::Stack::new();
+    keys_tabs.set_transition_type(gtk::StackTransitionType::Crossfade);
+    keys_tabs.set_vexpand(true);
+    keys_tabs.add_titled(&keys_view.root, Some("keys"), "Key store");
+    keys_tabs.add_titled(&keyscan_view.root, Some("keyscan"), "Key scan");
+    let (keys_group, keys_switcher) = grouped_page(&keys_tabs);
+
+    let dumps_tabs = gtk::Stack::new();
+    dumps_tabs.set_transition_type(gtk::StackTransitionType::Crossfade);
+    dumps_tabs.set_vexpand(true);
+    dumps_tabs.add_titled(&diff_view.root, Some("diff"), "Diff");
+    dumps_tabs.add_titled(&restore_view.root, Some("restore"), "Restore");
+    let (dumps_group, dumps_switcher) = grouped_page(&dumps_tabs);
+
+    let system_tabs = gtk::Stack::new();
+    system_tabs.set_transition_type(gtk::StackTransitionType::Crossfade);
+    system_tabs.set_vexpand(true);
+    system_tabs.add_titled(&diagnostics_view.root, Some("diagnostics"), "Diagnostics");
+    system_tabs.add_titled(&activity_view.root, Some("activity"), "Activity");
+    system_tabs.add_titled(&settings_view.root, Some("settings"), "Settings");
+    let (system_group, system_switcher) = grouped_page(&system_tabs);
+
     let views = gtk::Stack::new();
     views.set_transition_type(gtk::StackTransitionType::Crossfade);
     views.set_vexpand(true);
     views.add_titled(&card_page, Some("card"), "Card");
     views.add_titled(&type2_view.root, Some("type2"), "Type 2");
     views.add_titled(&ndef_view.root, Some("ndef"), "NDEF");
-    views.add_titled(&keys_view.root, Some("keys"), "Keys");
-    views.add_titled(&keyscan_view.root, Some("keyscan"), "Key scan");
+    views.add_titled(&keys_group, Some("keys"), "Keys");
     views.add_titled(&recovery_view.root, Some("recovery"), "Recovery");
-    views.add_titled(&diff_view.root, Some("diff"), "Diff");
-    views.add_titled(&restore_view.root, Some("restore"), "Restore");
-    views.add_titled(&diagnostics_view.root, Some("diagnostics"), "Diagnostics");
-    views.add_titled(&activity_view.root, Some("activity"), "Activity");
-    views.add_titled(&settings_view.root, Some("settings"), "Settings");
+    views.add_titled(&dumps_group, Some("dumps"), "Dumps");
+    views.add_named(&system_group, Some("system"));
     let switcher = gtk::StackSwitcher::new();
     switcher.set_stack(Some(&views));
     switcher.set_halign(gtk::Align::Start);
@@ -355,11 +373,17 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
         "NFC Foundry",
         i18n::Translator::new(i18n::current_language()).localized(i18n::Key::AppSubtitle),
     )));
+    let back = gtk::Button::from_icon_name("go-previous-symbolic");
+    back.set_tooltip_text(Some(&i18n::translate_lines("Back")));
+    back.add_css_class("flat");
+    back.set_visible(false);
+    header.pack_start(&back);
     let read_button = gtk::Button::with_label("Read card");
     read_button.add_css_class("suggested-action");
     header.pack_end(&read_button);
     let actions_button = gtk::MenuButton::new();
-    actions_button.set_localized("Actions");
+    actions_button.set_icon_name("open-menu-symbolic");
+    actions_button.set_tooltip_text(Some(&i18n::translate_lines("Main menu")));
     actions_button.add_css_class("flat");
     header.pack_end(&actions_button);
 
@@ -413,6 +437,16 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
         activity: RefCell::new(Vec::new()),
         views: views.clone(),
         switcher: switcher.clone(),
+        back,
+        #[cfg(test)]
+        menu: actions_button.clone(),
+        last_primary: RefCell::new("card".to_owned()),
+        keys_tabs,
+        keys_switcher,
+        dumps_tabs,
+        dumps_switcher,
+        system_tabs,
+        system_switcher,
         type2: RefCell::new(None),
         type2_restore: RefCell::new(None),
         diff_before: RefCell::new(None),
@@ -760,6 +794,16 @@ struct Ui {
     activity: RefCell<Vec<ActivityRow>>,
     views: gtk::Stack,
     switcher: gtk::StackSwitcher,
+    back: gtk::Button,
+    #[cfg(test)]
+    menu: gtk::MenuButton,
+    last_primary: RefCell<String>,
+    keys_tabs: gtk::Stack,
+    keys_switcher: gtk::StackSwitcher,
+    dumps_tabs: gtk::Stack,
+    dumps_switcher: gtk::StackSwitcher,
+    system_tabs: gtk::Stack,
+    system_switcher: gtk::StackSwitcher,
     type2: RefCell<Option<Type2Session>>,
     type2_restore: RefCell<Option<(PathBuf, Type2Image)>>,
     diff_before: RefCell<Option<DumpLoad>>,
@@ -976,6 +1020,25 @@ fn page_box() -> gtk::Box {
     page.set_margin_start(12);
     page.set_margin_end(12);
     page
+}
+
+/// A primary page that owns a nested `Stack` and its switcher. Used for the
+/// grouped Keys, Dumps, and System sections.
+fn grouped_page(stack: &gtk::Stack) -> (gtk::Box, gtk::StackSwitcher) {
+    let switcher = gtk::StackSwitcher::new();
+    switcher.set_stack(Some(stack));
+    switcher.set_halign(gtk::Align::Start);
+    let row = gtk::Box::new(Orientation::Horizontal, 0);
+    row.set_margin_top(6);
+    row.set_margin_bottom(6);
+    row.set_margin_start(12);
+    row.set_margin_end(12);
+    row.append(&switcher);
+    let root = gtk::Box::new(Orientation::Vertical, 0);
+    root.set_vexpand(true);
+    root.append(&row);
+    root.append(stack);
+    (root, switcher)
 }
 
 fn build_ndef_view() -> NdefView {
@@ -2270,9 +2333,40 @@ fn clear_label_selections(widget: &impl IsA<gtk::Widget>) {
     }
 }
 
+fn wire_group_focus(stack: &gtk::Stack, switcher: &gtk::StackSwitcher) {
+    let signal_stack = stack.clone();
+    let signal_switcher = switcher.clone();
+    stack.connect_visible_child_name_notify(move |_| {
+        if let Some(page) = signal_stack.visible_child() {
+            clear_label_selections(&page);
+        }
+        let idle_stack = signal_stack.clone();
+        let idle_switcher = signal_switcher.clone();
+        glib::idle_add_local_once(move || {
+            if let Some(page) = idle_stack.visible_child() {
+                clear_label_selections(&page);
+            }
+            idle_switcher.grab_focus();
+        });
+    });
+}
+
 fn connect_signals(ui: &Rc<Ui>) {
     let ui2 = ui.clone();
+    ui.back.connect_clicked(move |_| {
+        let target = ui2.last_primary.borrow().clone();
+        ui2.views.set_visible_child_name(&target);
+    });
+    let ui2 = ui.clone();
     ui.views.connect_visible_child_name_notify(move |views| {
+        let name = views
+            .visible_child_name()
+            .map(|name| name.to_string())
+            .unwrap_or_default();
+        if !name.is_empty() && name != "system" {
+            ui2.last_primary.replace(name.clone());
+        }
+        ui2.back.set_visible(name == "system");
         if let Some(page) = views.visible_child() {
             clear_label_selections(&page);
         }
@@ -2281,9 +2375,16 @@ fn connect_signals(ui: &Rc<Ui>) {
             if let Some(page) = ui3.views.visible_child() {
                 clear_label_selections(&page);
             }
-            ui3.switcher.grab_focus();
+            if ui3.views.visible_child_name().as_deref() == Some("system") {
+                ui3.back.grab_focus();
+            } else {
+                ui3.switcher.grab_focus();
+            }
         });
     });
+    wire_group_focus(&ui.keys_tabs, &ui.keys_switcher);
+    wire_group_focus(&ui.dumps_tabs, &ui.dumps_switcher);
+    wire_group_focus(&ui.system_tabs, &ui.system_switcher);
     let ui2 = ui.clone();
     ui.type2_view
         .tabs
@@ -2528,11 +2629,12 @@ fn connect_signals(ui: &Rc<Ui>) {
         .connect_clicked(move |_| save_settings(&ui2));
 
     let ui2 = ui.clone();
-    ui.views.connect_visible_child_name_notify(move |stack| {
-        if stack.visible_child_name().as_deref() == Some("diagnostics") {
-            render_diagnostics(&ui2);
-        }
-    });
+    ui.system_tabs
+        .connect_visible_child_name_notify(move |tabs| {
+            if tabs.visible_child_name().as_deref() == Some("diagnostics") {
+                render_diagnostics(&ui2);
+            }
+        });
 
     let ui2 = ui.clone();
     ui.diff_view
@@ -2601,6 +2703,7 @@ fn build_actions_menu(ui: &Rc<Ui>, button: &gtk::MenuButton) {
     menu.set_margin_start(8);
     menu.set_margin_end(8);
 
+    menu.append(&menu_section("Reader"));
     let refresh = menu_button("Refresh readers");
     {
         let ui = ui.clone();
@@ -2613,7 +2716,7 @@ fn build_actions_menu(ui: &Rc<Ui>, button: &gtk::MenuButton) {
     menu.append(&refresh);
 
     menu.append(&gtk::Separator::new(Orientation::Horizontal));
-
+    menu.append(&menu_section("Dump"));
     let save = menu_button("Save dump…");
     {
         let ui = ui.clone();
@@ -2636,8 +2739,68 @@ fn build_actions_menu(ui: &Rc<Ui>, button: &gtk::MenuButton) {
     }
     menu.append(&load);
 
+    menu.append(&gtk::Separator::new(Orientation::Horizontal));
+    menu.append(&menu_section("System"));
+    for (label, page) in [
+        ("Diagnostics", "diagnostics"),
+        ("Activity", "activity"),
+        ("Settings", "settings"),
+    ] {
+        let item = menu_button(label);
+        let ui = ui.clone();
+        let popover = popover.clone();
+        item.connect_clicked(move |_| {
+            popover.popdown();
+            show_system_page(&ui, page);
+        });
+        menu.append(&item);
+    }
+
+    menu.append(&gtk::Separator::new(Orientation::Horizontal));
+    let about = menu_button("About NFC Foundry");
+    {
+        let ui = ui.clone();
+        let popover = popover.clone();
+        about.connect_clicked(move |_| {
+            popover.popdown();
+            show_about(&ui);
+        });
+    }
+    menu.append(&about);
+
     popover.set_child(Some(&menu));
     button.set_popover(Some(&popover));
+}
+
+fn menu_section(title: &str) -> gtk::Label {
+    let label = gtk::Label::new(None);
+    label.set_localized(title);
+    label.set_xalign(0.0);
+    label.set_margin_top(6);
+    label.set_margin_start(8);
+    label.add_css_class("caption");
+    label.add_css_class("dim-label");
+    label
+}
+
+fn show_system_page(ui: &Rc<Ui>, page: &str) {
+    ui.views.set_visible_child_name("system");
+    ui.system_tabs.set_visible_child_name(page);
+    if page == "diagnostics" {
+        render_diagnostics(ui);
+    }
+}
+
+fn show_about(ui: &Rc<Ui>) {
+    let dialog = adw::AboutDialog::builder()
+        .application_name("NFC Foundry")
+        .application_icon("nfc-foundry")
+        .developer_name("NFC Foundry contributors")
+        .version(env!("CARGO_PKG_VERSION"))
+        .license_type(gtk::License::Gpl30)
+        .website("https://github.com/YangtseSu/nfc-foundry-rs")
+        .build();
+    dialog.present(Some(&ui.window));
 }
 
 fn menu_button(label: &str) -> gtk::Button {
@@ -8046,19 +8209,7 @@ mod tests {
     fn navigation_busy_and_focus(harness: &Harness) {
         reset(harness);
         let ui = &harness.ui;
-        for page in [
-            "card",
-            "type2",
-            "ndef",
-            "keys",
-            "keyscan",
-            "recovery",
-            "diff",
-            "restore",
-            "diagnostics",
-            "activity",
-            "settings",
-        ] {
+        for page in ["card", "type2", "ndef", "keys", "recovery", "dumps"] {
             ui.views.set_visible_child_name(page);
             assert_eq!(ui.views.visible_child_name().as_deref(), Some(page));
         }
@@ -8080,18 +8231,21 @@ mod tests {
         assert!(ui.read_button.is_sensitive());
 
         let context = glib::MainContext::default();
-        let diagnostics_title = i18n::translate_lines("Diagnostics");
-        let diagnostics_button = find_button(&ui.switcher, "Diagnostics")
-            .or_else(|| find_button(&ui.switcher, &diagnostics_title))
-            .expect("diagnostics switcher button");
-        diagnostics_button.emit_clicked();
+        let diagnostics_item = find_button(
+            &ui.menu.popover().expect("main menu popover"),
+            "Diagnostics",
+        )
+        .expect("diagnostics menu item");
+        diagnostics_item.emit_clicked();
         for _ in 0..5 {
             while context.iteration(false) {}
         }
+        assert_eq!(ui.views.visible_child_name().as_deref(), Some("system"));
         assert_eq!(
-            ui.views.visible_child_name().as_deref(),
+            ui.system_tabs.visible_child_name().as_deref(),
             Some("diagnostics")
         );
+        assert!(ui.back.is_visible());
         assert!(
             !ui.diagnostics_view.version.has_focus(),
             "diagnostics focused a selectable label"
@@ -8105,6 +8259,12 @@ mod tests {
                 .is_some_and(|widget| widget.is::<gtk::Label>()),
             "a label holds focus after the page switch"
         );
+        ui.back.emit_clicked();
+        for _ in 0..5 {
+            while context.iteration(false) {}
+        }
+        assert_eq!(ui.views.visible_child_name().as_deref(), Some("card"));
+        assert!(!ui.back.is_visible());
 
         ui.views.set_visible_child_name("type2");
         let protection_title = i18n::translate_lines("Protection");
