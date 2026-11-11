@@ -46,6 +46,7 @@ The payload used the standard Credential TLV with a Network Index (0x1026), SSID
 - Block and Type 2 `Data` cells, key-table `Key` cells, and key-scan `Key A`/
   `Key B` cells copy on double-click.
 - Activity rows copy `Time<TAB>Operation<TAB>Result<TAB>Detail` when activated.
-- Page and tab switches focus the relevant `StackSwitcher`, so selectable
-  labels in Diagnostics and Type 2 Protection no longer open with their text
-  selected. Tests assert that no label holds focus after those switches.
+- Page and tab switches clear selections on the page's selectable labels and
+  focus the relevant `StackSwitcher`, so Diagnostics and Type 2 Protection no
+  longer open with their text selected. Tests click the actual switcher
+  buttons and assert that the labels have no focus and no selection bounds.

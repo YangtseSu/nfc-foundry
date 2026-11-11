@@ -2256,16 +2256,44 @@ fn setting_row(label: &str, widget: &impl IsA<gtk::Widget>) -> gtk::Box {
     row
 }
 
+fn clear_label_selections(widget: &impl IsA<gtk::Widget>) {
+    let widget = widget.as_ref();
+    if let Some(label) = widget.downcast_ref::<gtk::Label>()
+        && label.is_selectable()
+    {
+        label.select_region(0, 0);
+    }
+    let mut child = widget.first_child();
+    while let Some(widget) = child {
+        clear_label_selections(&widget);
+        child = widget.next_sibling();
+    }
+}
+
 fn connect_signals(ui: &Rc<Ui>) {
     let ui2 = ui.clone();
-    ui.views.connect_visible_child_name_notify(move |_| {
-        ui2.switcher.grab_focus();
+    ui.views.connect_visible_child_name_notify(move |views| {
+        if let Some(page) = views.visible_child() {
+            clear_label_selections(&page);
+        }
+        let ui3 = ui2.clone();
+        glib::idle_add_local_once(move || {
+            if let Some(page) = ui3.views.visible_child() {
+                clear_label_selections(&page);
+            }
+            ui3.switcher.grab_focus();
+        });
     });
     let ui2 = ui.clone();
     ui.type2_view
         .tabs
         .connect_visible_child_name_notify(move |_| {
-            ui2.type2_view.switcher.grab_focus();
+            clear_label_selections(&ui2.type2_view.root);
+            let ui3 = ui2.clone();
+            glib::idle_add_local_once(move || {
+                clear_label_selections(&ui3.type2_view.root);
+                ui3.type2_view.switcher.grab_focus();
+            });
         });
     let ui2 = ui.clone();
     ui.selection
@@ -7893,6 +7921,40 @@ mod tests {
         [0xAA; 16]
     }
 
+    fn widget_contains_text(widget: &impl IsA<gtk::Widget>, text: &str) -> bool {
+        let widget = widget.as_ref();
+        if let Some(label) = widget.downcast_ref::<gtk::Label>()
+            && label.label() == text
+        {
+            return true;
+        }
+        let mut child = widget.first_child();
+        while let Some(widget) = child {
+            if widget_contains_text(&widget, text) {
+                return true;
+            }
+            child = widget.next_sibling();
+        }
+        false
+    }
+
+    fn find_button(widget: &impl IsA<gtk::Widget>, label: &str) -> Option<gtk::Button> {
+        let widget = widget.as_ref();
+        if let Some(button) = widget.downcast_ref::<gtk::Button>()
+            && (button.label().as_deref() == Some(label) || widget_contains_text(button, label))
+        {
+            return Some(button.clone());
+        }
+        let mut child = widget.first_child();
+        while let Some(widget) = child {
+            if let Some(found) = find_button(&widget, label) {
+                return Some(found);
+            }
+            child = widget.next_sibling();
+        }
+        None
+    }
+
     fn pump_until(ui: &Ui, label: &str, condition: impl Fn() -> bool) {
         let deadline = Instant::now() + Duration::from_secs(10);
         let context = glib::MainContext::default();
@@ -8018,11 +8080,25 @@ mod tests {
         assert!(ui.read_button.is_sensitive());
 
         let context = glib::MainContext::default();
-        ui.views.set_visible_child_name("diagnostics");
-        while context.iteration(false) {}
+        let diagnostics_title = i18n::translate_lines("Diagnostics");
+        let diagnostics_button = find_button(&ui.switcher, "Diagnostics")
+            .or_else(|| find_button(&ui.switcher, &diagnostics_title))
+            .expect("diagnostics switcher button");
+        diagnostics_button.emit_clicked();
+        for _ in 0..5 {
+            while context.iteration(false) {}
+        }
+        assert_eq!(
+            ui.views.visible_child_name().as_deref(),
+            Some("diagnostics")
+        );
         assert!(
             !ui.diagnostics_view.version.has_focus(),
             "diagnostics focused a selectable label"
+        );
+        assert!(
+            ui.diagnostics_view.version.selection_bounds().is_none(),
+            "diagnostics left its version text selected"
         );
         assert!(
             !gtk::prelude::GtkWindowExt::focus(&ui.window)
@@ -8031,11 +8107,29 @@ mod tests {
         );
 
         ui.views.set_visible_child_name("type2");
-        ui.type2_view.tabs.set_visible_child_name("protection");
-        while context.iteration(false) {}
+        let protection_title = i18n::translate_lines("Protection");
+        let protection_button = find_button(&ui.type2_view.switcher, "Protection")
+            .or_else(|| find_button(&ui.type2_view.switcher, &protection_title))
+            .expect("protection tab button");
+        protection_button.emit_clicked();
+        for _ in 0..5 {
+            while context.iteration(false) {}
+        }
+        assert_eq!(
+            ui.type2_view.tabs.visible_child_name().as_deref(),
+            Some("protection")
+        );
         assert!(
             !ui.type2_view.configuration.has_focus(),
             "protection focused the configuration label"
+        );
+        assert!(
+            ui.type2_view.configuration.selection_bounds().is_none(),
+            "protection left the configuration text selected"
+        );
+        assert!(
+            ui.type2_view.summary.selection_bounds().is_none(),
+            "type 2 summary text is selected"
         );
         assert!(
             !gtk::prelude::GtkWindowExt::focus(&ui.window)
