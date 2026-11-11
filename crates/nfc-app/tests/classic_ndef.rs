@@ -13,7 +13,7 @@ use nfc_classic_ndef::{
 };
 use nfc_core::{BLOCK_SIZE, CardInfo, CardType, Key, KeyType, NfcError, Result};
 use nfc_ndef::{NdefMessage, TextRecord};
-use nfc_transport::{DeviceInfo, Reader, Transport};
+use nfc_transport::{DeviceInfo, Reader, ReaderCapabilities, Transport};
 
 const UID: [u8; 4] = [0x04, 0xA2, 0x24, 0x8A];
 
@@ -100,6 +100,19 @@ struct TestReader {
 impl Reader for TestReader {
     fn device(&self) -> &DeviceInfo {
         &self.info
+    }
+
+    fn capabilities(&self) -> ReaderCapabilities {
+        ReaderCapabilities {
+            classic_read: true,
+            classic_write: true,
+            raw_bytes: true,
+            raw_bits: true,
+            manufacturer_write: true,
+            type2_read: true,
+            type2_write: true,
+            recovery_parity: true,
+        }
     }
 
     fn open(&mut self, _conn_string: &str) -> Result<()> {

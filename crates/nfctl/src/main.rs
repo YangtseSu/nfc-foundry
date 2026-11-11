@@ -6,7 +6,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
-use nfc_app::Service;
 use nfc_app::classic::{
     AuthenticatedKey, BackupStore, ClassicBlockWrite, ClassicKeyscan, ClassicNdefFormat,
     ClassicNdefRead, ClassicNdefWrite, ClassicRead, ClassicUidExecution, ClassicUidPlan,
@@ -18,6 +17,7 @@ use nfc_app::type2::{
     Type2Auth, Type2Format, Type2Lock, Type2NdefWrite, Type2PageWrite, Type2Password,
     Type2ReadRequest, Type2Restore,
 };
+use nfc_app::{ReaderEvent, ReaderStatus, Service, classic_health};
 use nfc_classic::{DumpFormat, Layout, bcc_for_uid, diff, exchange};
 use nfc_classic_ndef::{
     ClassicNdefInfo, Mad, MadVersion, NdefState as ClassicNdefState, format_ndef_area,
@@ -133,12 +133,24 @@ enum Command {
         command: RecoveryCommand,
     },
     /// Run the self-check.
-    Diag,
+    Diag {
+        /// Print the stable self-check document instead of the text summary.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Clone, Debug, Subcommand)]
 enum CardCommand {
     Info,
+    /// Details and health for a saved Classic image, without a reader.
+    Health {
+        #[arg(long, short, value_name = "PATH")]
+        input: PathBuf,
+        /// auto, raw, proxmark3, mct, or project.
+        #[arg(long, value_name = "FORMAT")]
+        format: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug, Subcommand)]
@@ -266,7 +278,11 @@ enum ClassicNdefCommand {
 #[derive(Clone, Debug, Subcommand)]
 enum KeysCommand {
     /// List stored keys.
-    List,
+    List {
+        /// Also print every built-in common key.
+        #[arg(long)]
+        builtin: bool,
+    },
     /// Import a text key file as wildcard keys.
     Import {
         #[arg(value_name = "PATH")]
@@ -274,6 +290,15 @@ enum KeysCommand {
     },
     /// Add one key.
     Add {
+        #[arg(value_name = "HEX")]
+        hex: String,
+        #[arg(long, value_name = "SECTOR")]
+        sector: Option<usize>,
+        #[arg(long, default_value = "any", value_name = "A|B|any")]
+        key_type: String,
+    },
+    /// Delete one stored key entry.
+    Delete {
         #[arg(value_name = "HEX")]
         hex: String,
         #[arg(long, value_name = "SECTOR")]
@@ -449,18 +474,19 @@ fn run(cli: Cli) -> Result<()> {
                 Ok(())
             }
         }
-        Command::Card {
-            command: CardCommand::Info,
-        } => {
-            prepare(&mut service, cli.device.as_deref())?;
-            print_card(&service.card_info()?);
-            Ok(())
-        }
+        Command::Card { command } => match command {
+            CardCommand::Info => {
+                prepare(&mut service, cli.device.as_deref())?;
+                print_card(&service.card_info()?);
+                Ok(())
+            }
+            CardCommand::Health { input, format } => card_health(&cli, &input, format.as_deref()),
+        },
         Command::Classic { command } => classic(&cli, &mut service, command),
         Command::Type2 { command } => type2(&cli, &mut service, command),
         Command::Ndef { command } => ndef(&cli, &mut service, command),
         Command::Recover { command } => recovery(&cli, &mut service, command),
-        Command::Diag => diag(&cli, &mut service),
+        Command::Diag { json } => diag(&cli, &mut service, json),
     }
 }
 
@@ -526,6 +552,13 @@ fn recovery(cli: &Cli, service: &mut Service, command: RecoveryCommand) -> Resul
         ),
     };
     prepare(service, cli.device.as_deref())?;
+    require_confirmation(
+        cli.yes,
+        &format!(
+            "starting {} recovery against the selected MIFARE Classic card",
+            recovery_strategy_name(strategy)
+        ),
+    )?;
     let candidates = recovery_candidates(cli)?;
     if candidates.is_empty() && strategy != RecoveryStrategy::Auto {
         eprintln!("warning: no candidate keys; nested and hardnested recovery need a known key");
@@ -1396,19 +1429,35 @@ fn keyscan_candidates(cli: &Cli) -> Result<Vec<Key>> {
 
 fn classic_keys(cli: &Cli, command: KeysCommand) -> Result<()> {
     match command {
-        KeysCommand::List => {
+        KeysCommand::List { builtin } => {
             let (store, _path) = management_store(cli, false)?;
             if store.is_empty() {
                 println!("key store is empty");
-                return Ok(());
+            } else {
+                for entry in store.entries() {
+                    println!(
+                        "{:<12} {:<4} {} ({})",
+                        entry.sector_label(),
+                        entry.kind.label(),
+                        entry.key.to_hex(),
+                        entry.source.label()
+                    );
+                }
             }
-            for entry in store.entries() {
+            let common = common_keys();
+            if builtin {
+                for key in &common {
+                    println!(
+                        "{:<12} {:<4} {} (common)",
+                        "all sectors",
+                        "A+B",
+                        key.to_hex()
+                    );
+                }
+            } else {
                 println!(
-                    "{:<12} {:<4} {} ({})",
-                    entry.sector_label(),
-                    entry.kind.label(),
-                    entry.key.to_hex(),
-                    entry.source.label()
+                    "built-in common keys: {} (use --builtin to list; they are not stored and cannot be deleted)",
+                    common.len()
                 );
             }
             Ok(())
@@ -1442,6 +1491,44 @@ fn classic_keys(cli: &Cli, command: KeysCommand) -> Result<()> {
                 println!("added key to {}", path.display());
             } else {
                 println!("key is already present in {}", path.display());
+            }
+            Ok(())
+        }
+        KeysCommand::Delete {
+            hex,
+            sector,
+            key_type,
+        } => {
+            let key = Key::from_hex(&hex)?;
+            let kind = KeyKind::parse(&key_type)?;
+            let (mut store, path) = management_store(cli, true)?;
+            let index = store
+                .entries()
+                .iter()
+                .position(|entry| entry.key == key && entry.sector == sector && entry.kind == kind);
+            match index.and_then(|index| store.remove(index)) {
+                Some(entry) => {
+                    store.save(&path)?;
+                    println!(
+                        "deleted {} key {} ({}) from {}",
+                        entry.kind.label(),
+                        entry.key.to_hex(),
+                        entry.sector_label(),
+                        path.display()
+                    );
+                }
+                None => {
+                    let sector_label = match sector {
+                        Some(sector) => format!("sector {sector}"),
+                        None => "all sectors".to_owned(),
+                    };
+                    println!(
+                        "no stored {} key {} for {sector_label} in {}",
+                        kind.label(),
+                        key.to_hex(),
+                        path.display()
+                    );
+                }
             }
             Ok(())
         }
@@ -2360,6 +2447,15 @@ fn mock_service() -> Service {
     ntag.set_page(131, [0x00, 0x00, 0x00, 0xFF]);
     ntag.set_page(132, [0x00, 0x00, 0x00, 0x00]);
     ntag.set_password([0xFF; PAGE_SIZE], [0x00, 0x00]);
+    transport.add(
+        DeviceInfo::new("Mock MIFARE Mini", "mock:mini"),
+        Some(CardInfo::new(
+            vec![0x04, 0x11, 0x22, 0x33],
+            [0x00, 0x04],
+            0x09,
+            CardType::MifareMini,
+        )),
+    );
     Service::with_transport(Arc::new(transport))
 }
 
@@ -2450,27 +2546,67 @@ fn mock_classic_card() -> (CardInfo, Vec<(u8, [u8; BLOCK_SIZE])>) {
     (card, blocks)
 }
 
-fn diag(cli: &Cli, service: &mut Service) -> Result<()> {
-    let version = env!("CARGO_PKG_VERSION");
-    println!("NFC Foundry {version}");
-    println!("nfctl {version}");
-    println!(
-        "drivers: {}<port>, {}<bus>:<address>",
-        nfc_drivers::PN532_UART_PREFIX,
-        nfc_drivers::ACR122_USB_PREFIX
-    );
-    match service.refresh_devices() {
-        Ok(()) if service.devices().is_empty() => println!("readers: none found"),
-        Ok(()) => {
-            for device in service.devices() {
-                println!("reader: {}\t{}", device.name, device.conn_string);
-            }
-        }
-        Err(error) => println!("readers: unavailable ({error})"),
+fn supported_drivers() -> Vec<nfc_app::DriverInfo> {
+    vec![
+        nfc_app::DriverInfo::new("PN532 UART", nfc_drivers::PN532_UART_PREFIX),
+        nfc_app::DriverInfo::new("ACR122U USB", nfc_drivers::ACR122_USB_PREFIX),
+    ]
+}
+
+fn diag(cli: &Cli, service: &mut Service, json: bool) -> Result<()> {
+    let report = service.self_check(supported_drivers(), cli.hardnested_tables.as_deref());
+    if json {
+        print!(
+            "{}",
+            report.to_json().map_err(|error| {
+                NfcError::Io(format!("could not serialize the self-check: {error}"))
+            })?
+        );
+        return Ok(());
     }
-    match nfc_recover::hardnested::tables::resolve_dir(cli.hardnested_tables.as_deref()) {
-        Ok(path) => println!("hardnested tables: {}", path.display()),
-        Err(error) => println!("hardnested tables: not found ({error})"),
+    println!("NFC Foundry {}", report.app.version);
+    println!("nfctl {}", report.app.version);
+    println!("commit: {}", report.app.commit);
+    println!("build date: {}", report.app.build_date);
+    println!(
+        "platform: {} · {}",
+        report.platform.os, report.platform.arch
+    );
+    println!("drivers: {}", driver_summary(&report.drivers));
+    if !report.readers.available {
+        println!(
+            "readers: unavailable ({})",
+            report
+                .readers
+                .error
+                .as_deref()
+                .unwrap_or("enumeration failed")
+        );
+    } else if report.readers.devices.is_empty() {
+        println!("readers: none found");
+    } else {
+        for device in &report.readers.devices {
+            println!("reader: {}\t{}", device.name, device.conn_string);
+        }
+    }
+    if let Some(selected) = &report.readers.selected {
+        println!("selected: {selected} · {}", report.readers.status);
+        match &report.readers.firmware {
+            Some(firmware) => println!("firmware: {firmware}"),
+            None => println!("firmware: reader not opened"),
+        }
+        println!(
+            "capabilities: {}",
+            capability_summary(&report.readers.capabilities)
+        );
+    }
+    match (
+        &report.hardnested_tables.path,
+        &report.hardnested_tables.error,
+    ) {
+        (Some(path), _) => println!("hardnested tables: {path}"),
+        (None, Some(error)) => println!("hardnested tables: not found ({error})"),
+        (None, None) => println!("hardnested tables: not found"),
     }
     println!(
         "build: {} · {} · {}",
@@ -2483,6 +2619,161 @@ fn diag(cli: &Cli, service: &mut Service) -> Result<()> {
         std::env::consts::ARCH
     );
     Ok(())
+}
+
+fn driver_summary(drivers: &[nfc_app::DriverInfo]) -> String {
+    drivers
+        .iter()
+        .map(|driver| format!("{}<{}>", driver.name, driver.conn_string_prefix))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn capability_summary(capabilities: &nfc_app::CapabilityReport) -> String {
+    let mut parts = Vec::new();
+    if capabilities.classic_read {
+        parts.push("classic read");
+    }
+    if capabilities.classic_write {
+        parts.push("classic write");
+    }
+    if capabilities.type2_read {
+        parts.push("type 2 read");
+    }
+    if capabilities.type2_write {
+        parts.push("type 2 write");
+    }
+    if capabilities.raw_bytes {
+        parts.push("raw bytes");
+    }
+    if capabilities.raw_bits {
+        parts.push("raw bits");
+    }
+    if capabilities.manufacturer_write {
+        parts.push("manufacturer write");
+    }
+    if capabilities.recovery_parity {
+        parts.push("recovery parity");
+    }
+    if parts.is_empty() {
+        "not opened".to_owned()
+    } else {
+        parts.join(" · ")
+    }
+}
+
+fn card_health(cli: &Cli, input: &Path, format: Option<&str>) -> Result<()> {
+    let bytes = read_input(input)?;
+    let load = match format {
+        Some(name) => exchange::load_as(&bytes, DumpFormat::parse(name)?)?,
+        None => exchange::load(&bytes)?,
+    };
+    let mut store = load_key_store(cli)?;
+    if let Some(card) = &load.dump.card {
+        store.record_dump_keys(card, &load.dump.metadata.keys)?;
+    }
+    let health = classic_health(&load.dump, &store, &[]);
+    println!(
+        "image: {} · {} · {}",
+        input.display(),
+        load.format.name(),
+        load.dump.layout.name()
+    );
+    if let Some(identity) = &health.identity {
+        println!(
+            "card: {} · UID {} ({} bytes) · ATQA {:02X}{:02X} · SAK {:02X}",
+            identity.card_type.label(),
+            identity.uid,
+            identity.uid_length,
+            identity.atqa[0],
+            identity.atqa[1],
+            identity.sak
+        );
+    } else {
+        println!("card: identity not recorded");
+    }
+    let layout = match health.layout {
+        Some(Layout::Classic1K) => "MIFARE Classic 1K",
+        Some(Layout::Classic4K) => "MIFARE Classic 4K",
+        None => "unknown",
+    };
+    println!("layout: {layout}");
+    println!(
+        "completeness: {}/{} blocks · {}/{} sectors · {}",
+        health.readable_blocks,
+        health.total_blocks,
+        health.readable_sectors,
+        health.total_sectors,
+        if health.complete {
+            "complete"
+        } else {
+            "incomplete"
+        }
+    );
+    if !health.skipped_sectors.is_empty() {
+        println!("skipped sectors: {}", sector_list(&health.skipped_sectors));
+    }
+    println!(
+        "keys: {}/{} sectors covered (A {}, B {}, both {}) · {} dump key(s)",
+        health.key_coverage.any_sectors,
+        health.key_coverage.sectors,
+        health.key_coverage.key_a_sectors,
+        health.key_coverage.key_b_sectors,
+        health.key_coverage.both_sectors,
+        health.dump_keys
+    );
+    if let Some(device) = &health.device {
+        println!("read by: {device}");
+    }
+    if let (Some(started), Some(finished)) = (health.started_at, health.finished_at) {
+        println!("read at: {started}..={finished} (unix seconds)");
+    }
+    if health.dirty_blocks.is_empty() {
+        println!("dirty blocks: none");
+    } else {
+        println!("dirty blocks: {}", sector_list(&health.dirty_blocks));
+    }
+    for warning in &load.warnings {
+        eprintln!("warning: {warning}");
+    }
+    for warning in &health.warnings {
+        eprintln!("warning: {warning}");
+    }
+    for error in &health.errors {
+        eprintln!("error: {error}");
+    }
+    if health.errors.is_empty() {
+        println!("validation: ok");
+    } else {
+        println!("validation: {} error(s)", health.errors.len());
+    }
+    if !health.errors.is_empty() {
+        return Err(NfcError::VerificationFailed(format!(
+            "{} validation error(s)",
+            health.errors.len()
+        )));
+    }
+    Ok(())
+}
+
+fn sector_list(values: &[usize]) -> String {
+    values
+        .iter()
+        .map(usize::to_string)
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn recovery_strategy_name(strategy: RecoveryStrategy) -> &'static str {
+    match strategy {
+        RecoveryStrategy::Auto => "automatic",
+        RecoveryStrategy::Dictionary => "dictionary",
+        RecoveryStrategy::DarkSide => "darkside",
+        RecoveryStrategy::Nested => "nested",
+        RecoveryStrategy::StaticNested => "static nested",
+        RecoveryStrategy::HardNested => "hardnested",
+        RecoveryStrategy::Fm11rf08s => "FM11RF08S",
+    }
 }
 
 fn list(service: &mut Service) -> Result<()> {
@@ -2506,43 +2797,42 @@ fn prepare(service: &mut Service, device: Option<&str>) -> Result<()> {
 }
 
 fn watch_card(service: &mut Service) -> Result<()> {
-    let mut last: Option<CardInfo> = None;
+    let mut last_error: Option<String> = None;
     loop {
-        match service.scan() {
-            Ok(card) => {
-                if last
-                    .as_ref()
-                    .is_none_or(|previous| !previous.same_identity(&card))
-                {
-                    print_card(&card);
-                    last = Some(card);
+        let update = service.poll_reader();
+        for event in update.events {
+            match event {
+                ReaderEvent::CardAppeared(card) => print_card(&card),
+                ReaderEvent::CardRemoved(card) => {
+                    println!("card removed: {}", card.uid_hex());
                 }
-            }
-            Err(NfcError::NoCard) => {
-                if last.take().is_some() {
-                    println!("card removed");
+                ReaderEvent::StatusChanged(ReaderStatus::Recovering) => {
+                    println!("reader recovering");
                 }
+                ReaderEvent::StatusChanged(ReaderStatus::Error) => {
+                    println!("reader error");
+                }
+                ReaderEvent::StatusChanged(_) => {}
             }
-            Err(error) => return Err(error),
         }
-        std::thread::sleep(Duration::from_millis(250));
+        let error = update.snapshot.error;
+        if error != last_error {
+            if let Some(message) = &error {
+                eprintln!("reader: {message}");
+            }
+            last_error = error;
+        }
+        std::thread::sleep(Duration::from_millis(100));
     }
 }
 
 fn print_card(card: &CardInfo) {
-    println!("type: {}", card_type_label(card.card_type));
+    println!("type: {}", card.card_type.label());
     println!("uid: {}", card.uid_hex());
     println!("atqa: {:02X} {:02X}", card.atqa[0], card.atqa[1]);
     println!("sak: {:02X}", card.sak);
-}
-
-fn card_type_label(card_type: CardType) -> &'static str {
-    match card_type {
-        CardType::Unknown => "unknown",
-        CardType::MifareClassic1K => "MIFARE Classic 1K",
-        CardType::MifareClassic4K => "MIFARE Classic 4K",
-        CardType::Type2 => "NFC Forum Type 2",
-        CardType::Iso14443 => "ISO/IEC 14443A",
+    if card.card_type == CardType::MifareMini {
+        println!("note: MIFARE Mini is identified only; this product does not read or write it");
     }
 }
 

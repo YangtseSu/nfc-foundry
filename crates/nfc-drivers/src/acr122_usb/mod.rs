@@ -16,7 +16,7 @@ use std::time::Duration;
 use nfc_core::{BLOCK_SIZE, CardInfo, Key, KeyType, NfcError, Result};
 use nfc_transport::{
     ApduCapabilities, ApduResponse, DeviceInfo, ManufacturerWriter, ParityFrame, Reader,
-    RecoveryCapabilities,
+    ReaderCapabilities,
 };
 
 use ccid::{ACR122_READER_NAME, CcidTransport};
@@ -103,6 +103,25 @@ impl Acr122Usb {
 impl Reader for Acr122Usb {
     fn device(&self) -> &DeviceInfo {
         &self.info
+    }
+
+    fn firmware(&self) -> Option<String> {
+        self.protocol
+            .as_ref()
+            .map(|protocol| protocol.firmware().label())
+    }
+
+    fn capabilities(&self) -> ReaderCapabilities {
+        ReaderCapabilities {
+            classic_read: true,
+            classic_write: true,
+            raw_bytes: true,
+            raw_bits: true,
+            manufacturer_write: true,
+            type2_read: true,
+            type2_write: true,
+            recovery_parity: true,
+        }
     }
 
     fn open(&mut self, conn_string: &str) -> Result<()> {
@@ -193,12 +212,6 @@ impl Reader for Acr122Usb {
 
     fn manufacturer_writer(&mut self) -> Option<&mut dyn ManufacturerWriter> {
         Some(self)
-    }
-
-    fn recovery_capabilities(&self) -> RecoveryCapabilities {
-        RecoveryCapabilities {
-            parity_exchange: self.protocol.is_some(),
-        }
     }
 
     fn set_recovery_mode(&mut self, enabled: bool) -> Result<()> {

@@ -1,8 +1,9 @@
 # Phase 24 plan: parity recovery
 
-Status: in progress 2026-11-11. This phase ports the remaining capabilities that
-exist in the previous repository but have no Rust equivalent. It is deliberately
-slice-based: each slice ships service, CLI, GUI, tests, and docs together.
+Status: complete 2026-11-12; the S6 ACR122U hardware record is pending. This
+phase ports the remaining capabilities that exist in the previous repository
+but have no Rust equivalent. It is deliberately slice-based: each slice ships
+service, CLI, GUI, tests, and docs together.
 
 ## Why this phase exists
 
@@ -169,6 +170,10 @@ Acceptance:
 
 ### S4: reader lifecycle and capability model
 
+Spec: [24f-reader-lifecycle.md](../specs/24f-reader-lifecycle.md). Status:
+complete 2026-11-12. See
+[24f-reader-lifecycle.md](../notes/24f-reader-lifecycle.md).
+
 Goal: make card presence and reader recovery an application responsibility,
 not a GUI refresh button.
 
@@ -194,6 +199,10 @@ Acceptance:
 - A driver without `manufacturer_write` cannot reach the UID service.
 
 ### S5: surface and diagnostic gaps
+
+Spec: [24g-surface-diagnostics.md](../specs/24g-surface-diagnostics.md). Status:
+complete 2026-11-12. See
+[24g-surface-diagnostics.md](../notes/24g-surface-diagnostics.md).
 
 Goal: close the lower-risk UI and release-visible gaps.
 
@@ -281,8 +290,15 @@ Acceptance:
 
 ## First implementation slice
 
-S1, S2, S3a, S3b, and S6 are implemented. S6 closes the Type 2 password gap:
-protected reads, page writes, NDEF writes/formats, configuration changes, and
-protection clearing share one PWD_AUTH session per operation. The PN532 UART
-path is hardware-validated on an owned NTAG216; the ACR122U record is pending.
-S4 and S5 are independent and can be scheduled next.
+S1, S2, S3a, S3b, S4, S5, and S6 are implemented. S6 closes the Type 2
+password gap: protected reads, page writes, NDEF writes/formats, configuration
+changes, and protection clearing share one PWD_AUTH session per operation. The
+PN532 UART path is hardware-validated on an owned NTAG216; the ACR122U record
+is pending. S4 makes the reader lifecycle an application concern: one stepped
+monitor owns card presence, status, reconnect with backoff, and the exclusive
+operation lease; drivers publish capabilities; UID and active recovery gates
+fail closed. S5 closes the surface gaps: the Details tab and
+`nfctl card health` share one health model, the key catalog shows built-ins and
+deletes stored entries, MIFARE Mini is identified without a layout claim,
+`nfctl diag --json` and the GUI share a deterministic self-check, and recovery
+requires authorization before the engine starts.

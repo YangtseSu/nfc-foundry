@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -15,7 +16,9 @@ use crate::classic::{
     WorkbenchValidation, WriteToken,
 };
 use crate::device::DeviceManager;
+use crate::diagnostics::{DriverInfo, ReaderDevice, SelfCheck};
 use crate::operation::{Operation, OperationKind};
+use crate::reader::{ReaderMonitorConfig, ReaderSnapshot, ReaderUpdate};
 use crate::type2::{Type2ReadRequest, Type2ReadResult};
 
 /// Result of reading whichever supported card family is selected.
@@ -75,9 +78,59 @@ impl Service {
         self.devices.release()
     }
 
+    /// Close the selected reader and start a fresh connection attempt. A
+    /// monitor in `Error` also retries on re-selecting the same reader.
+    pub fn retry_reader(&mut self) -> Result<()> {
+        self.devices.retry()
+    }
+
+    /// Step the reader monitor with the wall clock.
+    pub fn poll_reader(&mut self) -> ReaderUpdate {
+        self.poll_reader_at(Instant::now())
+    }
+
+    /// Step the reader monitor with a caller-supplied clock. Hosts that drive
+    /// polling from another thread use [`Self::poll_reader`]; tests and
+    /// deterministic schedulers use this entry point.
+    pub fn poll_reader_at(&mut self, now: Instant) -> ReaderUpdate {
+        self.devices.poll(now)
+    }
+
+    /// Current connection state, card presence, and reader capabilities.
+    pub fn reader_state(&self) -> ReaderSnapshot {
+        self.devices.state()
+    }
+
+    pub fn reader_monitor_config(&self) -> ReaderMonitorConfig {
+        self.devices.monitor_config()
+    }
+
+    pub fn set_reader_monitor_config(&mut self, config: ReaderMonitorConfig) {
+        self.devices.set_monitor_config(config);
+    }
+
     pub fn scan(&mut self) -> Result<CardInfo> {
         let operation = self.begin_operation(OperationKind::Scan, CancelToken::new())?;
         Ok(operation.card().clone())
+    }
+
+    /// Builds the self-check document. Reader enumeration is the only device
+    /// access: the report never selects, reads, or authenticates a card.
+    pub fn self_check(&mut self, drivers: Vec<DriverInfo>, tables_dir: Option<&Path>) -> SelfCheck {
+        let devices = match self.devices.refresh() {
+            Ok(()) => Ok(self
+                .devices
+                .devices()
+                .iter()
+                .map(|device| ReaderDevice {
+                    name: device.name.clone(),
+                    conn_string: device.conn_string.clone(),
+                })
+                .collect()),
+            Err(error) => Err(error.to_string()),
+        };
+        let snapshot = self.devices.state();
+        SelfCheck::new(drivers, devices, &snapshot, tables_dir)
     }
 
     pub fn card_info(&mut self) -> Result<CardInfo> {
@@ -109,6 +162,9 @@ impl Service {
                 result.dump.metadata.device = device;
                 Ok(CardReadResult::Classic(result))
             }
+            CardType::MifareMini => Err(NfcError::Unsupported(
+                "MIFARE Mini is identified but has no supported layout; read and write are unavailable",
+            )),
             _ => Err(NfcError::Unsupported(
                 "the selected card is not a supported Classic or Type 2 tag",
             )),
@@ -297,6 +353,7 @@ impl Service {
         let cancel = request.cancel.clone();
         let mut operation = self.begin_operation(OperationKind::Write, cancel)?;
         let result = crate::classic::uid::execute(&mut operation, request, &pending.plan)?;
+        drop(operation);
         if result.changed {
             let belongs_to_old_card = self.workbench.as_ref().is_some_and(|workbench| {
                 workbench
@@ -538,6 +595,28 @@ mod tests {
     }
 
     #[test]
+    fn mini_reports_its_type_but_has_no_read_path() {
+        let mini = CardInfo::new(
+            vec![0x04, 0xA2, 0x24, 0x8A],
+            [0x00, 0x04],
+            0x09,
+            CardType::MifareMini,
+        );
+        let (mut service, _handle) = service_with_card(mini);
+        assert_eq!(
+            service.card_info().expect("card info").card_type,
+            CardType::MifareMini
+        );
+        let result = service.read_card(&KeyStore::new(), false, None, CancelToken::new());
+        match result {
+            Err(NfcError::Unsupported(message)) => {
+                assert!(message.contains("MIFARE Mini"), "{message}");
+            }
+            other => panic!("Mini read must be refused, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn reader_is_opened_once_and_reopened_after_release() {
         let (mut service, handle) = service_with_card(card(1));
         service.scan().expect("scan");
@@ -548,6 +627,9 @@ mod tests {
         service.release_reader().expect("release");
         assert!(!handle.is_open());
         assert_eq!(handle.close_count(), 1);
+        let update = service.poll_reader_at(Instant::now() + std::time::Duration::from_secs(1));
+        assert_eq!(update.snapshot.status, crate::ReaderStatus::Connecting);
+        assert_eq!(handle.open_count(), 1, "a release must park the monitor");
 
         service.scan().expect("scan after release");
         assert_eq!(handle.open_count(), 2);
@@ -808,6 +890,37 @@ mod tests {
     }
 
     #[test]
+    fn an_operation_lease_excludes_pollers_and_other_operations() {
+        let (service, _handle) = service_with_card(card(1));
+        let shared = Arc::new(std::sync::Mutex::new(service));
+        let mut guard = shared.lock().expect("service lock");
+        let operation = guard
+            .begin_operation(OperationKind::Read, CancelToken::new())
+            .expect("operation");
+        let probe = shared.clone();
+        let blocked = std::thread::spawn(move || probe.try_lock().is_err())
+            .join()
+            .expect("probe thread");
+        assert!(blocked, "a second locker entered during the operation");
+        drop(operation);
+        drop(guard);
+        assert!(shared.try_lock().is_ok(), "the lease did not release");
+    }
+
+    #[test]
+    fn uid_service_requires_the_manufacturer_write_capability() {
+        use nfc_transport::ReaderCapabilities;
+
+        let (mut service, handle) = service_with_card(card(1));
+        handle.set_capabilities(ReaderCapabilities::default());
+        let keys = KeyStore::new();
+        let request = ClassicUidPreflight::new([2, 2, 2, 2], &keys).advanced(true);
+        let result = service.classic_uid_preflight(request);
+        assert!(matches!(result, Err(NfcError::Unsupported(_))));
+        assert_eq!(handle.block(0), None);
+    }
+
+    #[test]
     fn operations_require_a_selected_reader() {
         let mut service = Service::with_transport(Arc::new(MockTransport::new()));
         service.refresh_devices().expect("refresh");
@@ -819,5 +932,21 @@ mod tests {
             service.select_device("mock:missing"),
             Err(NfcError::InvalidArgument(_))
         ));
+    }
+
+    #[test]
+    fn self_check_enumerates_readers_and_reports_open_firmware() {
+        let (mut service, _handle) = service_with_card(card(1));
+        service.poll_reader();
+        let report = service.self_check(vec![DriverInfo::new("Mock transport", "mock:")], None);
+        assert!(report.readers.available);
+        assert_eq!(report.readers.devices.len(), 1);
+        assert_eq!(report.readers.devices[0].conn_string, "mock:0");
+        assert_eq!(
+            report.readers.firmware.as_deref(),
+            Some("mock reader firmware")
+        );
+        assert!(report.readers.capabilities.classic_read);
+        assert_eq!(report.app.version, env!("CARGO_PKG_VERSION"));
     }
 }

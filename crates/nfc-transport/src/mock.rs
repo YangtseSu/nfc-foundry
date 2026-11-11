@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use nfc_core::{BLOCK_SIZE, CardInfo, Key, KeyType, NfcError, PAGE_QUAD_SIZE, PAGE_SIZE, Result};
 
 use crate::{
-    ApduCapabilities, ApduResponse, DeviceInfo, ManufacturerWriter, Reader, TrailerWriter,
-    Transport,
+    ApduCapabilities, ApduResponse, DeviceInfo, ManufacturerWriter, Reader, ReaderCapabilities,
+    TrailerWriter, Transport,
 };
 
 /// Reader entry points that can be scripted with a fault.
@@ -257,8 +257,7 @@ struct MockState {
     open_count: usize,
     close_count: usize,
     faults: Vec<(MockCall, MockFault)>,
-    /// The reader exposes the protected Gen1A manufacturer writer.
-    manufacturer_write: bool,
+    capabilities: ReaderCapabilities,
     /// An ordinary write to block 0 is accepted, as on a CUID/Gen2 card.
     block_zero_writable: bool,
 }
@@ -278,7 +277,16 @@ impl Default for MockState {
             open_count: 0,
             close_count: 0,
             faults: Vec::new(),
-            manufacturer_write: true,
+            capabilities: ReaderCapabilities {
+                classic_read: true,
+                classic_write: true,
+                raw_bytes: true,
+                raw_bits: true,
+                manufacturer_write: true,
+                type2_read: true,
+                type2_write: true,
+                recovery_parity: false,
+            },
             block_zero_writable: true,
         }
     }
@@ -419,9 +427,18 @@ impl MockHandle {
         self.lock().faults.push((call, fault));
     }
 
+    /// Replace the advertised capability profile.
+    pub fn set_capabilities(&self, capabilities: ReaderCapabilities) {
+        self.lock().capabilities = capabilities;
+    }
+
+    pub fn capabilities(&self) -> ReaderCapabilities {
+        self.lock().capabilities
+    }
+
     /// Advertise the protected Gen1A manufacturer writer.
     pub fn set_manufacturer_write(&self, enabled: bool) {
-        self.lock().manufacturer_write = enabled;
+        self.lock().capabilities.manufacturer_write = enabled;
     }
 
     /// Accept or refuse an ordinary write to manufacturer block 0.
@@ -430,7 +447,7 @@ impl MockHandle {
     }
 
     pub fn manufacturer_write(&self) -> bool {
-        self.lock().manufacturer_write
+        self.lock().capabilities.manufacturer_write
     }
 
     pub fn block_zero_writable(&self) -> bool {
@@ -507,6 +524,14 @@ impl MockReader {
         self.state.fail_next(call, fault);
     }
 
+    pub fn set_capabilities(&mut self, capabilities: ReaderCapabilities) {
+        self.state.set_capabilities(capabilities);
+    }
+
+    pub fn set_manufacturer_write(&mut self, enabled: bool) {
+        self.state.set_manufacturer_write(enabled);
+    }
+
     pub fn is_raw_mode(&self) -> bool {
         self.state.is_raw_mode()
     }
@@ -515,6 +540,14 @@ impl MockReader {
 impl Reader for MockReader {
     fn device(&self) -> &DeviceInfo {
         &self.info
+    }
+
+    fn firmware(&self) -> Option<String> {
+        Some("mock reader firmware".to_owned())
+    }
+
+    fn capabilities(&self) -> ReaderCapabilities {
+        self.state.lock().capabilities
     }
 
     fn open(&mut self, conn_string: &str) -> Result<()> {
@@ -672,7 +705,7 @@ impl Reader for MockReader {
     }
 
     fn manufacturer_writer(&mut self) -> Option<&mut dyn ManufacturerWriter> {
-        let available = self.state.lock().manufacturer_write;
+        let available = self.state.lock().capabilities.manufacturer_write;
         if available { Some(self) } else { None }
     }
 }
@@ -709,7 +742,7 @@ impl TrailerWriter for MockReader {
 impl ManufacturerWriter for MockReader {
     fn write_manufacturer_block(&mut self, data: [u8; BLOCK_SIZE]) -> Result<()> {
         let mut state = self.state.lock();
-        if !state.manufacturer_write {
+        if !state.capabilities.manufacturer_write {
             return Err(NfcError::Unsupported(
                 "the mock reader has no Gen1A manufacturer writer",
             ));
@@ -849,6 +882,22 @@ mod tests {
         reader.fail_next(MockCall::WriteBlock, MockFault::WriteIgnored);
         reader.write_block(1, [0xAA; BLOCK_SIZE]).expect("write");
         assert_eq!(reader.read_block(1).expect("block"), original);
+    }
+
+    #[test]
+    fn capabilities_gate_the_manufacturer_writer() {
+        let mut reader = MockReader::new(DeviceInfo::new("mock", "mock:0"), Some(card(1)));
+        assert!(reader.capabilities().manufacturer_write);
+        let mut capabilities = reader.capabilities();
+        capabilities.manufacturer_write = false;
+        capabilities.recovery_parity = false;
+        reader.set_capabilities(capabilities);
+        assert_eq!(reader.capabilities(), capabilities);
+        assert!(reader.manufacturer_writer().is_none());
+        assert!(matches!(
+            reader.write_manufacturer_block([0xAA; BLOCK_SIZE]),
+            Err(NfcError::Unsupported(_))
+        ));
     }
 
     #[test]

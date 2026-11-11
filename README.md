@@ -88,12 +88,28 @@ The path is hardware-validated on PN532 UART and ACR122U with an owned Gen1A
 card. S3b (restore with UID) is complete:
 a full restore runs under one preflight token, verifies the restored sector 0,
 and only then writes the target UID. It is hardware-validated on PN532 UART and
-ACR122U with an owned Gen1A Classic 1K. S6 adds Type 2 authenticated access:
+ACR122U with an owned Gen1A Classic 1K. S4 (reader lifecycle and capability
+model) is complete: `nfc-app` polls card presence with a bounded removal
+tolerance, reports connecting/polling/busy/recovering/error state, reconnects
+with exponential backoff, and holds one exclusive operation lease. Drivers
+publish their capabilities; UID writes and explicit active recovery strategies
+fail closed on a reader without the matching capability, and card removal
+invalidates the GUI image and disables writes. S6 adds Type 2 authenticated
+access:
 one PWD_AUTH session per operation covers protected reads, page writes, NDEF
 writes/formats, lock updates, restore, and configuration changes, and can clear
 AUTH0 back to 0xFF. It is hardware-validated on PN532 UART with an owned
-NTAG216; the ACR122U record is pending. Remaining work is the Type 4 read
-surface (hardware-gated) and phases 13-17.
+NTAG216; the ACR122U record is pending. S5 (surface and diagnostic gaps) is
+complete: the Classic Details tab and `nfctl card health` share one health
+model over the dump and key store, and the GUI adds the live workbench dirty
+set; the key catalog shows built-in
+common keys, deletes stored entries, and surfaces the line-numbered import
+report; MIFARE Mini is identified from SAK `0x09` without a layout or
+read/write claim; `nfctl diag --json` and the GUI diagnostics page share a
+deterministic self-check with version, commit, build date, platform, drivers,
+selected-reader firmware and capabilities, and hardnested table status; and
+both recovery surfaces require authorization before the engine starts.
+Remaining work is the Type 4 read surface (hardware-gated) and phases 13-17.
 
 ## Product scope
 
@@ -377,7 +393,9 @@ still pending because no ACR122U was connected.
 ## GUI
 
 The GTK4 workbench lives in `crates/gui`. It includes the shell, real reader
-selection, Classic read/table/inspector, verified block write, dump save/load
+selection with live connection state and capabilities, Classic
+read/table/inspector, a Details tab with the shared card health model, verified
+block write, dump save/load
 with format selection, Keys, Key scan, Recovery, Diff, Restore, a family-aware
 NDEF composer with verified write and format, Type 2 Memory/Protection, and
 Diagnostics/Activity/Settings screens. A Type 2 read shows page roles, locks,

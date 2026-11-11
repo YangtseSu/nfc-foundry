@@ -11,9 +11,15 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
   primary `Read card`, and a `☰` main menu. A `←` back button appears only
   while a system page is shown. The reader selector is not duplicated in the
   header.
-- Left rail (fixed start pane, `GtkPaned`): reader menu with refresh, card
-  identity/size/readability, key-store status, and selected block.
-- Workspaces: `Classic` shows `Blocks`, `NDEF`, `Keys`, `Recovery`, and `Dumps`;
+- Left rail (fixed start pane, `GtkPaned`): reader menu with refresh,
+  connection status, and capability profile, card identity/size/readability,
+  key-store status, and selected block.
+- The reader monitor polls through `nfc-app` with one exclusive operation
+  lease. Removing the card, presenting a different card, or losing the reader
+  invalidates the live image, resets Advanced mode, and disables writes while
+  the inspected bytes stay visible.
+- Workspaces: `Classic` shows `Blocks`, `Details`, `NDEF`, `Keys`, `Recovery`,
+  and `Dumps`;
   `Type 2` shows `Pages`, `Protection`, `NDEF`, and `Dumps`. `Keys` owns
   `Key store` / `Key scan`; Classic `Dumps` owns Save/Load plus `Diff` /
   `Restore`; Type 2 `Dumps` owns Save/Load plus Restore. The NDEF view is
@@ -44,6 +50,16 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
     complements.
 - Empty state before a read: "No card loaded", reader + Read hint.
 - Busy state: spinner, disabled reader menu and Read, disabled writes.
+
+## Details
+
+- Renders `nfc_app::classic_health` for the loaded Classic image: identity
+  (type, UID, length, ATQA, SAK), layout, source (`live card` or the loaded
+  path), live/inspection state, reader and read time when recorded,
+  completeness (blocks and sectors), skipped sectors, verified key coverage,
+  dump key count, dirty blocks, and validation errors/warnings.
+- No card I/O and no key material. The model is shared with
+  `nfctl card health`.
 
 ## Type 2
 
@@ -89,11 +105,17 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
 
 ## Keys
 
-- `GtkColumnView` with `Sector`, `Type`, `Key`, and `Source`.
+- `GtkColumnView` with `Sector`, `Type`, `Key`, and `Source`. Stored entries
+  show their provenance; built-in common keys appear as `all sectors`,
+  `A+B`, `built-in` when the same key is not stored.
 - Add one key: 12 hex digits, optional sector, `any`/`A`/`B`.
+- Delete selected removes exactly the selected stored entry and persists the
+  store. Built-in rows are read-only candidates and cannot be deleted.
 - Import `.dic` text or JSON; save the JSON store; export a Proxmark3 `.dic`.
-- Copy states that `.dic` export is lossy and imported keys apply to every
-  sector as `any`.
+  The last import report shows added, duplicates, ignored, and line-numbered
+  issues.
+- Copy states that `.dic` export is lossy and does not carry sector, type, or
+  provenance.
 - Reads and writes use the same in-memory store; there is no second key
   source.
 
@@ -124,6 +146,9 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
   outside the scroll area, so the save action stays reachable with a long
   result. Cancel is available while the engine runs and is checked before the
   next reader exchange.
+- `Start recovery` opens a neutral authorization dialog with the strategy,
+  target, and selected reader. No worker or reader lease starts before the
+  confirm response.
 - Every key appears only after a fresh authentication; saving to the store is
   a separate action with `recovery` provenance and per-sector attribution.
 - Engine limitations (darkside no-sample, FM11RF08S transport limits, missing
@@ -131,8 +156,12 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
 
 ## Diagnostics
 
-- Version, supported driver prefixes, enumerated readers, resolved hardnested
-  table path, and build profile/OS/architecture.
+- Version, commit, build date, platform, supported driver prefixes,
+  enumerated readers, selected-reader status, firmware of an opened reader,
+  reader capability profile, resolved hardnested table path, and build
+  profile/OS/architecture.
+- The same fields drive `nfctl diag`; `nfctl diag --json` serializes the shared
+  `SelfCheck` document.
 - Reader refresh enumerates devices only; diagnostics performs no card I/O and
   shows no secrets.
 

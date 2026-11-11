@@ -6,23 +6,39 @@ pub enum CardType {
     Unknown,
     MifareClassic1K,
     MifareClassic4K,
+    /// SAK `0x09` identifies a MIFARE Mini. The product reports its identity
+    /// only: no card layout, read, or write path is claimed for it.
+    MifareMini,
     Type2,
     Iso14443,
 }
 
 impl CardType {
     /// Conservative inference from ISO/IEC 14443A selection data. The cascade
-    /// bit is ignored; only unambiguous Classic SAK values, the standard Type 2
+    /// bit is ignored; only unambiguous SAK values, the standard Type 2
     /// signature, and the ISO/IEC 14443-4 SAK bit produce a known family.
     pub fn infer(atqa: [u8; 2], sak: u8) -> Self {
         let sak = sak & !0x04;
         match sak {
             0x08 => Self::MifareClassic1K,
+            0x09 => Self::MifareMini,
             0x18 => Self::MifareClassic4K,
             0x00 if atqa == [0x00, 0x44] => Self::Type2,
             0x00 => Self::Unknown,
             _ if sak & 0x20 != 0 => Self::Iso14443,
             _ => Self::Unknown,
+        }
+    }
+
+    /// Stable user-facing family name.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Unknown => "unknown card",
+            Self::MifareClassic1K => "MIFARE Classic 1K",
+            Self::MifareClassic4K => "MIFARE Classic 4K",
+            Self::MifareMini => "MIFARE Mini",
+            Self::Type2 => "NFC Forum Type 2",
+            Self::Iso14443 => "ISO/IEC 14443A",
         }
     }
 }
@@ -99,11 +115,19 @@ mod tests {
     }
 
     #[test]
+    fn identifies_mifare_mini_without_claiming_a_layout() {
+        for sak in [0x09, 0x0D] {
+            assert_eq!(CardType::infer([0x00, 0x04], sak), CardType::MifareMini);
+        }
+        assert_eq!(CardType::MifareMini.label(), "MIFARE Mini");
+    }
+
+    #[test]
     fn infers_type2_only_from_the_standard_signature() {
         assert_eq!(CardType::infer([0x00, 0x44], 0x00), CardType::Type2);
         assert_eq!(CardType::infer([0x44, 0x00], 0x00), CardType::Unknown);
         assert_eq!(CardType::infer([0x00, 0x04], 0x00), CardType::Unknown);
-        assert_eq!(CardType::infer([0x00, 0x44], 0x09), CardType::Unknown);
+        assert_eq!(CardType::infer([0x00, 0x44], 0x09), CardType::MifareMini);
     }
 
     #[test]

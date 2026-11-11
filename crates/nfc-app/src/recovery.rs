@@ -1,13 +1,27 @@
 //! Recovery service entry point. The exclusive operation lease and card
 //! identity checks stay in `nfc-app`; the algorithms live in `nfc-recover`.
 
-use nfc_core::Result;
+use nfc_core::{NfcError, Result};
 
 use nfc_recover::auto::RecoveryStrategy;
 use nfc_recover::{RecoveryRequest, RecoveryResult};
 
 use crate::operation::OperationKind;
 use crate::service::Service;
+
+/// Explicit active strategies exchange parity-carrying Crypto1 frames. Auto
+/// starts with the dictionary and only needs parity when it escalates, so the
+/// engine reports that case when it is reached.
+fn strategy_requires_parity(strategy: RecoveryStrategy) -> bool {
+    matches!(
+        strategy,
+        RecoveryStrategy::DarkSide
+            | RecoveryStrategy::Nested
+            | RecoveryStrategy::StaticNested
+            | RecoveryStrategy::HardNested
+            | RecoveryStrategy::Fm11rf08s
+    )
+}
 
 impl Service {
     /// Runs one recovery strategy under an exclusive reader lease. Every
@@ -20,6 +34,11 @@ impl Service {
     ) -> Result<RecoveryResult> {
         let cancel = request.cancel.clone();
         let mut operation = self.begin_operation(OperationKind::Recovery, cancel)?;
+        if strategy_requires_parity(strategy) && !operation.capabilities().recovery_parity {
+            return Err(NfcError::Unsupported(
+                "the selected reader does not support parity exchange; active recovery is unavailable",
+            ));
+        }
         let mut result = nfc_recover::recover(operation.reader_mut(), strategy, &request)?;
         operation.check_card()?;
         result.card = Some(operation.card().clone());
@@ -133,6 +152,11 @@ mod tests {
                 ..RecoveryRequest::default()
             },
         );
-        assert!(matches!(result, Err(NfcError::Unsupported(_))));
+        match result {
+            Err(NfcError::Unsupported(message)) => {
+                assert!(message.contains("parity exchange"), "{message}");
+            }
+            other => panic!("unexpected result: {other:?}"),
+        }
     }
 }

@@ -1,5 +1,7 @@
+use std::cell::Cell;
+
 use nfc_core::{BLOCK_SIZE, CancelToken, CardInfo, Key, KeyType, NfcError, Result};
-use nfc_transport::Reader;
+use nfc_transport::{Reader, ReaderCapabilities};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OperationKind {
@@ -23,6 +25,7 @@ pub struct Operation<'a> {
     reader: &'a mut dyn Reader,
     card: CardInfo,
     cancel: CancelToken,
+    busy: &'a Cell<bool>,
 }
 
 impl<'a> Operation<'a> {
@@ -31,12 +34,14 @@ impl<'a> Operation<'a> {
         reader: &'a mut dyn Reader,
         card: CardInfo,
         cancel: CancelToken,
+        busy: &'a Cell<bool>,
     ) -> Self {
         Self {
             kind,
             reader,
             card,
             cancel,
+            busy,
         }
     }
 
@@ -57,6 +62,11 @@ impl<'a> Operation<'a> {
     /// methods.
     pub(crate) fn reader_mut(&mut self) -> &mut dyn Reader {
         self.reader
+    }
+
+    /// Operations the selected reader implements.
+    pub fn capabilities(&self) -> ReaderCapabilities {
+        self.reader.capabilities()
     }
 
     /// Whether the selected reader exposes a protected manufacturer writer.
@@ -181,5 +191,11 @@ impl<'a> Operation<'a> {
     ) -> Result<()> {
         self.cancel.check()?;
         self.reader.write_block(block, data)
+    }
+}
+
+impl Drop for Operation<'_> {
+    fn drop(&mut self) {
+        self.busy.set(false);
     }
 }

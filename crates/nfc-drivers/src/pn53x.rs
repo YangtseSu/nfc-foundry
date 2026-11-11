@@ -63,6 +63,17 @@ pub struct FirmwareVersion {
     pub support: u8,
 }
 
+impl FirmwareVersion {
+    /// Diagnostic label shared by the PN532 UART and ACR122U paths. The ACR122U
+    /// exposes the identity of its internal PN532.
+    pub fn label(&self) -> String {
+        format!(
+            "PN532 IC {:02X} · firmware {}.{} · support {:02X}",
+            self.ic, self.version, self.revision, self.support
+        )
+    }
+}
+
 pub(crate) fn parse_firmware(response: &[u8]) -> Result<FirmwareVersion> {
     if response.len() < 4 || response[0] != PN532_IC {
         return Err(NfcError::Unsupported(

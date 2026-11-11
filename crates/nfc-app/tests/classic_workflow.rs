@@ -11,7 +11,7 @@ use nfc_app::classic::{
 use nfc_app::{BackupStore, KeyEntry, KeyKind, KeySource, KeyStore, Service};
 use nfc_classic::{AccessBits, AccessCondition, Dump, DumpFormat, Layout, bcc_for_uid, exchange};
 use nfc_core::{BLOCK_SIZE, CancelToken, CardInfo, CardType, Key, KeyType, NfcError, Result};
-use nfc_transport::{DeviceInfo, ManufacturerWriter, Reader, Transport};
+use nfc_transport::{DeviceInfo, ManufacturerWriter, Reader, ReaderCapabilities, Transport};
 
 const UID: [u8; 4] = [0x04, 0xA2, 0x24, 0x8A];
 const KEY_A: Key = Key::new([0xFF; 6]);
@@ -166,6 +166,19 @@ struct TestReader {
 impl Reader for TestReader {
     fn device(&self) -> &DeviceInfo {
         &self.info
+    }
+
+    fn capabilities(&self) -> ReaderCapabilities {
+        ReaderCapabilities {
+            classic_read: true,
+            classic_write: true,
+            raw_bytes: true,
+            raw_bits: true,
+            manufacturer_write: true,
+            type2_read: true,
+            type2_write: true,
+            recovery_parity: true,
+        }
     }
 
     fn open(&mut self, _conn_string: &str) -> Result<()> {

@@ -268,12 +268,26 @@ impl SectorZero {
     }
 }
 
+/// UID writes are only exposed by drivers that advertise the manufacturer
+/// block. The capability gate runs before any card read, so a driver without
+/// it cannot reach the planning or write path.
+fn require_manufacturer_write(operation: &Operation<'_>) -> Result<()> {
+    if operation.capabilities().manufacturer_write {
+        Ok(())
+    } else {
+        Err(NfcError::Unsupported(
+            "the selected reader does not advertise manufacturer-block writes; UID writes are unavailable",
+        ))
+    }
+}
+
 /// Builds a plan without mutating the card.
 pub fn preflight(
     operation: &mut Operation<'_>,
     request: &ClassicUidPreflight<'_>,
     token: WriteToken,
 ) -> Result<ClassicUidPlan> {
+    require_manufacturer_write(operation)?;
     request.cancel.check()?;
     if !request.advanced {
         return Err(NfcError::InvalidArgument(
@@ -403,6 +417,7 @@ pub(crate) fn plan_for_restore(
     keys: &KeyStore,
     include_common_keys: bool,
 ) -> Result<ClassicUidPlan> {
+    require_manufacturer_write(operation)?;
     let card = operation.card().clone();
     if card.card_type != CardType::MifareClassic1K {
         return Err(NfcError::Unsupported(
@@ -671,6 +686,7 @@ pub fn execute(
     request: ClassicUidExecution<'_>,
     plan: &ClassicUidPlan,
 ) -> Result<ClassicUidResult> {
+    require_manufacturer_write(operation)?;
     if !request.advanced {
         return Err(NfcError::InvalidArgument(
             "UID writes require Advanced mode".to_owned(),

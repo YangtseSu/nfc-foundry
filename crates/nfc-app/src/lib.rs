@@ -5,9 +5,12 @@
 
 pub mod classic;
 pub mod device;
+pub mod diagnostics;
 pub mod event;
 mod fsutil;
+pub mod health;
 pub mod operation;
+pub mod reader;
 pub mod recovery;
 pub mod service;
 pub mod type2;
@@ -26,10 +29,19 @@ pub use classic::{
     format_uid, normalize_uid_text, parse_block_list, parse_uid,
 };
 pub use device::DeviceManager;
+pub use diagnostics::{
+    APP_NAME, AppInfo, CapabilityReport, DriverInfo, PlatformInfo, ReaderDevice, ReaderListing,
+    SelfCheck, TablesStatus,
+};
+pub use health::{CardHealth, CardIdentityHealth, KeyCoverage, classic_health};
 pub use nfc_classic_ndef::{
     ClassicNdefInfo, ClassicNdefLayout, MappingVersion, NdefState as ClassicNdefState,
 };
 pub use operation::{Operation, OperationKind};
+pub use reader::{
+    DEFAULT_POLL_INTERVAL, DEFAULT_REMOVAL_MISSES, ReaderEvent, ReaderMonitorConfig,
+    ReaderSnapshot, ReaderStatus, ReaderUpdate,
+};
 pub use service::{CardReadResult, Service};
 pub use type2::{
     Type2Auth, Type2Format, Type2Lock, Type2LockResult, Type2MutationResult, Type2NdefResult,

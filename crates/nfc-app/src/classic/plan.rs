@@ -310,6 +310,11 @@ pub fn validate_source(dump: &Dump, card: &CardInfo) -> Result<Layout> {
     let layout = match card.card_type {
         CardType::MifareClassic1K => Layout::Classic1K,
         CardType::MifareClassic4K => Layout::Classic4K,
+        CardType::MifareMini => {
+            return Err(NfcError::Unsupported(
+                "MIFARE Mini is identified but has no supported layout; read and write are unavailable",
+            ));
+        }
         _ => {
             return Err(NfcError::Unsupported(
                 "the selected card is not a MIFARE Classic 1K or 4K card",

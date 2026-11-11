@@ -1024,8 +1024,8 @@ keys! {
     // Keys.
     SectorKeysTitle => ("Sector keys", "扇区密钥"),
     KeysNote => (
-        "The JSON store keeps sector, A/B, and provenance. Proxmark3 .dic export is lossy: unique uppercase keys in candidate order, with imported keys applying to every sector as any.",
-        "JSON 存储保留扇区、A/B 和来源。Proxmark3 .dic 导出是有损的：按候选顺序输出唯一的大写密钥，导入密钥以任意扇区类型应用。"
+        "The JSON store keeps sector, A/B, and provenance. Built-in common keys are candidates and are not stored; Save and Export apply to stored keys only. Proxmark3 .dic export is lossy: unique uppercase keys in candidate order.",
+        "JSON 存储保留扇区、A/B 和来源。内置常用密钥仅作为候选项，不保存在库中；保存和导出仅作用于已保存密钥。Proxmark3 .dic 导出是有损的：按候选顺序输出唯一的大写密钥。"
     ),
     SectorColumn => ("Sector", "扇区"),
     KeySector => ("Sector {}", "扇区 {}"),
@@ -1347,6 +1347,35 @@ keys! {
     ReaderLabel => ("Reader", "读卡器"),
     ReaderWorkbench => ("reader workbench", "读卡工作台"),
     ReaderChanged => ("Reader changed · read the card again", "读卡器已更改 · 请重新读取卡片"),
+    ReaderConnecting => ("Connecting…", "连接中…"),
+    ReaderPollingCard => ("Polling · card present", "轮询中 · 卡片在位"),
+    ReaderPollingNoCard => ("Polling · no card", "轮询中 · 无卡片"),
+    ReaderBusy => ("Busy", "忙"),
+    ReaderRecovering => ("Recovering", "恢复中"),
+    ReaderRecoveringDetail => ("Recovering: {}", "恢复中：{}"),
+    ReaderError => ("Error", "错误"),
+    ReaderErrorDetail => ("Error: {}", "错误：{}"),
+    ReaderCapabilities => ("Capabilities", "读卡器能力"),
+    ReaderNotOpened => ("not opened", "未打开"),
+    ReaderCapsFull => (
+        "MIFARE Classic read/write · Type 2 read/write · raw bytes · raw bits · UID write · recovery",
+        "MIFARE Classic 读写 · Type 2 读写 · 原始字节 · 原始位 · UID 写入 · 恢复"
+    ),
+    ReaderCapsNoRecovery => (
+        "MIFARE Classic read/write · Type 2 read/write · raw bytes · raw bits · UID write",
+        "MIFARE Classic 读写 · Type 2 读写 · 原始字节 · 原始位 · UID 写入"
+    ),
+    CardRemovedReadAgain => ("Card removed · read the card again", "卡片已移除 · 请重新读取卡片"),
+    DifferentCardReadAgain => (
+        "A different card is present · read it again",
+        "已更换卡片 · 请重新读取"
+    ),
+    ReaderUnavailableReadAgain => (
+        "Reader unavailable · read the card again",
+        "读卡器不可用 · 请重新读取卡片"
+    ),
+    ReaderErrorReadAgain => ("Reader error · read the card again", "读卡器错误 · 请重新读取卡片"),
+    LogMonitor => ("monitor · {message}", "监控 · {message}"),
     NoSupportedReader => ("No supported reader found", "未找到受支持的读卡器"),
     NoReaderFound => ("No reader found", "未找到读卡器"),
     InspectionOnlyReadAgain => ("Inspection only · read the card again", "仅检查 · 请重新读取卡片"),
@@ -1758,6 +1787,122 @@ keys! {
         "转储恢复已完成；UID 写入失败"
     ),
     RestoreUidNotAttempted => ("UID was not written: {}", "未写入 UID：{}"),
+
+    // Card details and health.
+    DetailsPage => ("Details", "详情"),
+    DetailsTitle => ("Card details and health", "卡片详情与健康"),
+    DetailsNote => (
+        "Identity, image completeness, validation findings, and verified key coverage for the loaded image. Values come from the same dump and key store the block table uses; no card is read and no key material is shown.",
+        "当前已加载镜像的标识、完整性、校验结果和已验证密钥覆盖。数值来自与数据块表相同的转储和密钥库；不读取卡片，也不显示密钥内容。"
+    ),
+    NoCardImage => ("No card image loaded", "未加载卡片镜像"),
+    IdentitySection => ("Identity", "标识"),
+    HealthCardLine => ("Card: {} · UID {} ({} bytes)", "卡片：{} · UID {}（{} 字节）"),
+    HealthAtqaLine => (
+        "ATQA {:02X}{:02X} · SAK {:02X} · inferred {}",
+        "ATQA {:02X}{:02X} · SAK {:02X} · 推断 {}"
+    ),
+    CardIdentityMissing => ("Card identity: not recorded", "卡片标识：未记录"),
+    ImageSection => ("Image", "镜像"),
+    HealthLayoutLine => ("Layout: {}", "布局：{}"),
+    HealthSourceLine => ("Source: {}", "来源：{}"),
+    HealthStateLine => ("State: {}", "状态：{}"),
+    HealthLiveState => ("live · writes enabled", "在线 · 可写入"),
+    HealthReadAtLine => ("Read at: unix {}..={}", "读取时间：Unix {}..={}"),
+    HealthReadAtMissing => ("Read at: not recorded", "读取时间：未记录"),
+    CompletenessSection => ("Completeness", "完整性"),
+    HealthImageLine => ("Image: {}", "镜像：{}"),
+    ImageComplete => ("complete", "完整"),
+    ImageIncomplete => ("incomplete", "不完整"),
+    HealthBlocksLine => (
+        "Blocks: {}/{} readable · sectors: {}/{}",
+        "数据块：{}/{} 可读 · 扇区：{}/{}"
+    ),
+    HealthSkippedSectors => ("Skipped sectors: {}", "跳过的扇区：{}"),
+    KeysSection => ("Keys", "密钥"),
+    HealthVerifiedLine => (
+        "Verified: {}/{} sectors · A {} · B {} · both {}",
+        "已验证：{}/{} 个扇区 · A {} · B {} · 两者 {}"
+    ),
+    HealthDumpKeys => ("Dump keys: {}", "转储密钥：{}"),
+    WorkbenchSection => ("Workbench", "工作区"),
+    HealthDirtyNone => ("Dirty: none", "未保存更改：无"),
+    HealthDirtyLine => (
+        "Dirty: {} block(s) · {}",
+        "未保存更改：{} 个数据块 · {}"
+    ),
+    ValidationSection => ("Validation", "校验"),
+    ValidationOk => ("Validation: ok", "校验：通过"),
+    HealthErrorLine => ("Error: {}", "错误：{}"),
+    HealthWarningLine => ("Warning: {}", "警告：{}"),
+    ReaderLine => ("Reader: {}", "读卡器：{}"),
+
+    // Key catalog management.
+    DeleteSelected => ("Delete selected", "删除所选"),
+    BuiltInSource => ("built-in", "内置"),
+    KeyKindBoth => ("A+B", "A+B（双向）"),
+    StoredKeyCount => (
+        "{} stored key(s) · {} built-in · {}",
+        "{} 个已保存密钥 · {} 个内置 · {}"
+    ),
+    CandidateBuiltInCount => (
+        "{} saved · {} built-in",
+        "已保存 {} · {} 个内置"
+    ),
+    BuiltInKeysOff => ("built-in keys off", "内置密钥已关闭"),
+    ImportReportCounts => (
+        "Import: {} added · {} duplicate(s) · {} ignored · {} issue(s)",
+        "导入：新增 {} · {} 个重复 · {} 个忽略 · {} 个问题"
+    ),
+    ImportIssueLine => ("Line {}: {}", "第 {} 行：{}"),
+    ImportedKeysDetail => (
+        "Imported {} key(s) · {} ignored · {} issue(s)",
+        "已导入 {} 个密钥 · 忽略 {} 个 · {} 个问题"
+    ),
+    BuiltInNotDeletable => (
+        "Built-in common keys are not stored; there is nothing to delete",
+        "内置常用密钥不保存在库中，无需删除"
+    ),
+    KeyDeleted => ("Deleted the selected key", "已删除所选密钥"),
+    SelectStoredKey => ("Select a stored key first", "请先选择一个已保存的密钥"),
+    KeyEntryMissing => ("The selected key entry no longer exists", "所选密钥条目已不存在"),
+
+    // Diagnostics details.
+    BuildDateLine => ("Build date: {}", "构建日期：{}"),
+    AppCommitLine => ("NFC Foundry {} · commit {}", "NFC Foundry {} · 提交 {}"),
+    PlatformLine => ("Platform: {} · {}", "平台：{} · {}"),
+    SupportedReaderLine => ("Supported readers: {}", "支持的读卡器：{}"),
+    FirmwareLine => ("Firmware: {}", "固件：{}"),
+    FirmwareNotOpened => ("Firmware: reader not opened", "固件：读卡器未打开"),
+    ReaderCapabilitiesLine => ("Reader capabilities: {}", "读卡器能力：{}"),
+    ReadersUnavailable => ("Readers: unavailable ({})", "读卡器：不可用（{}）"),
+    ReaderSelectedLine => ("Selected: {} · {}", "已选择：{} · {}"),
+    ReaderStatusConnecting => ("connecting", "连接中"),
+    ReaderStatusPolling => ("polling", "轮询中"),
+    ReaderStatusBusy => ("busy", "忙"),
+    ReaderStatusRecovering => ("recovering", "恢复中"),
+    ReaderStatusError => ("error", "错误"),
+    MockReaderFirmware => ("mock reader firmware", "模拟读卡器固件"),
+    RawBytes => ("raw bytes", "原始字节"),
+    RawBits => ("raw bits", "原始位"),
+    CapabilitiesNotOpened => ("not opened", "未打开"),
+    CardRailLine => ("Card: {} · UID {}{}", "卡片：{} · UID {}{}"),
+    CardRailNone => ("Card: none", "卡片：无"),
+    UnknownCardType => ("unknown card", "未知卡片"),
+    IdentityOnlySuffix => (" · identity only", " · 仅标识"),
+    NoValueRecorded => ("not recorded", "未记录"),
+
+    // Recovery authorization.
+    RecoveryAuthHeading => (
+        "Start MIFARE Classic recovery?",
+        "开始 MIFARE Classic 密钥恢复？"
+    ),
+    RecoveryAuthStrategy => ("Strategy: {}", "策略：{}"),
+    RecoveryAuthTarget => ("Target: {}", "目标：{}"),
+    RecoveryAuthBody => (
+        "Recovery authenticates and reads; it never writes the card. The selected reader stays busy until the attack stops or is cancelled.",
+        "恢复仅做认证和读取，绝不写卡。攻击停止或取消前，所选读卡器保持占用。"
+    ),
 }
 
 #[cfg(test)]

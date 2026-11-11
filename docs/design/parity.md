@@ -13,14 +13,21 @@ Hardware status is the release claim from
 
 | Operation | CLI | GUI | Gate | Hardware |
 |---|---|---|---|---|
-| Enumerate readers | `nfctl list` | rail reader list; ☰ → Refresh readers; ☰ → Diagnostics | none | PN532, ACR122U |
+| Enumerate readers | `nfctl list` | rail reader list with connection state and capabilities; ☰ → Refresh readers; ☰ → Diagnostics | none | PN532, ACR122U |
 | Select and read card | `nfctl scan` | header → Read card | R | PN532, ACR122U |
 | Card information | `nfctl card info` | rail card facts; Blocks inspector; Type 2 summary | R | PN532, ACR122U |
-| Watch for card changes | `nfctl scan --watch` | — | R | n/r |
+| Card details and health | `nfctl card health --input` | Classic → Details tab; source, completeness, validation, key coverage, dirty blocks | R | file only |
+| MIFARE Mini identity | `card info` reports `MIFARE Mini`; every Classic read/write refuses it | rail card line and Details report `MIFARE Mini`; every Classic write is unavailable | identity only | n/r |
+| Watch for card changes | `nfctl scan --watch` | rail reader monitor; removal, reader change, and reader failure invalidate the live image | R | n/r |
+| Reader reconnect | automatic poll and backoff; `scan --watch` reports recovery | automatic poll and backoff; rail status shows recovering or error | R | n/r |
 
-`scan --watch` is a presentation loop that repeats the same read; it is not a
-distinct card or file operation. The GUI shows the current card and invalidates
-the image when the reader changes. No CLI-only card capability is hidden there.
+`scan --watch` and the GUI reader rail consume the same `nfc-app` monitor:
+400 ms polls, two removal misses, card appeared/removed events, and reconnect
+with exponential backoff. Normal commands and monitor polls share one exclusive
+operation lease, so a poll never touches the reader during an operation. The
+GUI shows the current card and invalidates the image when the card is removed,
+a different card appears, or the reader fails. No CLI-only card capability is
+hidden there.
 
 ## Classic
 
@@ -37,7 +44,8 @@ the image when the reader changes. No CLI-only card capability is hidden there.
 | Restore | `classic restore --input [--blocks] [--changes-only] [--continue-on-error] [--dry-run]` | MIFARE Classic → Dumps → Restore → Load dump… → mode → Restore to card | C, B | PN532, ACR |
 | Restore with UID | `classic restore --input --uid --advanced [--dry-run]` | Restore → target UID + Advanced → Restore to card → plan dialog | A, B, C | PN532, ACR |
 | Key scan | `classic keyscan [--save] [--types]` | MIFARE Classic → Keys → Key scan → Start scan; verified keys are captured automatically, Save remains available | R | PN532, ACR |
-| Key list | `classic keys list` | Keys table (version-2 store with card-scoped verifications) | R | file only |
+| Key list | `classic keys list [--builtin]` | Keys table shows stored entries and built-in common keys (version-2 store with card-scoped verifications) | R | file only |
+| Key delete | `classic keys delete HEX --sector --key-type` | Keys → select a stored row → Delete selected | explicit | file only |
 | Key import | `classic keys import` | Keys → Import .dic / JSON… | explicit | file only |
 | Key add | `classic keys add` | Keys → Add key | explicit | file only |
 | Key export `.dic` | `classic keys export --format dic` | Keys → Export .dic… | explicit | file only |
@@ -83,19 +91,21 @@ four flags/checkboxes in both surfaces.
 
 | Operation | CLI | GUI | Gate | Hardware |
 |---|---|---|---|---|
-| Auto recovery | `recover auto` | Recovery → Auto → Start recovery | R | all-sector autopwn on PN532, ACR122U |
-| Advanced recovery | `recover nested`, `staticnested`, `hardnested`, `darkside` | Recovery → Advanced strategy options | R | developer diagnostics; same engine |
-| Darkside | `recover darkside` | Recovery → Darkside → Start recovery | R | host-driven MFCUK port; needs a repeating tag nonce |
-| Nested | `recover nested` | Recovery → Nested → Start recovery | R | PN532, ACR122U |
-| Static nested | `recover staticnested` | Recovery → Static nested | R | PN532, ACR122U |
-| Hardnested | `recover hardnested` | Recovery → Hardnested | R | PN532, ACR122U |
-| FM11RF08S profile | `recover fm11rf08s` | Recovery → FM11RF08S | R | detection only |
+| Auto recovery | `recover auto` (confirmation, or `--yes`) | Recovery → Auto → Start recovery → authorization dialog | R | all-sector autopwn on PN532, ACR122U |
+| Advanced recovery | `recover nested`, `staticnested`, `hardnested`, `darkside` (confirmation, or `--yes`) | Recovery → Advanced strategy options → authorization dialog | R | developer diagnostics; same engine |
+| Darkside | `recover darkside` (confirmation, or `--yes`) | Recovery → Darkside → Start recovery → authorization dialog | R | host-driven MFCUK port; needs a repeating tag nonce |
+| Nested | `recover nested` (confirmation, or `--yes`) | Recovery → Nested → authorization dialog | R | PN532, ACR122U |
+| Static nested | `recover staticnested` (confirmation, or `--yes`) | Recovery → Static nested → authorization dialog | R | PN532, ACR122U |
+| Hardnested | `recover hardnested` (confirmation, or `--yes`) | Recovery → Hardnested → authorization dialog | R | PN532, ACR122U |
+| FM11RF08S profile | `recover fm11rf08s` (confirmation, or `--yes`) | Recovery → FM11RF08S → authorization dialog | R | detection only |
 | Save recovered keys | `--key-store` write by the operation | Recovery → Save verified keys | explicit | file only |
-| Self-check | `nfctl diag` | ☰ → Diagnostics | R (no card I/O) | no card path |
+| Self-check | `nfctl diag [--json]` | ☰ → Diagnostics (version, commit, build date, platform, drivers, firmware, capabilities, tables, readers) | R (no card I/O) | no card path |
 
 Recovery authenticates only; it never writes the card. A recovered key is
 displayed only after the service verifies it. Saving to the key store is a
-separate action in both surfaces.
+separate action in both surfaces. Both surfaces require authorization before
+the engine starts: `nfctl` prompts unless `--yes` is passed, and the GUI shows
+a strategy/target/reader dialog before any worker or reader lease starts.
 
 ## Deliberate surface differences
 
@@ -112,4 +122,5 @@ separate action in both surfaces.
 
 No shipped `nfctl` card or file operation is missing a GUI path. The audit
 added the GUI NDEF message export, which was the only missing file operation.
-`scan --watch` remains a CLI presentation loop over the shared `scan` read.
+`scan --watch` and the GUI reader rail are two presentations of the shared
+`nfc-app` monitor; neither adds a card path.

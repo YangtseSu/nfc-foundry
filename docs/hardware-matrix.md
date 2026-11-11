@@ -23,8 +23,11 @@ and no unrecoverable error. `not recorded` means no release run exists.
 
 Each row is a reader/card path, not a surface. `nfctl` and the GTK workbench
 call the same `nfc-app` service for every row, so a validated path applies to
-both surfaces. GUI file operations (dump load/save, diff, NDEF message export)
-add no reader path of their own.
+both surfaces. GUI file operations (dump load/save, diff, NDEF message export,
+card health) add no reader path of their own.
+
+MIFARE Mini (SAK `0x09`) has identity reporting only. No Mini card has been
+tested, and no read, write, restore, or recovery operation is claimed for it.
 
 | Operation | PN532 UART | ACR122U | Evidence |
 |---|---|---|---|

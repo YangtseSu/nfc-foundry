@@ -18,13 +18,16 @@ use nfc_app::classic::{
     ClassicRestoreResult, ClassicUidExecution, ClassicUidPlan, ClassicUidPreflight,
     ClassicWriteExecution, ClassicWritePlan, ClassicWritePreflight, KeyEntry, KeyKind, KeySource,
     KeyStore, KeyTypes, KeyscanProgress, KeyscanSink, RestoreSelection, RestoreUidState,
-    WorkbenchSnapshot, format_uid, parse_block_list, parse_uid,
+    WorkbenchSnapshot, common_keys, format_uid, parse_block_list, parse_uid,
 };
 use nfc_app::type2::{
     Type2Auth, Type2Format, Type2Lock, Type2LockResult, Type2MutationResult, Type2NdefWrite,
     Type2PageResult, Type2PageWrite, Type2Password, Type2Restore,
 };
-use nfc_app::{CardReadResult, ClassicNdefInfo, ClassicNdefState, Service};
+use nfc_app::{
+    CardReadResult, ClassicNdefInfo, ClassicNdefState, DriverInfo, ReaderDevice, ReaderEvent,
+    ReaderSnapshot, ReaderStatus, ReaderUpdate, SelfCheck, Service, classic_health,
+};
 use nfc_classic::{Dump, DumpFormat, DumpLoad, diff, exchange};
 use nfc_core::{CancelToken, CardInfo, CardType, Key, NfcError, Result as NfcResult};
 use nfc_drivers::DriverRegistry;
@@ -34,7 +37,7 @@ use nfc_ndef::{
 };
 use nfc_recover::auto::RecoveryStrategy;
 use nfc_recover::{ProgressSink, RecoveryProgress, RecoveryRequest, RecoveryResult};
-use nfc_transport::DeviceInfo;
+use nfc_transport::{DeviceInfo, ReaderCapabilities};
 use nfc_type2::{NdefState, RestoreOptions, Type2Image, Type2Ndef, exchange as type2_exchange};
 
 use crate::classic::{self, BlockRow, NdefDraft, NdefSource};
@@ -81,6 +84,8 @@ pub struct Workbench {
     pub preferences: UiPreferences,
     pub preferences_path: Option<PathBuf>,
     pub settings_error: Option<String>,
+    /// Run the background card monitor. Tests step the monitor explicitly.
+    pub auto_monitor: bool,
 }
 
 impl Workbench {
@@ -124,6 +129,7 @@ impl Workbench {
             preferences,
             preferences_path,
             settings_error,
+            auto_monitor: true,
         }
     }
 }
@@ -144,6 +150,7 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
         preferences,
         preferences_path,
         settings_error,
+        auto_monitor,
     } = workbench;
 
     i18n::set_current_language(preferences.language());
@@ -219,6 +226,7 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
 
     let ndef_view = build_ndef_view();
 
+    let details_view = build_details_view();
     let keys_view = build_keys_view();
     let keyscan_view = build_keyscan_view();
     let recovery_view = build_recovery_view(&preferences);
@@ -269,6 +277,7 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
     classic_tabs.set_transition_type(gtk::StackTransitionType::Crossfade);
     classic_tabs.set_vexpand(true);
     classic_tabs.add_titled(&card_page, Some("blocks"), "Blocks");
+    classic_tabs.add_titled(&details_view.root, Some("details"), "Details");
     classic_tabs.add_titled(&classic_ndef_slot, Some("ndef"), "NDEF");
     classic_tabs.add_titled(&keys_group, Some("keys"), "Keys");
     classic_tabs.add_titled(&recovery_view.root, Some("recovery"), "Recovery");
@@ -301,8 +310,27 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
     reader_value.set_wrap(true);
     reader_value.add_css_class("caption");
     reader_value.add_css_class("dim-label");
+    let reader_state = gtk::Label::new(Some("Connecting…"));
+    reader_state.set_xalign(0.0);
+    reader_state.set_wrap(true);
+    reader_state.add_css_class("caption");
+    let reader_card_info = gtk::Label::new(Some("Card: none"));
+    reader_card_info.set_xalign(0.0);
+    reader_card_info.set_wrap(true);
+    reader_card_info.set_selectable(true);
+    reader_card_info.add_css_class("caption");
+    reader_card_info.add_css_class("dim-label");
+    let reader_caps = gtk::Label::new(Some("Capabilities: not opened"));
+    reader_caps.set_xalign(0.0);
+    reader_caps.set_wrap(true);
+    reader_caps.set_selectable(true);
+    reader_caps.add_css_class("caption");
+    reader_caps.add_css_class("dim-label");
     reader_body.append(&reader_combo);
     reader_body.append(&reader_value);
+    reader_body.append(&reader_state);
+    reader_body.append(&reader_card_info);
+    reader_body.append(&reader_caps);
 
     let (card_card, _, card_body) = rail_card("CARD");
     let card_title = gtk::Label::new(Some("No card"));
@@ -427,13 +455,26 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
         reader_combo,
         reader_model,
         reader_value,
+        reader_state,
+        reader_card_info,
+        reader_caps,
+        reader_snapshot: RefCell::new(ReaderSnapshot {
+            status: ReaderStatus::Connecting,
+            selected: None,
+            card: None,
+            capabilities: ReaderCapabilities::default(),
+            firmware: None,
+            error: None,
+        }),
         card_title,
         card_detail,
         key_value,
         selected_label,
         ndef_view,
         inspector,
+        details_view,
         keys_view,
+        dump_source: RefCell::new(None),
         keyscan_view,
         recovery_view,
         diff_view,
@@ -485,6 +526,7 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
         keyscan_result: RefCell::new(None),
         keyscan_run: Cell::new(0),
         recovery_cancel: RefCell::new(None),
+        pending_recovery_dialog: RefCell::new(None),
         recovery_result: RefCell::new(None),
         recovery_started: RefCell::new(None),
         recovery_timer: RefCell::new(None),
@@ -504,6 +546,9 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
     update_recovery_sensitivity(&ui);
     update_restore_sensitivity(&ui);
     refresh_devices(&ui);
+    if auto_monitor {
+        start_reader_monitor(ui.clone());
+    }
     i18n::localize_widget_tree(&ui.window);
     window.present();
 
@@ -536,14 +581,22 @@ struct Inspector {
 struct KeysView {
     root: gtk::Box,
     rows: gio::ListStore,
+    selection: gtk::SingleSelection,
     status: gtk::Label,
+    report: gtk::Label,
     hex: gtk::Entry,
     sector: gtk::Entry,
     kind: gtk::DropDown,
     add: gtk::Button,
+    delete: gtk::Button,
     import: gtk::Button,
     save: gtk::Button,
     export: gtk::Button,
+}
+
+struct DetailsView {
+    root: gtk::Box,
+    body: gtk::Label,
 }
 
 struct DiffView {
@@ -780,7 +833,10 @@ struct RecoveryOutcome {
 struct DiagnosticsView {
     root: gtk::Box,
     version: gtk::Label,
+    platform: gtk::Label,
     drivers: gtk::Label,
+    firmware: gtk::Label,
+    capabilities: gtk::Label,
     tables: gtk::Label,
     readers: gtk::Label,
     build: gtk::Label,
@@ -835,13 +891,19 @@ struct Ui {
     reader_combo: gtk::DropDown,
     reader_model: gtk::StringList,
     reader_value: gtk::Label,
+    reader_state: gtk::Label,
+    reader_card_info: gtk::Label,
+    reader_caps: gtk::Label,
+    reader_snapshot: RefCell<ReaderSnapshot>,
     card_title: gtk::Label,
     card_detail: gtk::Label,
     key_value: gtk::Label,
     selected_label: gtk::Label,
     ndef_view: NdefView,
     inspector: Inspector,
+    details_view: DetailsView,
     keys_view: KeysView,
+    dump_source: RefCell<Option<String>>,
     keyscan_view: KeyscanView,
     recovery_view: RecoveryView,
     diff_view: DiffView,
@@ -893,6 +955,7 @@ struct Ui {
     keyscan_result: RefCell<Option<ClassicKeyscanResult>>,
     keyscan_run: Cell<u64>,
     recovery_cancel: RefCell<Option<CancelToken>>,
+    pending_recovery_dialog: RefCell<Option<adw::AlertDialog>>,
     recovery_result: RefCell<Option<RecoveryOutcome>>,
     recovery_started: RefCell<Option<Instant>>,
     recovery_timer: RefCell<Option<glib::SourceId>>,
@@ -1120,13 +1183,16 @@ struct KeyRow {
     kind: String,
     key: String,
     source: String,
+    /// Index in the stored entry list; `None` for a built-in common key.
+    stored: Option<usize>,
 }
 
 fn key_rows(store: &KeyStore) -> Vec<KeyRow> {
-    store
+    let mut rows: Vec<KeyRow> = store
         .entries()
         .iter()
-        .map(|entry| KeyRow {
+        .enumerate()
+        .map(|(index, entry)| KeyRow {
             sector: match entry.sector {
                 Some(sector) => i18n::translate_lines(&format!("Sector {sector}")),
                 None => i18n::translate_lines("all sectors"),
@@ -1134,8 +1200,22 @@ fn key_rows(store: &KeyStore) -> Vec<KeyRow> {
             kind: i18n::translate_lines(entry.kind.label()),
             key: entry.key.to_hex(),
             source: i18n::translate_lines(entry.source.label()),
+            stored: Some(index),
         })
-        .collect()
+        .collect();
+    for key in common_keys() {
+        if store.entries().iter().any(|entry| entry.key == key) {
+            continue;
+        }
+        rows.push(KeyRow {
+            sector: i18n::translate_lines("all sectors"),
+            kind: i18n::translate_lines("A+B"),
+            key: key.to_hex(),
+            source: i18n::translate_lines("built-in"),
+            stored: None,
+        });
+    }
+    rows
 }
 
 fn page_box() -> gtk::Box {
@@ -1699,14 +1779,40 @@ fn build_type2_editor() -> Type2Editor {
     }
 }
 
+fn build_details_view() -> DetailsView {
+    let root = page_box();
+    let title = gtk::Label::new(Some("Card details and health"));
+    title.set_xalign(0.0);
+    title.add_css_class("title-2");
+    let note = gtk::Label::new(Some(
+        "Identity, image completeness, validation findings, and verified key coverage for the \
+         loaded image. Values come from the same dump and key store the block table uses; no \
+         card is read and no key material is shown.",
+    ));
+    note.set_xalign(0.0);
+    note.set_wrap(true);
+    note.add_css_class("caption");
+    note.add_css_class("dim-label");
+    let body = gtk::Label::new(Some("No card image loaded"));
+    body.set_xalign(0.0);
+    body.set_wrap(true);
+    body.set_selectable(true);
+    body.add_css_class("mono");
+    root.append(&title);
+    root.append(&note);
+    root.append(&body);
+    DetailsView { root, body }
+}
+
 fn build_keys_view() -> KeysView {
     let root = page_box();
     let title = gtk::Label::new(Some("Sector keys"));
     title.set_xalign(0.0);
     title.add_css_class("title-2");
     let note = gtk::Label::new(Some(
-        "The JSON store keeps sector, A/B, and provenance. Proxmark3 .dic export is lossy: \
-         unique uppercase keys in candidate order, with imported keys applying to every sector as any.",
+        "The JSON store keeps sector, A/B, and provenance. Built-in common keys are candidates \
+         and are not stored; Save and Export apply to stored keys only. Proxmark3 .dic export is \
+         lossy: unique uppercase keys in candidate order.",
     ));
     note.set_xalign(0.0);
     note.set_wrap(true);
@@ -1715,7 +1821,7 @@ fn build_keys_view() -> KeysView {
 
     let rows = gio::ListStore::new::<glib::BoxedAnyObject>();
     let selection = gtk::SingleSelection::new(Some(rows.clone()));
-    let table = gtk::ColumnView::new(Some(selection));
+    let table = gtk::ColumnView::new(Some(selection.clone()));
     table.set_show_column_separators(true);
     table.set_show_row_separators(true);
     table.append_column(&text_column::<KeyRow>("Sector", 120, false, |row| {
@@ -1754,9 +1860,12 @@ fn build_keys_view() -> KeysView {
     add_row.append(&add);
 
     let import = gtk::Button::with_label("Import .dic / JSON…");
+    let delete = gtk::Button::with_label("Delete selected");
+    delete.set_sensitive(false);
     let save = gtk::Button::with_label("Save store");
     let export = gtk::Button::with_label("Export .dic…");
     let actions = gtk::Box::new(Orientation::Horizontal, 6);
+    actions.append(&delete);
     actions.append(&import);
     actions.append(&save);
     actions.append(&export);
@@ -1766,6 +1875,12 @@ fn build_keys_view() -> KeysView {
     status.set_wrap(true);
     status.add_css_class("caption");
     status.add_css_class("dim-label");
+    let report = gtk::Label::new(None);
+    report.set_xalign(0.0);
+    report.set_wrap(true);
+    report.set_selectable(true);
+    report.add_css_class("caption");
+    report.add_css_class("dim-label");
 
     root.append(&title);
     root.append(&note);
@@ -1773,15 +1888,19 @@ fn build_keys_view() -> KeysView {
     root.append(&add_row);
     root.append(&actions);
     root.append(&status);
+    root.append(&report);
 
     KeysView {
         root,
         rows,
+        selection,
         status,
+        report,
         hex,
         sector,
         kind,
         add,
+        delete,
         import,
         save,
         export,
@@ -2287,7 +2406,10 @@ fn build_diagnostics_view() -> DiagnosticsView {
     note.add_css_class("dim-label");
 
     let version = diagnostic_label();
+    let platform = diagnostic_label();
     let drivers = diagnostic_label();
+    let firmware = diagnostic_label();
+    let capabilities = diagnostic_label();
     let tables = diagnostic_label();
     let readers = diagnostic_label();
     let build = diagnostic_label();
@@ -2296,7 +2418,10 @@ fn build_diagnostics_view() -> DiagnosticsView {
     root.append(&title);
     root.append(&note);
     root.append(&version);
+    root.append(&platform);
     root.append(&drivers);
+    root.append(&firmware);
+    root.append(&capabilities);
     root.append(&tables);
     root.append(&readers);
     root.append(&build);
@@ -2305,7 +2430,10 @@ fn build_diagnostics_view() -> DiagnosticsView {
     DiagnosticsView {
         root,
         version,
+        platform,
         drivers,
+        firmware,
+        capabilities,
         tables,
         readers,
         build,
@@ -2776,6 +2904,14 @@ fn connect_signals(ui: &Rc<Ui>) {
 
     let ui2 = ui.clone();
     ui.keys_view.add.connect_clicked(move |_| add_key(&ui2));
+    let ui2 = ui.clone();
+    ui.keys_view
+        .delete
+        .connect_clicked(move |_| delete_key(&ui2));
+    let ui2 = ui.clone();
+    ui.keys_view
+        .selection
+        .connect_selected_notify(move |_| update_key_delete(&ui2));
     let ui2 = ui.clone();
     ui.keys_view
         .import
@@ -3330,6 +3466,138 @@ fn update_card(ui: &Ui) {
         ui.keys.borrow().len(),
         nfc_app::classic::COMMON_KEYS.len()
     ));
+    render_details(ui);
+}
+
+/// Renders the shared health model for the loaded image. Counts and findings
+/// come from `nfc_app::classic_health`, the same model `nfctl card health`
+/// uses; the view adds only source and live-state labels.
+fn render_details(ui: &Ui) {
+    let dump = ui.dump.borrow().clone();
+    let Some(dump) = dump else {
+        ui.details_view.body.set_localized("No card image loaded.");
+        return;
+    };
+    let keys = ui.keys.borrow();
+    let dirty = ui.dirty_blocks.borrow();
+    let health = classic_health(&dump, &keys, &dirty);
+    drop(dirty);
+    drop(keys);
+
+    let mut lines: Vec<String> = Vec::new();
+    lines.push("Identity".to_owned());
+    match &health.identity {
+        Some(identity) => {
+            lines.push(format!(
+                "Card: {} · UID {} ({} bytes)",
+                identity.card_type.label(),
+                identity.uid,
+                identity.uid_length
+            ));
+            lines.push(format!(
+                "ATQA {:02X}{:02X} · SAK {:02X} · inferred {}",
+                identity.atqa[0],
+                identity.atqa[1],
+                identity.sak,
+                identity.card_type.label()
+            ));
+        }
+        None => lines.push("Card identity: not recorded".to_owned()),
+    }
+    lines.push(String::new());
+    lines.push("Image".to_owned());
+    lines.push(format!(
+        "Layout: {}",
+        health
+            .layout
+            .map(classic::display_layout)
+            .unwrap_or("unknown")
+    ));
+    lines.push(format!(
+        "Source: {}",
+        ui.dump_source.borrow().as_deref().unwrap_or("not recorded")
+    ));
+    lines.push(format!(
+        "State: {}",
+        if ui.live.get() {
+            "live · writes enabled"
+        } else {
+            "inspection only · read again to write"
+        }
+    ));
+    if let Some(device) = &health.device {
+        lines.push(format!("Reader: {device}"));
+    }
+    match (health.started_at, health.finished_at) {
+        (Some(started), Some(finished)) => {
+            lines.push(format!("Read at: unix {started}..={finished}"));
+        }
+        _ => lines.push("Read at: not recorded".to_owned()),
+    }
+    lines.push(String::new());
+    lines.push("Completeness".to_owned());
+    lines.push(format!(
+        "Image: {}",
+        if health.complete {
+            "complete"
+        } else {
+            "incomplete"
+        }
+    ));
+    lines.push(format!(
+        "Blocks: {}/{} readable · sectors: {}/{}",
+        health.readable_blocks, health.total_blocks, health.readable_sectors, health.total_sectors
+    ));
+    if !health.skipped_sectors.is_empty() {
+        lines.push(format!(
+            "Skipped sectors: {}",
+            health
+                .skipped_sectors
+                .iter()
+                .map(usize::to_string)
+                .collect::<Vec<_>>()
+                .join(",")
+        ));
+    }
+    lines.push(String::new());
+    lines.push("Keys".to_owned());
+    lines.push(format!(
+        "Verified: {}/{} sectors · A {} · B {} · both {}",
+        health.key_coverage.any_sectors,
+        health.key_coverage.sectors,
+        health.key_coverage.key_a_sectors,
+        health.key_coverage.key_b_sectors,
+        health.key_coverage.both_sectors
+    ));
+    lines.push(format!("Dump keys: {}", health.dump_keys));
+    lines.push(String::new());
+    lines.push("Workbench".to_owned());
+    if health.dirty_blocks.is_empty() {
+        lines.push("Dirty: none".to_owned());
+    } else {
+        lines.push(format!(
+            "Dirty: {} block(s) · {}",
+            health.dirty_blocks.len(),
+            health
+                .dirty_blocks
+                .iter()
+                .map(|block| format!("{block:03}"))
+                .collect::<Vec<_>>()
+                .join(",")
+        ));
+    }
+    lines.push(String::new());
+    lines.push("Validation".to_owned());
+    if health.errors.is_empty() && health.warnings.is_empty() {
+        lines.push("Validation: ok".to_owned());
+    }
+    for error in &health.errors {
+        lines.push(format!("Error: {error}"));
+    }
+    for warning in &health.warnings {
+        lines.push(format!("Warning: {warning}"));
+    }
+    ui.details_view.body.set_localized(&lines.join("\n"));
 }
 
 fn update_ndef(ui: &Ui) {
@@ -3809,6 +4077,15 @@ fn refresh_devices(ui: &Rc<Ui>) {
     if devices.is_empty() {
         ui.reader_value.set_localized("No supported reader found");
         ui.reader_combo.set_sensitive(false);
+        ui.reader_snapshot.replace(ReaderSnapshot {
+            status: ReaderStatus::Connecting,
+            selected: None,
+            card: None,
+            capabilities: ReaderCapabilities::default(),
+            firmware: None,
+            error: None,
+        });
+        render_reader_panel(ui);
         append_log(ui, "refresh · no supported reader");
         ui.status.set_localized("No reader found");
         render_diagnostics(ui);
@@ -3827,6 +4104,169 @@ fn refresh_devices(ui: &Rc<Ui>) {
         ),
     );
     render_diagnostics(ui);
+    poll_reader_once(ui);
+}
+
+/// Poll the service monitor once from the GTK main context. Production uses
+/// [`start_reader_monitor`]; tests call this directly for deterministic steps.
+fn poll_reader_once(ui: &Rc<Ui>) {
+    let update = match ui.service.lock() {
+        Ok(mut service) => service.poll_reader(),
+        Err(_) => {
+            toast_error(ui, "Reader service lock was poisoned");
+            return;
+        }
+    };
+    apply_reader_update(ui, update);
+}
+
+/// Background card monitor. The service mutex serializes polling with every
+/// operation, so a poll never touches the reader while an operation owns it.
+fn start_reader_monitor(ui: Rc<Ui>) {
+    let (sender, receiver) = async_channel::unbounded::<ReaderUpdate>();
+    let service = ui.service.clone();
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(Duration::from_millis(100));
+            let update = match service.lock() {
+                Ok(mut service) => service.poll_reader(),
+                Err(_) => break,
+            };
+            if sender.send_blocking(update).is_err() {
+                break;
+            }
+        }
+    });
+    glib::spawn_future_local(async move {
+        while let Ok(update) = receiver.recv().await {
+            apply_reader_update(&ui, update);
+        }
+    });
+}
+
+fn apply_reader_update(ui: &Rc<Ui>, update: ReaderUpdate) {
+    ui.reader_snapshot.replace(update.snapshot);
+    render_reader_panel(ui);
+    for event in update.events {
+        match event {
+            ReaderEvent::CardRemoved(_) => {
+                expire_live_image(ui, "Card removed · read the card again");
+            }
+            ReaderEvent::CardAppeared(card) => {
+                let changed = live_card(ui).is_some_and(|current| !current.same_identity(&card));
+                if changed {
+                    expire_live_image(ui, "A different card is present · read it again");
+                }
+            }
+            ReaderEvent::StatusChanged(ReaderStatus::Recovering) => {
+                expire_live_image(ui, "Reader unavailable · read the card again");
+            }
+            ReaderEvent::StatusChanged(ReaderStatus::Error) => {
+                expire_live_image(ui, "Reader error · read the card again");
+            }
+            ReaderEvent::StatusChanged(_) => {}
+        }
+    }
+}
+
+/// Card identity of the image the workbench currently presents, live or not.
+fn live_card(ui: &Ui) -> Option<CardInfo> {
+    ui.dump
+        .borrow()
+        .as_ref()
+        .and_then(|dump| dump.card.clone())
+        .or_else(|| {
+            ui.type2
+                .borrow()
+                .as_ref()
+                .map(|session| session.card.clone())
+        })
+}
+
+/// A card loss or reader failure invalidates the live image. The displayed
+/// bytes stay available for inspection, but every write path requires a new
+/// read, and Advanced mode resets with the card.
+fn expire_live_image(ui: &Rc<Ui>, status: &str) {
+    if !ui.live.get() {
+        return;
+    }
+    ui.live.set(false);
+    reset_advanced(ui);
+    render_type2(ui);
+    update_inspector(ui);
+    update_card(ui);
+    update_ndef_actions(ui);
+    update_type2_actions(ui);
+    update_restore_sensitivity(ui);
+    ui.status.set_localized(status);
+    append_log(ui, &format!("monitor · {status}"));
+}
+
+fn render_reader_panel(ui: &Ui) {
+    let snapshot = ui.reader_snapshot.borrow();
+    let status = match snapshot.status {
+        ReaderStatus::Connecting => "Connecting…".to_owned(),
+        ReaderStatus::Polling if snapshot.card.is_some() => "Polling · card present".to_owned(),
+        ReaderStatus::Polling => "Polling · no card".to_owned(),
+        ReaderStatus::Busy => "Busy".to_owned(),
+        ReaderStatus::Recovering => match &snapshot.error {
+            Some(error) => format!("Recovering: {error}"),
+            None => "Recovering".to_owned(),
+        },
+        ReaderStatus::Error => match &snapshot.error {
+            Some(error) => format!("Error: {error}"),
+            None => "Error".to_owned(),
+        },
+    };
+    ui.reader_state.set_localized(&status);
+    match &snapshot.card {
+        Some(card) => ui.reader_card_info.set_localized(&format!(
+            "Card: {} · UID {}{}",
+            card.card_type.label(),
+            card.uid_hex(),
+            if card.card_type == CardType::MifareMini {
+                " · identity only"
+            } else {
+                ""
+            }
+        )),
+        None => ui.reader_card_info.set_localized("Card: none"),
+    }
+    ui.reader_caps
+        .set_localized(&capability_text(snapshot.capabilities));
+}
+
+fn capability_text(capabilities: ReaderCapabilities) -> String {
+    let mut parts = Vec::new();
+    match (capabilities.classic_read, capabilities.classic_write) {
+        (true, true) => parts.push("MIFARE Classic read/write"),
+        (true, false) => parts.push("MIFARE Classic read"),
+        (false, true) => parts.push("MIFARE Classic write"),
+        (false, false) => {}
+    }
+    match (capabilities.type2_read, capabilities.type2_write) {
+        (true, true) => parts.push("Type 2 read/write"),
+        (true, false) => parts.push("Type 2 read"),
+        (false, true) => parts.push("Type 2 write"),
+        (false, false) => {}
+    }
+    if capabilities.raw_bytes {
+        parts.push("raw bytes");
+    }
+    if capabilities.raw_bits {
+        parts.push("raw bits");
+    }
+    if capabilities.manufacturer_write {
+        parts.push("UID write");
+    }
+    if capabilities.recovery_parity {
+        parts.push("recovery");
+    }
+    if parts.is_empty() {
+        "Capabilities\nnot opened".to_owned()
+    } else {
+        format!("Capabilities\n{}", parts.join(" · "))
+    }
 }
 
 fn start_read(ui: Rc<Ui>) {
@@ -3881,6 +4321,7 @@ fn finish_read(ui: &Rc<Ui>, result: NfcResult<CardReadResult>) {
             ui.live.set(true);
             reset_workbench(ui, &dump);
             ui.dump.replace(Some(dump.clone()));
+            ui.dump_source.replace(Some("live card".to_owned()));
             populate_rows(ui, &dump);
             switch_workspace(ui, Workspace::Classic);
             ui.classic_tabs.set_visible_child_name("blocks");
@@ -4738,6 +5179,7 @@ fn finish_uid_execution(ui: &Rc<Ui>, result: NfcResult<nfc_app::classic::Classic
 fn invalidate_live_image(ui: &Rc<Ui>) {
     ui.live.set(false);
     ui.dump.replace(None);
+    ui.dump_source.replace(None);
     if let Ok(mut service) = ui.service.lock() {
         service.workbench_clear();
     }
@@ -5193,6 +5635,21 @@ fn confirmation_dialog(heading: &str, body: &str, confirm_label: &str) -> adw::A
     dialog
 }
 
+/// Neutral confirmation for an operation that needs authorization but does not
+/// destroy card data.
+fn authorization_dialog(heading: &str, body: &str, confirm_label: &str) -> adw::AlertDialog {
+    let dialog = adw::AlertDialog::builder()
+        .heading(heading)
+        .body(body)
+        .build();
+    add_response(&dialog, "cancel", "Cancel");
+    add_response(&dialog, "confirm", confirm_label);
+    dialog.set_response_appearance("confirm", adw::ResponseAppearance::Suggested);
+    dialog.set_default_response(Some("cancel"));
+    dialog.set_close_response("cancel");
+    dialog
+}
+
 fn reset_advanced(ui: &Ui) {
     ui.type2_view.advanced.set_active(false);
     ui.type2_restore.replace(None);
@@ -5204,6 +5661,9 @@ fn reset_advanced(ui: &Ui) {
     ui.restore_view.uid_advanced.set_active(false);
     ui.restore_view.uid.set_text("");
     if let Some(dialog) = ui.pending_uid_dialog.borrow_mut().take() {
+        dialog.force_close();
+    }
+    if let Some(dialog) = ui.pending_recovery_dialog.borrow_mut().take() {
         dialog.force_close();
     }
     ui.pending_uid_plan.replace(None);
@@ -5589,6 +6049,7 @@ fn populate_type2_forms(ui: &Ui) {
 fn show_type2_session(ui: &Rc<Ui>, session: Type2Session, live: bool) {
     ui.live.set(false);
     ui.dump.replace(None);
+    ui.dump_source.replace(None);
     ui.ndef.replace(None);
     ui.rows.remove_all();
     ui.table_stack.set_visible_child_name("empty");
@@ -6810,19 +7271,74 @@ fn refresh_keys(ui: &Ui) {
         .as_ref()
         .map(|path| path.display().to_string())
         .unwrap_or_else(|| "no store path".to_owned());
-    ui.keys_view
-        .status
-        .set_localized(&format!("{} key(s) · {}", store.len(), location));
+    let builtin = common_keys().len();
+    ui.keys_view.status.set_localized(&format!(
+        "{} stored key(s) · {builtin} built-in · {location}",
+        store.len()
+    ));
     ui.keys_view.save.set_sensitive(keys_path.is_some());
     let common = if ui.preferences.borrow().use_common_keys {
-        format!("{} common", nfc_app::classic::COMMON_KEYS.len())
+        format!("{builtin} built-in")
     } else {
-        "common keys off".to_owned()
+        "built-in keys off".to_owned()
     };
     ui.key_value.set_localized(&format!(
         "{} saved · {common}\nA + B candidates",
         store.len()
     ));
+    drop(keys_path);
+    drop(store);
+    update_key_delete(ui);
+    render_details(ui);
+}
+
+fn selected_key_row(ui: &Ui) -> Option<KeyRow> {
+    let index = ui.keys_view.selection.selected();
+    if index == gtk::INVALID_LIST_POSITION {
+        return None;
+    }
+    ui.keys_view
+        .rows
+        .item(index)
+        .and_downcast::<glib::BoxedAnyObject>()
+        .map(|object| object.borrow::<KeyRow>().clone())
+}
+
+fn update_key_delete(ui: &Ui) {
+    let stored = selected_key_row(ui).is_some_and(|row| row.stored.is_some());
+    ui.keys_view.delete.set_sensitive(stored && !ui.busy.get());
+}
+
+/// Removes one stored key entry. Built-in common keys are never stored, so
+/// selecting one cannot delete it.
+fn delete_key(ui: &Rc<Ui>) {
+    let Some(row) = selected_key_row(ui) else {
+        toast_info(ui, "Select a stored key first");
+        return;
+    };
+    let Some(index) = row.stored else {
+        toast_info(
+            ui,
+            "Built-in common keys are not stored; there is nothing to delete",
+        );
+        return;
+    };
+    let removed = ui.keys.borrow_mut().remove(index);
+    match removed {
+        Some(entry) => {
+            save_keys(ui, false);
+            append_log(
+                ui,
+                &format!(
+                    "keys · deleted {} key · {}",
+                    entry.kind.label(),
+                    entry.sector_label()
+                ),
+            );
+            toast_info(ui, "Deleted the selected key");
+        }
+        None => toast_error(ui, "The selected key entry no longer exists"),
+    }
 }
 
 fn save_keys(ui: &Rc<Ui>, notify: bool) {
@@ -6996,8 +7512,27 @@ fn import_keys(ui: &Rc<Ui>) {
                         &format!("keys · line {}: {}", issue.line, issue.message),
                     );
                 }
+                let mut summary = format!(
+                    "Import: {} added · {} duplicate(s) · {} ignored · {} issue(s)",
+                    report.added,
+                    report.duplicates,
+                    report.ignored,
+                    report.issues.len()
+                );
+                for issue in &report.issues {
+                    summary.push_str(&format!("\nLine {}: {}", issue.line, issue.message));
+                }
+                ui2.keys_view.report.set_localized(&summary);
                 save_keys(&ui2, false);
-                toast_info(&ui2, &format!("Imported {} key(s)", report.added));
+                toast_info(
+                    &ui2,
+                    &format!(
+                        "Imported {} key(s) · {} ignored · {} issue(s)",
+                        report.added,
+                        report.ignored,
+                        report.issues.len()
+                    ),
+                );
             }
             Err(error) => toast_error(&ui2, &error.to_string()),
         }
@@ -7611,6 +8146,11 @@ fn load_dump_file(ui: &Rc<Ui>, path: &Path) -> Result<(), String> {
     ui.live.set(false);
     reset_workbench(ui, &loaded.dump);
     ui.dump.replace(Some(loaded.dump.clone()));
+    ui.dump_source.replace(Some(format!(
+        "{} · {}",
+        path.display(),
+        loaded.format.name()
+    )));
     populate_rows(ui, &loaded.dump);
     switch_workspace(ui, Workspace::Classic);
     ui.classic_tabs.set_visible_child_name("blocks");
@@ -8058,6 +8598,41 @@ fn start_recovery(ui: Rc<Ui>) {
     }
     let view = &ui.recovery_view;
     let strategy = recovery_strategy(view.strategy.selected());
+    let target = if strategy == RecoveryStrategy::Auto {
+        "every sector".to_owned()
+    } else {
+        format!(
+            "block {} key {}",
+            view.target_block.text(),
+            key_type_from(view.target_type.selected()).label()
+        )
+    };
+    let body = format!(
+        "Strategy: {}\nTarget: {target}\nReader: {}\n\nRecovery authenticates and reads; it \
+         never writes the card. The selected reader stays busy until the attack stops or is \
+         cancelled.",
+        recovery_strategy_label(strategy),
+        ui.reader_snapshot
+            .borrow()
+            .selected
+            .clone()
+            .unwrap_or_else(|| "no reader selected".to_owned())
+    );
+    let dialog = authorization_dialog("Start MIFARE Classic recovery?", &body, "Start recovery");
+    let ui2 = ui.clone();
+    ui.pending_recovery_dialog.replace(Some(dialog.clone()));
+    dialog.connect_response(None, move |_, response| {
+        ui2.pending_recovery_dialog.borrow_mut().take();
+        if response == "confirm" {
+            begin_recovery(ui2.clone());
+        }
+    });
+    present_alert(&dialog, &ui.window);
+}
+
+fn begin_recovery(ui: Rc<Ui>) {
+    let view = &ui.recovery_view;
+    let strategy = recovery_strategy(view.strategy.selected());
     let auto = strategy == RecoveryStrategy::Auto;
     let known_block = if auto {
         4
@@ -8499,29 +9074,88 @@ fn save_recovered_key(ui: &Rc<Ui>) {
     toast_info(ui, &format!("Saved {added} recovered key(s)"));
 }
 
+fn supported_drivers() -> Vec<DriverInfo> {
+    vec![
+        DriverInfo::new("PN532 UART", nfc_drivers::PN532_UART_PREFIX),
+        DriverInfo::new("ACR122U USB", nfc_drivers::ACR122_USB_PREFIX),
+    ]
+}
+
 fn render_diagnostics(ui: &Ui) {
-    let version = env!("CARGO_PKG_VERSION");
     let view = &ui.diagnostics_view;
-    view.version
-        .set_localized(&format!("NFC Foundry {version} · nfctl/service {version}"));
-    view.drivers.set_localized(&format!(
-        "Supported readers: {}<port> · {}<bus>:<address>",
-        nfc_drivers::PN532_UART_PREFIX,
-        nfc_drivers::ACR122_USB_PREFIX
-    ));
+    let devices = ui
+        .devices
+        .borrow()
+        .iter()
+        .map(|device| ReaderDevice {
+            name: device.name.clone(),
+            conn_string: device.conn_string.clone(),
+        })
+        .collect();
+    let snapshot = ui.reader_snapshot.borrow().clone();
     let tables_dir = ui.preferences.borrow().hardnested_tables.clone();
-    let tables = match nfc_recover::hardnested::tables::resolve_dir(tables_dir.as_deref()) {
-        Ok(path) => format!("Hardnested tables: {}", path.display()),
-        Err(error) => format!("Hardnested tables: not resolved ({error})"),
+    let report = SelfCheck::new(
+        supported_drivers(),
+        Ok(devices),
+        &snapshot,
+        tables_dir.as_deref(),
+    );
+    view.version.set_localized(&format!(
+        "NFC Foundry {} · commit {}\nBuild date: {}",
+        report.app.version, report.app.commit, report.app.build_date
+    ));
+    view.platform.set_localized(&format!(
+        "Platform: {} · {}",
+        report.platform.os, report.platform.arch
+    ));
+    view.drivers.set_localized(&format!(
+        "Supported readers: {}",
+        report
+            .drivers
+            .iter()
+            .map(|driver| format!("{}<{}>", driver.name, driver.conn_string_prefix))
+            .collect::<Vec<_>>()
+            .join(" · ")
+    ));
+    match &report.readers.firmware {
+        Some(firmware) => view
+            .firmware
+            .set_localized(&format!("Firmware: {firmware}")),
+        None => view.firmware.set_localized("Firmware: reader not opened"),
+    }
+    let capabilities = capability_text(snapshot.capabilities);
+    view.capabilities
+        .set_localized(&format!("Reader capabilities: {capabilities}"));
+    let tables = match (
+        &report.hardnested_tables.path,
+        &report.hardnested_tables.error,
+    ) {
+        (Some(path), _) => format!("Hardnested tables: {path}"),
+        (None, Some(error)) => format!("Hardnested tables: not resolved ({error})"),
+        (None, None) => "Hardnested tables: not resolved".to_owned(),
     };
     view.tables.set_localized(&tables);
-    let devices = ui.devices.borrow();
-    let readers = if devices.is_empty() {
+    let readers = if !report.readers.available {
+        format!(
+            "Readers: unavailable ({})",
+            report
+                .readers
+                .error
+                .as_deref()
+                .unwrap_or("enumeration failed")
+        )
+    } else if report.readers.devices.is_empty() {
         "Readers: none found".to_owned()
     } else {
-        let mut text = format!("Readers: {}", devices.len());
-        for device in devices.iter() {
+        let mut text = format!("Readers: {}", report.readers.devices.len());
+        for device in &report.readers.devices {
             text.push_str(&format!("\n{}\t{}", device.name, device.conn_string));
+        }
+        if let Some(selected) = &report.readers.selected {
+            text.push_str(&format!(
+                "\nSelected: {selected} · {}",
+                report.readers.status
+            ));
         }
         text
     };
@@ -8533,8 +9167,8 @@ fn render_diagnostics(ui: &Ui) {
         } else {
             "release"
         },
-        std::env::consts::OS,
-        std::env::consts::ARCH
+        report.platform.os,
+        report.platform.arch
     ));
 }
 
@@ -8859,6 +9493,7 @@ fn clear_activity(ui: &Rc<Ui>) {
 mod tests {
     use std::time::{Duration, Instant};
 
+    use nfc_app::ReaderMonitorConfig;
     use nfc_classic::{Layout, bcc_for_uid};
     use nfc_classic_ndef::{
         MAD_ACCESS_BITS, MAD_KEY_A, MAD1_GPB, Mad, MadVersion, NFC_GPB_RO, NFC_GPB_RW, NFC_KEY_A,
@@ -9122,6 +9757,7 @@ mod tests {
                 preferences,
                 preferences_path: Some(preferences_path),
                 settings_error: None,
+                auto_monitor: false,
             },
         );
         Harness {
@@ -9158,13 +9794,13 @@ mod tests {
             harness.handle.set_block(block as u8, data);
         }
         install_ntag(&harness.ntag, &ntag_pages(false, false, true));
-        harness
-            .ui
-            .service
-            .lock()
-            .expect("service")
-            .select_device("mock:classic")
-            .expect("select classic");
+        {
+            let mut service = harness.ui.service.lock().expect("service");
+            service
+                .select_device("mock:classic")
+                .expect("select classic");
+            service.retry_reader().expect("restart reader monitor");
+        }
         harness.ui.reader_combo.set_selected(0);
         let ui = &harness.ui;
         #[cfg(test)]
@@ -9174,6 +9810,7 @@ mod tests {
         ui.live.set(false);
         ui.busy.set(false);
         ui.dump.replace(None);
+        ui.dump_source.replace(None);
         if let Ok(mut service) = ui.service.lock() {
             service.workbench_clear();
         }
@@ -9294,6 +9931,7 @@ mod tests {
         populate_rows(ui, &dump);
         ui.live.set(true);
         update_inspector(ui);
+        update_card(ui);
         update_restore_sensitivity(ui);
     }
 
@@ -9397,12 +10035,14 @@ mod tests {
         selection_updates_inspector(&harness);
         write_gates_follow_state(&harness);
         reader_refresh_invalidates(&harness);
+        reader_monitor_invalidates(&harness);
         workbench_stage_undo_revert_and_write(&harness);
         identity_refusal_is_visible(&harness);
         restore_cancel_then_confirm(&harness);
         restore_with_uid(&harness);
         diff_screen_classifies_blocks(&harness);
         keys_screen_adds_and_saves(&harness);
+        details_view_matches_the_dump_and_key_model(&harness);
         read_captures_keys(&harness);
         classic_uid_write(&harness);
         keyscan_finds_and_saves(&harness);
@@ -9423,6 +10063,10 @@ mod tests {
         type2_dump_and_restore(&harness);
         navigation_busy_and_focus(&harness);
         language_switch_preserves_state(&harness);
+        start_reader_monitor(harness.ui.clone());
+        pump_until(&harness.ui, "background reader monitor", || {
+            harness.ui.reader_state.label() == "Polling · card present"
+        });
         harness.ui.window.close();
         drop(harness.app);
     }
@@ -9838,6 +10482,39 @@ mod tests {
         assert!(harness.ui.status.label().contains("Inspection only"));
     }
 
+    fn reader_monitor_invalidates(harness: &Harness) {
+        reset(harness);
+        let ui = &harness.ui;
+        {
+            let mut service = ui.service.lock().expect("service");
+            service.set_reader_monitor_config(ReaderMonitorConfig {
+                poll_interval: Duration::ZERO,
+                ..ReaderMonitorConfig::default()
+            });
+            service.retry_reader().expect("restart monitor");
+        }
+        poll_reader_once(ui);
+        assert_eq!(ui.reader_state.label(), "Polling · card present");
+        show_dump(ui);
+        assert!(ui.live.get());
+        assert!(ui.reader_caps.label().contains("MIFARE Classic read/write"));
+        assert!(ui.reader_caps.label().contains("UID write"));
+
+        harness.handle.set_card(None);
+        poll_reader_once(ui);
+        assert!(ui.live.get(), "one missed poll keeps the image");
+        poll_reader_once(ui);
+        assert!(!ui.live.get());
+        assert_eq!(ui.reader_state.label(), "Polling · no card");
+        assert_eq!(ui.status.label(), "Card removed · read the card again");
+        assert!(!ui.inspector.commit.is_sensitive());
+
+        harness.handle.set_card(Some(test_card()));
+        poll_reader_once(ui);
+        assert_eq!(ui.reader_state.label(), "Polling · card present");
+        assert!(!ui.live.get(), "the old image stays inspection-only");
+    }
+
     fn workbench_stage_undo_revert_and_write(harness: &Harness) {
         reset(harness);
         show_dump(&harness.ui);
@@ -10150,7 +10827,11 @@ mod tests {
         harness.ui.keys_view.kind.set_selected(1);
         add_key(&harness.ui);
         assert_eq!(harness.ui.keys.borrow().len(), 1);
-        assert_eq!(harness.ui.keys_view.rows.n_items(), 1);
+        let rows = harness.ui.keys_view.rows.n_items();
+        assert!(
+            rows >= common_keys().len() as u32,
+            "built-in keys are not listed: {rows}"
+        );
         assert!(harness.ui.key_value.label().contains("1 saved"));
         let path = harness.keys_dir.path().join("classic-keys.json");
         assert!(path.exists());
@@ -10163,6 +10844,74 @@ mod tests {
         harness.ui.keys_view.hex.set_text("not-hex");
         add_key(&harness.ui);
         assert_eq!(harness.ui.keys.borrow().len(), 1);
+
+        harness.ui.keys_view.selection.set_selected(0);
+        update_key_delete(&harness.ui);
+        assert!(harness.ui.keys_view.delete.is_sensitive());
+        delete_key(&harness.ui);
+        assert!(harness.ui.keys.borrow().is_empty());
+        assert!(KeyStore::load(&path).expect("store").entries().is_empty());
+
+        let builtin = (0..harness.ui.keys_view.rows.n_items())
+            .find(|index| {
+                harness
+                    .ui
+                    .keys_view
+                    .rows
+                    .item(*index)
+                    .and_downcast::<glib::BoxedAnyObject>()
+                    .expect("key row")
+                    .borrow::<KeyRow>()
+                    .stored
+                    .is_none()
+            })
+            .expect("built-in row");
+        harness.ui.keys_view.selection.set_selected(builtin);
+        update_key_delete(&harness.ui);
+        assert!(!harness.ui.keys_view.delete.is_sensitive());
+        delete_key(&harness.ui);
+        assert!(harness.ui.keys.borrow().is_empty());
+    }
+
+    fn details_view_matches_the_dump_and_key_model(harness: &Harness) {
+        reset(harness);
+        let ui = &harness.ui;
+        show_dump(ui);
+        let body = ui.details_view.body.label().to_string();
+        assert!(body.contains("Card: MIFARE Classic 1K"), "{body}");
+        assert!(body.contains("UID 04 A2 24 8A (4 bytes)"), "{body}");
+        assert!(body.contains("ATQA 0004 · SAK 08"), "{body}");
+        assert!(body.contains("Layout: MIFARE Classic 1K"), "{body}");
+        assert!(body.contains("Blocks: 64/64 readable"), "{body}");
+        assert!(body.contains("Dirty: none"), "{body}");
+        assert!(body.contains("Validation: ok"), "{body}");
+        assert!(body.contains("Verified: 0/16 sectors"), "{body}");
+
+        ui.selection.set_selected(4);
+        ui.inspector
+            .hex
+            .set_text(&classic::hex_with_mask(&changed_block(), u16::MAX));
+        update_write_sensitivity(ui);
+        stage_edit(ui.clone());
+        let body = ui.details_view.body.label().to_string();
+        assert!(body.contains("Dirty: 1 block(s) · 004"), "{body}");
+
+        let key = Key::from_hex("A0A1A2A3A4A5").expect("key");
+        record_captured_keys(
+            ui,
+            &test_card(),
+            &[AuthenticatedKey {
+                sector: 0,
+                key_type: nfc_core::KeyType::A,
+                key,
+                source: KeySource::ReadContext,
+            }],
+        );
+        let body = ui.details_view.body.label().to_string();
+        assert!(
+            body.contains("Verified: 1/16 sectors · A 1 · B 0 · both 0"),
+            "{body}"
+        );
     }
 
     fn read_captures_keys(harness: &Harness) {
@@ -10283,6 +11032,25 @@ mod tests {
         ui.recovery_view.strategy.set_selected(1);
         update_recovery_sensitivity(ui);
         start_recovery(ui.clone());
+        assert!(
+            !ui.busy.get(),
+            "recovery must not start before authorization"
+        );
+        let dialog = alert_pending(&ui.pending_recovery_dialog);
+        assert!(
+            dialog
+                .heading()
+                .as_deref()
+                .is_some_and(|heading| heading.contains("recovery")),
+            "unexpected heading: {:?}",
+            dialog.heading()
+        );
+        assert!(
+            dialog.body().to_ascii_lowercase().contains("darkside"),
+            "{}",
+            dialog.body()
+        );
+        emit_response(&dialog, "confirm");
         pump_until(ui, "darkside recovery", || !ui.busy.get());
         let log = ui.recovery_view.log.text();
         assert!(log.contains("unsupported"), "{log}");
@@ -10402,6 +11170,24 @@ mod tests {
         );
         assert!(ui.diagnostics_view.drivers.label().contains("pn532_uart"));
         assert!(ui.diagnostics_view.drivers.label().contains("acr122_usb"));
+        assert!(
+            ui.diagnostics_view
+                .platform
+                .label()
+                .contains(std::env::consts::ARCH)
+        );
+        assert!(
+            ui.diagnostics_view
+                .firmware
+                .label()
+                .starts_with("Firmware:")
+        );
+        assert!(
+            ui.diagnostics_view
+                .capabilities
+                .label()
+                .starts_with("Reader capabilities:")
+        );
         assert!(ui.diagnostics_view.readers.label().contains("mock:classic"));
         assert!(
             ui.diagnostics_view

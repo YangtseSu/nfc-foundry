@@ -15,7 +15,8 @@ impl DeviceInfo {
     }
 }
 
-/// Explicit capability profile. Claims are only made after hardware validation.
+/// Explicit capability profile. A driver populates every operation it
+/// implements; application gates fail closed when a flag is absent.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ReaderCapabilities {
     pub classic_read: bool,
@@ -25,4 +26,7 @@ pub struct ReaderCapabilities {
     pub manufacturer_write: bool,
     pub type2_read: bool,
     pub type2_write: bool,
+    /// The reader can exchange parity-carrying Crypto1 frames, which active
+    /// recovery and FM11RF08S probing require.
+    pub recovery_parity: bool,
 }

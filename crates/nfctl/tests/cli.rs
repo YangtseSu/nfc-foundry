@@ -539,13 +539,29 @@ fn key_import_reports_bad_lines_and_keeps_valid_keys() {
 
 #[test]
 fn auto_recovery_scans_every_sector_and_verifies_the_read() {
-    let output = nfctl(&["--mock", "--device", "mock:classic-1k", "recover", "auto"]);
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "--yes",
+        "recover",
+        "auto",
+    ]);
     assert_success(&output);
     let text = stdout(&output);
     assert!(text.contains("verified sector 0 key A:"), "{text}");
     assert!(text.contains("verified sector 15 key B:"), "{text}");
     assert!(text.contains("sector keys 32/32"), "{text}");
     assert!(text.contains("read verification 16/16"), "{text}");
+}
+
+#[test]
+fn recovery_requires_authorization_without_yes() {
+    let output = nfctl(&["--mock", "--device", "mock:classic-1k", "recover", "auto"]);
+    assert!(!output.status.success());
+    let text = stderr(&output);
+    assert!(text.contains("needs confirmation"), "{text}");
+    assert!(text.contains("pass --yes"), "{text}");
 }
 
 #[test]
@@ -556,6 +572,7 @@ fn nested_recovery_without_parity_fails_honestly() {
         "mock:classic-1k",
         "--key",
         "A0A1A2A3A4A5",
+        "--yes",
         "recover",
         "nested",
         "--known-block",
@@ -1334,4 +1351,172 @@ fn restore_with_uid_dry_run_gates_and_executes_on_the_mock_card() {
     assert!(text.contains("UID changed: 04A2248A -> DEADBEEF"), "{text}");
     assert!(text.contains("BCC valid"), "{text}");
     assert!(text.contains("UID backup:"), "{text}");
+}
+
+#[test]
+fn diag_json_is_a_stable_self_check_without_card_material() {
+    let output = nfctl(&["--mock", "diag", "--json"]);
+    assert_success(&output);
+    let text = stdout(&output);
+    let value: serde_json::Value = serde_json::from_str(&text).expect("self-check JSON");
+    let object = value.as_object().expect("object");
+    assert_eq!(
+        object.keys().cloned().collect::<Vec<_>>(),
+        ["app", "drivers", "hardnested_tables", "platform", "readers"]
+    );
+    assert_eq!(value["app"]["version"], env!("CARGO_PKG_VERSION"));
+    assert!(value["app"]["commit"].is_string(), "{text}");
+    assert!(value["app"]["build_date"].is_string(), "{text}");
+    assert_eq!(value["platform"]["os"], std::env::consts::OS);
+    assert_eq!(value["drivers"][0]["conn_string_prefix"], "pn532_uart:");
+    assert_eq!(value["readers"]["available"], true);
+    assert!(
+        value["readers"]["devices"]
+            .as_array()
+            .expect("devices")
+            .iter()
+            .any(|device| device["conn_string"] == "mock:classic-1k"),
+        "{text}"
+    );
+    assert!(value["hardnested_tables"]["available"].is_boolean());
+    for forbidden in ["A0A1A2A3A4A5", "FFFFFFFFFFFF", "\"uid\"", "\"dump\""] {
+        assert!(!text.contains(forbidden), "self-check leaked {forbidden}");
+    }
+}
+
+#[test]
+fn card_health_reports_the_saved_image_and_key_coverage() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let dump = directory.path().join("card.json");
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "classic",
+        "dump",
+        "--output",
+        dump.to_str().expect("path"),
+        "--format",
+        "project",
+    ]);
+    assert_success(&output);
+
+    let output = nfctl(&[
+        "--mock",
+        "--key-store",
+        directory.path().join("keys.json").to_str().expect("path"),
+        "card",
+        "health",
+        "--input",
+        dump.to_str().expect("path"),
+    ]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("card: MIFARE Classic 1K"), "{text}");
+    assert!(text.contains("UID 04 A2 24 8A (4 bytes)"), "{text}");
+    assert!(text.contains("ATQA 0004 · SAK 08"), "{text}");
+    assert!(text.contains("layout: MIFARE Classic 1K"), "{text}");
+    assert!(
+        text.contains("completeness: 64/64 blocks · 16/16 sectors · complete"),
+        "{text}"
+    );
+    assert!(text.contains("keys: 16/16 sectors covered"), "{text}");
+    assert!(text.contains("dirty blocks: none"), "{text}");
+    assert!(text.contains("validation: ok"), "{text}");
+}
+
+#[test]
+fn key_delete_removes_one_entry_and_keeps_the_rest() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let store = directory.path().join("keys.json");
+    let store = store.to_str().expect("path");
+    for (key, sector, kind) in [("A0A1A2A3A4A5", "0", "A"), ("B0B1B2B3B4B5", "1", "B")] {
+        let output = nfctl(&[
+            "--key-store",
+            store,
+            "classic",
+            "keys",
+            "add",
+            key,
+            "--sector",
+            sector,
+            "--key-type",
+            kind,
+        ]);
+        assert_success(&output);
+    }
+
+    let output = nfctl(&[
+        "--key-store",
+        store,
+        "classic",
+        "keys",
+        "delete",
+        "A0A1A2A3A4A5",
+        "--sector",
+        "0",
+        "--key-type",
+        "A",
+    ]);
+    assert_success(&output);
+    assert!(
+        stdout(&output).contains("deleted A key A0A1A2A3A4A5"),
+        "{}",
+        stdout(&output)
+    );
+
+    let output = nfctl(&["--key-store", store, "classic", "keys", "list", "--builtin"]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(
+        !text
+            .lines()
+            .any(|line| line.contains("A0A1A2A3A4A5") && line.contains("manual")),
+        "{text}"
+    );
+    assert!(text.contains("B0B1B2B3B4B5"), "{text}");
+    assert!(text.contains("FFFFFFFFFFFF (common)"), "{text}");
+
+    let output = nfctl(&[
+        "--key-store",
+        store,
+        "classic",
+        "keys",
+        "delete",
+        "FFFFFFFFFFFF",
+    ]);
+    assert_success(&output);
+    assert!(
+        stdout(&output).contains("no stored any key FFFFFFFFFFFF"),
+        "{}",
+        stdout(&output)
+    );
+}
+
+#[test]
+fn mini_reports_its_identity_and_refuses_a_classic_read() {
+    let output = nfctl(&["--mock", "--device", "mock:mini", "card", "info"]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("type: MIFARE Mini"), "{text}");
+    assert!(text.contains("identified only"), "{text}");
+
+    let directory = tempfile::tempdir().expect("temp dir");
+    let dump = directory.path().join("mini.mfd");
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:mini",
+        "classic",
+        "dump",
+        "--output",
+        dump.to_str().expect("path"),
+    ]);
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("MIFARE Mini"),
+        "{}",
+        stderr(&output)
+    );
+    assert!(!dump.exists(), "no dump may be written for a Mini card");
 }

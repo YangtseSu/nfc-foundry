@@ -59,6 +59,9 @@ pub fn layout_for_card(card: &CardInfo) -> Result<Layout> {
     match card.card_type {
         CardType::MifareClassic1K => Ok(Layout::Classic1K),
         CardType::MifareClassic4K => Ok(Layout::Classic4K),
+        CardType::MifareMini => Err(NfcError::Unsupported(
+            "MIFARE Mini is identified but has no supported layout; read and write are unavailable",
+        )),
         _ => Err(NfcError::Unsupported(
             "the selected card is not a MIFARE Classic 1K or 4K card",
         )),

@@ -70,7 +70,7 @@ fn open_reader() -> Box<dyn Reader> {
 fn software_authentication_matches_the_card() {
     let _guard = lock_hardware();
     let mut reader = open_reader();
-    assert!(reader.recovery_capabilities().parity_exchange);
+    assert!(reader.capabilities().recovery_parity);
     let card = reader.card_info().expect("select card");
     assert!(
         matches!(

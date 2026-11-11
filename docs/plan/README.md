@@ -48,7 +48,7 @@ work; their current equivalents are the GTK4 workspaces.
 | 21 | Wi-Fi WSC decoding, selectable card facts, Activity copy | done |
 | 22 | Grouped primary navigation and header menu | done (superseded by 23) |
 | 23 | Card-family workspaces and NDEF placement | done |
-| 24 | Parity recovery: verified keys, workbench, UID, reader lifecycle, diagnostics | in progress (S1, S2, S3a, S3b done) |
+| 24 | Parity recovery: verified keys, workbench, UID, reader lifecycle, diagnostics | in progress (S1, S2, S3a, S3b, S4, S6 done) |
 
 ## Rules
 
@@ -775,10 +775,13 @@ reader polling/reconnect and capability reporting, then details, key-catalog,
 and diagnostics gaps.
 
 Detailed plan: [24-parity-recovery.md](24-parity-recovery.md). Status:
-in progress. S1 (verified-key capture and dump key metadata), S2 (editable
-workbench and selective restore), and S3a (standalone UID / block-0 write) are
-complete; S3b (restore with UID) is complete and validated on PN532 UART and
-ACR122U; S6 (Type 2 authenticated access) is implemented and validated on
-PN532 UART with an owned NTAG216, with the ACR122U record pending. Each slice
-needs a spec in `docs/specs/` before implementation and a note in `docs/notes/`
-when complete.
+complete 2026-11-12, with the S6 ACR122U hardware record pending. S1
+(verified-key capture and dump key metadata), S2 (editable
+workbench and selective restore), S3a (standalone UID / block-0 write), and
+S3b (restore with UID) are complete. S4 (reader lifecycle and capability model)
+is complete. S5 (surface and diagnostic gaps) is complete: shared card health,
+key catalog built-ins/deletion, MIFARE Mini identity, self-check JSON and GUI
+diagnostics, and recovery authorization. S6 (Type 2 authenticated access) is
+implemented and validated on PN532 UART with an owned NTAG216; the ACR122U
+record is pending. Each slice has a spec in `docs/specs/` and a note in
+`docs/notes/`.

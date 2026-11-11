@@ -307,7 +307,7 @@ fn recovery_parity_probe_reads_a_tag_nonce() {
         "place a MIFARE Classic card on the reader"
     );
     assert!(
-        reader.recovery_capabilities().parity_exchange,
+        reader.capabilities().recovery_parity,
         "the reader did not advertise parity exchange"
     );
     reader.set_recovery_mode(true).expect("enter recovery mode");

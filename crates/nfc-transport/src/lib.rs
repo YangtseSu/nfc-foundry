@@ -7,13 +7,6 @@ pub use device::{DeviceInfo, ReaderCapabilities};
 
 use nfc_core::{BLOCK_SIZE, CardInfo, Key, KeyType, NfcError, PAGE_QUAD_SIZE, PAGE_SIZE, Result};
 
-/// Recovery-specific transport facts. A driver only advertises parity
-/// exchange after the primitive works on hardware.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct RecoveryCapabilities {
-    pub parity_exchange: bool,
-}
-
 /// One raw ISO/IEC 14443A frame exchanged with parity handled by the caller.
 /// `parity` has one bit per data byte in the least significant bit; `bits` is
 /// the number of data bits in `data` for a partial frame.
@@ -56,6 +49,18 @@ impl ApduResponse {
 /// transport factory never touches hardware by itself.
 pub trait Reader: Send {
     fn device(&self) -> &DeviceInfo;
+
+    /// Firmware identity of the open reader, if the driver reports one. This
+    /// is diagnostic text; it is never used for capability gating.
+    fn firmware(&self) -> Option<String> {
+        None
+    }
+
+    /// Operations this reader implements. Application gates fail closed when a
+    /// driver leaves the default empty profile.
+    fn capabilities(&self) -> ReaderCapabilities {
+        ReaderCapabilities::default()
+    }
     fn open(&mut self, conn_string: &str) -> Result<()>;
     fn close(&mut self) -> Result<()>;
     fn card_info(&mut self) -> Result<CardInfo>;
@@ -107,12 +112,6 @@ pub trait Reader: Send {
     /// UID workflow can never assume the Gen1A capability.
     fn manufacturer_writer(&mut self) -> Option<&mut dyn ManufacturerWriter> {
         None
-    }
-
-    /// Recovery parity exchange is opt-in; readers without it keep the default
-    /// error instead of pretending to support active attacks.
-    fn recovery_capabilities(&self) -> RecoveryCapabilities {
-        RecoveryCapabilities::default()
     }
 
     /// Enter or leave the parity-disabled framing mode used by Crypto1 partial
