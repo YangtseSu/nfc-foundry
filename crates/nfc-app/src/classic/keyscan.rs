@@ -6,7 +6,7 @@ use nfc_core::{CancelToken, Key, KeyType, NfcError, Result};
 
 use crate::operation::Operation;
 
-use super::keys::{AuthenticatedKey, KeyEntry, KeyKind, KeySource, KeyStore, common_keys};
+use super::keys::{AuthenticatedKey, KeyEntry, KeyKind, KeySource, KeyStore, default_keys};
 use super::read::layout_for_card;
 
 /// Which key types the scan attempts.
@@ -68,6 +68,7 @@ pub type KeyscanSink = Arc<dyn Fn(KeyscanProgress) + Send + Sync>;
 pub struct ClassicKeyscan<'a> {
     pub keys: &'a KeyStore,
     pub candidates: Vec<Key>,
+    /// Add the three built-in default keys (factory, MAD Key A, NFC Forum Key A).
     pub include_common_keys: bool,
     pub key_types: KeyTypes,
     pub cancel: CancelToken,
@@ -150,7 +151,7 @@ pub fn keyscan(
         push_unique(&mut candidates, key);
     }
     if request.include_common_keys {
-        for key in common_keys() {
+        for key in default_keys() {
             push_unique(&mut candidates, key);
         }
     }

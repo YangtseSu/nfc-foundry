@@ -286,18 +286,28 @@ cargo run -p nfctl -- --mock --device mock:ntag215 ndef read
 cargo run -p nfctl -- --mock --device mock:ntag215 type2 dump --output ntag.json
 ```
 
-`nfctl classic keys list|import|add|export` manages the JSON key store. Pass
-`--key-store <path>` to choose it explicitly; otherwise the default is
-`$XDG_CONFIG_HOME/nfc-foundry/classic-keys.json`. A successful Classic read,
-key scan, or recovery records the authenticated key per card, sector, and A/B
-slot in the store; loading a project dump restores its keys the same way.
-The store is version 2 and keeps card-scoped verifications alongside keys;
-version 1 files still load. `keys import` reports added, duplicate, and ignored
-lines and continues past malformed entries. `keys export --format dic`
-writes the Proxmark3 dictionary dialect: unique uppercase 12-hex keys, one per
-line. Import accepts that dialect plus the JSON store. `.dic` cannot carry
-sector, A/B, or provenance, and imported `.dic` keys apply to every sector as
-`any`.
+`nfctl classic keys list|import|add|export` manages the legacy JSON key store.
+Pass `--key-store <path>` to choose it explicitly; otherwise the default is
+`$XDG_CONFIG_HOME/nfc-foundry/classic-keys.json`. The primary per-card format
+is a Proxmark3 `.dic` file under `$XDG_DATA_HOME/nfc-foundry/keys` (default
+`~/.local/share/nfc-foundry/keys`). A dump and its key file share a base name
+across `dumps/` and `keys/`; saving a dump merges the keys used by the read
+into the paired `.dic`, and loading a dump or restoring from one loads that
+file automatically. Dumps, NDEF messages, and pre-write backups use
+`dumps/`, `ndef/`, and `backups/` under the same data directory; file dialogs
+open the matching folder.
+
+The key scan checks three standard keys on first run
+(`FFFFFFFFFFFF`, `A0A1A2A3A4A5`, `D3F7D3F7D3F7`), remembers the checked set,
+and offers the extended, EV1 signature, common, and loaded dictionary groups
+unchecked. Reads try stored keys and then the three default keys; the full
+dictionary belongs to an explicit key scan. `keys import` reports added,
+duplicate, and ignored lines and continues past malformed entries. `keys
+export --format dic` writes the Proxmark3 dictionary dialect: unique uppercase
+12-hex keys, one per line. `.dic` cannot carry sector, A/B, or provenance, and
+imported `.dic` keys apply to every sector as `any`. The JSON store keeps
+sector, A/B, and card-scoped verifications for imported keys; duplicate
+entries from different sources collapse to one key.
 
 ## Hardware reader
 
@@ -420,7 +430,7 @@ only on request. Recovery exposes every native strategy with acquisition,
 filtering, and brute-force progress, elapsed time, cancellation, verified-key
 saving, and the engine limitations verbatim. Activity is a session-only record
 that omits key material and NDEF payloads. Settings persist the key store,
-backup directory, hardnested tables, common-key default, and default dump
+backup directory, hardnested tables, default-key group, and default dump
 format in `$XDG_CONFIG_HOME/nfc-foundry/ui.json` with atomic `0600` writes.
 Type 4 read stays out of the UI; the PN532 hardware record exists as of
 2026-11-12. The `zh-CN` catalog and packaging remain in progress. The

@@ -16,7 +16,7 @@ use nfc_transport::{DeviceInfo, ManufacturerWriter, Reader, ReaderCapabilities, 
 const UID: [u8; 4] = [0x04, 0xA2, 0x24, 0x8A];
 const KEY_A: Key = Key::new([0xFF; 6]);
 const KEY_B: Key = Key::new([0xA0; 6]);
-const KEY_ZERO: Key = Key::new([0x00; 6]);
+const KEY_NFC: Key = Key::new([0xD3, 0xF7, 0xD3, 0xF7, 0xD3, 0xF7]);
 const DENIED: Key = Key::new([0x99; 6]);
 
 fn card() -> CardInfo {
@@ -548,7 +548,7 @@ fn dump_reuses_the_last_authenticated_key() {
     {
         let mut state = handle.lock();
         for sector in 0..16 {
-            state.accept_only(sector, &[(KeyType::A, KEY_ZERO)]);
+            state.accept_only(sector, &[(KeyType::A, KEY_NFC)]);
         }
     }
     let mut service = service(&handle);

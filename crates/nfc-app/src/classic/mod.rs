@@ -17,8 +17,10 @@ pub(crate) mod write;
 
 pub use backup::{BackupRecord, BackupStore};
 pub use keys::{
-    AuthenticatedKey, COMMON_KEYS, KeyEntry, KeyImportIssue, KeyImportReport, KeyKind, KeySource,
-    KeyStore, KeyVerification, card_id, common_keys,
+    AuthenticatedKey, COMMON_KEYS, DEFAULT_EXTENDED_KEYS, DEFAULT_KEYS, EV1_SIGNATURE_KEYS,
+    KeyEntry, KeyFile, KeyImportIssue, KeyImportReport, KeyKind, KeySource, KeyStore,
+    KeyVerification, card_id, common_keys, common_only_keys, default_extended_keys, default_keys,
+    ev1_signature_keys,
 };
 pub use keyscan::{
     ClassicKeyscan, ClassicKeyscanResult, KeyTypes, KeyscanProgress, KeyscanSink, SectorKeys,

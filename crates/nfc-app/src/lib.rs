@@ -11,6 +11,7 @@ pub mod event;
 mod fsutil;
 pub mod health;
 pub mod operation;
+pub mod paths;
 pub mod reader;
 pub mod recovery;
 pub mod service;

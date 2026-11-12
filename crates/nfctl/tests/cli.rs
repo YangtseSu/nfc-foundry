@@ -7,9 +7,21 @@ use nfc_classic::{DumpFormat, exchange};
 
 fn nfctl(args: &[&str]) -> Output {
     let config = tempfile::tempdir().expect("config dir");
+    let data = tempfile::tempdir().expect("data dir");
     Command::new(env!("CARGO_BIN_EXE_nfctl"))
         .args(args)
         .env("XDG_CONFIG_HOME", config.path())
+        .env("XDG_DATA_HOME", data.path())
+        .output()
+        .expect("run nfctl")
+}
+
+fn nfctl_with_data(args: &[&str], data: &Path) -> Output {
+    let config = tempfile::tempdir().expect("config dir");
+    Command::new(env!("CARGO_BIN_EXE_nfctl"))
+        .args(args)
+        .env("XDG_CONFIG_HOME", config.path())
+        .env("XDG_DATA_HOME", data)
         .output()
         .expect("run nfctl")
 }
@@ -333,6 +345,59 @@ fn keyscan_persists_discovered_keys_and_keys_commands_read_them() {
     ]);
     assert_success(&output);
     assert!(stdout(&output).contains("DEADBEEF0000"));
+}
+
+#[test]
+fn keyscan_writes_a_named_per_card_dic_file() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let keys = directory.path().join("card.dic");
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "classic",
+        "keyscan",
+        "--types",
+        "A",
+        "--save",
+        keys.to_str().expect("path"),
+        "--name",
+        "Mock card",
+    ]);
+    assert_success(&output);
+    let text = std::fs::read_to_string(&keys).expect("dic");
+    assert!(text.contains("# name: Mock card"), "{text}");
+    assert!(text.contains("# card: "), "{text}");
+    assert!(text.contains("FFFFFFFFFFFF"), "{text}");
+}
+
+#[test]
+fn dump_writes_a_sibling_dic_key_file() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let data = tempfile::tempdir().expect("data dir");
+    let dump = directory.path().join("card.json");
+    let output = nfctl_with_data(
+        &[
+            "--mock",
+            "--device",
+            "mock:classic-1k",
+            "classic",
+            "dump",
+            "--output",
+            dump.to_str().expect("path"),
+        ],
+        data.path(),
+    );
+    assert_success(&output);
+    let keys = data
+        .path()
+        .join("nfc-foundry")
+        .join("keys")
+        .join("card.dic");
+    assert!(keys.exists(), "{}", stdout(&output));
+    let text = std::fs::read_to_string(&keys).expect("dic");
+    assert!(text.contains("FFFFFFFFFFFF"), "{text}");
 }
 
 #[test]

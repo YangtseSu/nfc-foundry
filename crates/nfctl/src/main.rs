@@ -10,8 +10,8 @@ use nfc_app::classic::{
     AuthenticatedKey, BackupStore, ClassicBlockWrite, ClassicKeyscan, ClassicNdefFormat,
     ClassicNdefRead, ClassicNdefWrite, ClassicRead, ClassicUidExecution, ClassicUidPlan,
     ClassicUidPreflight, ClassicWriteExecution, ClassicWritePlan, ClassicWritePreflight, KeyEntry,
-    KeyKind, KeySource, KeyStore, KeyTypes, RestoreSelection, RestoreUidState, common_keys,
-    format_uid, parse_block_list, parse_uid,
+    KeyFile, KeyKind, KeySource, KeyStore, KeyTypes, RestoreSelection, RestoreUidState,
+    common_keys, format_uid, parse_block_list, parse_uid,
 };
 use nfc_app::type2::{
     Type2Auth, Type2Format, Type2Lock, Type2NdefWrite, Type2PageWrite, Type2Password,
@@ -61,7 +61,7 @@ struct Cli {
     /// Directory for pre-write backups.
     #[arg(long, global = true, value_name = "DIR")]
     backup_dir: Option<PathBuf>,
-    /// Do not try the built-in common keys.
+    /// Do not try the built-in default keys.
     #[arg(long, global = true)]
     no_common_keys: bool,
     /// Hardnested table directory. Defaults to the installed resource path.
@@ -226,9 +226,12 @@ enum ClassicCommand {
     },
     /// Try candidate keys against every sector.
     Keyscan {
-        /// Save discovered keys to this store.
+        /// Save discovered keys to this store (`.dic` for a per-card key file).
         #[arg(long, value_name = "PATH")]
         save: Option<PathBuf>,
+        /// Name stored in a `.dic` key file header.
+        #[arg(long, value_name = "NAME")]
+        name: Option<String>,
         /// A, B, or AB.
         #[arg(long, default_value = "AB", value_name = "TYPES")]
         types: String,
@@ -916,8 +919,8 @@ fn classic(cli: &Cli, service: &mut Service, command: ClassicCommand) -> Result<
                 dry_run,
             },
         ),
-        ClassicCommand::Keyscan { save, types } => {
-            classic_keyscan(cli, service, save.as_deref(), &types)
+        ClassicCommand::Keyscan { save, name, types } => {
+            classic_keyscan(cli, service, save.as_deref(), name.as_deref(), &types)
         }
         ClassicCommand::Keys { command } => classic_keys(cli, command),
         ClassicCommand::Diff { before, after } => classic_diff(&before, &after),
@@ -939,6 +942,9 @@ fn classic_read(cli: &Cli, service: &mut Service, block: usize) -> Result<()> {
 fn classic_dump(cli: &Cli, service: &mut Service, output: &Path, format: &str) -> Result<()> {
     prepare(service, cli.device.as_deref())?;
     let mut keys = load_key_store(cli)?;
+    if let Some(key_file) = KeyFile::load_for_dump(output)? {
+        key_file.merge_into(&mut keys)?;
+    }
     let requested = DumpFormat::parse(format)?;
     let result = service.classic_read(
         ClassicRead::new(&keys)
@@ -959,8 +965,26 @@ fn classic_dump(cli: &Cli, service: &mut Service, output: &Path, format: &str) -
         eprintln!("warning: raw dump is image-only; sector keys and provenance were not written");
     }
     write_output(output, &bytes)?;
-    if let Some(card) = &result.dump.card {
-        capture_keys(cli, &mut keys, card, &result.keys)?;
+    if !result.dump.metadata.keys.is_empty() {
+        let key_path = KeyFile::path_for_dump(output);
+        let mut key_file = if key_path.exists() {
+            KeyFile::load(&key_path)?
+        } else {
+            KeyFile::from_keys(
+                key_path.clone(),
+                String::new(),
+                result.dump.card.clone(),
+                [],
+            )
+        };
+        key_file.card = result.dump.card.clone().or(key_file.card);
+        key_file.merge_keys(result.dump.metadata.keys.iter().map(|entry| entry.key));
+        key_file.save()?;
+        println!(
+            "keys: {} ({} keys)",
+            key_file.path.display(),
+            key_file.keys.len()
+        );
     }
     let readability = result.dump.readability();
     println!(
@@ -1202,6 +1226,9 @@ fn classic_restore(
         eprintln!("warning: {warning}");
     }
     let mut keys = load_key_store(cli)?;
+    if let Some(key_file) = KeyFile::load_for_dump(input)? {
+        key_file.merge_into(&mut keys)?;
+    }
     capture_dump_metadata(cli, &mut keys, &load.dump)?;
     let backup = backup_store(cli);
     let mut preflight = ClassicWritePreflight::new(load.dump.clone(), &keys)
@@ -1403,6 +1430,7 @@ fn classic_keyscan(
     cli: &Cli,
     service: &mut Service,
     save: Option<&Path>,
+    name: Option<&str>,
     types: &str,
 ) -> Result<()> {
     prepare(service, cli.device.as_deref())?;
@@ -1435,15 +1463,38 @@ fn classic_keyscan(
     }
 
     if let Some(path) = save {
-        let mut store = KeyStore::load_or_default(path)?;
-        store.merge(&result.store)?;
-        store.record_verified(&result.card, &result.verified_keys)?;
-        store.save(path)?;
-        println!(
-            "saved {} verified key(s) to {}",
-            result.verified_keys.len(),
-            path.display()
-        );
+        let is_dic = path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("dic"));
+        if is_dic {
+            if result.verified_keys.is_empty() {
+                println!("no verified keys to save");
+            } else {
+                let key_file = KeyFile::from_authenticated(
+                    path.to_owned(),
+                    name.unwrap_or_default(),
+                    Some(result.card.clone()),
+                    &result.verified_keys,
+                );
+                key_file.save()?;
+                println!(
+                    "saved {} verified key(s) to {}",
+                    key_file.keys.len(),
+                    path.display()
+                );
+            }
+        } else {
+            let mut store = KeyStore::load_or_default(path)?;
+            store.merge(&result.store)?;
+            store.record_verified(&result.card, &result.verified_keys)?;
+            store.save(path)?;
+            println!(
+                "saved {} verified key(s) to {}",
+                result.verified_keys.len(),
+                path.display()
+            );
+        }
     } else {
         let mut store = keys;
         if let Err(error) = store.record_verified(&result.card, &result.verified_keys) {
@@ -1456,9 +1507,7 @@ fn classic_keyscan(
                     path.display()
                 ),
                 Ok(None) => {
-                    println!(
-                        "no key store path; pass --save or --key-store to keep discovered keys"
-                    );
+                    println!("no key store path; pass --save <card>.dic to keep discovered keys");
                 }
                 Err(error) => eprintln!("warning: verified keys were not saved: {error}"),
             }

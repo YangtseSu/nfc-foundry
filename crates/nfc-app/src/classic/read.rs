@@ -5,18 +5,14 @@ use nfc_core::{BLOCK_SIZE, CancelToken, CardInfo, CardType, Key, KeyType, NfcErr
 
 use crate::operation::Operation;
 
-use super::keys::{AuthenticatedKey, KeySource, KeyStore, common_keys};
-
-/// Common dictionary keys a read tries before it gives up on a sector. The
-/// full dictionary belongs to an explicit key scan; brute-forcing it on every
-/// sector makes a read take minutes and can outlast a phone emulation.
-const READ_COMMON_KEY_LIMIT: usize = 4;
+use super::keys::{AuthenticatedKey, KeySource, KeyStore, default_keys};
 
 /// Options for a full-card read.
 pub struct ClassicRead<'a> {
     pub keys: &'a KeyStore,
-    /// Try the first few common dictionary keys when a sector has no stored
-    /// key. The full dictionary is reserved for an explicit key scan.
+    /// Try the built-in default key group (factory, MAD Key A, NFC Forum Key A)
+    /// when a sector has no stored key. The full dictionary is reserved for an
+    /// explicit key scan.
     pub include_common_keys: bool,
     pub cancel: CancelToken,
     /// Return a UID-only result instead of an error when the card exposes no
@@ -89,8 +85,8 @@ pub fn layout_for_card(card: &CardInfo) -> Result<Layout> {
     }
 }
 
-/// Candidate keys for one sector, including common factory keys when enabled.
-/// Verified keys for this card are tried first.
+/// Candidate keys for one sector, including the built-in default key group
+/// when enabled. Verified keys for this card are tried first.
 pub fn candidate_keys(
     keys: &KeyStore,
     card: &CardInfo,
@@ -99,7 +95,7 @@ pub fn candidate_keys(
 ) -> Vec<(KeyType, Key, KeySource)> {
     let mut candidates = keys.candidates_for_card(card, sector);
     if include_common_keys {
-        for key in common_keys() {
+        for key in default_keys() {
             for key_type in [KeyType::A, KeyType::B] {
                 let candidate = (key_type, key, KeySource::Common);
                 if !candidates
@@ -118,9 +114,9 @@ pub fn candidate_keys(
 /// Authentication failures are recorded per block and do not stop the read.
 ///
 /// A sector is tried with the key that authenticated the previous sector, then
-/// with the card's stored keys, then with at most [`READ_COMMON_KEY_LIMIT`]
-/// common dictionary keys. The full common dictionary belongs to an explicit
-/// key scan; trying it on every sector makes a read take minutes.
+/// with the card's stored keys, then with the built-in default key group. The
+/// full common dictionary belongs to an explicit key scan; trying it on every
+/// sector makes a read take minutes.
 ///
 /// When `allow_identity_only` is set, a card that does not answer MIFARE
 /// commands at all produces a result carrying only the selection identity.
@@ -167,7 +163,7 @@ pub fn read_dump(
             }
         }
         if include_common_keys {
-            for key in common_keys().into_iter().take(READ_COMMON_KEY_LIMIT) {
+            for key in default_keys() {
                 for key_type in [KeyType::A, KeyType::B] {
                     if !candidates.iter().any(|(candidate_type, candidate_key, _)| {
                         *candidate_type == key_type && *candidate_key == key

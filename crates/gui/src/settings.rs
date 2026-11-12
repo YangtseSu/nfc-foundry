@@ -29,6 +29,11 @@ pub struct UiPreferences {
     pub hardnested_tables: Option<PathBuf>,
     /// Whether card operations include the built-in common keys.
     pub use_common_keys: bool,
+    /// Hex keys checked in the key-scan selector. `None` selects the three
+    /// built-in default keys on first run; `Some([])` means the user cleared
+    /// every key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keyscan_keys: Option<Vec<String>>,
     /// Default Classic dump format name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_dump_format: Option<String>,
@@ -44,6 +49,7 @@ impl Default for UiPreferences {
             backup_dir: None,
             hardnested_tables: None,
             use_common_keys: true,
+            keyscan_keys: None,
             default_dump_format: None,
             language: None,
         }
@@ -268,6 +274,7 @@ mod tests {
             backup_dir: Some(directory.path().to_path_buf()),
             hardnested_tables: None,
             use_common_keys: false,
+            keyscan_keys: Some(vec!["D3F7D3F7D3F7".to_owned()]),
             default_dump_format: None,
             language: None,
         };

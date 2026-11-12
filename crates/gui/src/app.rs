@@ -16,9 +16,10 @@ use nfc_app::classic::{
     AuthenticatedKey, BackupStore, ClassicBlockReadResult, ClassicKeyscan, ClassicKeyscanResult,
     ClassicNdefFormat, ClassicNdefFormatResult, ClassicNdefWrite, ClassicNdefWriteResult,
     ClassicRestoreResult, ClassicUidExecution, ClassicUidPlan, ClassicUidPreflight,
-    ClassicWriteExecution, ClassicWritePlan, ClassicWritePreflight, KeyEntry, KeyKind, KeySource,
-    KeyStore, KeyTypes, KeyscanProgress, KeyscanSink, RestoreSelection, RestoreUidState,
-    WorkbenchSnapshot, common_keys, format_uid, parse_block_list, parse_uid,
+    ClassicWriteExecution, ClassicWritePlan, ClassicWritePreflight, KeyEntry, KeyFile, KeyKind,
+    KeySource, KeyStore, KeyTypes, KeyscanProgress, KeyscanSink, RestoreSelection, RestoreUidState,
+    WorkbenchSnapshot, common_keys, common_only_keys, default_extended_keys, default_keys,
+    ev1_signature_keys, format_uid, parse_block_list, parse_uid,
 };
 use nfc_app::desfire::DesfireReadRequest;
 use nfc_app::type2::{
@@ -234,7 +235,7 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
 
     let details_view = build_details_view();
     let keys_view = build_keys_view();
-    let keyscan_view = build_keyscan_view();
+    let keyscan_view = build_keyscan_view(&preferences);
     let recovery_view = build_recovery_view(&preferences);
     let diff_view = build_diff_view();
     let restore_view = build_restore_view();
@@ -673,10 +674,14 @@ struct ActivityRow {
 
 struct KeyscanView {
     root: gtk::Box,
-    common: gtk::CheckButton,
     key_types: gtk::DropDown,
     dictionary: gtk::Entry,
     choose_dictionary: gtk::Button,
+    select: gtk::Button,
+    use_defaults: gtk::Button,
+    selection_label: gtk::Label,
+    selected: RefCell<Vec<Key>>,
+    dictionary_keys: RefCell<Vec<Key>>,
     start: gtk::Button,
     cancel: gtk::Button,
     progress: gtk::Label,
@@ -2148,9 +2153,9 @@ fn build_keys_view() -> KeysView {
     title.set_xalign(0.0);
     title.add_css_class("title-2");
     let note = gtk::Label::new(Some(
-        "The JSON store keeps sector, A/B, and provenance. Built-in common keys are candidates \
-         and are not stored; Save and Export apply to stored keys only. Proxmark3 .dic export is \
-         lossy: unique uppercase keys in candidate order.",
+        "Per-card Proxmark3 .dic files are the primary key format. This JSON store is legacy: it \
+         keeps sector, A/B, and provenance for imported keys. Built-in keys are candidates and are \
+         not stored.",
     ));
     note.set_xalign(0.0);
     note.set_wrap(true);
@@ -2459,22 +2464,39 @@ fn build_restore_view() -> RestoreView {
     }
 }
 
-fn build_keyscan_view() -> KeyscanView {
+fn build_keyscan_view(preferences: &UiPreferences) -> KeyscanView {
     let root = page_box();
     let title = gtk::Label::new(Some("Key scan"));
     title.set_xalign(0.0);
     title.add_css_class("title-2");
     let note = gtk::Label::new(Some(
-        "Authenticate candidate keys per sector and verify a hit by reading the sector trailer. \
-         The scan never writes the card. Discovered keys are saved only when you choose to merge them.",
+        "Authenticate the selected keys per sector and verify a hit by reading the sector trailer. \
+         The scan never writes the card. First run checks the three standard keys; the selection \
+         is remembered. Discovered keys are saved as a per-card Proxmark3 .dic file.",
     ));
     note.set_xalign(0.0);
     note.set_wrap(true);
     note.add_css_class("caption");
     note.add_css_class("dim-label");
 
-    let common = gtk::CheckButton::with_label("Include common keys");
-    common.set_active(true);
+    let selected = match &preferences.keyscan_keys {
+        Some(values) => values
+            .iter()
+            .filter_map(|hex| Key::from_hex(hex).ok())
+            .collect::<Vec<_>>(),
+        None => default_keys(),
+    };
+    let selection_label = gtk::Label::new(None);
+    selection_label.set_xalign(0.0);
+    selection_label.set_localized(&format!("{} key(s) selected", selected.len()));
+    selection_label.add_css_class("caption");
+    let select = gtk::Button::with_label("Select keys…");
+    let use_defaults = gtk::Button::with_label("Use defaults");
+    let selection_row = gtk::Box::new(Orientation::Horizontal, 6);
+    selection_row.append(&selection_label);
+    selection_row.append(&select);
+    selection_row.append(&use_defaults);
+
     let key_types = gtk::DropDown::from_strings(&["A and B", "A only", "B only"]);
     let dictionary = gtk::Entry::new();
     dictionary.set_placeholder_text(Some("Optional Proxmark3 .dic dictionary"));
@@ -2484,7 +2506,7 @@ fn build_keyscan_view() -> KeyscanView {
     dictionary_row.append(&dictionary);
     dictionary_row.append(&choose_dictionary);
     let options = gtk::Box::new(Orientation::Horizontal, 8);
-    options.append(&common);
+    options.append(&selection_row);
     options.append(&key_types);
 
     let start = gtk::Button::with_label("Start scan");
@@ -2559,10 +2581,14 @@ fn build_keyscan_view() -> KeyscanView {
 
     KeyscanView {
         root,
-        common,
         key_types,
         dictionary,
         choose_dictionary,
+        select,
+        use_defaults,
+        selection_label,
+        selected: RefCell::new(selected),
+        dictionary_keys: RefCell::new(Vec::new()),
         start,
         cancel,
         progress,
@@ -2928,7 +2954,7 @@ fn build_settings_view(preferences: &UiPreferences) -> SettingsView {
     root.append(&setting_row("Key store", &key_store_row));
     root.append(&setting_row("Backup directory", &backup_row));
     root.append(&setting_row("Hardnested tables", &tables_row));
-    root.append(&setting_row("Use common keys", &common));
+    root.append(&setting_row("Use default keys", &common));
     root.append(&setting_row("Default dump format", &dump_format));
     root.append(&setting_row("Language", &language));
     root.append(&save);
@@ -3309,6 +3335,16 @@ fn connect_signals(ui: &Rc<Ui>) {
     ui.keyscan_view
         .cancel
         .connect_clicked(move |_| cancel_keyscan(&ui2));
+    let ui2 = ui.clone();
+    ui.keyscan_view
+        .select
+        .connect_clicked(move |_| show_keyscan_selection(&ui2));
+    let ui2 = ui.clone();
+    ui.keyscan_view.use_defaults.connect_clicked(move |_| {
+        *ui2.keyscan_view.selected.borrow_mut() = default_keys();
+        update_keyscan_selection_label(&ui2);
+        save_keyscan_selection(&ui2);
+    });
     let ui2 = ui.clone();
     ui.keyscan_view
         .choose_dictionary
@@ -7031,6 +7067,7 @@ fn choose_ndef_file(ui: &Rc<Ui>) {
     let dialog = gtk::FileDialog::builder()
         .title(i18n::translate_lines("Load raw NDEF message"))
         .build();
+    set_dialog_folder(&dialog, DataFolder::Ndef);
     let ui2 = ui.clone();
     dialog.open(Some(&ui.window), None::<&gio::Cancellable>, move |result| {
         let file = match result {
@@ -7091,6 +7128,7 @@ fn export_ndef_message(ui: &Rc<Ui>) {
         .title(i18n::translate_lines("Export NDEF message"))
         .initial_name("message.ndef")
         .build();
+    set_dialog_folder(&dialog, DataFolder::Ndef);
     let ui2 = ui.clone();
     dialog.save(Some(&ui.window), None::<&gio::Cancellable>, move |result| {
         let file = match result {
@@ -7934,6 +7972,7 @@ fn save_type2_dump(ui: &Rc<Ui>) {
         .title(i18n::translate_lines("Save Type 2 project image"))
         .initial_name("tag.nfc-foundry.json")
         .build();
+    set_dialog_folder(&dialog, DataFolder::Dumps);
     let ui2 = ui.clone();
     dialog.save(Some(&ui.window), None::<&gio::Cancellable>, move |result| {
         let file = match result {
@@ -7985,6 +8024,7 @@ fn choose_type2_restore(ui: &Rc<Ui>) {
     let dialog = gtk::FileDialog::builder()
         .title(i18n::translate_lines("Choose Type 2 project image"))
         .build();
+    set_dialog_folder(&dialog, DataFolder::Dumps);
     let ui2 = ui.clone();
     dialog.open(Some(&ui.window), None::<&gio::Cancellable>, move |result| {
         let file = match result {
@@ -9397,6 +9437,7 @@ fn import_keys(ui: &Rc<Ui>) {
     let dialog = gtk::FileDialog::builder()
         .title(i18n::translate_lines("Import Classic keys"))
         .build();
+    set_dialog_folder(&dialog, DataFolder::Keys);
     let ui2 = ui.clone();
     dialog.open(Some(&ui.window), None::<&gio::Cancellable>, move |result| {
         let file = match result {
@@ -9471,6 +9512,7 @@ fn export_keys(ui: &Rc<Ui>) {
         .title(i18n::translate_lines("Export Proxmark3 key dictionary"))
         .initial_name("classic-keys.dic")
         .build();
+    set_dialog_folder(&dialog, DataFolder::Keys);
     let ui2 = ui.clone();
     dialog.save(Some(&ui.window), None::<&gio::Cancellable>, move |result| {
         let file = match result {
@@ -9515,6 +9557,7 @@ fn choose_diff_dump(ui: &Rc<Ui>, side: DiffSide) {
     let dialog = gtk::FileDialog::builder()
         .title(i18n::translate_lines("Load Classic dump for diff"))
         .build();
+    set_dialog_folder(&dialog, DataFolder::Dumps);
     let ui2 = ui.clone();
     dialog.open(Some(&ui.window), None::<&gio::Cancellable>, move |result| {
         let file = match result {
@@ -9619,6 +9662,7 @@ fn load_restore_dump(ui: &Rc<Ui>) {
     let dialog = gtk::FileDialog::builder()
         .title(i18n::translate_lines("Load Classic dump to restore"))
         .build();
+    set_dialog_folder(&dialog, DataFolder::Dumps);
     let ui2 = ui.clone();
     dialog.open(Some(&ui.window), None::<&gio::Cancellable>, move |result| {
         let file = match result {
@@ -9877,6 +9921,31 @@ fn finish_restore(ui: &Rc<Ui>, path: PathBuf, result: NfcResult<ClassicRestoreRe
     }
 }
 
+#[derive(Clone, Copy)]
+enum DataFolder {
+    Dumps,
+    Keys,
+    Ndef,
+    Backups,
+}
+
+fn set_dialog_folder(dialog: &gtk::FileDialog, kind: DataFolder) {
+    let directory = match kind {
+        DataFolder::Dumps => nfc_app::paths::dumps_dir(),
+        DataFolder::Keys => nfc_app::paths::keys_dir(),
+        DataFolder::Ndef => nfc_app::paths::ndef_dir(),
+        DataFolder::Backups => nfc_app::paths::backups_dir(),
+    };
+    let Some(directory) = directory else {
+        return;
+    };
+    if let Err(error) = nfc_app::paths::ensure(&directory) {
+        eprintln!("nfc-foundry: {error}");
+        return;
+    }
+    dialog.set_initial_folder(Some(&gio::File::for_path(directory)));
+}
+
 fn save_dump(ui: &Rc<Ui>) {
     let dump = ui.dump.borrow().clone();
     let Some(dump) = dump else {
@@ -9960,6 +10029,7 @@ fn choose_save_path(ui: &Rc<Ui>, dump: &Dump, format: DumpFormat) {
         .title(i18n::translate_lines("Save Classic dump"))
         .initial_name(chosen.default_file_name())
         .build();
+    set_dialog_folder(&dialog, DataFolder::Dumps);
     let ui2 = ui.clone();
     let dump = dump.clone();
     dialog.save(Some(&ui.window), None::<&gio::Cancellable>, move |result| {
@@ -9987,8 +10057,49 @@ fn choose_save_path(ui: &Rc<Ui>, dump: &Dump, format: DumpFormat) {
                     if let Some(snapshot) = saved {
                         apply_workbench_snapshot(&ui2, &snapshot);
                     }
-                    let keys_omitted =
-                        chosen != DumpFormat::Project && !dump.metadata.keys.is_empty();
+                    let mut key_count = 0;
+                    if !dump.metadata.keys.is_empty() {
+                        let key_path = KeyFile::path_for_dump(&path);
+                        let loaded = if key_path.exists() {
+                            KeyFile::load(&key_path)
+                        } else {
+                            Ok(KeyFile::from_keys(
+                                key_path.clone(),
+                                String::new(),
+                                dump.card.clone(),
+                                [],
+                            ))
+                        };
+                        match loaded {
+                            Ok(mut key_file) => {
+                                key_file.card = dump.card.clone().or_else(|| key_file.card.clone());
+                                key_file
+                                    .merge_keys(dump.metadata.keys.iter().map(|entry| entry.key));
+                                match key_file.save() {
+                                    Ok(()) => {
+                                        key_count = key_file.keys.len();
+                                        append_log(
+                                            &ui2,
+                                            &format!(
+                                                "save · {} · {key_count} key(s)",
+                                                key_file.path.display()
+                                            ),
+                                        );
+                                    }
+                                    Err(error) => append_log(
+                                        &ui2,
+                                        &format!("save · key file failed · {error}"),
+                                    ),
+                                }
+                            }
+                            Err(error) => {
+                                append_log(&ui2, &format!("save · key file not merged · {error}"))
+                            }
+                        }
+                    }
+                    let keys_omitted = chosen != DumpFormat::Project
+                        && !dump.metadata.keys.is_empty()
+                        && key_count == 0;
                     append_log(
                         &ui2,
                         &format!("save · {} · {} format", path.display(), chosen.name()),
@@ -10017,6 +10128,7 @@ fn load_dump(ui: &Rc<Ui>) {
     let dialog = gtk::FileDialog::builder()
         .title(i18n::translate_lines("Load dump"))
         .build();
+    set_dialog_folder(&dialog, DataFolder::Dumps);
     let ui2 = ui.clone();
     dialog.open(Some(&ui.window), None::<&gio::Cancellable>, move |result| {
         let file = match result {
@@ -10087,6 +10199,24 @@ fn load_dump_file(ui: &Rc<Ui>, path: &Path) -> Result<(), String> {
     update_restore_sensitivity(ui);
     render_type2(ui);
     record_dump_metadata_keys(ui, &loaded.dump);
+    match KeyFile::load_for_dump(path) {
+        Ok(Some(key_file)) => {
+            let mut store = ui.keys.borrow_mut();
+            match key_file.merge_into(&mut store) {
+                Ok(added) => append_log(
+                    ui,
+                    &format!(
+                        "load · {} · {added} key(s) from {}",
+                        path.display(),
+                        key_file.path.display()
+                    ),
+                ),
+                Err(error) => append_log(ui, &format!("load · key file failed · {error}")),
+            }
+        }
+        Ok(None) => {}
+        Err(error) => append_log(ui, &format!("load · key file ignored · {error}")),
+    }
     ui.status.set_localized(&format!(
         "Loaded {} · {}",
         path.display(),
@@ -10148,7 +10278,8 @@ fn update_keyscan_sensitivity(ui: &Ui) {
     let view = &ui.keyscan_view;
     view.start.set_sensitive(!busy);
     view.cancel.set_sensitive(running);
-    view.common.set_sensitive(!busy && !running);
+    view.select.set_sensitive(!busy && !running);
+    view.use_defaults.set_sensitive(!busy && !running);
     view.key_types.set_sensitive(!busy && !running);
     view.dictionary.set_sensitive(!busy && !running);
     view.choose_dictionary.set_sensitive(!busy && !running);
@@ -10156,10 +10287,148 @@ fn update_keyscan_sensitivity(ui: &Ui) {
     view.export.set_sensitive(!busy && has_result);
 }
 
+fn update_keyscan_selection_label(ui: &Ui) {
+    let count = ui.keyscan_view.selected.borrow().len();
+    ui.keyscan_view
+        .selection_label
+        .set_localized(&format!("{count} key(s) selected"));
+}
+
+fn save_keyscan_selection(ui: &Ui) {
+    let keys = ui.keyscan_view.selected.borrow().clone();
+    ui.preferences.borrow_mut().keyscan_keys = Some(keys.iter().map(|key| key.to_hex()).collect());
+    if let Some(path) = ui.preferences_path.as_ref()
+        && let Err(error) = ui.preferences.borrow().save(path)
+    {
+        append_log(ui, &format!("keyscan · selection not saved · {error}"));
+    }
+}
+
+fn show_keyscan_selection(ui: &Rc<Ui>) {
+    let window = gtk::Window::builder()
+        .title(i18n::translate_lines("Select scan keys"))
+        .transient_for(&ui.window)
+        .modal(true)
+        .default_width(560)
+        .default_height(640)
+        .build();
+    let root = gtk::Box::new(Orientation::Vertical, 8);
+    root.set_margin_top(12);
+    root.set_margin_bottom(12);
+    root.set_margin_start(12);
+    root.set_margin_end(12);
+    let note = gtk::Label::new(Some(&i18n::translate_lines(
+        "Checked keys are tried as Key A and Key B. The selection is remembered for the next scan.",
+    )));
+    note.set_xalign(0.0);
+    note.set_wrap(true);
+    note.add_css_class("caption");
+    note.add_css_class("dim-label");
+
+    let list = gtk::ListBox::new();
+    list.set_selection_mode(gtk::SelectionMode::None);
+    let checks: Rc<RefCell<Vec<(Key, gtk::CheckButton)>>> = Rc::new(RefCell::new(Vec::new()));
+    let selected = ui.keyscan_view.selected.borrow().clone();
+    let dictionary = ui.keyscan_view.dictionary_keys.borrow().clone();
+    let mut groups: Vec<(&str, Vec<Key>)> = vec![
+        ("Default", default_keys()),
+        ("Default extended", default_extended_keys()),
+        ("EV1 signature", ev1_signature_keys()),
+        ("Common", common_only_keys()),
+    ];
+    if !dictionary.is_empty() {
+        groups.push(("Dictionary", dictionary));
+    }
+    let known: Vec<Key> = groups
+        .iter()
+        .flat_map(|(_, keys)| keys.iter().copied())
+        .collect();
+    let custom: Vec<Key> = selected
+        .iter()
+        .copied()
+        .filter(|key| !known.contains(key))
+        .collect();
+    if !custom.is_empty() {
+        groups.push(("Custom", custom));
+    }
+    for (name, keys) in groups {
+        if keys.is_empty() {
+            continue;
+        }
+        let header = gtk::Label::new(Some(&i18n::translate_lines(name)));
+        header.set_xalign(0.0);
+        header.add_css_class("heading");
+        list.append(&header);
+        for key in keys {
+            let check = gtk::CheckButton::with_label(&key.to_hex());
+            check.set_active(selected.contains(&key));
+            list.append(&check);
+            checks.borrow_mut().push((key, check));
+        }
+    }
+    let scroll = gtk::ScrolledWindow::builder()
+        .child(&list)
+        .vexpand(true)
+        .build();
+    scroll.set_has_frame(true);
+
+    let use_defaults = gtk::Button::with_label(&i18n::translate_lines("Use defaults"));
+    let select_all = gtk::Button::with_label(&i18n::translate_lines("Select all"));
+    let clear = gtk::Button::with_label(&i18n::translate_lines("Clear"));
+    let apply = gtk::Button::with_label(&i18n::translate_lines("Apply"));
+    apply.add_css_class("suggested-action");
+    let actions = gtk::Box::new(Orientation::Horizontal, 6);
+    actions.append(&use_defaults);
+    actions.append(&select_all);
+    actions.append(&clear);
+    actions.append(&apply);
+    root.append(&note);
+    root.append(&scroll);
+    root.append(&actions);
+    window.set_child(Some(&root));
+
+    let checks2 = checks.clone();
+    use_defaults.connect_clicked(move |_| {
+        let defaults = default_keys();
+        for (key, check) in checks2.borrow().iter() {
+            check.set_active(defaults.contains(key));
+        }
+    });
+    let checks2 = checks.clone();
+    select_all.connect_clicked(move |_| {
+        for (_, check) in checks2.borrow().iter() {
+            check.set_active(true);
+        }
+    });
+    let checks2 = checks.clone();
+    clear.connect_clicked(move |_| {
+        for (_, check) in checks2.borrow().iter() {
+            check.set_active(false);
+        }
+    });
+    let window2 = window.clone();
+    let ui2 = ui.clone();
+    let checks2 = checks.clone();
+    apply.connect_clicked(move |_| {
+        let keys: Vec<Key> = checks2
+            .borrow()
+            .iter()
+            .filter(|(_, check)| check.is_active())
+            .map(|(key, _)| *key)
+            .collect();
+        *ui2.keyscan_view.selected.borrow_mut() = keys;
+        update_keyscan_selection_label(&ui2);
+        save_keyscan_selection(&ui2);
+        window2.close();
+    });
+    window.present();
+}
+
 fn choose_keyscan_dictionary(ui: &Rc<Ui>) {
     let dialog = gtk::FileDialog::builder()
         .title(i18n::translate_lines("Choose a Classic key dictionary"))
         .build();
+    set_dialog_folder(&dialog, DataFolder::Keys);
     let ui2 = ui.clone();
     dialog.open(Some(&ui.window), None::<&gio::Cancellable>, move |result| {
         let file = match result {
@@ -10178,6 +10447,30 @@ fn choose_keyscan_dictionary(ui: &Rc<Ui>) {
         ui2.keyscan_view
             .dictionary
             .set_text(&path.display().to_string());
+        match dictionary_candidates(&ui2) {
+            Ok(keys) => {
+                ui2.keyscan_view.dictionary_keys.replace(keys.clone());
+                {
+                    let mut selected = ui2.keyscan_view.selected.borrow_mut();
+                    for key in &keys {
+                        if !selected.contains(key) {
+                            selected.push(*key);
+                        }
+                    }
+                }
+                update_keyscan_selection_label(&ui2);
+                save_keyscan_selection(&ui2);
+                append_log(
+                    &ui2,
+                    &format!(
+                        "keyscan · dictionary {} · {} key(s)",
+                        path.display(),
+                        keys.len()
+                    ),
+                );
+            }
+            Err(error) => toast_error(&ui2, &error),
+        }
     });
 }
 
@@ -10216,14 +10509,11 @@ fn start_keyscan(ui: Rc<Ui>) {
     if ui.busy.get() {
         return;
     }
-    let candidates = match dictionary_candidates(&ui) {
-        Ok(candidates) => candidates,
-        Err(error) => {
-            toast_error(&ui, &error);
-            return;
-        }
-    };
-    let include_common_keys = ui.keyscan_view.common.is_active();
+    let candidates = ui.keyscan_view.selected.borrow().clone();
+    if candidates.is_empty() {
+        toast_error(&ui, "Select at least one key");
+        return;
+    }
     let key_types = key_types_from(&ui.keyscan_view);
     let token = CancelToken::new();
     let run = ui.keyscan_run.get().wrapping_add(1);
@@ -10252,7 +10542,7 @@ fn start_keyscan(ui: Rc<Ui>) {
         let result = match service.lock() {
             Ok(mut service) => service.classic_keyscan(
                 ClassicKeyscan::new(&keys, candidates)
-                    .include_common_keys(include_common_keys)
+                    .include_common_keys(false)
                     .key_types(key_types)
                     .cancel(token)
                     .progress(Some(sink)),
@@ -10376,45 +10666,21 @@ fn cancel_keyscan(ui: &Ui) {
 }
 
 fn save_keyscan_keys(ui: &Rc<Ui>) {
-    let Some(result) = ui.keyscan_result.borrow().clone() else {
-        toast_error(ui, "Run a key scan first");
-        return;
-    };
-    if ui.keys_path.borrow().is_none() {
-        toast_error(ui, "Set a key store path in Settings first");
-        return;
-    }
-    let merged = {
-        let mut store = ui.keys.borrow_mut();
-        store.merge(&result.store)
-    };
-    let added = match merged.and_then(|added| {
-        ui.keys
-            .borrow_mut()
-            .record_verified(&result.card, &result.verified_keys)?;
-        Ok(added)
-    }) {
-        Ok(added) => added,
-        Err(error) => {
-            toast_error(ui, &error.to_string());
-            return;
-        }
-    };
-    save_keys(ui, false);
-    if added == 0 {
-        append_log(ui, "keyscan · no new keys to save");
-        toast_info(ui, "Every discovered key is already stored");
-    } else {
-        append_log(ui, &format!("keyscan · merged {added} key(s)"));
-        toast_info(ui, &format!("Merged {added} discovered key(s)"));
-    }
+    export_keyscan_dic(ui);
 }
 
 fn export_keyscan_dic(ui: &Rc<Ui>) {
+    let initial = ui
+        .keyscan_result
+        .borrow()
+        .as_ref()
+        .map(|result| format!("{}.dic", result.card.uid_hex().replace(' ', "")))
+        .unwrap_or_else(|| "scanned-keys.dic".to_owned());
     let dialog = gtk::FileDialog::builder()
         .title(i18n::translate_lines("Export scanned keys"))
-        .initial_name("scanned-keys.dic")
+        .initial_name(&initial)
         .build();
+    set_dialog_folder(&dialog, DataFolder::Keys);
     let ui2 = ui.clone();
     dialog.save(Some(&ui.window), None::<&gio::Cancellable>, move |result| {
         let file = match result {
@@ -10440,13 +10706,22 @@ fn write_keyscan_dic(ui: &Rc<Ui>, path: &Path) -> std::result::Result<(), String
     let Some(result) = ui.keyscan_result.borrow().clone() else {
         return Err("Run a key scan first".to_owned());
     };
-    let text = result.store.export_dic();
-    let count = result.store.len();
-    std::fs::write(path, text.as_bytes())
-        .map_err(|error| format!("Could not write {}: {error}", path.display()))?;
+    let key_file = KeyFile::from_authenticated(
+        path.to_owned(),
+        path.file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("scanned-keys"),
+        Some(result.card.clone()),
+        &result.verified_keys,
+    );
+    if key_file.keys.is_empty() {
+        return Err("No verified keys to save".to_owned());
+    }
+    key_file.save().map_err(|error| error.to_string())?;
+    let count = key_file.keys.len();
     append_log(
         ui,
-        &format!("keyscan · exported {count} key(s) to {}", path.display()),
+        &format!("keyscan · saved {count} key(s) to {}", path.display()),
     );
     toast_info(ui, &format!("Exported {count} key(s)"));
     Ok(())
@@ -11111,6 +11386,7 @@ fn choose_settings_file(ui: &Rc<Ui>) {
         .title(i18n::translate_lines("Choose the Classic key store"))
         .initial_name("classic-keys.json")
         .build();
+    set_dialog_folder(&dialog, DataFolder::Keys);
     let ui2 = ui.clone();
     dialog.save(Some(&ui.window), None::<&gio::Cancellable>, move |result| {
         let file = match result {
@@ -11139,6 +11415,9 @@ fn choose_settings_folder(ui: &Rc<Ui>, kind: SettingsPath) {
             SettingsPath::Tables => "Choose the hardnested table directory",
         }))
         .build();
+    if matches!(kind, SettingsPath::Backup) {
+        set_dialog_folder(&dialog, DataFolder::Backups);
+    }
     let ui2 = ui.clone();
     dialog.select_folder(Some(&ui.window), None::<&gio::Cancellable>, move |result| {
         let file = match result {
@@ -11267,6 +11546,7 @@ fn save_settings(ui: &Rc<Ui>) {
         backup_dir: entry_path(&view.backup_dir),
         hardnested_tables: entry_path(&view.tables),
         use_common_keys: view.common.is_active(),
+        keyscan_keys: ui.preferences.borrow().keyscan_keys.clone(),
         default_dump_format: None,
         language: None,
     };
@@ -11307,9 +11587,15 @@ fn save_settings(ui: &Rc<Ui>) {
         .clone()
         .map(BackupStore::new)
         .unwrap_or_default();
-    ui.keyscan_view
-        .common
-        .set_active(preferences.use_common_keys);
+    let keyscan_selected = match &preferences.keyscan_keys {
+        Some(values) => values
+            .iter()
+            .filter_map(|hex| Key::from_hex(hex).ok())
+            .collect(),
+        None => default_keys(),
+    };
+    *ui.keyscan_view.selected.borrow_mut() = keyscan_selected;
+    update_keyscan_selection_label(ui);
     ui.recovery_view
         .common
         .set_active(preferences.use_common_keys);
@@ -11861,7 +12147,8 @@ mod tests {
         ui.keyscan_view.rows.remove_all();
         ui.keyscan_view.table_stack.set_visible_child_name("empty");
         ui.keyscan_view.dictionary.set_text("");
-        ui.keyscan_view.common.set_active(true);
+        *ui.keyscan_view.selected.borrow_mut() = default_keys();
+        update_keyscan_selection_label(ui);
         ui.keyscan_view.key_types.set_selected(0);
         ui.keyscan_view.progress.set_localized("No scan running.");
         ui.keyscan_view
@@ -12983,7 +13270,8 @@ mod tests {
         ui.keyscan_view
             .dictionary
             .set_text(&dictionary.display().to_string());
-        ui.keyscan_view.common.set_active(false);
+        *ui.keyscan_view.selected.borrow_mut() = vec![Key::from_hex("A0A1A2A3A4A5").expect("key")];
+        update_keyscan_selection_label(ui);
         ui.keyscan_view.key_types.set_selected(0);
         start_keyscan(ui.clone());
         pump_until(ui, "key scan", || !ui.busy.get());
@@ -12997,16 +13285,12 @@ mod tests {
             "activity leaked key material"
         );
 
-        save_keyscan_keys(ui);
-        let path = harness.keys_dir.path().join("classic-keys.json");
-        let text = std::fs::read_to_string(&path).expect("key store");
-        assert!(text.contains("A0A1A2A3A4A5"));
         let dic = harness.keys_dir.path().join("scan-export.dic");
         write_keyscan_dic(ui, &dic).expect("export dic");
-        assert_eq!(
-            std::fs::read_to_string(&dic).expect("dic text"),
-            "A0A1A2A3A4A5\n"
-        );
+        let text = std::fs::read_to_string(&dic).expect("dic text");
+        assert!(text.starts_with("# NFC Foundry"), "{text}");
+        assert!(text.contains("# card: 04A2248A/0004/08"), "{text}");
+        assert!(text.contains("A0A1A2A3A4A5\n"), "{text}");
 
         finish_keyscan(ui, Err(NfcError::Cancelled));
         assert!(ui.keyscan_view.summary.label().contains("Cancelled"));
@@ -13243,7 +13527,6 @@ mod tests {
         assert_eq!(ui.keys_path.borrow().as_deref(), Some(new_store.as_path()));
         assert_eq!(ui.backup.borrow().directory(), new_backup.as_path());
         assert!(!ui.preferences.borrow().use_common_keys);
-        assert!(!ui.keyscan_view.common.is_active());
         assert!(!ui.recovery_view.common.is_active());
 
         ui.settings_view

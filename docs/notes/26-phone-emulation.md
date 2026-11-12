@@ -56,7 +56,8 @@ The read path now uses, per sector:
 
 1. the key that authenticated the previous sector;
 2. the card's stored keys for that sector;
-3. at most four common dictionary keys as both key types.
+3. the three built-in default keys (factory, MAD Key A, NFC Forum Key A) as
+   both key types.
 
 A card with one key authenticates once per sector (16 authentications plus 64
 block reads), which completes in a few seconds. The full dictionary remains
@@ -80,11 +81,11 @@ reported as identity-only instead of a generic "unsupported" error.
 
 ## Keys
 
-A full emulation still requires the correct sector keys. Common factory keys
-are tried first; if the emulated card kept the original card's keys, add them
-to the key store (or pass `--key` to `nfctl`) before reading. A key scan also
-works because authentication now runs without a reselect before every
-candidate.
+A full emulation still requires the correct sector keys. The built-in default
+keys are tried first; if the emulated card kept the original card's keys, add
+them to its per-card `.dic` file (or pass `--key` to `nfctl`) before reading. A
+key scan also works because authentication now runs without a reselect before
+every candidate.
 
 ## Writing
 

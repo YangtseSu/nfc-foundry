@@ -1247,8 +1247,8 @@ keys! {
     // Keys.
     SectorKeysTitle => ("Sector keys", "扇区密钥"),
     KeysNote => (
-        "The JSON store keeps sector, A/B, and provenance. Built-in common keys are candidates and are not stored; Save and Export apply to stored keys only. Proxmark3 .dic export is lossy: unique uppercase keys in candidate order.",
-        "JSON 存储保留扇区、A/B 和来源。内置常用密钥仅作为候选项，不保存在库中；保存和导出仅作用于已保存密钥。Proxmark3 .dic 导出是有损的：按候选顺序输出唯一的大写密钥。"
+        "Per-card Proxmark3 .dic files are the primary key format. This JSON store is legacy: it keeps sector, A/B, and provenance for imported keys. Built-in keys are candidates and are not stored.",
+        "每张卡的 Proxmark3 .dic 文件是主要密钥格式。此 JSON 库为旧版兼容：保留导入密钥的扇区、A/B 和来源。内置密钥仅作为候选项，不保存在库中。"
     ),
     SectorColumn => ("Sector", "扇区"),
     KeySector => ("Sector {}", "扇区 {}"),
@@ -1429,6 +1429,25 @@ keys! {
     ExportScannedKeys => ("Export scanned keys", "导出扫描到的密钥"),
     ExportedKeys => ("Exported {} key(s)", "已导出 {} 个密钥"),
     ChooseClassicDictionary => ("Choose a Classic key dictionary", "选择 Classic 密钥字典"),
+    KeyscanSelectTitle => ("Select scan keys", "选择扫描密钥"),
+    KeyscanSelectionCount => ("{} key(s) selected", "已选择 {} 个密钥"),
+    KeyscanSelectAtLeastOne => ("Select at least one key", "至少选择一个密钥"),
+    KeyscanNoVerifiedKeys => ("No verified keys to save", "没有可保存的已验证密钥"),
+    KeyscanSelectKeys => ("Select keys…", "选择密钥…"),
+    KeyscanUseDefaults => ("Use defaults", "使用默认值"),
+    KeyscanSelectAll => ("Select all", "全选"),
+    KeyscanClear => ("Clear", "清除"),
+    KeyscanApply => ("Apply", "应用"),
+    KeyscanGroupDefault => ("Default", "默认"),
+    KeyscanGroupExtended => ("Default extended", "默认扩展"),
+    KeyscanGroupEv1 => ("EV1 signature", "EV1 签名"),
+    KeyscanGroupCommon => ("Common", "常用"),
+    KeyscanGroupDictionary => ("Dictionary", "字典"),
+    KeyscanGroupCustom => ("Custom", "自定义"),
+    KeyscanSelectionNote => (
+        "Checked keys are tried as Key A and Key B. The selection is remembered for the next scan.",
+        "勾选的密钥会分别尝试 Key A 和 Key B；选择会记住，用于下次扫描。"
+    ),
 
     // Recovery.
     RecoveryTitle => ("Recovery", "密钥恢复"),
@@ -1542,7 +1561,7 @@ keys! {
     KeyStoreField => ("Key store", "密钥库"),
     BackupDirectory => ("Backup directory", "备份目录"),
     HardnestedTables => ("Hardnested tables", "Hardnested 表"),
-    UseCommonKeys => ("Use common keys", "使用常用密钥"),
+    UseCommonKeys => ("Use default keys", "使用默认密钥"),
     DefaultDumpFormat => ("Default dump format", "默认转储格式"),
     DefaultKeyStore => ("Default key store", "默认密钥库"),
     DefaultBackupDirectory => ("Default backup directory", "默认备份目录"),

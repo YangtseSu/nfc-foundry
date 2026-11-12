@@ -83,6 +83,61 @@ pub fn common_keys() -> Vec<Key> {
         .collect()
 }
 
+/// Standard keys checked on the first key scan. This matches MCT's
+/// `std.keys`: factory default, MAD public Key A, and NFC Forum NDEF Key A.
+pub const DEFAULT_KEYS: [&str; 3] = ["FFFFFFFFFFFF", "A0A1A2A3A4A5", "D3F7D3F7D3F7"];
+
+/// Near-standard keys kept out of the first-run selection: the blank key and
+/// the de facto NFC Forum MAD Key B values. MCT keeps these in
+/// `extended-std.keys`.
+pub const DEFAULT_EXTENDED_KEYS: [&str; 4] = [
+    "000000000000",
+    "B0B1B2B3B4B5",
+    "89ECA97F8C2A",
+    "A5A4A3A2A1A0",
+];
+
+/// NXP MIFARE Classic EV1 originality-signature keys for hidden blocks 16/17.
+pub const EV1_SIGNATURE_KEYS: [&str; 4] = [
+    "5C8FF9990DA2",
+    "75CCB59C9BED",
+    "D01AFEEB890A",
+    "4B791BEA7BCC",
+];
+
+fn parse_keys(values: &[&str]) -> Vec<Key> {
+    values
+        .iter()
+        .filter_map(|hex| Key::from_hex(hex).ok())
+        .collect()
+}
+
+/// Standard keys checked by default on the first scan.
+pub fn default_keys() -> Vec<Key> {
+    parse_keys(&DEFAULT_KEYS)
+}
+
+/// Near-standard keys, unchecked by default.
+pub fn default_extended_keys() -> Vec<Key> {
+    parse_keys(&DEFAULT_EXTENDED_KEYS)
+}
+
+/// EV1 signature keys, used only for the hidden signature blocks.
+pub fn ev1_signature_keys() -> Vec<Key> {
+    parse_keys(&EV1_SIGNATURE_KEYS)
+}
+
+/// Built-in dictionary entries outside the curated default groups.
+pub fn common_only_keys() -> Vec<Key> {
+    let default = default_keys();
+    let extended = default_extended_keys();
+    let ev1 = ev1_signature_keys();
+    common_keys()
+        .into_iter()
+        .filter(|key| !default.contains(key) && !extended.contains(key) && !ev1.contains(key))
+        .collect()
+}
+
 /// Which authentication key type an entry may be used for.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum KeyKind {
@@ -375,9 +430,7 @@ impl KeyStore {
                 NfcError::InvalidArgument(format!("key store entry {index}: {error}"))
             })?;
             let source = KeySource::parse(&stored.source)?;
-            store
-                .entries
-                .push(KeyEntry::new(stored.sector, kind, key, source));
+            store.add(KeyEntry::new(stored.sector, kind, key, source))?;
         }
         for (index, stored) in document.verifications.into_iter().enumerate() {
             let card = stored.card.trim().to_owned();
@@ -452,7 +505,11 @@ impl KeyStore {
                 "sector {sector} is outside 0..={MAX_SECTOR}"
             )));
         }
-        if self.entries.contains(&entry) {
+        if self.entries.iter().any(|existing| {
+            existing.sector == entry.sector
+                && existing.kind == entry.kind
+                && existing.key == entry.key
+        }) {
             return Ok(false);
         }
         self.entries.push(entry);
@@ -865,6 +922,225 @@ impl KeyStore {
         self.entries.clear();
         self.verifications.clear();
     }
+}
+
+/// One per-card key file in Proxmark3 `.dic` format.
+///
+/// The text format is one uppercase 12-hex key per line. `#` comments carry
+/// the optional set name and the card identity, which PM3 ignores:
+///
+/// ```text
+/// # name: Home door
+/// # card: 04A2248A/0004/08
+/// FFFFFFFFFFFF
+/// A0A1A2A3A4A5
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeyFile {
+    pub path: PathBuf,
+    pub name: String,
+    pub card: Option<CardInfo>,
+    pub keys: Vec<Key>,
+}
+
+impl KeyFile {
+    pub fn load(path: &Path) -> Result<Self> {
+        let text = read_text(path)?;
+        Self::parse(path, &text)
+    }
+
+    pub fn parse(path: &Path, text: &str) -> Result<Self> {
+        let mut name = String::new();
+        let mut card = None;
+        let mut keys = Vec::new();
+        for (index, line) in text.lines().enumerate() {
+            let line_number = index + 1;
+            let line = line.trim();
+            if let Some(comment) = line.strip_prefix('#') {
+                let comment = comment.trim();
+                if let Some(value) = comment.strip_prefix("name:") {
+                    name = value.trim().to_owned();
+                } else if let Some(value) = comment.strip_prefix("card:") {
+                    card = parse_card_identity(value.trim());
+                }
+                continue;
+            }
+            let value = line.split('#').next().unwrap_or("").trim();
+            if value.is_empty() {
+                continue;
+            }
+            if value.split_whitespace().count() != 1 {
+                return Err(NfcError::InvalidArgument(format!(
+                    "{} line {line_number}: expected one 12-digit key",
+                    path.display()
+                )));
+            }
+            let key = Key::from_hex(value).map_err(|error| {
+                NfcError::InvalidArgument(format!("{} line {line_number}: {error}", path.display()))
+            })?;
+            if !keys.contains(&key) {
+                keys.push(key);
+            }
+        }
+        if name.is_empty() {
+            name = path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or("keys")
+                .to_owned();
+        }
+        Ok(Self {
+            path: path.to_owned(),
+            name,
+            card,
+            keys,
+        })
+    }
+
+    pub fn save(&self) -> Result<()> {
+        let mut text = String::from("# NFC Foundry MIFARE Classic key file\n");
+        if !self.name.is_empty() {
+            text.push_str(&format!("# name: {}\n", self.name));
+        }
+        if let Some(card) = &self.card {
+            text.push_str(&format!("# card: {}\n", card.identity_key()));
+        }
+        for key in &self.keys {
+            text.push_str(&key.to_hex());
+            text.push('\n');
+        }
+        write_atomic(&self.path, text.as_bytes())
+    }
+
+    /// `<dump>.dic` next to the dump file. Used as a fallback when no XDG data
+    /// directory is available.
+    pub fn sibling_path(dump: &Path) -> PathBuf {
+        dump.with_extension("dic")
+    }
+
+    /// Default key file for a dump: `keys/<dump stem>.dic` under the XDG data
+    /// directory, falling back to a sibling `.dic`.
+    pub fn path_for_dump(dump: &Path) -> PathBuf {
+        crate::paths::key_path_for_dump(dump).unwrap_or_else(|| Self::sibling_path(dump))
+    }
+
+    /// Loads the key file paired with a dump. The XDG keys directory wins;
+    /// a sibling `.dic` is accepted for older files.
+    pub fn load_for_dump(dump: &Path) -> Result<Option<Self>> {
+        let primary = Self::path_for_dump(dump);
+        if primary.exists() {
+            return Self::load(&primary).map(Some);
+        }
+        let fallback = Self::sibling_path(dump);
+        if fallback != primary && fallback.exists() {
+            return Self::load(&fallback).map(Some);
+        }
+        Ok(None)
+    }
+
+    /// Loads `<dump>.dic` when it exists.
+    pub fn load_sibling(dump: &Path) -> Result<Option<Self>> {
+        let path = Self::sibling_path(dump);
+        if !path.exists() {
+            return Ok(None);
+        }
+        Self::load(&path).map(Some)
+    }
+
+    pub fn from_keys(
+        path: PathBuf,
+        name: impl Into<String>,
+        card: Option<CardInfo>,
+        keys: impl IntoIterator<Item = Key>,
+    ) -> Self {
+        let mut unique = Vec::new();
+        for key in keys {
+            if !unique.contains(&key) {
+                unique.push(key);
+            }
+        }
+        let mut name = name.into();
+        if name.is_empty() {
+            name = path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or("keys")
+                .to_owned();
+        }
+        Self {
+            path,
+            name,
+            card,
+            keys: unique,
+        }
+    }
+
+    pub fn from_authenticated(
+        path: PathBuf,
+        name: impl Into<String>,
+        card: Option<CardInfo>,
+        keys: &[AuthenticatedKey],
+    ) -> Self {
+        Self::from_keys(path, name, card, keys.iter().map(|entry| entry.key))
+    }
+
+    pub fn from_dump_keys(
+        path: PathBuf,
+        name: impl Into<String>,
+        card: Option<CardInfo>,
+        keys: &[DumpKey],
+    ) -> Self {
+        Self::from_keys(path, name, card, keys.iter().map(|entry| entry.key))
+    }
+
+    /// Wildcard store used for reads and scans against this card.
+    pub fn to_store(&self) -> KeyStore {
+        let mut store = KeyStore::new();
+        for key in &self.keys {
+            let _ = store.add(KeyEntry::new(None, KeyKind::Any, *key, KeySource::KeyFile));
+        }
+        store
+    }
+
+    pub fn merge_into(&self, store: &mut KeyStore) -> Result<usize> {
+        store.merge(&self.to_store())
+    }
+
+    /// Appends keys that are not already present.
+    pub fn merge_keys(&mut self, keys: impl IntoIterator<Item = Key>) {
+        for key in keys {
+            if !self.keys.contains(&key) {
+                self.keys.push(key);
+            }
+        }
+    }
+}
+
+fn parse_card_identity(value: &str) -> Option<CardInfo> {
+    let mut fields = value.split('/');
+    let uid = decode_hex_bytes(fields.next()?)?;
+    let atqa = decode_hex_bytes(fields.next()?)?;
+    let sak = u8::from_str_radix(fields.next()?, 16).ok()?;
+    if fields.next().is_some() || atqa.len() != 2 {
+        return None;
+    }
+    let atqa = [atqa[0], atqa[1]];
+    Some(CardInfo::new(
+        uid,
+        atqa,
+        sak,
+        nfc_core::CardType::infer(atqa, sak),
+    ))
+}
+
+fn decode_hex_bytes(value: &str) -> Option<Vec<u8>> {
+    if !value.len().is_multiple_of(2) {
+        return None;
+    }
+    (0..value.len())
+        .step_by(2)
+        .map(|index| u8::from_str_radix(&value[index..index + 2], 16).ok())
+        .collect()
 }
 
 #[derive(Serialize, Deserialize)]
@@ -1360,5 +1636,77 @@ mod tests {
         assert_eq!(keys.len(), COMMON_KEYS.len());
         assert_eq!(keys[0].to_hex(), "FFFFFFFFFFFF");
         assert!(keys.iter().all(|key| key.as_bytes().len() == 6));
+    }
+
+    #[test]
+    fn built_in_groups_are_disjoint() {
+        let default = default_keys();
+        let extended = default_extended_keys();
+        let common = common_only_keys();
+        assert_eq!(default.len(), 3);
+        assert_eq!(extended.len(), 4);
+        assert!(default.iter().all(|key| !extended.contains(key)));
+        assert!(
+            common
+                .iter()
+                .all(|key| !default.contains(key) && !extended.contains(key))
+        );
+    }
+
+    #[test]
+    fn store_deduplicates_by_key_identity_not_source() {
+        let mut store = KeyStore::new();
+        let key = key(7);
+        assert!(
+            store
+                .add(KeyEntry::new(None, KeyKind::Any, key, KeySource::Manual))
+                .expect("add")
+        );
+        assert!(
+            !store
+                .add(KeyEntry::new(None, KeyKind::Any, key, KeySource::KeyScan))
+                .expect("duplicate")
+        );
+        assert_eq!(store.len(), 1);
+    }
+
+    #[test]
+    fn key_file_round_trips_pm3_text() {
+        let directory = tempfile::tempdir().expect("dir");
+        let path = directory.path().join("home.dic");
+        let file = KeyFile::from_keys(
+            path.clone(),
+            "Home door",
+            Some(card()),
+            [key(1), key(2), key(1)],
+        );
+        file.save().expect("save");
+        let text = std::fs::read_to_string(&path).expect("text");
+        assert!(text.starts_with("# NFC Foundry"));
+        assert!(text.contains("# name: Home door"));
+        assert!(text.contains("# card: 04A2248A/0004/08"));
+        let loaded = KeyFile::load(&path).expect("load");
+        assert_eq!(loaded.name, "Home door");
+        assert_eq!(loaded.card, Some(card()));
+        assert_eq!(loaded.keys, vec![key(1), key(2)]);
+        assert_eq!(loaded.to_store().len(), 2);
+    }
+
+    #[test]
+    fn key_file_accepts_mct_style_comments_and_deduplicates() {
+        let directory = tempfile::tempdir().expect("dir");
+        let path = directory.path().join("keys.dic");
+        std::fs::write(
+            &path,
+            "# Standard keys\nffffffffffff\nA0A1A2A3A4A5 # MAD\n\nFFFFFFFFFFFF\n",
+        )
+        .expect("write");
+        let file = KeyFile::load(&path).expect("load");
+        assert_eq!(file.name, "keys");
+        assert_eq!(file.card, None);
+        assert_eq!(
+            file.keys,
+            vec![key(0xFF), Key::from_hex("A0A1A2A3A4A5").expect("key")]
+        );
     }
 }
