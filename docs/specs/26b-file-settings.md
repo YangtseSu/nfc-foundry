@@ -22,7 +22,9 @@ The GUI must never label a file type it cannot decode.
 - `FileContents`: `Data { size }`, `Value { lower_limit, upper_limit, value,
   limited_credit, free_get_value }`, `Record { record_size, max_records,
   current_records }`, `TransactionMac { key_option, key_version,
-  counter_limit }`.
+  counter_limit }`. The value field here is the GetFileSettings value field,
+  not the current value; `GetValue` is the authoritative current value
+  (phase 26.3).
 - `FileSettings::{parse, raw, summary}`; `FileInfo::decoded`.
 - `nfc-app::desfire::inventory_text`, shared by `nfctl` and the GTK inventory.
   It prints the decoded summary and the raw settings for every file; a parse

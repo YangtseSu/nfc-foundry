@@ -213,6 +213,23 @@ NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
 cargo test -p nfc-desfire --features hardware --test hardware_legacy -- --ignored
 ```
 
+The phase 26.3 read path is covered by unit tests for the `GetValue` command
+shape and the `ReadRecords` payload, plus the service check that a record
+response must be exactly `count * record_size` bytes (short and long responses
+are rejected). The gated test in `nfctl/tests/hardware_desfire_files.rs`
+creates a reserved application with a value file, a linear record file, and a
+cyclic record file, reads them through `nfc-app`, rejects an over-request, and
+removes the application. It passed on PN532 UART on 2026-11-12; set
+`NFC_FOUNDRY_HARDWARE_KEEP_APP=1` to keep the fixture for manual CLI/GUI
+inspection:
+
+```sh
+NFC_FOUNDRY_HARDWARE=1 NFC_FOUNDRY_HARDWARE_WRITE=yes \
+NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
+cargo test -p nfctl --features hardware-write \
+  --test hardware_desfire_files -- --ignored
+```
+
 The phase 26.2 file-settings decoder is hardware-free. `nfc-desfire` covers
 one valid and one malformed vector for each of the six file types, additional
 access rights, truncation, trailing bytes, reserved communication mode 2,

@@ -655,9 +655,11 @@ keys! {
     DesfireKeyNumber => ("Key number", "密钥编号"),
     DesfireOffset => ("Offset", "偏移"),
     DesfireLength => ("Length (optional)", "长度（可选）"),
+    DesfireStartRecord => ("Start record (0 = newest)", "起始记录（0 = 最新）"),
+    DesfireRecordCount => ("Record count (optional)", "记录数（可选）"),
     DesfireHint => (
-        "Read the card, then enter an application ID and file ID.",
-        "读取卡片，然后输入应用 ID 和文件 ID。"
+        "Read the card, then enter an application ID and file ID. The file type selects data, value, or record reading.",
+        "读取卡片，然后输入应用 ID 和文件 ID。文件类型决定读取数据、值或记录。"
     ),
     DesfireNoInventory => (
         "Read the card to list DESFire applications.",
@@ -1343,6 +1345,7 @@ keys! {
         "16 或 32 位十六进制；留空表示自由访问"
     ),
     PlaceholderLegacyKey => ("16 or 32 hex digits", "16 或 32 位十六进制"),
+    UnsignedInteger => ("{} must be an unsigned integer", "{} 必须是无符号整数"),
     PlaceholderRestOfFile => ("rest of file", "文件剩余部分"),
 
     // Keys.

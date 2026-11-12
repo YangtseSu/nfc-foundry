@@ -14,7 +14,7 @@ use nfc_app::classic::{
     common_keys, format_uid, parse_block_list, parse_uid,
 };
 use nfc_app::desfire::{
-    DesfireNdefDeleteRequest, DesfireNdefFormatRequest, NDEF_APPLICATION_AID,
+    DesfireNdefDeleteRequest, DesfireNdefFormatRequest, DesfireReadResult, NDEF_APPLICATION_AID,
     NDEF_CAPABILITY_CONTAINER, NDEF_CC_FILE, NDEF_CC_SIZE, NDEF_DATA_FILE, NDEF_DATA_SIZE,
     NDEF_DF_NAME,
 };
@@ -436,7 +436,7 @@ enum DesfireCommand {
         #[arg(long)]
         advanced: bool,
     },
-    /// Read one standard or backup file, optionally authenticating first.
+    /// Read one data, value, or record file, optionally authenticating first.
     Read {
         /// Application ID, e.g. A1B2C3.
         #[arg(long, value_name = "HEX")]
@@ -455,12 +455,18 @@ enum DesfireCommand {
         /// Application key number, 0..=14.
         #[arg(long, default_value_t = 0, value_name = "N")]
         key_number: u8,
-        /// Byte offset within the file.
+        /// Data-file byte offset.
         #[arg(long, default_value_t = 0, value_name = "N")]
         offset: u32,
-        /// Read length; defaults to the rest of the file.
+        /// Data-file read length; defaults to the rest of the file.
         #[arg(long, value_name = "N")]
         length: Option<u32>,
+        /// Record offset for a record file; 0 is the most recent record.
+        #[arg(long, default_value_t = 0, value_name = "N")]
+        start_record: u32,
+        /// Record count for a record file; defaults to the rest.
+        #[arg(long, value_name = "N")]
+        record_count: Option<u32>,
     },
 }
 
@@ -2015,25 +2021,64 @@ fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<
             key_number,
             offset,
             length,
+            start_record,
+            record_count,
         } => {
             let aid = parse_hex_array::<3>(&aid, "DESFire AID")?;
             let file_id = parse_hex_array::<1>(&file, "DESFire file ID")?[0];
             let mut request = nfc_app::desfire::DesfireReadRequest::new(aid, file_id)
                 .key_number(key_number)
                 .offset(offset)
-                .length(length);
+                .length(length)
+                .start_record(start_record)
+                .record_count(record_count);
             if let Some(key) = key {
                 request = request.key(parse_hex_bytes(&key, "DESFire key")?);
             }
             let read = service.desfire_read(CancelToken::new(), request)?;
-            println!(
-                "aid {} file {:02X} settings {}",
-                hex_bytes(&aid),
-                file_id,
-                hex_bytes(&read.settings)
-            );
-            println!("data: {}", hex_bytes(&read.data));
-            println!("ascii: {}", ascii(&read.data));
+            match read {
+                DesfireReadResult::Data(read) => {
+                    println!(
+                        "aid {} file {:02X} {}",
+                        hex_bytes(&aid),
+                        file_id,
+                        read.settings.summary()
+                    );
+                    println!("data: {}", hex_bytes(&read.data));
+                    println!("ascii: {}", ascii(&read.data));
+                }
+                DesfireReadResult::Value(read) => {
+                    println!(
+                        "aid {} file {:02X} {}",
+                        hex_bytes(&aid),
+                        file_id,
+                        read.settings.summary()
+                    );
+                    println!("value: {}", read.value);
+                }
+                DesfireReadResult::Records(read) => {
+                    println!(
+                        "aid {} file {:02X} {}",
+                        hex_bytes(&aid),
+                        file_id,
+                        read.settings.summary()
+                    );
+                    println!(
+                        "record offset: {} · records: {} × {} bytes",
+                        read.start_record,
+                        read.records.len(),
+                        read.record_size
+                    );
+                    for (index, record) in read.records.iter().enumerate() {
+                        println!(
+                            "record {}: {} | {}",
+                            read.first_record as usize + index,
+                            hex_bytes(record),
+                            ascii(record)
+                        );
+                    }
+                }
+            }
             Ok(())
         }
         DesfireCommand::Info => {

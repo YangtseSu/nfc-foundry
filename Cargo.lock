@@ -1030,6 +1030,7 @@ dependencies = [
  "nfc-classic",
  "nfc-classic-ndef",
  "nfc-core",
+ "nfc-desfire",
  "nfc-drivers",
  "nfc-ndef",
  "nfc-recover",

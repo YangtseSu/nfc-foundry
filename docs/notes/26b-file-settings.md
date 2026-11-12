@@ -23,7 +23,10 @@ The decode follows the documented `GetFileSettings` response:
 
 - Standard/Backup: 3-byte little-endian size.
 - Value: signed 32-bit little-endian lower limit, upper limit, value, then a
-  flags byte (bit 0 limited credit, bit 1 free GetValue).
+  flags byte (bit 0 limited credit, bit 1 free GetValue). The value field is
+  not the current value; phase 26.3 reads the current value with `GetValue`.
+  A card created with value 7 reported settings value 0 while `GetValue`
+  returned 7.
 - Linear/Cyclic Record: 3-byte little-endian record size, maximum count, and
   current count.
 - Transaction MAC: key option, key version, then an optional counter limit.
@@ -92,5 +95,6 @@ All passed on 2026-11-12.
 
 ## Next
 
-Phase 26.3 adds Value/GetValue and Linear/Cyclic Record reads. It must reuse
-`FileSettings` for the file-type check instead of parsing the raw size again.
+Phase 26.3 is complete: it reuses `FileSettings` for the read dispatch and adds
+Value/GetValue plus Linear/Cyclic Record reads. Phase 26.4 adds the remaining
+authentication key families.

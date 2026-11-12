@@ -1,9 +1,8 @@
 # Phase 26 plan: DESFire workbench
 
-Status: in progress. 26.1 and 26.2 are complete; 26.3–26.13 are pending,
-except that 26.12's ordinary NDEF provisioning and guarded delete landed in
-phase 25.5. Hardware: PN532 UART first; ACR122U records after a reader is
-available.
+Status: in progress. 26.1–26.3 are complete; 26.4–26.13 are pending, except
+that 26.12's ordinary NDEF provisioning and guarded delete landed in phase
+25.5. Hardware: PN532 UART first; ACR122U records after a reader is available.
 
 ## Goal
 
@@ -77,6 +76,9 @@ Acceptance:
 - Raw settings remain available for diagnostics.
 
 ### 26.3 Value and record read
+
+Status: complete 2026-11-12. See
+[26c-value-record-read.md](../notes/26c-value-record-read.md).
 
 Deliver:
 

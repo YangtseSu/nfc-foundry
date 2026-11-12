@@ -28,6 +28,7 @@ hardware = []
 hardware-write = ["hardware"]
 
 [dev-dependencies]
+nfc-desfire.workspace = true
 serde_json.workspace = true
 tempfile = "3"
 

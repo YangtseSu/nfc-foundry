@@ -95,7 +95,7 @@ original UID if verification fails.
 | Operation | CLI | GUI | Gate | Hardware |
 |---|---|---|---|---|
 | Inventory | `desfire info` | DESFire → Inventory | R | PN532 |
-| Read standard/backup file | `desfire read --aid --file [--key]` | DESFire → Read | R | PN532 |
+| Read file | `desfire read --aid --file [--key] [--offset] [--length] [--start-record] [--record-count]` | DESFire → Read with the same fields | R | PN532: data, value, linear and cyclic records |
 | Format NDEF | `desfire format-ndef --key --advanced [--dry-run]` | DESFire → NDEF → Advanced mode → Format NDEF application… → type `FORMAT` | A, C | PN532; ACR n/r |
 | Delete NDEF application | `desfire delete-ndef --key --advanced` | DESFire → NDEF → Advanced mode → Delete NDEF application… → type `DELETE` | A, C | PN532; ACR n/r |
 

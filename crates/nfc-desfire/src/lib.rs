@@ -25,8 +25,14 @@ const INS_GET_FILE_SETTINGS: u8 = 0xF5;
 const INS_CREATE_APPLICATION: u8 = 0xCA;
 const INS_DELETE_APPLICATION: u8 = 0xDA;
 const INS_CREATE_STD_DATA_FILE: u8 = 0xCD;
+const INS_CREATE_VALUE_FILE: u8 = 0xCC;
+const INS_CREATE_LINEAR_RECORD_FILE: u8 = 0xC1;
+const INS_CREATE_CYCLIC_RECORD_FILE: u8 = 0xC0;
 const INS_WRITE_DATA: u8 = 0x3D;
 const INS_READ_DATA: u8 = 0xBD;
+const INS_GET_VALUE: u8 = 0x6C;
+const INS_READ_RECORDS: u8 = 0xBB;
+const INS_WRITE_RECORD: u8 = 0x3B;
 const INS_COMMIT_TRANSACTION: u8 = 0xC7;
 const INS_ABORT_TRANSACTION: u8 = 0xA7;
 
@@ -496,7 +502,7 @@ impl FileSettings {
                 free_get_value,
             } => {
                 text.push_str(&format!(
-                    " · limits {lower_limit}..{upper_limit} · value {value} · limited credit {} · get value {}",
+                    " · limits {lower_limit}..{upper_limit} · settings value {value} · limited credit {} · get value {}",
                     if *limited_credit { "enabled" } else { "disabled" },
                     if *free_get_value { "free" } else { "restricted" }
                 ));
@@ -548,6 +554,31 @@ fn u24(bytes: &[u8]) -> u32 {
     u32::from(bytes[0]) | (u32::from(bytes[1]) << 8) | (u32::from(bytes[2]) << 16)
 }
 
+/// Parameters for creating a DESFire value file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ValueFileSpec {
+    pub file_id: u8,
+    pub iso_file_id: Option<u16>,
+    pub communication: u8,
+    pub access_rights: u16,
+    pub lower_limit: i32,
+    pub upper_limit: i32,
+    pub value: i32,
+    pub flags: u8,
+}
+
+/// Parameters for creating a linear or cyclic DESFire record file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RecordFileSpec {
+    pub file_id: u8,
+    pub iso_file_id: Option<u16>,
+    pub communication: u8,
+    pub access_rights: u16,
+    pub record_size: u32,
+    pub max_records: u32,
+    pub cyclic: bool,
+}
+
 /// DESFire command context over one reader.
 pub struct Desfire<'a> {
     reader: &'a mut dyn Reader,
@@ -597,6 +628,26 @@ impl<'a> Desfire<'a> {
         while sw == STATUS_ADDITIONAL {
             frames += 1;
             if frames > 4 {
+                return Err(NfcError::InvalidArgument(
+                    "DESFire response has too many additional frames".to_owned(),
+                ));
+            }
+            let (next, next_sw) = self.transceive(INS_ADDITIONAL_FRAME, &[])?;
+            body.extend_from_slice(&next);
+            sw = next_sw;
+        }
+        if sw != STATUS_OK {
+            return Err(status_error(ins, sw));
+        }
+        Ok(body)
+    }
+
+    fn chained_ok(&mut self, ins: u8, data: &[u8]) -> Result<Vec<u8>> {
+        let (mut body, mut sw) = self.transceive(ins, data)?;
+        let mut frames = 0;
+        while sw == STATUS_ADDITIONAL {
+            frames += 1;
+            if frames > 256 {
                 return Err(NfcError::InvalidArgument(
                     "DESFire response has too many additional frames".to_owned(),
                 ));
@@ -801,6 +852,94 @@ impl<'a> Desfire<'a> {
         Ok(())
     }
 
+    /// Create a value file in the selected application.
+    ///
+    /// Limits and the initial value use the signed 32-bit little-endian
+    /// representation from the DESFire file settings. `flags` uses bit 0 for
+    /// limited credit and bit 1 for free GetValue.
+    pub fn create_value_file(&mut self, spec: ValueFileSpec) -> Result<()> {
+        self.ensure_authenticated()?;
+        let payload = create_value_file_payload(&spec)?;
+        self.expect_ok(INS_CREATE_VALUE_FILE, &payload)?;
+        Ok(())
+    }
+
+    /// Create a linear or cyclic record file in the selected application.
+    pub fn create_record_file(&mut self, spec: RecordFileSpec) -> Result<()> {
+        self.ensure_authenticated()?;
+        let payload = create_record_file_payload(&spec)?;
+        let instruction = if spec.cyclic {
+            INS_CREATE_CYCLIC_RECORD_FILE
+        } else {
+            INS_CREATE_LINEAR_RECORD_FILE
+        };
+        self.expect_ok(instruction, &payload)?;
+        Ok(())
+    }
+
+    /// Read the signed current value of a value file.
+    pub fn get_value(&mut self, file_id: u8) -> Result<i32> {
+        let body = self.chained_ok(INS_GET_VALUE, &[file_id])?;
+        if body.len() != 4 {
+            return Err(NfcError::VerificationFailed(format!(
+                "GetValue returned {} bytes, expected 4",
+                body.len()
+            )));
+        }
+        Ok(i32::from_le_bytes(
+            body[..4].try_into().expect("four-byte value"),
+        ))
+    }
+
+    /// Read `count` records starting at `start_record`.
+    pub fn read_records(&mut self, file_id: u8, start_record: u32, count: u32) -> Result<Vec<u8>> {
+        if start_record > 0x00FF_FFFF || count == 0 || count > 0x00FF_FFFF {
+            return Err(NfcError::InvalidArgument(
+                "DESFire ReadRecords needs a 24-bit record number and a positive record count"
+                    .to_owned(),
+            ));
+        }
+        self.chained_ok(
+            INS_READ_RECORDS,
+            &[
+                file_id,
+                start_record as u8,
+                (start_record >> 8) as u8,
+                (start_record >> 16) as u8,
+                count as u8,
+                (count >> 8) as u8,
+                (count >> 16) as u8,
+            ],
+        )
+    }
+
+    /// Write one record slot at a byte offset inside that record.
+    ///
+    /// `offset` is an offset within the current record, not a record number.
+    /// One call writes the current slot and advances the record counter; use
+    /// offset 0 and the full record data to append a complete record. The card
+    /// rejects an offset or length beyond the record size.
+    pub fn write_record(&mut self, file_id: u8, offset: u32, data: &[u8]) -> Result<()> {
+        self.ensure_authenticated()?;
+        if offset > 0x00FF_FFFF {
+            return Err(NfcError::InvalidArgument(
+                "DESFire record offset must fit 3 bytes".to_owned(),
+            ));
+        }
+        if data.is_empty() || data.len() > 248 {
+            return Err(NfcError::InvalidArgument(
+                "a plain DESFire record write is 1..=248 bytes".to_owned(),
+            ));
+        }
+        let mut payload = Vec::with_capacity(7 + data.len());
+        payload.push(file_id);
+        payload.extend_from_slice(&offset.to_le_bytes()[..3]);
+        payload.extend_from_slice(&(data.len() as u32).to_le_bytes()[..3]);
+        payload.extend_from_slice(data);
+        self.expect_ok(INS_WRITE_RECORD, &payload)?;
+        Ok(())
+    }
+
     /// Write plain data to a standard or backup file.
     pub fn write_data(&mut self, file_id: u8, offset: u32, data: &[u8]) -> Result<()> {
         self.ensure_authenticated()?;
@@ -835,7 +974,7 @@ impl<'a> Desfire<'a> {
                 "DESFire read offset and length must fit 3 bytes".to_owned(),
             ));
         }
-        self.expect_ok(
+        self.chained_ok(
             INS_READ_DATA,
             &[
                 file_id,
@@ -942,21 +1081,15 @@ fn create_application_payload(
     Ok(payload)
 }
 
-fn create_standard_file_payload(
+fn create_file_prefix(
     file_id: u8,
     iso_file_id: Option<u16>,
     communication: u8,
     access_rights: u16,
-    size: u32,
 ) -> Result<Vec<u8>> {
     if communication > 3 {
         return Err(NfcError::InvalidArgument(
             "DESFire communication mode must be 0, 1 or 3".to_owned(),
-        ));
-    }
-    if size == 0 || size > 0x00FF_FFFF {
-        return Err(NfcError::InvalidArgument(
-            "DESFire file size must be 1..=0xFFFFFF bytes".to_owned(),
         ));
     }
     let mut payload = Vec::with_capacity(9);
@@ -971,7 +1104,74 @@ fn create_standard_file_payload(
     }
     payload.push(communication);
     payload.extend_from_slice(&access_rights.to_le_bytes());
+    Ok(payload)
+}
+
+fn create_standard_file_payload(
+    file_id: u8,
+    iso_file_id: Option<u16>,
+    communication: u8,
+    access_rights: u16,
+    size: u32,
+) -> Result<Vec<u8>> {
+    if size == 0 || size > 0x00FF_FFFF {
+        return Err(NfcError::InvalidArgument(
+            "DESFire file size must be 1..=0xFFFFFF bytes".to_owned(),
+        ));
+    }
+    let mut payload = create_file_prefix(file_id, iso_file_id, communication, access_rights)?;
     payload.extend_from_slice(&size.to_le_bytes()[..3]);
+    Ok(payload)
+}
+
+fn create_value_file_payload(spec: &ValueFileSpec) -> Result<Vec<u8>> {
+    if spec.lower_limit >= spec.upper_limit {
+        return Err(NfcError::InvalidArgument(
+            "DESFire value limits must be increasing".to_owned(),
+        ));
+    }
+    if spec.value < spec.lower_limit || spec.value > spec.upper_limit {
+        return Err(NfcError::InvalidArgument(
+            "the DESFire value must be inside its limits".to_owned(),
+        ));
+    }
+    if spec.flags & !0x03 != 0 {
+        return Err(NfcError::InvalidArgument(
+            "DESFire value flags use reserved bits".to_owned(),
+        ));
+    }
+    let mut payload = create_file_prefix(
+        spec.file_id,
+        spec.iso_file_id,
+        spec.communication,
+        spec.access_rights,
+    )?;
+    payload.extend_from_slice(&spec.lower_limit.to_le_bytes());
+    payload.extend_from_slice(&spec.upper_limit.to_le_bytes());
+    payload.extend_from_slice(&spec.value.to_le_bytes());
+    payload.push(spec.flags);
+    Ok(payload)
+}
+
+fn create_record_file_payload(spec: &RecordFileSpec) -> Result<Vec<u8>> {
+    if spec.record_size == 0 || spec.record_size > 0x00FF_FFFF {
+        return Err(NfcError::InvalidArgument(
+            "DESFire record size must be 1..=0xFFFFFF bytes".to_owned(),
+        ));
+    }
+    if spec.max_records == 0 || spec.max_records > 0x00FF_FFFF {
+        return Err(NfcError::InvalidArgument(
+            "DESFire maximum record count must be 1..=0xFFFFFF".to_owned(),
+        ));
+    }
+    let mut payload = create_file_prefix(
+        spec.file_id,
+        spec.iso_file_id,
+        spec.communication,
+        spec.access_rights,
+    )?;
+    payload.extend_from_slice(&spec.record_size.to_le_bytes()[..3]);
+    payload.extend_from_slice(&spec.max_records.to_le_bytes()[..3]);
     Ok(payload)
 }
 
@@ -1076,19 +1276,25 @@ fn status_error(ins: u8, sw: u16) -> NfcError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::VecDeque;
+
     use nfc_core::{CardInfo, Key, KeyType};
     use nfc_transport::{ApduResponse, DeviceInfo};
 
     struct ScriptedReader {
-        response: ApduResponse,
+        responses: VecDeque<ApduResponse>,
         commands: Vec<Vec<u8>>,
         device: DeviceInfo,
     }
 
     impl ScriptedReader {
         fn new(sw: [u8; 2]) -> Self {
+            Self::with_responses(vec![ApduResponse::new(Vec::new(), sw)])
+        }
+
+        fn with_responses(responses: Vec<ApduResponse>) -> Self {
             Self {
-                response: ApduResponse::new(Vec::new(), sw),
+                responses: VecDeque::from(responses),
                 commands: Vec::new(),
                 device: DeviceInfo::new("scripted", "scripted:0"),
             }
@@ -1140,7 +1346,9 @@ mod tests {
 
         fn transceive_apdu(&mut self, apdu: &[u8]) -> Result<ApduResponse> {
             self.commands.push(apdu.to_vec());
-            Ok(self.response.clone())
+            self.responses
+                .pop_front()
+                .ok_or_else(|| NfcError::Io("scripted reader ran out of responses".to_owned()))
         }
     }
 
@@ -1404,6 +1612,129 @@ mod tests {
         )
         .expect("NDEF file payload");
         assert_eq!(ndef, [0x02, 0x04, 0xE1, 0x00, 0xE0, 0xEE, 0xFF, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn value_and_record_create_payloads_match_the_settings_layout() {
+        let value = create_value_file_payload(&ValueFileSpec {
+            file_id: 1,
+            iso_file_id: None,
+            communication: 0,
+            access_rights: 0x0000,
+            lower_limit: -50,
+            upper_limit: 50,
+            value: 7,
+            flags: 0x03,
+        })
+        .expect("value payload");
+        assert_eq!(
+            value,
+            [
+                0x01, 0x00, 0x00, 0x00, 0xCE, 0xFF, 0xFF, 0xFF, 0x32, 0x00, 0x00, 0x00, 0x07, 0x00,
+                0x00, 0x00, 0x03
+            ]
+        );
+
+        let record = create_record_file_payload(&RecordFileSpec {
+            file_id: 2,
+            iso_file_id: None,
+            communication: 1,
+            access_rights: 0x0000,
+            record_size: 8,
+            max_records: 4,
+            cyclic: false,
+        })
+        .expect("record payload");
+        assert_eq!(
+            record,
+            [0x02, 0x01, 0x00, 0x00, 0x08, 0x00, 0x00, 0x04, 0x00, 0x00]
+        );
+
+        let mut spec = ValueFileSpec {
+            file_id: 1,
+            iso_file_id: None,
+            communication: 0,
+            access_rights: 0,
+            lower_limit: 50,
+            upper_limit: 50,
+            value: 50,
+            flags: 0,
+        };
+        assert!(create_value_file_payload(&spec).is_err());
+        spec.lower_limit = 0;
+        spec.value = 51;
+        assert!(create_value_file_payload(&spec).is_err());
+        spec.value = 0;
+        spec.flags = 0x04;
+        assert!(create_value_file_payload(&spec).is_err());
+
+        let mut record = RecordFileSpec {
+            file_id: 2,
+            iso_file_id: None,
+            communication: 0,
+            access_rights: 0,
+            record_size: 0,
+            max_records: 4,
+            cyclic: false,
+        };
+        assert!(create_record_file_payload(&record).is_err());
+        record.record_size = 8;
+        record.max_records = 0;
+        assert!(create_record_file_payload(&record).is_err());
+    }
+
+    #[test]
+    fn get_value_and_read_records_use_the_native_command_shape() {
+        let mut reader = ScriptedReader::new([0x91, 0x00]);
+        reader.responses = VecDeque::from([ApduResponse::new(
+            vec![0xCE, 0xFF, 0xFF, 0xFF],
+            [0x91, 0x00],
+        )]);
+        let mut desfire = Desfire::new(&mut reader);
+        assert_eq!(desfire.get_value(5).expect("value"), -50);
+        assert_eq!(
+            reader.commands,
+            [vec![0x90, 0x6C, 0x00, 0x00, 0x01, 0x05, 0x00]]
+        );
+
+        let mut reader = ScriptedReader::new([0x91, 0x00]);
+        reader.responses = VecDeque::from([ApduResponse::new(vec![0xAA; 16], [0x91, 0x00])]);
+        let mut desfire = Desfire::new(&mut reader);
+        assert_eq!(
+            desfire.read_records(2, 1, 2).expect("records"),
+            vec![0xAA; 16]
+        );
+        assert!(desfire.read_records(2, 0, 0).is_err());
+        drop(desfire);
+        assert_eq!(
+            reader.commands,
+            [vec![
+                0x90, 0xBB, 0x00, 0x00, 0x07, 0x02, 0x01, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00
+            ]]
+        );
+    }
+
+    #[test]
+    fn read_data_consumes_additional_frames() {
+        let mut reader = ScriptedReader::with_responses(vec![
+            ApduResponse::new(vec![0x01, 0x02], [0x91, 0xAF]),
+            ApduResponse::new(vec![0x03, 0x04], [0x91, 0x00]),
+        ]);
+        let mut desfire = Desfire::new(&mut reader);
+        assert_eq!(
+            desfire.read_data(2, 0, 4).expect("chained data"),
+            vec![0x01, 0x02, 0x03, 0x04]
+        );
+        drop(desfire);
+        assert_eq!(
+            reader.commands,
+            [
+                vec![
+                    0x90, 0xBD, 0x00, 0x00, 0x07, 0x02, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00
+                ],
+                vec![0x90, 0xAF, 0x00, 0x00, 0x00]
+            ]
+        );
     }
 
     #[test]

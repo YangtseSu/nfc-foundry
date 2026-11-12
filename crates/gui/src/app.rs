@@ -22,8 +22,8 @@ use nfc_app::classic::{
     ev1_signature_keys, format_uid, parse_block_list, parse_uid,
 };
 use nfc_app::desfire::{
-    DesfireNdefDeleteRequest, DesfireNdefFormatRequest, DesfireReadRequest, NDEF_APPLICATION_AID,
-    NDEF_CC_FILE, NDEF_CC_SIZE, NDEF_DATA_FILE, NDEF_DATA_SIZE,
+    DesfireNdefDeleteRequest, DesfireNdefFormatRequest, DesfireReadRequest, DesfireReadResult,
+    NDEF_APPLICATION_AID, NDEF_CC_FILE, NDEF_CC_SIZE, NDEF_DATA_FILE, NDEF_DATA_SIZE,
 };
 use nfc_app::type2::{
     Type2Auth, Type2Format, Type2Lock, Type2LockResult, Type2MutationResult, Type2NdefWrite,
@@ -1044,6 +1044,8 @@ struct DesfireView {
     key_number: gtk::Entry,
     offset: gtk::Entry,
     length: gtk::Entry,
+    start_record: gtk::Entry,
+    record_count: gtk::Entry,
     read: gtk::Button,
     output: gtk::Label,
     status: gtk::Label,
@@ -1660,10 +1662,20 @@ fn build_desfire_view() -> DesfireView {
     length.set_max_width_chars(10);
     add_field("Length (optional)", length.upcast_ref());
 
+    let start_record = gtk::Entry::new();
+    start_record.set_text("0");
+    start_record.set_max_width_chars(10);
+    add_field("Start record (0 = newest)", start_record.upcast_ref());
+
+    let record_count = gtk::Entry::new();
+    record_count.set_placeholder_text(Some("rest of file"));
+    record_count.set_max_width_chars(10);
+    add_field("Record count (optional)", record_count.upcast_ref());
+
     let read = gtk::Button::with_label("Read file");
     read.add_css_class("suggested-action");
     let hint = gtk::Label::new(Some(
-        "Read the card, then enter an application ID and file ID.",
+        "Read the card, then enter an application ID and file ID. The file type selects data, value, or record reading.",
     ));
     hint.set_xalign(0.0);
     hint.set_wrap(true);
@@ -1769,6 +1781,8 @@ fn build_desfire_view() -> DesfireView {
         key_number,
         offset,
         length,
+        start_record,
+        record_count,
         read,
         output,
         status,
@@ -5767,6 +5781,8 @@ fn clear_desfire_session(ui: &Rc<Ui>) {
     ui.desfire_view.status.set_text("");
     ui.desfire_view.ndef_key.set_text("");
     ui.desfire_view.ndef_status.set_text("");
+    ui.desfire_view.start_record.set_text("0");
+    ui.desfire_view.record_count.set_text("");
     ui.desfire_view.advanced.set_active(false);
     if let Some(dialog) = ui.pending_desfire_dialog.borrow_mut().take() {
         dialog.force_close();
@@ -6046,17 +6062,14 @@ fn start_desfire_read(ui: Rc<Ui>) {
             .trim()
             .parse::<u32>()
             .map_err(|_| "offset must be an unsigned integer".to_owned())?;
-        let length = if view.length.text().trim().is_empty() {
-            None
-        } else {
-            Some(
-                view.length
-                    .text()
-                    .trim()
-                    .parse::<u32>()
-                    .map_err(|_| "length must be an unsigned integer".to_owned())?,
-            )
-        };
+        let length = desfire_optional_u32(&view.length.text(), "length")?;
+        let start_record = view
+            .start_record
+            .text()
+            .trim()
+            .parse::<u32>()
+            .map_err(|_| "start record must be an unsigned integer".to_owned())?;
+        let record_count = desfire_optional_u32(&view.record_count.text(), "record count")?;
         Ok((
             [aid[0], aid[1], aid[2]],
             file,
@@ -6064,9 +6077,11 @@ fn start_desfire_read(ui: Rc<Ui>) {
             key_number,
             offset,
             length,
+            start_record,
+            record_count,
         ))
     })();
-    let (aid, file, key, key_number, offset, length) = match parsed {
+    let (aid, file, key, key_number, offset, length, start_record, record_count) = match parsed {
         Ok(parsed) => parsed,
         Err(error) => {
             ui.desfire_view
@@ -6080,7 +6095,9 @@ fn start_desfire_read(ui: Rc<Ui>) {
     let mut request = DesfireReadRequest::new(aid, file)
         .key_number(key_number)
         .offset(offset)
-        .length(length);
+        .length(length)
+        .start_record(start_record)
+        .record_count(record_count);
     if let Some(key) = key {
         request = request.key(key);
     }
@@ -6092,14 +6109,43 @@ fn start_desfire_read(ui: Rc<Ui>) {
         let result = match service.lock() {
             Ok(mut service) => service
                 .desfire_read(CancelToken::new(), request)
-                .map(|read| {
-                    let text = format!(
-                        "settings: {}\ndata: {}\nascii: {}",
-                        type2_ui::hex_bytes(&read.settings),
-                        type2_ui::hex_bytes(&read.data),
-                        desfire_ascii(&read.data)
-                    );
-                    (text, read.data.len())
+                .map(|read| match read {
+                    DesfireReadResult::Data(read) => {
+                        let text = format!(
+                            "settings: {}\nraw: {}\ndata: {}\nascii: {}",
+                            read.settings.summary(),
+                            type2_ui::hex_bytes(read.settings.raw()),
+                            type2_ui::hex_bytes(&read.data),
+                            desfire_ascii(&read.data)
+                        );
+                        (text, format!("{} bytes", read.data.len()))
+                    }
+                    DesfireReadResult::Value(read) => {
+                        let text = format!(
+                            "settings: {}\nvalue: {}",
+                            read.settings.summary(),
+                            read.value
+                        );
+                        (text, format!("value {}", read.value))
+                    }
+                    DesfireReadResult::Records(read) => {
+                        let mut text = format!(
+                            "settings: {}\nrecord offset: {} · {} record(s) × {} bytes",
+                            read.settings.summary(),
+                            read.start_record,
+                            read.records.len(),
+                            read.record_size
+                        );
+                        for (index, record) in read.records.iter().enumerate() {
+                            text.push_str(&format!(
+                                "\nrecord {}: {} | {}",
+                                read.first_record as usize + index,
+                                type2_ui::hex_bytes(record),
+                                desfire_ascii(record)
+                            ));
+                        }
+                        (text, format!("{} records", read.records.len()))
+                    }
                 }),
             Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
         };
@@ -6115,20 +6161,31 @@ fn start_desfire_read(ui: Rc<Ui>) {
     });
 }
 
-fn finish_desfire_read(ui: &Rc<Ui>, result: NfcResult<(String, usize)>) {
+fn finish_desfire_read(ui: &Rc<Ui>, result: NfcResult<(String, String)>) {
     set_busy(ui, false);
     match result {
-        Ok((text, length)) => {
+        Ok((text, detail)) => {
             ui.desfire_view.output.set_text(&text);
-            ui.status
-                .set_localized(&format!("DESFire read · {length} bytes"));
-            append_log(ui, &format!("desfire · read · {length} bytes"));
+            ui.status.set_localized(&format!("DESFire read · {detail}"));
+            append_log(ui, &format!("desfire · read · {detail}"));
         }
         Err(error) => {
             ui.desfire_view.status.set_localized("Read failed");
             ui.status.set_localized("DESFire read failed");
             toast_error(ui, &format!("DESFire read: {error}"));
         }
+    }
+}
+
+fn desfire_optional_u32(text: &str, label: &str) -> std::result::Result<Option<u32>, String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        Ok(None)
+    } else {
+        trimmed
+            .parse::<u32>()
+            .map(Some)
+            .map_err(|_| format!("{label} must be an unsigned integer"))
     }
 }
 
@@ -15036,6 +15093,15 @@ mod tests {
         assert_eq!(desfire_key_number("0").expect("key number"), 0);
         assert!(desfire_key_number("15").is_err());
         assert!(desfire_key_number("x").is_err());
+        assert_eq!(
+            desfire_optional_u32("", "record count").expect("empty optional"),
+            None
+        );
+        assert_eq!(
+            desfire_optional_u32("3", "record count").expect("record count"),
+            Some(3)
+        );
+        assert!(desfire_optional_u32("x", "record count").is_err());
         assert!(desfire_required_key("").is_err());
         assert_eq!(
             desfire_required_key("0000000000000000")

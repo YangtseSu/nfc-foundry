@@ -27,6 +27,8 @@ pub struct DesfireReadRequest {
     pub key_number: u8,
     pub offset: u32,
     pub length: Option<u32>,
+    pub start_record: u32,
+    pub record_count: Option<u32>,
 }
 
 impl DesfireReadRequest {
@@ -38,6 +40,8 @@ impl DesfireReadRequest {
             key_number: 0,
             offset: 0,
             length: None,
+            start_record: 0,
+            record_count: None,
         }
     }
 
@@ -60,12 +64,47 @@ impl DesfireReadRequest {
         self.length = length;
         self
     }
+
+    pub fn start_record(mut self, start_record: u32) -> Self {
+        self.start_record = start_record;
+        self
+    }
+
+    pub fn record_count(mut self, record_count: Option<u32>) -> Self {
+        self.record_count = record_count;
+        self
+    }
 }
 
-/// File settings and data returned by one authenticated read.
-pub struct DesfireRead {
-    pub settings: Vec<u8>,
+/// One file read after the file type selected the command.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DesfireReadResult {
+    Data(DesfireDataRead),
+    Value(DesfireValueRead),
+    Records(DesfireRecordRead),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DesfireDataRead {
+    pub settings: FileSettings,
     pub data: Vec<u8>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DesfireValueRead {
+    pub settings: FileSettings,
+    pub value: i32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DesfireRecordRead {
+    pub settings: FileSettings,
+    /// DESFire record offset: 0 is the most recent record.
+    pub start_record: u32,
+    /// Absolute index of the first returned record.
+    pub first_record: u32,
+    pub record_size: u32,
+    pub records: Vec<Vec<u8>>,
 }
 
 /// Create the AN11004 NDEF Tag Application on an unformatted card.
@@ -176,44 +215,123 @@ impl Service {
         nfc_desfire::inventory(operation.reader_mut())
     }
 
-    /// Read one standard or backup file. Authentication is optional; when a
-    /// key is supplied it is used with the legacy DES/2K3DES authenticator.
+    /// Read one file after GetFileSettings selects the command.
+    ///
+    /// Standard and backup files use ReadData with the byte offset and length.
+    /// Value files use GetValue. Linear and cyclic record files use
+    /// ReadRecords with the record number and record count. Authentication is
+    /// optional; when a key is supplied it is used with the legacy
+    /// DES/2K3DES authenticator.
     pub fn desfire_read(
         &mut self,
         cancel: CancelToken,
         request: DesfireReadRequest,
-    ) -> Result<DesfireRead> {
+    ) -> Result<DesfireReadResult> {
         let mut operation = self.begin_operation(OperationKind::Read, cancel)?;
         let mut desfire = nfc_desfire::Desfire::new(operation.reader_mut());
         desfire.select_application(request.aid)?;
         if let Some(key) = request.key.as_deref() {
             desfire.authenticate_legacy(request.key_number, key)?;
         }
-        let settings = desfire.file_settings(request.file_id)?;
-        let size = nfc_desfire::Desfire::data_file_size(&settings).ok_or(NfcError::Unsupported(
-            "DESFire read currently supports standard and backup data files",
-        ))?;
-        if request.offset > size {
-            return Err(NfcError::InvalidArgument(format!(
-                "read offset {} is beyond file size {size}",
-                request.offset
-            )));
+        let raw = desfire.file_settings(request.file_id)?;
+        let settings = FileSettings::parse(&raw)?;
+        match &settings.contents {
+            FileContents::Data { size } => {
+                let size = *size;
+                if request.offset > size {
+                    return Err(NfcError::InvalidArgument(format!(
+                        "read offset {} is beyond file size {size}",
+                        request.offset
+                    )));
+                }
+                let remaining = size - request.offset;
+                let length = request.length.unwrap_or(remaining);
+                if length == 0 || length > remaining {
+                    return Err(NfcError::InvalidArgument(format!(
+                        "read length {length} is outside the remaining {remaining} bytes"
+                    )));
+                }
+                let data = desfire.read_data(request.file_id, request.offset, length)?;
+                if data.len() as u32 != length {
+                    return Err(NfcError::VerificationFailed(format!(
+                        "read returned {} bytes, expected {length}",
+                        data.len()
+                    )));
+                }
+                Ok(DesfireReadResult::Data(DesfireDataRead { settings, data }))
+            }
+            FileContents::Value {
+                lower_limit,
+                upper_limit,
+                ..
+            } => {
+                let value = desfire.get_value(request.file_id)?;
+                if value < *lower_limit || value > *upper_limit {
+                    return Err(NfcError::VerificationFailed(format!(
+                        "GetValue returned {value}, outside the declared limits {lower_limit}..{upper_limit}"
+                    )));
+                }
+                Ok(DesfireReadResult::Value(DesfireValueRead {
+                    settings,
+                    value,
+                }))
+            }
+            FileContents::Record {
+                record_size,
+                current_records,
+                ..
+            } => {
+                let record_size = *record_size;
+                let current_records = *current_records;
+                if current_records == 0 {
+                    if request.start_record != 0
+                        || request.record_count.is_some_and(|count| count != 0)
+                    {
+                        return Err(NfcError::InvalidArgument(
+                            "the record file is empty".to_owned(),
+                        ));
+                    }
+                    return Ok(DesfireReadResult::Records(DesfireRecordRead {
+                        settings,
+                        start_record: 0,
+                        first_record: 0,
+                        record_size,
+                        records: Vec::new(),
+                    }));
+                }
+                if request.start_record >= current_records {
+                    return Err(NfcError::InvalidArgument(format!(
+                        "start record {} is beyond the {current_records} current records",
+                        request.start_record
+                    )));
+                }
+                let remaining = current_records - request.start_record;
+                let count = request.record_count.unwrap_or(remaining);
+                if count == 0 || count > remaining {
+                    return Err(NfcError::InvalidArgument(format!(
+                        "file {:02X}: requested {count} records but only {remaining} remain",
+                        request.file_id
+                    )));
+                }
+                let first_record = current_records - request.start_record - count;
+                let data = desfire.read_records(request.file_id, request.start_record, count)?;
+                verify_record_bytes(data.len(), count, record_size)?;
+                let records = data
+                    .chunks_exact(record_size as usize)
+                    .map(<[u8]>::to_vec)
+                    .collect();
+                Ok(DesfireReadResult::Records(DesfireRecordRead {
+                    settings,
+                    start_record: request.start_record,
+                    first_record,
+                    record_size,
+                    records,
+                }))
+            }
+            FileContents::TransactionMac { .. } => Err(NfcError::Unsupported(
+                "DESFire Transaction MAC files have no data read path",
+            )),
         }
-        let remaining = size - request.offset;
-        let length = request.length.unwrap_or(remaining);
-        if length == 0 || length > remaining {
-            return Err(NfcError::InvalidArgument(format!(
-                "read length {length} is outside the remaining {remaining} bytes"
-            )));
-        }
-        let data = desfire.read_data(request.file_id, request.offset, length)?;
-        if data.len() as u32 != length {
-            return Err(NfcError::VerificationFailed(format!(
-                "read returned {} bytes, expected {length}",
-                data.len()
-            )));
-        }
-        Ok(DesfireRead { settings, data })
     }
 
     /// Create the AN11004 NDEF Tag Application and its CC/NDEF files.
@@ -393,6 +511,17 @@ fn delete_ndef(
     }
     operation.check_iso_dep_card()?;
     Ok(DesfireNdefDeleteResult { applications })
+}
+
+fn verify_record_bytes(actual: usize, count: u32, record_size: u32) -> Result<()> {
+    let expected = u64::from(count) * u64::from(record_size);
+    if actual as u64 == expected {
+        Ok(())
+    } else {
+        Err(NfcError::VerificationFailed(format!(
+            "ReadRecords returned {actual} bytes, expected {expected}"
+        )))
+    }
 }
 
 fn ensure_iso_dep(operation: &Operation<'_>) -> Result<()> {
@@ -614,6 +743,13 @@ mod tests {
         assert!(text.contains("file 02: undecoded"));
         assert!(text.contains("raw: 06 00 00 E0"));
         assert!(!text.contains("file 02: standard data"));
+    }
+
+    #[test]
+    fn record_reads_reject_short_or_long_responses() {
+        assert!(verify_record_bytes(16, 2, 8).is_ok());
+        assert!(verify_record_bytes(8, 2, 8).is_err());
+        assert!(verify_record_bytes(24, 2, 8).is_err());
     }
 
     #[test]
