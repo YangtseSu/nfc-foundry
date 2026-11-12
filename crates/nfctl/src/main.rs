@@ -35,10 +35,11 @@ use nfc_ndef::{NdefMessage, NdefRecord, TextRecord, UriRecord, WifiRecord};
 use nfc_recover::auto::RecoveryStrategy;
 use nfc_recover::{RecoveryProgress, RecoveryRequest};
 use nfc_transport::DeviceInfo;
-use nfc_transport::mock::MockTransport;
+use nfc_transport::mock::{MockTransport, MockType4Tag};
 use nfc_type2::{
     Configuration, LockBits, NdefState, RestoreOptions, Type2Image, exchange as type2,
 };
+use nfc_type4::CcTlv;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -441,6 +442,12 @@ enum DesfireCommand {
         /// Required: deleting an application changes the card structure.
         #[arg(long)]
         advanced: bool,
+    },
+    /// Read the Type 4 NDEF Tag Application and print its records.
+    NdefRead {
+        /// Write the raw NDEF message to this file.
+        #[arg(long, short, value_name = "PATH")]
+        output: Option<PathBuf>,
     },
     /// Read one data, value, or record file, optionally authenticating first.
     Read {
@@ -2031,6 +2038,18 @@ fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<
             }
             Ok(())
         }
+        DesfireCommand::NdefRead { output } => {
+            let read = service.type4_read(CancelToken::new())?;
+            print!("{}", type4_read_text(&read));
+            if let Some(path) = output {
+                let message = read.ndef.message().ok_or_else(|| {
+                    NfcError::InvalidArgument("the NDEF file is empty".to_owned())
+                })?;
+                write_output(&path, &message.encode()?)?;
+                println!("raw message written to {}", path.display());
+            }
+            Ok(())
+        }
         DesfireCommand::Read {
             aid,
             file,
@@ -2510,16 +2529,18 @@ fn print_type2_info(image: &Type2Image, warnings: &[String]) {
 }
 
 fn print_ndef_record(index: usize, record: &NdefRecord) {
+    println!("{}", ndef_record_text(index, record));
+}
+
+fn ndef_record_text(index: usize, record: &NdefRecord) -> String {
     if let Ok(text) = TextRecord::from_record(record) {
-        println!(
+        return format!(
             "record {index}: text {:?} (language {})",
             text.text, text.language
         );
-        return;
     }
     if let Ok(uri) = UriRecord::from_record(record) {
-        println!("record {index}: uri {}", uri.uri);
-        return;
+        return format!("record {index}: uri {}", uri.uri);
     }
     if let Ok(wifi) = WifiRecord::from_record(record) {
         let ssid = String::from_utf8_lossy(&wifi.ssid);
@@ -2527,20 +2548,81 @@ fn print_ndef_record(index: usize, record: &NdefRecord) {
             .network_key
             .as_ref()
             .map(|key| String::from_utf8_lossy(key).to_string());
-        println!(
+        return format!(
             "record {index}: wifi ssid {ssid:?} auth 0x{:04X} encryption 0x{:04X}{}",
             wifi.authentication.bits(),
             wifi.encryption.bits(),
             key.map(|key| format!(" key {key:?}")).unwrap_or_default()
         );
-        return;
     }
-    println!(
+    format!(
         "record {index}: tnf {:?} type {} payload {}",
         record.tnf(),
         hex_bytes(record.record_type()),
         hex_bytes(record.payload())
+    )
+}
+
+fn type4_access_label(access: u8) -> String {
+    match access {
+        0x00 => "free".to_owned(),
+        0xFF => "denied".to_owned(),
+        other => format!("proprietary {other:#04X}"),
+    }
+}
+
+fn type4_read_text(read: &nfc_app::type4::Type4ReadResult) -> String {
+    let mut text = format!(
+        "CC {} · mapping {}.{} · MLe {} · MLc {}\n",
+        hex_bytes(read.cc.raw()),
+        read.cc.major_version,
+        read.cc.minor_version,
+        read.cc.max_le,
+        read.cc.max_lc
     );
+    for tlv in read.cc.tlvs() {
+        match tlv {
+            CcTlv::ProprietaryFile(control) => text.push_str(&format!(
+                "CC TLV: proprietary file {:04X} · {} bytes · read {} · write {}\n",
+                control.file_id,
+                control.max_size,
+                type4_access_label(control.read_access),
+                type4_access_label(control.write_access)
+            )),
+            CcTlv::Unknown { tag, value } => text.push_str(&format!(
+                "CC TLV: unknown tag {tag:#04X} · {} bytes · {}\n",
+                value.len(),
+                hex_bytes(value)
+            )),
+            CcTlv::NdefFile(_) | CcTlv::Null | CcTlv::Terminator => {}
+        }
+    }
+    let state = match &read.ndef.state {
+        nfc_type4::NdefState::Empty => "empty".to_owned(),
+        nfc_type4::NdefState::Message(message) => format!(
+            "{} record(s), {} bytes",
+            message.records().len(),
+            read.ndef.message_bytes
+        ),
+    };
+    text.push_str(&format!(
+        "NDEF file {:04X} · {} bytes · read {} · write {} · {}\n",
+        read.ndef.file_id,
+        read.ndef.max_size,
+        type4_access_label(read.ndef.read_access),
+        type4_access_label(read.ndef.write_access),
+        state
+    ));
+    if let Some(message) = read.ndef.message() {
+        for (index, record) in message.records().iter().enumerate() {
+            text.push_str(&ndef_record_text(index, record));
+            text.push('\n');
+        }
+    }
+    if let Some(reason) = read.read_only_reason() {
+        text.push_str(&format!("read-only: {reason}\n"));
+    }
+    text
 }
 
 fn build_ndef_message(
@@ -2921,6 +3003,26 @@ fn mock_service() -> Service {
     ntag.set_page(131, [0x00, 0x00, 0x00, 0xFF]);
     ntag.set_page(132, [0x00, 0x00, 0x00, 0x00]);
     ntag.set_password([0xFF; PAGE_SIZE], [0x00, 0x00]);
+    let type4 = transport.add(
+        DeviceInfo::new("Mock Type 4 DESFire", "mock:type4-desfire"),
+        Some(CardInfo::new(
+            vec![0x04, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26],
+            [0x00, 0x44],
+            0x20,
+            CardType::Iso14443,
+        )),
+    );
+    let message = NdefMessage::single(
+        TextRecord::new("NFC Foundry Type 4", "en")
+            .expect("text record")
+            .to_record()
+            .expect("NDEF record"),
+    )
+    .expect("NDEF message");
+    let encoded = message.encode().expect("encode NDEF");
+    let mut ndef_file = (encoded.len() as u16).to_be_bytes().to_vec();
+    ndef_file.extend_from_slice(&encoded);
+    type4.set_type4_tag(MockType4Tag::new(mock_type4_cc(), ndef_file));
     transport.add(
         DeviceInfo::new("Mock MIFARE Mini", "mock:mini"),
         Some(CardInfo::new(
@@ -2931,6 +3033,15 @@ fn mock_service() -> Service {
         )),
     );
     Service::with_transport(Arc::new(transport))
+}
+
+fn mock_type4_cc() -> Vec<u8> {
+    vec![
+        0x00, 0x1B, 0x20, 0x00, 0x3A, 0x00, 0x34, // header
+        0x04, 0x06, 0xE1, 0x04, 0x01, 0x00, 0x00, 0x00, // NDEF file E104
+        0x05, 0x06, 0xE1, 0x05, 0x00, 0x10, 0x00, 0x00, // proprietary file E105
+        0x06, 0x02, 0xAA, 0xBB, // unknown TLV
+    ]
 }
 
 fn mock_classic_ndef_card() -> (CardInfo, Vec<(u8, [u8; BLOCK_SIZE])>) {

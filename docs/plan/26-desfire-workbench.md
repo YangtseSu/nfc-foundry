@@ -1,6 +1,6 @@
 # Phase 26 plan: DESFire workbench
 
-Status: in progress. 26.1–26.5 are complete; 26.6–26.13 are pending, except
+Status: in progress. 26.1–26.6 are complete; 26.7–26.13 are pending, except
 that 26.12's ordinary NDEF provisioning and guarded delete landed in phase
 25.5. Hardware: PN532 UART first; ACR122U records after a reader is available.
 
@@ -145,7 +145,11 @@ Acceptance:
   with test keys; the owned PICC key is not changed.
 - A tampered response is rejected in a unit test.
 
-### 26.6 Type 4 NDEF read
+### 26.6 Type 4 NDEF read (done)
+
+Status: complete 2026-11-13. See
+[26f-type4-ndef-read.md](../notes/26f-type4-ndef-read.md) and the
+[26f spec](../specs/26f-type4-ndef-read.md).
 
 Deliver:
 

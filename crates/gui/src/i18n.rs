@@ -668,11 +668,12 @@ keys! {
         "读取卡片以列出 DESFire 应用。"
     ),
     DesfireNdefHint => (
-        "Formatting creates the NDEF Tag Application D27600 with the CC and NDEF files. No full-card backup exists; deleting the application is the undo path.",
-        "格式化会创建 NDEF 标签应用 D27600 以及 CC 和 NDEF 文件。不存在整卡备份；删除该应用是撤销路径。"
+        "Read the NDEF Tag Application without authenticating. Formatting creates the application D27600 with the CC and NDEF files; no full-card backup exists, and deleting the application is the undo path.",
+        "无需认证即可读取 NDEF 标签应用。格式化会创建应用 D27600 以及 CC 和 NDEF 文件；不存在整卡备份，删除该应用是撤销路径。"
     ),
     DesfirePiccKey => ("PICC master key", "PICC 主密钥"),
     DesfirePiccKeyNumber => ("PICC key number", "PICC 密钥编号"),
+    DesfireReadNdef => ("Read NDEF", "读取 NDEF"),
     DesfireFormatNdef => ("Format NDEF application", "格式化 NDEF 应用"),
     DesfireDeleteNdef => ("Delete NDEF application", "删除 NDEF 应用"),
     DesfireFormatHeading => (
@@ -723,6 +724,14 @@ keys! {
         "Checking the DESFire NDEF application…",
         "正在检查 DESFire NDEF 应用…"
     ),
+    DesfireReadingNdef => (
+        "Reading the DESFire NDEF application…",
+        "正在读取 DESFire NDEF 应用…"
+    ),
+    DesfireReadingNdefShort => ("Reading the NDEF application…", "正在读取 NDEF 应用…"),
+    DesfireNdefReadFailed => ("NDEF read failed", "NDEF 读取失败"),
+    DesfireNdefReadFailedStatus => ("DESFire NDEF read failed", "DESFire NDEF 读取失败"),
+    DesfireNdefReadDone => ("DESFire NDEF read", "DESFire NDEF 已读取"),
     DesfireFormatting => (
         "Formatting the DESFire NDEF application…",
         "正在格式化 DESFire NDEF 应用…"

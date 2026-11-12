@@ -94,11 +94,12 @@ original UID if verification fails.
 
 | Operation | CLI | GUI | Gate | Hardware |
 |---|---|---|---|---|
-| Inventory | `desfire info` | DESFire → Inventory | R | PN532 |
+| Inventory | `desfire info` | DESFire → Inventory | R | PN532 and ACR122U |
 | Read file | `desfire read --aid --file [--key] [--key-type] [--offset] [--length] [--start-record] [--record-count]` | DESFire → Read with the same fields and key-type dropdown | R | PN532 and ACR122U: data, value, linear and cyclic records with legacy DES, 3K3DES/AES EV1, and AES EV2 |
-| Explicit authentication family | `--key-type des|2k3des|3k3des|aes|ev2` on read/format/delete | Key type dropdown on Read and NDEF tabs | explicit key, R for authentication | PN532: 3K3DES, AES EV1, AES EV2 |
-| Format NDEF | `desfire format-ndef --key --advanced [--dry-run]` | DESFire → NDEF → Advanced mode → Format NDEF application… → type `FORMAT` | A, C | PN532; ACR n/r |
-| Delete NDEF application | `desfire delete-ndef --key --advanced` | DESFire → NDEF → Advanced mode → Delete NDEF application… → type `DELETE` | A, C | PN532; ACR n/r |
+| Explicit authentication family | `--key-type des|2k3des|3k3des|aes|ev2` on read/format/delete | Key type dropdown on Read and NDEF tabs | explicit key, R for authentication | PN532 and ACR122U: 3K3DES, AES EV1, AES EV2 |
+| Read NDEF | `desfire ndef-read [--output]` | DESFire → NDEF → Read NDEF | R | PN532 and ACR122U: CC, file facts, records, extra TLVs |
+| Format NDEF | `desfire format-ndef --key --advanced [--dry-run]` | DESFire → NDEF → Advanced mode → Format NDEF application… → type `FORMAT` | A, C | PN532 and ACR122U |
+| Delete NDEF application | `desfire delete-ndef --key --advanced` | DESFire → NDEF → Advanced mode → Delete NDEF application… → type `DELETE` | A, C | PN532 and ACR122U |
 
 Both surfaces call the same `nfc-app` service and render inventory through
 `inventory_text`. Each file shows the decoded type, communication mode,
@@ -106,7 +107,9 @@ access rights, capacity or limits, and raw settings; a response that does not
 parse is marked `undecoded` with the raw bytes, never guessed. The format path
 refuses an existing NDEF application, creates only the AN11004 `D27600`
 application and its `E103`/`E104` files, and reads the CC and empty NDEF file
-back through the Type 4 adapter. Delete validates the exact AN11004 layout
+back through the Type 4 adapter. Read NDEF lists the CC, file facts, decoded
+records, and proprietary/unknown TLVs without needing the PICC key or Advanced
+mode. Delete validates the exact AN11004 layout
 before removing it. Keys are session-scoped and never printed. The GUI
 Advanced switch resets on card removal, reader change, and restart. The PN532
 UART format/write/delete, Standard/Backup decode, value/record reads, and

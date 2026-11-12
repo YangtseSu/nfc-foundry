@@ -88,6 +88,63 @@ fn list_and_scan_keep_the_mock_contract() {
 }
 
 #[test]
+fn desfire_ndef_read_prints_type4_records_and_tlvs() {
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:type4-desfire",
+        "desfire",
+        "ndef-read",
+    ]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("mapping 2.0"), "{text}");
+    assert!(
+        text.contains("CC TLV: proprietary file E105 · 16 bytes · read free · write free"),
+        "{text}"
+    );
+    assert!(
+        text.contains("CC TLV: unknown tag 0x06 · 2 bytes · AA BB"),
+        "{text}"
+    );
+    assert!(
+        text.contains("NDEF file E104 · 256 bytes · read free · write free · 1 record(s)"),
+        "{text}"
+    );
+    assert!(
+        text.contains("record 0: text \"NFC Foundry Type 4\" (language en)"),
+        "{text}"
+    );
+}
+
+#[test]
+fn desfire_ndef_read_writes_the_raw_message() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let path = directory.path().join("message.ndef");
+    let output = nfctl_with_data(
+        &[
+            "--mock",
+            "--device",
+            "mock:type4-desfire",
+            "desfire",
+            "ndef-read",
+            "--output",
+            path.to_str().expect("path"),
+        ],
+        directory.path(),
+    );
+    assert_success(&output);
+    assert!(
+        stdout(&output).contains("raw message written to"),
+        "{}",
+        stdout(&output)
+    );
+    let bytes = std::fs::read(&path).expect("read raw NDEF");
+    assert!(bytes.len() > 4, "{bytes:02X?}");
+    assert_eq!(&bytes[..2], &[0xD1, 0x01], "{bytes:02X?}");
+}
+
+#[test]
 fn dump_read_and_diff_work_against_the_mock_card() {
     let directory = tempfile::tempdir().expect("temp dir");
     let dump = directory.path().join("card.json");

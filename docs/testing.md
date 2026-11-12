@@ -267,6 +267,21 @@ cargo test -p nfctl --features hardware-write \
   --test hardware_desfire_files -- --ignored
 ```
 
+The phase 26.6 Type 4 NDEF read is hardware-free in the CLI and GUI tests.
+`nfctl --mock --device mock:type4-desfire desfire ndef-read` covers a Text
+record, a proprietary File Control TLV, an unknown TLV, and `--output`. The
+GUI formatter test covers the same fixture, and the DESFire workspace test
+checks the Read NDEF control. On ACR122U the phase 25.5 NDEF round trip passed
+and the CLI ran `format-ndef`, `ndef-read`, and `delete-ndef` on the same card;
+`pcscd` must be stopped:
+
+```sh
+NFC_FOUNDRY_HARDWARE=1 NFC_FOUNDRY_HARDWARE_WRITE=yes \
+NFC_FOUNDRY_DEVICE=acr122_usb:001:002 \
+cargo test -p nfctl --features hardware-write \
+  --test hardware_desfire_ndef -- --ignored
+```
+
 The phase 26.2 file-settings decoder is hardware-free. `nfc-desfire` covers
 one valid and one malformed vector for each of the six file types, additional
 access rights, truncation, trailing bytes, reserved communication mode 2,

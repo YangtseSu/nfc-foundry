@@ -1055,9 +1055,11 @@ struct DesfireView {
     ndef_key: gtk::PasswordEntry,
     ndef_key_type: gtk::DropDown,
     ndef_key_number: gtk::Entry,
+    read_ndef: gtk::Button,
     format_ndef: gtk::Button,
     delete_ndef: gtk::Button,
     ndef_status: gtk::Label,
+    ndef_output: gtk::Label,
 }
 
 struct Type2Editor {
@@ -1720,8 +1722,9 @@ fn build_desfire_view() -> DesfireView {
     advanced_row.append(&advanced);
 
     let ndef_hint = gtk::Label::new(Some(
-        "Formatting creates the NDEF Tag Application D27600 with the CC and NDEF files. \
-         No full-card backup exists; deleting the application is the undo path.",
+        "Read the NDEF Tag Application without authenticating. Formatting creates the \
+         application D27600 with the CC and NDEF files; no full-card backup exists, and \
+         deleting the application is the undo path.",
     ));
     ndef_hint.set_xalign(0.0);
     ndef_hint.set_wrap(true);
@@ -1760,6 +1763,18 @@ fn build_desfire_view() -> DesfireView {
     ndef_form.attach(&ndef_key_number_caption, 0, 2, 1, 1);
     ndef_form.attach(&ndef_key_number, 1, 2, 1, 1);
 
+    let read_ndef = gtk::Button::with_label("Read NDEF");
+    read_ndef.add_css_class("suggested-action");
+    let ndef_output = gtk::Label::new(None);
+    ndef_output.set_xalign(0.0);
+    ndef_output.set_wrap(true);
+    ndef_output.set_selectable(true);
+    ndef_output.add_css_class("monospace");
+    let ndef_output_scroll = gtk::ScrolledWindow::builder()
+        .child(&ndef_output)
+        .vexpand(true)
+        .build();
+
     let format_ndef = gtk::Button::with_label("Format NDEF application");
     format_ndef.add_css_class("destructive-action");
     let delete_ndef = gtk::Button::with_label("Delete NDEF application");
@@ -1776,8 +1791,10 @@ fn build_desfire_view() -> DesfireView {
     ndef_page.append(&advanced_row);
     ndef_page.append(&ndef_hint);
     ndef_page.append(&ndef_form);
+    ndef_page.append(&read_ndef);
     ndef_page.append(&ndef_buttons);
     ndef_page.append(&ndef_status);
+    ndef_page.append(&ndef_output_scroll);
 
     let tabs = gtk::Stack::new();
     tabs.set_transition_type(gtk::StackTransitionType::Crossfade);
@@ -1808,9 +1825,11 @@ fn build_desfire_view() -> DesfireView {
         ndef_key,
         ndef_key_type,
         ndef_key_number,
+        read_ndef,
         format_ndef,
         delete_ndef,
         ndef_status,
+        ndef_output,
     }
 }
 
@@ -3228,6 +3247,10 @@ fn connect_signals(ui: &Rc<Ui>) {
     ui.desfire_view
         .read
         .connect_clicked(move |_| start_desfire_read(ui2.clone()));
+    let ui2 = ui.clone();
+    ui.desfire_view
+        .read_ndef
+        .connect_clicked(move |_| start_desfire_ndef_read(ui2.clone()));
     let ui2 = ui.clone();
     ui.desfire_view
         .format_ndef
@@ -5800,6 +5823,7 @@ fn clear_desfire_session(ui: &Rc<Ui>) {
     ui.desfire_view.status.set_text("");
     ui.desfire_view.ndef_key.set_text("");
     ui.desfire_view.ndef_status.set_text("");
+    ui.desfire_view.ndef_output.set_text("");
     ui.desfire_view.start_record.set_text("0");
     ui.desfire_view.record_count.set_text("");
     ui.desfire_view.read_key_type.set_selected(0);
@@ -6242,6 +6266,121 @@ fn desfire_required_key(text: &str) -> std::result::Result<Vec<u8>, String> {
     parse_desfire_key(text)?.ok_or_else(|| "a PICC master key is required".to_owned())
 }
 
+fn desfire_type4_access_label(access: u8) -> String {
+    match access {
+        0x00 => "free".to_owned(),
+        0xFF => "denied".to_owned(),
+        other => format!("proprietary {other:#04X}"),
+    }
+}
+
+fn desfire_ndef_text(read: &nfc_app::type4::Type4ReadResult) -> String {
+    let mut text = format!(
+        "CC {} · mapping {}.{} · MLe {} · MLc {}\n",
+        type2_ui::hex_bytes(read.cc.raw()),
+        read.cc.major_version,
+        read.cc.minor_version,
+        read.cc.max_le,
+        read.cc.max_lc
+    );
+    for tlv in read.cc.tlvs() {
+        match tlv {
+            nfc_type4::CcTlv::ProprietaryFile(control) => text.push_str(&format!(
+                "CC TLV: proprietary file {:04X} · {} bytes · read {} · write {}\n",
+                control.file_id,
+                control.max_size,
+                desfire_type4_access_label(control.read_access),
+                desfire_type4_access_label(control.write_access)
+            )),
+            nfc_type4::CcTlv::Unknown { tag, value } => text.push_str(&format!(
+                "CC TLV: unknown tag {tag:#04X} · {} bytes · {}\n",
+                value.len(),
+                ndef_editor::format_hex(value, " ")
+            )),
+            nfc_type4::CcTlv::NdefFile(_)
+            | nfc_type4::CcTlv::Null
+            | nfc_type4::CcTlv::Terminator => {}
+        }
+    }
+    text.push_str(&format!(
+        "NDEF file {:04X} · {} bytes · read {} · write {} · {}\n",
+        read.ndef.file_id,
+        read.ndef.max_size,
+        desfire_type4_access_label(read.ndef.read_access),
+        desfire_type4_access_label(read.ndef.write_access),
+        nfc_app::type4::ndef_label(&read.ndef.state)
+    ));
+    if let Some(message) = read.ndef.message() {
+        for (index, record) in message.records().iter().enumerate() {
+            let draft = ndef_editor::RecordDraft::from_record(record);
+            text.push_str(&format!(
+                "{}. {} · {}\n",
+                index + 1,
+                draft.label(),
+                draft.preview()
+            ));
+        }
+    }
+    if let Some(reason) = read.read_only_reason() {
+        text.push_str(&format!("read-only · {reason}\n"));
+    }
+    text
+}
+
+fn start_desfire_ndef_read(ui: Rc<Ui>) {
+    if ui.busy.get() {
+        return;
+    }
+    if ui.devices.borrow().is_empty() {
+        toast_error(&ui, "No reader selected");
+        return;
+    }
+    set_busy(&ui, true);
+    ui.status
+        .set_localized("Reading the DESFire NDEF application…");
+    ui.desfire_view
+        .ndef_status
+        .set_localized("Reading the NDEF application…");
+    let service = ui.service.clone();
+    let (sender, receiver) = async_channel::bounded(1);
+    std::thread::spawn(move || {
+        let result = match service.lock() {
+            Ok(mut service) => service.type4_read(CancelToken::new()),
+            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
+        };
+        let _ = sender.send_blocking(result);
+    });
+    glib::spawn_future_local(async move {
+        set_busy(&ui, false);
+        match receiver.recv().await {
+            Ok(Ok(read)) => {
+                ui.desfire_view
+                    .ndef_output
+                    .set_text(&desfire_ndef_text(&read));
+                ui.desfire_view.ndef_status.set_localized(&format!(
+                    "NDEF: {}",
+                    nfc_app::type4::ndef_label(&read.ndef.state)
+                ));
+                ui.status.set_localized("DESFire NDEF read");
+                append_log(&ui, "desfire · ndef read");
+            }
+            Ok(Err(error)) => {
+                ui.desfire_view
+                    .ndef_status
+                    .set_localized("NDEF read failed");
+                ui.status.set_localized("DESFire NDEF read failed");
+                toast_error(&ui, &format!("DESFire NDEF read: {error}"));
+            }
+            Err(_) => {
+                ui.desfire_view
+                    .ndef_status
+                    .set_localized("NDEF read failed");
+                toast_error(&ui, "Reader worker stopped");
+            }
+        }
+    });
+}
+
 fn start_desfire_ndef_format(ui: Rc<Ui>) {
     if ui.busy.get() {
         return;
@@ -6578,6 +6717,7 @@ fn update_desfire_actions(ui: &Ui) {
     let advanced = sensitive && ui.desfire_view.advanced.is_active();
     ui.desfire_view.refresh.set_sensitive(sensitive);
     ui.desfire_view.read.set_sensitive(sensitive);
+    ui.desfire_view.read_ndef.set_sensitive(sensitive);
     ui.desfire_view.format_ndef.set_sensitive(advanced);
     ui.desfire_view.delete_ndef.set_sensitive(advanced);
     ui.desfire_view.ndef_key.set_sensitive(sensitive);
@@ -12237,7 +12377,7 @@ mod tests {
     };
     use nfc_core::{CardInfo, CardType};
     use nfc_ndef::{Tnf, UriRecord};
-    use nfc_transport::mock::{MockHandle, MockTransport};
+    use nfc_transport::mock::{MockHandle, MockReader, MockTransport, MockType4Tag};
 
     use super::*;
 
@@ -15142,6 +15282,11 @@ mod tests {
         assert!(!ui.desfire_view.format_ndef.is_sensitive());
         assert!(!ui.desfire_view.delete_ndef.is_sensitive());
         assert!(!ui.desfire_view.advanced.is_active());
+        assert_eq!(
+            ui.desfire_view.read_ndef.label().as_deref(),
+            Some("Read NDEF")
+        );
+        assert!(ui.desfire_view.read_ndef.is_sensitive());
         assert_eq!(ui.desfire_view.read_key_type.selected(), 0);
         assert_eq!(ui.desfire_view.ndef_key_type.selected(), 0);
         ui.desfire_view.advanced.set_active(true);
@@ -15203,5 +15348,52 @@ mod tests {
         );
         assert!(parse_desfire_key("00").is_err());
         assert_eq!(desfire_ascii(b"NFC\0"), "NFC.");
+    }
+
+    #[test]
+    fn desfire_ndef_text_reports_records_and_extra_tlvs() {
+        let cc = vec![
+            0x00, 0x1B, 0x20, 0x00, 0x3A, 0x00, 0x34, // header
+            0x04, 0x06, 0xE1, 0x04, 0x01, 0x00, 0x00, 0x00, // NDEF file E104
+            0x05, 0x06, 0xE1, 0x05, 0x00, 0x10, 0x00, 0x00, // proprietary file E105
+            0x06, 0x02, 0xAA, 0xBB, // unknown TLV
+        ];
+        let record = nfc_ndef::TextRecord::new("NFC Foundry Type 4", "en")
+            .expect("text record")
+            .to_record()
+            .expect("NDEF record");
+        let message = nfc_ndef::NdefMessage::single(record).expect("NDEF message");
+        let encoded = message.encode().expect("encode NDEF");
+        let mut ndef_file = (encoded.len() as u16).to_be_bytes().to_vec();
+        ndef_file.extend_from_slice(&encoded);
+
+        let card = CardInfo::new(
+            vec![0x04, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26],
+            [0x00, 0x44],
+            0x20,
+            CardType::Iso14443,
+        );
+        let mut reader = MockReader::new(
+            DeviceInfo::new("Mock Type 4", "mock:type4"),
+            Some(card.clone()),
+        );
+        reader.set_type4_tag(MockType4Tag::new(cc, ndef_file));
+        let read = nfc_type4::read_tag(&mut reader, &card, &CancelToken::new()).expect("read");
+        let text = desfire_ndef_text(&read);
+        assert!(text.contains("mapping 2.0"), "{text}");
+        assert!(
+            text.contains("CC TLV: proprietary file E105 · 16 bytes · read free · write free"),
+            "{text}"
+        );
+        assert!(
+            text.contains("CC TLV: unknown tag 0x06 · 2 bytes · AA BB"),
+            "{text}"
+        );
+        assert!(
+            text.contains("NDEF file E104 · 256 bytes · read free · write free · 1 record(s)"),
+            "{text}"
+        );
+        assert!(text.contains("1. Text"), "{text}");
+        assert!(text.contains("NFC Foundry Type 4"), "{text}");
     }
 }

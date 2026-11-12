@@ -1041,6 +1041,7 @@ dependencies = [
  "nfc-recover",
  "nfc-transport",
  "nfc-type2",
+ "nfc-type4",
  "serde",
  "serde_json",
  "tempfile",
