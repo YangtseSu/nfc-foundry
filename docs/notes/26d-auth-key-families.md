@@ -73,5 +73,5 @@ row remains unrecorded.
 
 ## Next
 
-Phase 26.5 adds EV1 and EV2 secure-messaging reads. It should reuse the session
-ENC/MAC keys and remove the temporary read gate.
+Phase 26.5 added EV1 and EV2 secure-messaging reads on top of these session
+keys; see [26e-secure-messaging.md](26e-secure-messaging.md).

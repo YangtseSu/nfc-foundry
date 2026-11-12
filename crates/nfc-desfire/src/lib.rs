@@ -6,12 +6,12 @@
 //!
 //! This crate covers identity and application/file inventory, DES/2K3DES,
 //! 3K3DES, AES EV1, and AES EV2 authentication with session-key derivation,
-//! the primitive application/file commands, and the AN11004 NDEF Tag
-//! Application layout. Secure messaging and the general file/key workbench are
-//! not part of this layer.
+//! EV1 and EV2 secure messaging for the read commands, the primitive
+//! application/file commands, and the AN11004 NDEF Tag Application layout.
+//! Secure-messaging file writes and the general file/key workbench are not
+//! part of this layer.
 
 use aes::Aes128;
-use cmac::{Cmac, Mac};
 use des::TdesEde3;
 use des::cipher::{BlockCipherDecrypt, BlockCipherEncrypt, KeyInit};
 use nfc_core::{NfcError, Result};
@@ -165,6 +165,88 @@ struct Session {
     mac_key: Vec<u8>,
     key_type: AuthKeyType,
     key_version: u8,
+    /// EV1 CMAC and CBC chaining value. Empty for D40 and EV2 sessions.
+    iv: Vec<u8>,
+    /// EV2 transaction identifier from the authentication response.
+    ti: [u8; 4],
+    /// EV2 command counter. The card increments it between the command and
+    /// the response.
+    counter: u16,
+}
+
+impl Session {
+    /// Only 3K3DES and AES sessions use secure messaging. DES/2K3DES keep the
+    /// legacy D40 channel, whose responses carry no MAC.
+    fn uses_secure_messaging(&self) -> bool {
+        matches!(
+            self.key_type,
+            AuthKeyType::Tdes3 | AuthKeyType::Aes | AuthKeyType::AesEv2
+        )
+    }
+
+    /// Protection applied to commands that are not file-data operations.
+    ///
+    /// EV1 MACs every response, so a plain command still advances the CMAC
+    /// chain and verifies the response MAC. EV2 only protects commands whose
+    /// communication mode calls for it, and its management commands are MACed.
+    fn management_protection(&self) -> CommunicationMode {
+        match self.key_type {
+            AuthKeyType::AesEv2 => CommunicationMode::Maced,
+            _ => CommunicationMode::Plain,
+        }
+    }
+
+    fn block_size(&self) -> usize {
+        match self.key_type {
+            AuthKeyType::Tdes3 => 8,
+            AuthKeyType::Aes | AuthKeyType::AesEv2 => 16,
+            AuthKeyType::Des | AuthKeyType::Tdes2 => 8,
+        }
+    }
+
+    fn command_mac(&self, ins: u8, data: &[u8]) -> Result<Vec<u8>> {
+        match self.key_type {
+            AuthKeyType::Tdes3 | AuthKeyType::Aes => {
+                let mut input = Vec::with_capacity(1 + data.len());
+                input.push(ins);
+                input.extend_from_slice(data);
+                ev1_cmac(self.key_type, &self.mac_key, &self.iv, &input)
+            }
+            AuthKeyType::AesEv2 => {
+                let mut input = Vec::with_capacity(7 + data.len());
+                input.push(ins);
+                input.extend_from_slice(&self.counter.to_le_bytes());
+                input.extend_from_slice(&self.ti);
+                input.extend_from_slice(data);
+                cmac_aes(&self.mac_key, &input)
+            }
+            AuthKeyType::Des | AuthKeyType::Tdes2 => Err(NfcError::Unsupported(
+                "legacy DESFire sessions have no secure messaging",
+            )),
+        }
+    }
+
+    fn response_mac(&self, data: &[u8], status: u8) -> Result<Vec<u8>> {
+        match self.key_type {
+            AuthKeyType::Tdes3 | AuthKeyType::Aes => {
+                let mut input = Vec::with_capacity(data.len() + 1);
+                input.extend_from_slice(data);
+                input.push(status);
+                ev1_cmac(self.key_type, &self.mac_key, &self.iv, &input)
+            }
+            AuthKeyType::AesEv2 => {
+                let mut input = Vec::with_capacity(7 + data.len());
+                input.push(status);
+                input.extend_from_slice(&self.counter.to_le_bytes());
+                input.extend_from_slice(&self.ti);
+                input.extend_from_slice(data);
+                cmac_aes(&self.mac_key, &input)
+            }
+            AuthKeyType::Des | AuthKeyType::Tdes2 => Err(NfcError::Unsupported(
+                "legacy DESFire sessions have no secure messaging",
+            )),
+        }
+    }
 }
 
 /// DESFire version information.
@@ -676,6 +758,7 @@ impl<'a> Desfire<'a> {
         Ok((response.data, u16::from_be_bytes(response.sw)))
     }
 
+    /// Send a bare command outside the secure channel.
     fn expect_ok(&mut self, ins: u8, data: &[u8]) -> Result<Vec<u8>> {
         let (body, sw) = self.transceive(ins, data)?;
         if sw != STATUS_OK {
@@ -684,27 +767,88 @@ impl<'a> Desfire<'a> {
         Ok(body)
     }
 
-    fn chained(&mut self, ins: u8) -> Result<Vec<u8>> {
-        let (mut body, mut sw) = self.transceive(ins, &[])?;
-        let mut frames = 0;
-        while sw == STATUS_ADDITIONAL {
-            frames += 1;
-            if frames > 4 {
-                return Err(NfcError::InvalidArgument(
-                    "DESFire response has too many additional frames".to_owned(),
-                ));
-            }
-            let (next, next_sw) = self.transceive(INS_ADDITIONAL_FRAME, &[])?;
-            body.extend_from_slice(&next);
-            sw = next_sw;
-        }
+    /// Send a command that is not a file-data operation.
+    ///
+    /// Management commands are Plain under EV1 (the response is still MACed)
+    /// and MACed under EV2. Legacy DES/2K3DES sessions send them unchanged.
+    fn command(&mut self, ins: u8, data: &[u8]) -> Result<Vec<u8>> {
+        let communication = self
+            .session
+            .as_ref()
+            .map_or(CommunicationMode::Plain, Session::management_protection);
+        let (body, sw) = self.exchange(ins, data, communication, None)?;
         if sw != STATUS_OK {
             return Err(status_error(ins, sw));
         }
         Ok(body)
     }
 
-    fn chained_ok(&mut self, ins: u8, data: &[u8]) -> Result<Vec<u8>> {
+    /// Send a file read command with the protection of the file's
+    /// communication mode.
+    ///
+    /// `expected` is the plaintext length; an enciphered response cannot be
+    /// unpadded without it.
+    fn read_command(
+        &mut self,
+        ins: u8,
+        data: &[u8],
+        communication: CommunicationMode,
+        expected: usize,
+    ) -> Result<Vec<u8>> {
+        let (body, sw) = self.exchange(ins, data, communication, Some(expected))?;
+        if sw != STATUS_OK {
+            return Err(status_error(ins, sw));
+        }
+        if body.len() != expected {
+            return Err(NfcError::VerificationFailed(format!(
+                "DESFire command {ins:#04X} returned {} bytes, expected {expected}",
+                body.len()
+            )));
+        }
+        Ok(body)
+    }
+
+    fn exchange(
+        &mut self,
+        ins: u8,
+        data: &[u8],
+        communication: CommunicationMode,
+        expected: Option<usize>,
+    ) -> Result<(Vec<u8>, u16)> {
+        let wire = match self.encode_command(ins, data, communication) {
+            Ok(wire) => wire,
+            Err(error) => {
+                self.session = None;
+                return Err(error);
+            }
+        };
+        let (raw, sw) = match self.send_frames(ins, &wire) {
+            Ok(response) => response,
+            Err(error) => {
+                self.session = None;
+                return Err(error);
+            }
+        };
+        if sw != STATUS_OK {
+            // A refused command invalidates the secure-messaging session.
+            self.session = None;
+            return Ok((raw, sw));
+        }
+        if let Some(session) = self.session.as_mut()
+            && session.key_type == AuthKeyType::AesEv2
+        {
+            session.counter = session.counter.wrapping_add(1);
+        }
+        match self.decode_response(raw, communication, expected) {
+            Ok(body) => Ok((body, sw)),
+            Err(error) => {
+                self.session = None;
+                Err(error)
+            }
+        }
+    }
+
+    fn send_frames(&mut self, ins: u8, data: &[u8]) -> Result<(Vec<u8>, u16)> {
         let (mut body, mut sw) = self.transceive(ins, data)?;
         let mut frames = 0;
         while sw == STATUS_ADDITIONAL {
@@ -718,10 +862,76 @@ impl<'a> Desfire<'a> {
             body.extend_from_slice(&next);
             sw = next_sw;
         }
-        if sw != STATUS_OK {
-            return Err(status_error(ins, sw));
+        Ok((body, sw))
+    }
+
+    fn encode_command(
+        &mut self,
+        ins: u8,
+        data: &[u8],
+        communication: CommunicationMode,
+    ) -> Result<Vec<u8>> {
+        let Some(session) = self.session.as_ref() else {
+            return Ok(data.to_vec());
+        };
+        if !session.uses_secure_messaging() {
+            return Ok(data.to_vec());
         }
-        Ok(body)
+        let mac = session.command_mac(ins, data)?;
+        if session.key_type == AuthKeyType::AesEv2 {
+            if matches!(
+                communication,
+                CommunicationMode::Maced | CommunicationMode::Enciphered
+            ) {
+                let mut wire = Vec::with_capacity(data.len() + 8);
+                wire.extend_from_slice(data);
+                wire.extend_from_slice(&ev2_truncate(&mac));
+                return Ok(wire);
+            }
+            return Ok(data.to_vec());
+        }
+        // EV1 carries a command MAC only on the write commands, which this
+        // layer does not send under secure messaging. The CMAC still advances
+        // the chaining value used by the response.
+        if let Some(session) = self.session.as_mut() {
+            session.iv = mac;
+        }
+        Ok(data.to_vec())
+    }
+
+    fn decode_response(
+        &mut self,
+        raw: Vec<u8>,
+        communication: CommunicationMode,
+        expected: Option<usize>,
+    ) -> Result<Vec<u8>> {
+        let Some(session) = self.session.as_mut() else {
+            return Ok(raw);
+        };
+        if !session.uses_secure_messaging() {
+            return Ok(raw);
+        }
+        match session.key_type {
+            AuthKeyType::Tdes3 | AuthKeyType::Aes => {
+                decode_ev1_response(session, raw, communication, expected)
+            }
+            AuthKeyType::AesEv2 => decode_ev2_response(session, raw, communication, expected),
+            AuthKeyType::Des | AuthKeyType::Tdes2 => Ok(raw),
+        }
+    }
+
+    /// Secure-messaging file writes are added with phase 26.8.
+    fn ensure_legacy_write_channel(&self) -> Result<()> {
+        if self
+            .session
+            .as_ref()
+            .is_some_and(Session::uses_secure_messaging)
+        {
+            return Err(NfcError::Unsupported(
+                "secure-messaging file writes arrive with phase 26.8",
+            ));
+        }
+        Ok(())
     }
 
     fn ensure_authenticated(&self) -> Result<()> {
@@ -754,6 +964,9 @@ impl<'a> Desfire<'a> {
             ));
         }
         key_type.validate_key(key)?;
+        // A new authentication replaces the previous session. Keep no local
+        // state if this attempt fails.
+        self.session = None;
         let command = key_type.command();
         let challenge_length = key_type.challenge_length();
         let request = if matches!(key_type, AuthKeyType::AesEv2) {
@@ -806,7 +1019,7 @@ impl<'a> Desfire<'a> {
         }
         let decrypted = decrypt_auth_response(key, key_type, &sent, &response)?;
         let rotated_a = rotate_left(&rnd_a);
-        let (enc_key, mac_key, key_version) = match key_type {
+        let (enc_key, mac_key, key_version, ti) = match key_type {
             AuthKeyType::AesEv2 => {
                 if decrypted.len() != 32 {
                     return Err(NfcError::VerificationFailed(
@@ -818,7 +1031,8 @@ impl<'a> Desfire<'a> {
                 }
                 let enc = ev2_session_key(key, &rnd_a, &rnd_b, true)?;
                 let mac = ev2_session_key(key, &rnd_a, &rnd_b, false)?;
-                (enc, mac, 0)
+                let ti: [u8; 4] = decrypted[0..4].try_into().expect("four-byte TI");
+                (enc, mac, 0, ti)
             }
             _ => {
                 if decrypted.len() != challenge_length || decrypted != rotated_a {
@@ -826,14 +1040,22 @@ impl<'a> Desfire<'a> {
                 }
                 let enc = derive_session_key(key_type, &rnd_a, &rnd_b);
                 let mac = enc.clone();
-                (enc, mac, 0)
+                (enc, mac, 0, [0u8; 4])
             }
+        };
+        let iv = match key_type {
+            AuthKeyType::Tdes3 => vec![0u8; 8],
+            AuthKeyType::Aes => vec![0u8; 16],
+            _ => Vec::new(),
         };
         self.session = Some(Session {
             enc_key,
             mac_key,
             key_type,
             key_version,
+            iv,
+            ti,
+            counter: 0,
         });
         Ok(())
     }
@@ -876,7 +1098,7 @@ impl<'a> Desfire<'a> {
     /// state. It is not used by ordinary workflows.
     pub fn format_picc(&mut self) -> Result<()> {
         self.ensure_authenticated()?;
-        self.expect_ok(INS_FORMAT_PICC, &[])?;
+        self.command(INS_FORMAT_PICC, &[])?;
         self.session = None;
         self.selected = [0x00; 3];
         Ok(())
@@ -884,7 +1106,7 @@ impl<'a> Desfire<'a> {
 
     /// Free EEPROM bytes reported by the card.
     pub fn free_memory(&mut self) -> Result<u32> {
-        let body = self.chained_ok(INS_GET_FREE_MEMORY, &[])?;
+        let body = self.command(INS_GET_FREE_MEMORY, &[])?;
         if body.len() != 3 {
             return Err(NfcError::VerificationFailed(format!(
                 "GetFreeMemory returned {} bytes, expected 3",
@@ -895,11 +1117,11 @@ impl<'a> Desfire<'a> {
     }
 
     pub fn get_version(&mut self) -> Result<Version> {
-        Version::parse(&self.chained(INS_GET_VERSION)?)
+        Version::parse(&self.command(INS_GET_VERSION, &[])?)
     }
 
     pub fn application_ids(&mut self) -> Result<Vec<[u8; 3]>> {
-        let body = self.chained(INS_GET_APPLICATION_IDS)?;
+        let body = self.command(INS_GET_APPLICATION_IDS, &[])?;
         if !body.len().is_multiple_of(3) {
             return Err(NfcError::InvalidArgument(format!(
                 "DESFire application ID list length {} is not a multiple of 3",
@@ -914,18 +1136,20 @@ impl<'a> Desfire<'a> {
     }
 
     pub fn select_application(&mut self, aid: [u8; 3]) -> Result<()> {
+        // The card drops authentication on select, so the command itself is
+        // sent outside the old session.
+        self.session = None;
         self.expect_ok(INS_SELECT_APPLICATION, &aid)?;
         self.selected = aid;
-        self.session = None;
         Ok(())
     }
 
     pub fn file_ids(&mut self) -> Result<Vec<u8>> {
-        self.expect_ok(INS_GET_FILE_IDS, &[])
+        self.command(INS_GET_FILE_IDS, &[])
     }
 
     pub fn file_settings(&mut self, file_id: u8) -> Result<Vec<u8>> {
-        self.expect_ok(INS_GET_FILE_SETTINGS, &[file_id])
+        self.command(INS_GET_FILE_SETTINGS, &[file_id])
     }
 
     /// Create an application while authenticated to the PICC master
@@ -946,7 +1170,7 @@ impl<'a> Desfire<'a> {
         self.ensure_authenticated()?;
         let payload =
             create_application_payload(aid, key_settings, key_settings2, iso_file_id, df_name)?;
-        self.expect_ok(INS_CREATE_APPLICATION, &payload)?;
+        self.command(INS_CREATE_APPLICATION, &payload)?;
         Ok(())
     }
 
@@ -959,7 +1183,7 @@ impl<'a> Desfire<'a> {
                 "the PICC master application cannot be deleted".to_owned(),
             ));
         }
-        self.expect_ok(INS_DELETE_APPLICATION, &aid)?;
+        self.command(INS_DELETE_APPLICATION, &aid)?;
         if self.selected == aid {
             self.selected = [0x00; 3];
             self.session = None;
@@ -972,7 +1196,11 @@ impl<'a> Desfire<'a> {
     /// `NoChanges` means the card has nothing pending to commit and the
     /// requested state is already stored; it is not an error.
     pub fn commit_transaction(&mut self) -> Result<()> {
-        let (_, sw) = self.transceive(INS_COMMIT_TRANSACTION, &[])?;
+        let communication = self
+            .session
+            .as_ref()
+            .map_or(CommunicationMode::Plain, Session::management_protection);
+        let (_, sw) = self.exchange(INS_COMMIT_TRANSACTION, &[], communication, None)?;
         if sw == STATUS_OK || sw == STATUS_NO_CHANGES {
             Ok(())
         } else {
@@ -982,7 +1210,7 @@ impl<'a> Desfire<'a> {
 
     /// Abort the open transaction and discard uncommitted writes.
     pub fn abort_transaction(&mut self) -> Result<()> {
-        self.expect_ok(INS_ABORT_TRANSACTION, &[])?;
+        self.command(INS_ABORT_TRANSACTION, &[])?;
         Ok(())
     }
 
@@ -1003,7 +1231,7 @@ impl<'a> Desfire<'a> {
         self.ensure_authenticated()?;
         let payload =
             create_standard_file_payload(file_id, iso_file_id, communication, access_rights, size)?;
-        self.expect_ok(INS_CREATE_STD_DATA_FILE, &payload)?;
+        self.command(INS_CREATE_STD_DATA_FILE, &payload)?;
         Ok(())
     }
 
@@ -1015,7 +1243,7 @@ impl<'a> Desfire<'a> {
     pub fn create_value_file(&mut self, spec: ValueFileSpec) -> Result<()> {
         self.ensure_authenticated()?;
         let payload = create_value_file_payload(&spec)?;
-        self.expect_ok(INS_CREATE_VALUE_FILE, &payload)?;
+        self.command(INS_CREATE_VALUE_FILE, &payload)?;
         Ok(())
     }
 
@@ -1028,33 +1256,48 @@ impl<'a> Desfire<'a> {
         } else {
             INS_CREATE_LINEAR_RECORD_FILE
         };
-        self.expect_ok(instruction, &payload)?;
+        self.command(instruction, &payload)?;
         Ok(())
     }
 
     /// Read the signed current value of a value file.
-    pub fn get_value(&mut self, file_id: u8) -> Result<i32> {
-        let body = self.chained_ok(INS_GET_VALUE, &[file_id])?;
-        if body.len() != 4 {
-            return Err(NfcError::VerificationFailed(format!(
-                "GetValue returned {} bytes, expected 4",
-                body.len()
-            )));
-        }
+    ///
+    /// `communication` is the file's communication mode from its settings.
+    pub fn get_value(&mut self, file_id: u8, communication: CommunicationMode) -> Result<i32> {
+        let body = self.read_command(INS_GET_VALUE, &[file_id], communication, 4)?;
         Ok(i32::from_le_bytes(
             body[..4].try_into().expect("four-byte value"),
         ))
     }
 
     /// Read `count` records starting at `start_record`.
-    pub fn read_records(&mut self, file_id: u8, start_record: u32, count: u32) -> Result<Vec<u8>> {
+    ///
+    /// `record_size` is used to validate the protected response length when
+    /// the file is enciphered.
+    pub fn read_records(
+        &mut self,
+        file_id: u8,
+        start_record: u32,
+        count: u32,
+        record_size: u32,
+        communication: CommunicationMode,
+    ) -> Result<Vec<u8>> {
         if start_record > 0x00FF_FFFF || count == 0 || count > 0x00FF_FFFF {
             return Err(NfcError::InvalidArgument(
                 "DESFire ReadRecords needs a 24-bit record number and a positive record count"
                     .to_owned(),
             ));
         }
-        self.chained_ok(
+        if record_size == 0 {
+            return Err(NfcError::InvalidArgument(
+                "a DESFire record read needs the record size".to_owned(),
+            ));
+        }
+        let expected =
+            usize::try_from(u64::from(count) * u64::from(record_size)).map_err(|_| {
+                NfcError::InvalidArgument("the requested record bytes do not fit memory".to_owned())
+            })?;
+        self.read_command(
             INS_READ_RECORDS,
             &[
                 file_id,
@@ -1065,6 +1308,8 @@ impl<'a> Desfire<'a> {
                 (count >> 8) as u8,
                 (count >> 16) as u8,
             ],
+            communication,
+            expected,
         )
     }
 
@@ -1076,6 +1321,7 @@ impl<'a> Desfire<'a> {
     /// rejects an offset or length beyond the record size.
     pub fn write_record(&mut self, file_id: u8, offset: u32, data: &[u8]) -> Result<()> {
         self.ensure_authenticated()?;
+        self.ensure_legacy_write_channel()?;
         if offset > 0x00FF_FFFF {
             return Err(NfcError::InvalidArgument(
                 "DESFire record offset must fit 3 bytes".to_owned(),
@@ -1098,6 +1344,7 @@ impl<'a> Desfire<'a> {
     /// Write plain data to a standard or backup file.
     pub fn write_data(&mut self, file_id: u8, offset: u32, data: &[u8]) -> Result<()> {
         self.ensure_authenticated()?;
+        self.ensure_legacy_write_channel()?;
         if data.is_empty() {
             return Err(NfcError::InvalidArgument(
                 "DESFire write data must not be empty".to_owned(),
@@ -1122,14 +1369,30 @@ impl<'a> Desfire<'a> {
         Ok(())
     }
 
-    /// Read plain data from a standard or backup file.
-    pub fn read_data(&mut self, file_id: u8, offset: u32, length: u32) -> Result<Vec<u8>> {
+    /// Read data from a standard or backup file.
+    ///
+    /// `communication` is the file's communication mode from its settings.
+    /// An enciphered response is decrypted and its integrity is checked before
+    /// any byte is returned.
+    pub fn read_data(
+        &mut self,
+        file_id: u8,
+        offset: u32,
+        length: u32,
+        communication: CommunicationMode,
+    ) -> Result<Vec<u8>> {
         if offset > 0x00FF_FFFF || length > 0x00FF_FFFF {
             return Err(NfcError::InvalidArgument(
                 "DESFire read offset and length must fit 3 bytes".to_owned(),
             ));
         }
-        self.chained_ok(
+        if length == 0 {
+            return Err(NfcError::InvalidArgument(
+                "a DESFire read needs a positive length".to_owned(),
+            ));
+        }
+        let expected = length as usize;
+        self.read_command(
             INS_READ_DATA,
             &[
                 file_id,
@@ -1140,6 +1403,8 @@ impl<'a> Desfire<'a> {
                 (length >> 8) as u8,
                 (length >> 16) as u8,
             ],
+            communication,
+            expected,
         )
     }
 
@@ -1470,16 +1735,311 @@ fn aes_cbc_encrypt(key: &[u8], iv: &[u8], data: &[u8]) -> Result<Vec<u8>> {
     Ok(output)
 }
 
+/// Block cipher used by the DESFire CMAC.
+trait CmacCipher {
+    const BLOCK_SIZE: usize;
+
+    fn new(key: &[u8]) -> Result<Self>
+    where
+        Self: Sized;
+
+    fn encrypt(&self, block: &mut [u8]);
+}
+
+impl CmacCipher for TdesEde3 {
+    const BLOCK_SIZE: usize = 8;
+
+    fn new(key: &[u8]) -> Result<Self> {
+        TdesEde3::new_from_slice(key)
+            .map_err(|_| NfcError::InvalidArgument("invalid 3DES key".to_owned()))
+    }
+
+    fn encrypt(&self, block: &mut [u8]) {
+        let mut value = [0u8; 8];
+        value.copy_from_slice(block);
+        BlockCipherEncrypt::encrypt_block(self, (&mut value).into());
+        block.copy_from_slice(&value);
+    }
+}
+
+impl CmacCipher for Aes128 {
+    const BLOCK_SIZE: usize = 16;
+
+    fn new(key: &[u8]) -> Result<Self> {
+        Aes128::new_from_slice(key)
+            .map_err(|_| NfcError::InvalidArgument("invalid AES-128 key".to_owned()))
+    }
+
+    fn encrypt(&self, block: &mut [u8]) {
+        let mut value = [0u8; 16];
+        value.copy_from_slice(block);
+        BlockCipherEncrypt::encrypt_block(self, (&mut value).into());
+        block.copy_from_slice(&value);
+    }
+}
+
+/// CMAC (NIST SP 800-38B) with an explicit starting chaining value.
+///
+/// DESFire EV1 chains the CMAC result from one command/response into the next,
+/// so its IV is not the usual all-zero block.
+fn cmac_chained<C: CmacCipher>(key: &[u8], iv: &[u8], data: &[u8], rb: u8) -> Result<Vec<u8>> {
+    let block_size = C::BLOCK_SIZE;
+    if iv.len() != block_size {
+        return Err(NfcError::InvalidArgument(format!(
+            "CMAC needs a {block_size}-byte chaining value"
+        )));
+    }
+    let cipher = C::new(key)?;
+    let mut zero = vec![0u8; block_size];
+    cipher.encrypt(&mut zero);
+    let k1 = cmac_subkey(&zero, rb);
+    let k2 = cmac_subkey(&k1, rb);
+
+    let mut blocks = data.to_vec();
+    if data.is_empty() || !data.len().is_multiple_of(block_size) {
+        blocks.push(0x80);
+        while !blocks.len().is_multiple_of(block_size) {
+            blocks.push(0x00);
+        }
+        let last = blocks.len() - block_size;
+        for (index, byte) in k2.iter().enumerate() {
+            blocks[last + index] ^= byte;
+        }
+    } else {
+        let last = blocks.len() - block_size;
+        for (index, byte) in k1.iter().enumerate() {
+            blocks[last + index] ^= byte;
+        }
+    }
+
+    let mut state = iv.to_vec();
+    for chunk in blocks.chunks_exact(block_size) {
+        for index in 0..block_size {
+            state[index] ^= chunk[index];
+        }
+        cipher.encrypt(&mut state);
+    }
+    Ok(state)
+}
+
+fn cmac_subkey(block: &[u8], rb: u8) -> Vec<u8> {
+    let mut output = vec![0u8; block.len()];
+    let mut carry = 0u8;
+    for index in (0..block.len()).rev() {
+        output[index] = (block[index] << 1) | carry;
+        carry = block[index] >> 7;
+    }
+    if block[0] & 0x80 != 0 {
+        output[block.len() - 1] ^= rb;
+    }
+    output
+}
+
 fn cmac_aes(key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
     if key.len() != 16 {
         return Err(NfcError::InvalidArgument(
             "AES-CMAC needs a 16-byte key".to_owned(),
         ));
     }
-    let mut mac = Cmac::<Aes128>::new_from_slice(key)
-        .map_err(|_| NfcError::InvalidArgument("invalid AES-CMAC key".to_owned()))?;
-    mac.update(data);
-    Ok(mac.finalize().into_bytes().to_vec())
+    cmac_chained::<Aes128>(key, &[0u8; 16], data, 0x87)
+}
+
+fn ev1_cmac(key_type: AuthKeyType, key: &[u8], iv: &[u8], data: &[u8]) -> Result<Vec<u8>> {
+    match key_type {
+        AuthKeyType::Tdes3 => cmac_chained::<TdesEde3>(key, iv, data, 0x1B),
+        AuthKeyType::Aes => cmac_chained::<Aes128>(key, iv, data, 0x87),
+        _ => Err(NfcError::InvalidArgument(
+            "EV1 secure messaging needs a 3K3DES or AES key".to_owned(),
+        )),
+    }
+}
+
+fn split_mac(raw: &[u8]) -> Result<(&[u8], &[u8])> {
+    if raw.len() < 8 {
+        return Err(NfcError::VerificationFailed(format!(
+            "secure-messaging response is {} bytes, shorter than the 8-byte MAC",
+            raw.len()
+        )));
+    }
+    Ok(raw.split_at(raw.len() - 8))
+}
+
+/// EV2 truncates the 16-byte AES-CMAC to every second byte, starting with the
+/// second byte (AN12343 figure 5).
+fn ev2_truncate(mac: &[u8]) -> [u8; 8] {
+    let mut output = [0u8; 8];
+    for (index, byte) in output.iter_mut().enumerate() {
+        *byte = mac[index * 2 + 1];
+    }
+    output
+}
+
+fn mac_matches(received: &[u8], computed: &[u8]) -> bool {
+    received.len() == 8
+        && computed.len() >= 8
+        && received
+            .iter()
+            .zip(computed)
+            .fold(0u8, |difference, (left, right)| difference | (left ^ right))
+            == 0
+}
+
+fn decode_ev1_response(
+    session: &mut Session,
+    raw: Vec<u8>,
+    communication: CommunicationMode,
+    expected: Option<usize>,
+) -> Result<Vec<u8>> {
+    match communication {
+        CommunicationMode::Plain | CommunicationMode::Maced => {
+            let (body, received) = split_mac(&raw)?;
+            let computed = session.response_mac(body, 0x00)?;
+            if !mac_matches(received, &computed) {
+                return Err(NfcError::VerificationFailed(
+                    "the EV1 response MAC does not verify".to_owned(),
+                ));
+            }
+            session.iv = computed;
+            Ok(body.to_vec())
+        }
+        CommunicationMode::Enciphered => {
+            let expected = expected.ok_or_else(|| {
+                NfcError::InvalidArgument(
+                    "an enciphered EV1 response needs the expected plaintext length".to_owned(),
+                )
+            })?;
+            let iv = session.iv.clone();
+            let plain = match session.key_type {
+                AuthKeyType::Tdes3 => {
+                    cbc_decrypt_iv(&expand_tdes_key(&session.enc_key)?, &iv, &raw)?
+                }
+                _ => aes_cbc_decrypt(&session.enc_key, &iv, &raw)?,
+            };
+            let block_size = session.block_size();
+            if raw.len() < block_size {
+                return Err(NfcError::VerificationFailed(
+                    "the EV1 enciphered response has no ciphertext block".to_owned(),
+                ));
+            }
+            session.iv = raw[raw.len() - block_size..].to_vec();
+            verify_ev1_plaintext(&plain, expected, block_size)
+        }
+    }
+}
+
+fn decode_ev2_response(
+    session: &mut Session,
+    raw: Vec<u8>,
+    communication: CommunicationMode,
+    expected: Option<usize>,
+) -> Result<Vec<u8>> {
+    let counter = session.counter;
+    match communication {
+        CommunicationMode::Plain => Ok(raw),
+        CommunicationMode::Maced => {
+            let (body, received) = split_mac(&raw)?;
+            let computed = session.response_mac(body, 0x00)?;
+            if !mac_matches(received, &ev2_truncate(&computed)) {
+                return Err(NfcError::VerificationFailed(
+                    "the EV2 response MAC does not verify".to_owned(),
+                ));
+            }
+            Ok(body.to_vec())
+        }
+        CommunicationMode::Enciphered => {
+            let expected = expected.ok_or_else(|| {
+                NfcError::InvalidArgument(
+                    "an enciphered EV2 response needs the expected plaintext length".to_owned(),
+                )
+            })?;
+            let (cipher, received) = split_mac(&raw)?;
+            let computed = session.response_mac(cipher, 0x00)?;
+            if !mac_matches(received, &ev2_truncate(&computed)) {
+                return Err(NfcError::VerificationFailed(
+                    "the EV2 response MAC does not verify".to_owned(),
+                ));
+            }
+            let iv = ev2_response_iv(&session.enc_key, &session.ti, counter)?;
+            let plain = aes_cbc_decrypt(&session.enc_key, &iv, cipher)?;
+            verify_ev2_plaintext(&plain, expected, 16)
+        }
+    }
+}
+
+fn ev2_response_iv(enc_key: &[u8], ti: &[u8; 4], counter: u16) -> Result<Vec<u8>> {
+    if enc_key.len() != 16 {
+        return Err(NfcError::InvalidArgument(
+            "EV2 secure messaging needs a 16-byte AES ENC key".to_owned(),
+        ));
+    }
+    let mut input = [0u8; 16];
+    input[0] = 0x5A;
+    input[1] = 0xA5;
+    input[2..6].copy_from_slice(ti);
+    input[6..8].copy_from_slice(&counter.to_le_bytes());
+    let cipher = Aes128::new_from_slice(enc_key)
+        .map_err(|_| NfcError::InvalidArgument("invalid AES-128 key".to_owned()))?;
+    cipher.encrypt_block((&mut input).into());
+    Ok(input.to_vec())
+}
+
+/// EV1 enciphered payload: data, a four-byte CRC32, then zero padding to the
+/// block size. The CRC covers the data and the success status byte.
+fn verify_ev1_plaintext(plain: &[u8], expected: usize, block_size: usize) -> Result<Vec<u8>> {
+    let padded = (expected + 4).div_ceil(block_size) * block_size;
+    if plain.len() != padded {
+        return Err(NfcError::VerificationFailed(format!(
+            "the EV1 enciphered response is {} bytes, expected {padded}",
+            plain.len()
+        )));
+    }
+    if plain[expected + 4..].iter().any(|byte| *byte != 0) {
+        return Err(NfcError::VerificationFailed(
+            "the EV1 enciphered response has non-zero padding".to_owned(),
+        ));
+    }
+    let mut crc_input = Vec::with_capacity(expected + 1);
+    crc_input.extend_from_slice(&plain[..expected]);
+    crc_input.push(0x00);
+    let crc = crc32_desfire(&crc_input);
+    if plain[expected..expected + 4] != crc {
+        return Err(NfcError::VerificationFailed(
+            "the EV1 enciphered response CRC32 does not verify".to_owned(),
+        ));
+    }
+    Ok(plain[..expected].to_vec())
+}
+
+/// EV2 enciphered payload: ISO/IEC 9797-1 padding method 2 (0x80 followed by
+/// zeros), always adding a padding block when the data is already aligned.
+fn verify_ev2_plaintext(plain: &[u8], expected: usize, block_size: usize) -> Result<Vec<u8>> {
+    let padded = (expected / block_size + 1) * block_size;
+    if plain.len() != padded || expected >= plain.len() {
+        return Err(NfcError::VerificationFailed(format!(
+            "the EV2 enciphered response is {} bytes, expected {padded}",
+            plain.len()
+        )));
+    }
+    if plain[expected] != 0x80 || plain[expected + 1..].iter().any(|byte| *byte != 0) {
+        return Err(NfcError::VerificationFailed(
+            "the EV2 enciphered response has invalid padding".to_owned(),
+        ));
+    }
+    Ok(plain[..expected].to_vec())
+}
+
+/// DESFire CRC32: reflected polynomial 0xEDB88320, initial value 0xFFFFFFFF,
+/// no final complement, little-endian output.
+fn crc32_desfire(data: &[u8]) -> [u8; 4] {
+    let mut crc = 0xFFFF_FFFFu32;
+    for byte in data {
+        crc ^= u32::from(*byte);
+        for _ in 0..8 {
+            let mask = (crc & 1).wrapping_neg();
+            crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+        }
+    }
+    crc.to_le_bytes()
 }
 
 fn last_block(data: &[u8], length: usize) -> Result<&[u8]> {
@@ -2125,7 +2685,12 @@ mod tests {
             [0x91, 0x00],
         )]);
         let mut desfire = Desfire::new(&mut reader);
-        assert_eq!(desfire.get_value(5).expect("value"), -50);
+        assert_eq!(
+            desfire
+                .get_value(5, CommunicationMode::Plain)
+                .expect("value"),
+            -50
+        );
         assert_eq!(
             reader.commands,
             [vec![0x90, 0x6C, 0x00, 0x00, 0x01, 0x05, 0x00]]
@@ -2135,10 +2700,16 @@ mod tests {
         reader.responses = VecDeque::from([ApduResponse::new(vec![0xAA; 16], [0x91, 0x00])]);
         let mut desfire = Desfire::new(&mut reader);
         assert_eq!(
-            desfire.read_records(2, 1, 2).expect("records"),
+            desfire
+                .read_records(2, 1, 2, 8, CommunicationMode::Plain)
+                .expect("records"),
             vec![0xAA; 16]
         );
-        assert!(desfire.read_records(2, 0, 0).is_err());
+        assert!(
+            desfire
+                .read_records(2, 0, 0, 8, CommunicationMode::Plain)
+                .is_err()
+        );
         drop(desfire);
         assert_eq!(
             reader.commands,
@@ -2156,7 +2727,9 @@ mod tests {
         ]);
         let mut desfire = Desfire::new(&mut reader);
         assert_eq!(
-            desfire.read_data(2, 0, 4).expect("chained data"),
+            desfire
+                .read_data(2, 0, 4, CommunicationMode::Plain)
+                .expect("chained data"),
             vec![0x01, 0x02, 0x03, 0x04]
         );
         drop(desfire);
@@ -2216,6 +2789,343 @@ mod tests {
         assert!(create_standard_file_payload(1, Some(0), 0, 0, 15).is_err());
         assert!(create_standard_file_payload(1, None, 4, 0, 15).is_err());
         assert!(create_standard_file_payload(1, None, 0, 0, 0).is_err());
+    }
+
+    fn hex(text: &str) -> Vec<u8> {
+        let digits: String = text
+            .chars()
+            .filter(|character| character.is_ascii_hexdigit())
+            .collect();
+        digits
+            .as_bytes()
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| {
+                u8::from_str_radix(std::str::from_utf8(pair).expect("ascii hex"), 16)
+                    .expect("valid hex")
+            })
+            .collect()
+    }
+
+    fn ev1_session(key_type: AuthKeyType, key: &[u8], iv: Vec<u8>) -> Session {
+        Session {
+            enc_key: key.to_vec(),
+            mac_key: key.to_vec(),
+            key_type,
+            key_version: 0,
+            iv,
+            ti: [0u8; 4],
+            counter: 0,
+        }
+    }
+
+    fn ev2_session(mac_key: &[u8], enc_key: &[u8], ti: [u8; 4], counter: u16) -> Session {
+        Session {
+            enc_key: enc_key.to_vec(),
+            mac_key: mac_key.to_vec(),
+            key_type: AuthKeyType::AesEv2,
+            key_version: 0,
+            iv: Vec::new(),
+            ti,
+            counter,
+        }
+    }
+
+    #[test]
+    fn cmac_matches_published_vectors() {
+        let data = hex("6BC1BEE22E409F96E93D7E117393172AAE2D8A571E03AC9C9EB76FAC45AF8E51");
+        let key = hex("0123456789ABCDEF23456789ABCDEF01456789ABCDEF0123");
+        for (length, expected) in [
+            (0, "7DB0D37DF936C550"),
+            (16, "30239CF1F52E6609"),
+            (20, "6C9F3EE4923F6BE2"),
+            (32, "99429BD0BF7904E5"),
+        ] {
+            assert_eq!(
+                ev1_cmac(AuthKeyType::Tdes3, &key, &[0u8; 8], &data[..length]).expect("cmac"),
+                hex(expected)
+            );
+        }
+
+        let aes_key = hex("2B7E151628AED2A6ABF7158809CF4F3C");
+        let aes_data = hex("6BC1BEE22E409F96E93D7E117393172A");
+        assert_eq!(
+            cmac_aes(&aes_key, &aes_data).expect("aes cmac"),
+            hex("070A16B46B4D4144F79BDD9DD04A287C")
+        );
+    }
+
+    #[test]
+    fn ev2_macs_match_an12343() {
+        let mut session = ev2_session(
+            &hex("9366FA195EB566F5BD2BAD4020B83002"),
+            &[0u8; 16],
+            [0xE2, 0xD3, 0xAF, 0x69],
+            0,
+        );
+        let mut write = hex("00000000190000");
+        write.extend_from_slice(&[0x22; 25]);
+        assert_eq!(
+            ev2_truncate(&session.command_mac(0x8D, &write).expect("write mac")),
+            [0x68, 0xF2, 0xC2, 0x8C, 0x57, 0x5A, 0x16, 0x28]
+        );
+
+        session.counter = 1;
+        assert_eq!(
+            ev2_truncate(&session.response_mac(&[], 0x00).expect("write response mac")),
+            [0x08, 0x20, 0xF6, 0x88, 0x98, 0xC2, 0xA7, 0xF1]
+        );
+        assert_eq!(
+            ev2_truncate(
+                &session
+                    .command_mac(0xAD, &hex("00000000300000"))
+                    .expect("read mac")
+            ),
+            [0x0D, 0x9B, 0xE1, 0x91, 0xD5, 0x96, 0x08, 0x34]
+        );
+
+        session.counter = 2;
+        let mut response = vec![0x22; 25];
+        response.extend_from_slice(&[0x00; 23]);
+        assert_eq!(
+            ev2_truncate(
+                &session
+                    .response_mac(&response, 0x00)
+                    .expect("read response mac")
+            ),
+            [0xA4, 0x9A, 0x44, 0x22, 0x2D, 0x92, 0x66, 0x66]
+        );
+    }
+
+    #[test]
+    fn ev2_response_iv_matches_an12343() {
+        assert_eq!(
+            ev2_response_iv(
+                &hex("FFBCFE1F41840A09C9A88D0A4B10DF05"),
+                &[0xCD, 0x73, 0xD8, 0xE5],
+                2
+            )
+            .expect("iv"),
+            hex("13659A1BC863D4109FC3FB92C93D952F")
+        );
+    }
+
+    #[test]
+    fn crc32_matches_the_desfire_vector() {
+        assert_eq!(
+            crc32_desfire(&hex("04440F3276318000")),
+            [0x99, 0xCE, 0x1A, 0xD4]
+        );
+    }
+
+    #[test]
+    fn ev1_maced_read_verifies_the_response_mac() {
+        let key = hex("000102030405060708090A0B0C0D0E0F1011121314151617");
+        let mut reader = ScriptedReader::with_responses(vec![ApduResponse::new(
+            hex("01020304F12683C01A4BD67F"),
+            [0x91, 0x00],
+        )]);
+        let mut desfire = Desfire::new(&mut reader);
+        desfire.session = Some(ev1_session(AuthKeyType::Tdes3, &key, vec![0u8; 8]));
+        assert_eq!(
+            desfire
+                .read_data(2, 0, 4, CommunicationMode::Maced)
+                .expect("maced read"),
+            vec![0x01, 0x02, 0x03, 0x04]
+        );
+        drop(desfire);
+        assert_eq!(
+            reader.commands,
+            [vec![
+                0x90, 0xBD, 0x00, 0x00, 0x07, 0x02, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00
+            ]]
+        );
+    }
+
+    #[test]
+    fn ev1_tampered_response_mac_is_rejected() {
+        let key = hex("000102030405060708090A0B0C0D0E0F1011121314151617");
+        let mut reader = ScriptedReader::with_responses(vec![ApduResponse::new(
+            hex("01020304F12683C01A4BD67E"),
+            [0x91, 0x00],
+        )]);
+        let mut desfire = Desfire::new(&mut reader);
+        desfire.session = Some(ev1_session(AuthKeyType::Tdes3, &key, vec![0u8; 8]));
+        let error = desfire
+            .read_data(2, 0, 4, CommunicationMode::Maced)
+            .expect_err("the MAC is wrong");
+        assert!(matches!(error, NfcError::VerificationFailed(_)));
+        assert!(
+            desfire.session_key().is_none(),
+            "the session must be dropped"
+        );
+    }
+
+    #[test]
+    fn ev1_enciphered_read_decrypts_and_checks_the_crc() {
+        let key = hex("000102030405060708090A0B0C0D0E0F");
+        let ciphertext = hex(
+            "6DC82D119AA47B43E08DBB8CC3555C324710A1FEC13452F85E242DF7BEF1A592             357E4865B053AFF6B82A002764BE912A",
+        );
+        let mut reader =
+            ScriptedReader::with_responses(vec![ApduResponse::new(ciphertext, [0x91, 0x00])]);
+        let mut desfire = Desfire::new(&mut reader);
+        desfire.session = Some(ev1_session(AuthKeyType::Aes, &key, vec![0u8; 16]));
+        let expected: Vec<u8> = (1..=40).collect();
+        assert_eq!(
+            desfire
+                .read_data(2, 0, 40, CommunicationMode::Enciphered)
+                .expect("enciphered read"),
+            expected
+        );
+        drop(desfire);
+        assert_eq!(
+            reader.commands,
+            [vec![
+                0x90, 0xBD, 0x00, 0x00, 0x07, 0x02, 0x00, 0x00, 0x00, 0x28, 0x00, 0x00, 0x00
+            ]]
+        );
+    }
+
+    #[test]
+    fn ev1_tampered_ciphertext_is_rejected() {
+        let key = hex("000102030405060708090A0B0C0D0E0F");
+        let mut ciphertext = hex(
+            "6DC82D119AA47B43E08DBB8CC3555C324710A1FEC13452F85E242DF7BEF1A592             357E4865B053AFF6B82A002764BE912A",
+        );
+        ciphertext[0] ^= 0x01;
+        let mut reader =
+            ScriptedReader::with_responses(vec![ApduResponse::new(ciphertext, [0x91, 0x00])]);
+        let mut desfire = Desfire::new(&mut reader);
+        desfire.session = Some(ev1_session(AuthKeyType::Aes, &key, vec![0u8; 16]));
+        let error = desfire
+            .read_data(2, 0, 40, CommunicationMode::Enciphered)
+            .expect_err("the CRC is wrong");
+        assert!(matches!(error, NfcError::VerificationFailed(_)));
+        assert!(
+            desfire.session_key().is_none(),
+            "the session must be dropped"
+        );
+    }
+
+    #[test]
+    fn ev2_maced_read_reassembles_frames_and_verifies_the_mac() {
+        let mac_key = hex("9366FA195EB566F5BD2BAD4020B83002");
+        let mut body = vec![0x22u8; 25];
+        body.extend_from_slice(&[0x00; 23]);
+        let mut raw = body.clone();
+        raw.extend_from_slice(&hex("A49A44222D926666"));
+        let mut reader = ScriptedReader::with_responses(vec![
+            ApduResponse::new(raw[..20].to_vec(), [0x91, 0xAF]),
+            ApduResponse::new(raw[20..].to_vec(), [0x91, 0x00]),
+        ]);
+        let mut desfire = Desfire::new(&mut reader);
+        desfire.session = Some(ev2_session(
+            &mac_key,
+            &[0u8; 16],
+            [0xE2, 0xD3, 0xAF, 0x69],
+            1,
+        ));
+        assert_eq!(
+            desfire
+                .read_data(0, 0, 48, CommunicationMode::Maced)
+                .expect("maced read"),
+            body
+        );
+        drop(desfire);
+        let mut expected = vec![0x90, 0xBD, 0x00, 0x00, 0x0F];
+        expected.extend_from_slice(&hex("000000003000005A17B6D0C9EB96A5"));
+        expected.push(0x00);
+        assert_eq!(reader.commands[0], expected);
+        assert_eq!(reader.commands[1], vec![0x90, 0xAF, 0x00, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn ev2_enciphered_read_verifies_the_mac_then_decrypts() {
+        let mac_key = hex("37E7234B11BEBEFDE41A8F290090EF80");
+        let enc_key = hex("FFBCFE1F41840A09C9A88D0A4B10DF05");
+        let mut raw = hex(
+            "8848D0F9B9FD4495770C89925B2A85C7274D350FA9029C484D43804886662DC             42D7F40A6D7A415E4A71EFF79EB8E5721AC3BF1CAAFE8EB2CAA2DC162E67A97A3",
+        );
+        raw.extend_from_slice(&hex("8ED7888F22B3A587"));
+        let mut reader = ScriptedReader::with_responses(vec![ApduResponse::new(raw, [0x91, 0x00])]);
+        let mut desfire = Desfire::new(&mut reader);
+        desfire.session = Some(ev2_session(&mac_key, &enc_key, [0xCD, 0x73, 0xD8, 0xE5], 1));
+        assert_eq!(
+            desfire
+                .read_data(0, 0, 48, CommunicationMode::Enciphered)
+                .expect("enciphered read"),
+            {
+                let mut expected = vec![0x22; 25];
+                expected.extend_from_slice(&[0x00; 23]);
+                expected
+            }
+        );
+        drop(desfire);
+        let mut expected = vec![0x90, 0xBD, 0x00, 0x00, 0x0F];
+        expected.extend_from_slice(&hex("00000000300000A793CB9E6B283100"));
+        expected.push(0x00);
+        assert_eq!(reader.commands, [expected]);
+    }
+
+    #[test]
+    fn ev2_tampered_enciphered_response_is_rejected() {
+        let mac_key = hex("37E7234B11BEBEFDE41A8F290090EF80");
+        let enc_key = hex("FFBCFE1F41840A09C9A88D0A4B10DF05");
+        let ciphertext = hex(
+            "8848D0F9B9FD4495770C89925B2A85C7274D350FA9029C484D43804886662DC             42D7F40A6D7A415E4A71EFF79EB8E5721AC3BF1CAAFE8EB2CAA2DC162E67A97A3",
+        );
+
+        for mutate in 0..2 {
+            let mut raw = ciphertext.clone();
+            if mutate == 0 {
+                raw[0] ^= 0x01;
+            }
+            raw.extend_from_slice(&hex("8ED7888F22B3A587"));
+            if mutate == 1 {
+                let last = raw.len() - 1;
+                raw[last] ^= 0x01;
+            }
+            let mut reader =
+                ScriptedReader::with_responses(vec![ApduResponse::new(raw, [0x91, 0x00])]);
+            let mut desfire = Desfire::new(&mut reader);
+            desfire.session = Some(ev2_session(&mac_key, &enc_key, [0xCD, 0x73, 0xD8, 0xE5], 1));
+            let error = desfire
+                .read_data(0, 0, 48, CommunicationMode::Enciphered)
+                .expect_err("the response is tampered");
+            assert!(matches!(error, NfcError::VerificationFailed(_)));
+            assert!(
+                desfire.session_key().is_none(),
+                "the session must be dropped"
+            );
+        }
+    }
+
+    #[test]
+    fn ev2_plain_read_has_no_mac_and_advances_the_counter() {
+        let mut reader = ScriptedReader::with_responses(vec![ApduResponse::new(
+            vec![0x2A, 0x00, 0x00, 0x00],
+            [0x91, 0x00],
+        )]);
+        let mut desfire = Desfire::new(&mut reader);
+        desfire.session = Some(ev2_session(&[0u8; 16], &[0u8; 16], [1, 2, 3, 4], 0));
+        assert_eq!(
+            desfire
+                .get_value(3, CommunicationMode::Plain)
+                .expect("plain value"),
+            42
+        );
+        assert_eq!(
+            desfire.session.as_ref().expect("session").counter,
+            1,
+            "plain commands still advance the EV2 counter"
+        );
+        drop(desfire);
+        assert_eq!(
+            reader.commands,
+            [vec![0x90, 0x6C, 0x00, 0x00, 0x01, 0x03, 0x00]]
+        );
     }
 
     #[test]

@@ -1,6 +1,6 @@
 # Phase 26 plan: DESFire workbench
 
-Status: in progress. 26.1–26.4 are complete; 26.5–26.13 are pending, except
+Status: in progress. 26.1–26.5 are complete; 26.6–26.13 are pending, except
 that 26.12's ordinary NDEF provisioning and guarded delete landed in phase
 25.5. Hardware: PN532 UART first; ACR122U records after a reader is available.
 
@@ -121,7 +121,11 @@ Acceptance:
   changed.
 - Keys remain session-scoped and are cleared on card removal.
 
-### 26.5 Secure-messaging read
+### 26.5 Secure-messaging read (done)
+
+Status: complete 2026-11-12. See
+[26e-secure-messaging.md](../notes/26e-secure-messaging.md) and the
+[26e spec](../specs/26e-secure-messaging.md).
 
 Deliver:
 
@@ -184,8 +188,8 @@ Acceptance:
 
 Deliver:
 
-- Standard and Backup file write with offset and length in Plain mode, then in
-  MACed and Enciphered modes once 26.5 is validated.
+- Standard and Backup file write with offset and length in Plain, MACed, and
+  Enciphered modes.
 - Commit and abort for Backup files and any file whose changes require a
   transaction.
 - Capacity and access-right preflight before the first byte is written.
@@ -322,7 +326,8 @@ Acceptance:
 
 - 26.4 adds `aes` and `cmac` at the latest stable versions, with a spec note
   recording why each is needed.
-- 26.5 adds the CBC mode crate needed for EV1/EV2 enciphered reads and writes.
+- 26.5 implements EV1/EV2 CMAC chaining and CBC with the existing `cipher`,
+  `aes`, and `des` primitives; it adds no crate. 26.8 reuses them for writes.
 - 26.6 and 26.12 reuse `nfc-type4` and `nfc-ndef`; no second NDEF codec.
 - No C shim, external reader daemon, or Proxmark3 dependency is added.
 

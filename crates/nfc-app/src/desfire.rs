@@ -241,21 +241,12 @@ impl Service {
     /// Standard and backup files use ReadData with the byte offset and length.
     /// Value files use GetValue. Linear and cyclic record files use
     /// ReadRecords with the record number and record count. Authentication is
-    /// optional; when a key is supplied it is used with the legacy
-    /// DES/2K3DES authenticator.
+    /// optional; the explicit key family selects the secure-messaging channel.
     pub fn desfire_read(
         &mut self,
         cancel: CancelToken,
         request: DesfireReadRequest,
     ) -> Result<DesfireReadResult> {
-        if matches!(
-            request.key_type,
-            Some(AuthKeyType::Tdes3 | AuthKeyType::Aes | AuthKeyType::AesEv2)
-        ) {
-            return Err(NfcError::Unsupported(
-                "3K3DES and AES reads need secure messaging (phase 26.5)",
-            ));
-        }
         let mut operation = self.begin_operation(OperationKind::Read, cancel)?;
         let mut desfire = nfc_desfire::Desfire::new(operation.reader_mut());
         desfire.select_application(request.aid)?;
@@ -269,6 +260,8 @@ impl Service {
         }
         let raw = desfire.file_settings(request.file_id)?;
         let settings = FileSettings::parse(&raw)?;
+        let communication =
+            effective_read_communication(&settings, request.key_number, request.key.is_some());
         match &settings.contents {
             FileContents::Data { size } => {
                 let size = *size;
@@ -285,7 +278,8 @@ impl Service {
                         "read length {length} is outside the remaining {remaining} bytes"
                     )));
                 }
-                let data = desfire.read_data(request.file_id, request.offset, length)?;
+                let data =
+                    desfire.read_data(request.file_id, request.offset, length, communication)?;
                 if data.len() as u32 != length {
                     return Err(NfcError::VerificationFailed(format!(
                         "read returned {} bytes, expected {length}",
@@ -299,7 +293,7 @@ impl Service {
                 upper_limit,
                 ..
             } => {
-                let value = desfire.get_value(request.file_id)?;
+                let value = desfire.get_value(request.file_id, communication)?;
                 if value < *lower_limit || value > *upper_limit {
                     return Err(NfcError::VerificationFailed(format!(
                         "GetValue returned {value}, outside the declared limits {lower_limit}..{upper_limit}"
@@ -348,7 +342,13 @@ impl Service {
                     )));
                 }
                 let first_record = current_records - request.start_record - count;
-                let data = desfire.read_records(request.file_id, request.start_record, count)?;
+                let data = desfire.read_records(
+                    request.file_id,
+                    request.start_record,
+                    count,
+                    record_size,
+                    communication,
+                )?;
                 verify_record_bytes(data.len(), count, record_size)?;
                 let records = data
                     .chunks_exact(record_size as usize)
@@ -571,6 +571,37 @@ fn delete_ndef(
     Ok(DesfireNdefDeleteResult { applications })
 }
 
+/// Effective protection for a read operation.
+///
+/// When the operation is granted by a free access right, the PICC runs it in
+/// plain whatever the file communication mode says. A free GetValue option
+/// does the same for GetValue. A key-based right held by the authenticated key
+/// keeps the file mode.
+fn effective_read_communication(
+    settings: &FileSettings,
+    key_number: u8,
+    authenticated: bool,
+) -> CommunicationMode {
+    if let FileContents::Value {
+        free_get_value: true,
+        ..
+    } = settings.contents
+    {
+        return CommunicationMode::Plain;
+    }
+    let key_matches = |right: AccessRight| {
+        authenticated && matches!(right, AccessRight::Key(key) if key == key_number)
+    };
+    if key_matches(settings.access.read) || key_matches(settings.access.read_write) {
+        return settings.communication;
+    }
+    if settings.access.read == AccessRight::Free || settings.access.read_write == AccessRight::Free
+    {
+        return CommunicationMode::Plain;
+    }
+    settings.communication
+}
+
 fn verify_record_bytes(actual: usize, count: u32, record_size: u32) -> Result<()> {
     let expected = u64::from(count) * u64::from(record_size);
     if actual as u64 == expected {
@@ -661,7 +692,12 @@ fn validate_ndef_layout(operation: &mut Operation<'_>, cancel: &CancelToken) -> 
             "the NDEF application files do not match the AN11004 layout",
         ));
     }
-    let cc = desfire.read_data(NDEF_CC_FILE, 0, NDEF_CC_SIZE)?;
+    let cc = desfire.read_data(
+        NDEF_CC_FILE,
+        0,
+        NDEF_CC_SIZE,
+        nfc_desfire::CommunicationMode::Plain,
+    )?;
     if cc.as_slice() != NDEF_CAPABILITY_CONTAINER.as_slice() {
         return Err(NfcError::Unsupported(
             "the NDEF capability container was not created by this product",
@@ -814,6 +850,43 @@ mod tests {
         assert!(text.contains("file 02: undecoded"));
         assert!(text.contains("raw: 06 00 00 E0"));
         assert!(!text.contains("file 02: standard data"));
+    }
+
+    #[test]
+    fn free_access_and_free_get_value_read_in_plain() {
+        let free_read = FileSettings::parse(&[0x00, 0x03, 0xE0, 0xE0, 0x10, 0x00, 0x00])
+            .expect("standard settings");
+        assert_eq!(free_read.communication, CommunicationMode::Enciphered);
+        assert_eq!(
+            effective_read_communication(&free_read, 0, false),
+            CommunicationMode::Plain
+        );
+        assert_eq!(
+            effective_read_communication(&free_read, 0, true),
+            CommunicationMode::Plain
+        );
+
+        let key_read = FileSettings::parse(&[0x00, 0x03, 0x00, 0x00, 0x10, 0x00, 0x00])
+            .expect("standard settings");
+        assert_eq!(
+            effective_read_communication(&key_read, 0, true),
+            CommunicationMode::Enciphered
+        );
+        assert_eq!(
+            effective_read_communication(&key_read, 1, true),
+            CommunicationMode::Enciphered
+        );
+
+        let free_value = FileSettings::parse(&[
+            0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x64, 0x00, 0x00, 0x00, 0x07, 0x00,
+            0x00, 0x00, 0x02,
+        ])
+        .expect("value settings");
+        assert_eq!(free_value.communication, CommunicationMode::Maced);
+        assert_eq!(
+            effective_read_communication(&free_value, 0, true),
+            CommunicationMode::Plain
+        );
     }
 
     #[test]

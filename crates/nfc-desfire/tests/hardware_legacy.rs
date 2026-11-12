@@ -86,7 +86,12 @@ fn run(desfire: &mut Desfire<'_>) -> Result<()> {
     desfire.create_standard_file(TEST_FILE, None, 0, 0x0000, 32)?;
     desfire.write_data(TEST_FILE, 0, PAYLOAD)?;
     desfire.commit_transaction()?;
-    let read = desfire.read_data(TEST_FILE, 0, PAYLOAD.len() as u32)?;
+    let read = desfire.read_data(
+        TEST_FILE,
+        0,
+        PAYLOAD.len() as u32,
+        nfc_desfire::CommunicationMode::Plain,
+    )?;
     if read != PAYLOAD {
         return Err(NfcError::VerificationFailed(format!(
             "read {read:02X?}, expected {PAYLOAD:02X?}"

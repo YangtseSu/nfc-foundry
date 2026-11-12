@@ -5,8 +5,8 @@
 //!
 //! Creates reserved 3K3DES and AES applications with known zero test keys,
 //! authenticates through each family, checks the session keys, then removes
-//! both applications. Reads under these families need secure messaging
-//! (phase 26.5) and are not part of this test.
+//! both applications. Secure-messaging reads have their own test in
+//! `hardware_desfire_secure_messaging.rs`.
 //!
 //! ```sh
 //! NFC_FOUNDRY_HARDWARE=1 NFC_FOUNDRY_HARDWARE_WRITE=yes \

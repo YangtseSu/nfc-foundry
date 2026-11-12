@@ -401,7 +401,7 @@ enum DesfireCommand {
     Info,
     /// Create the AN11004 NDEF Tag Application on an unformatted card.
     FormatNdef {
-        /// PICC master key: 16 or 32 hex digits.
+        /// PICC master key: DES 8, AES/2K3DES 16, 3K3DES 24 bytes.
         #[arg(
             long,
             value_name = "HEX",
@@ -424,7 +424,7 @@ enum DesfireCommand {
     },
     /// Delete the NDEF Tag Application created by `format-ndef`.
     DeleteNdef {
-        /// PICC master key: 16 or 32 hex digits.
+        /// PICC master key: DES 8, AES/2K3DES 16, 3K3DES 24 bytes.
         #[arg(
             long,
             value_name = "HEX",
@@ -450,7 +450,7 @@ enum DesfireCommand {
         /// File ID, e.g. 01.
         #[arg(long, value_name = "HEX")]
         file: String,
-        /// Legacy DES/2K3DES key: 16 or 32 hex digits.
+        /// Key for the selected family: DES 8, AES/2K3DES 16, 3K3DES 24 bytes.
         #[arg(
             long,
             value_name = "HEX",

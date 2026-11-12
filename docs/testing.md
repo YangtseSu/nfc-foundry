@@ -231,11 +231,25 @@ cargo test -p nfctl --features hardware-write \
   --test hardware_desfire_auth -- --ignored
 ```
 
-3K3DES/AES file reads require secure messaging and return a typed error until
-phase 26.5. The phase 26.3 read path is covered by unit tests for the `GetValue` command
-shape and the `ReadRecords` payload, plus the service check that a record
-response must be exactly `count * record_size` bytes (short and long responses
-are rejected). The gated test in `nfctl/tests/hardware_desfire_files.rs`
+3K3DES/AES reads use EV1/EV2 secure messaging. The `nfc-desfire` unit tests
+cover the CMAC and CRC primitives, AN12343 EV2 MAC/IV vectors, chained
+responses, EV2 counter advancement, and tampered responses. The
+`hardware_desfire_secure_messaging` test creates reserved 3K3DES and AES
+applications with plain, MACed, and enciphered files and reads them through the
+direct layer and `nfc-app`. It passed on PN532 UART on 2026-11-12; the same
+`NFC_FOUNDRY_HARDWARE_FORMAT=yes` rule applies:
+
+```sh
+NFC_FOUNDRY_HARDWARE=1 NFC_FOUNDRY_HARDWARE_WRITE=yes \
+NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
+cargo test -p nfctl --features hardware-write \
+  --test hardware_desfire_secure_messaging -- --ignored
+```
+
+The phase 26.3 read path remains covered by unit
+tests for the `GetValue` command shape and the `ReadRecords` payload, plus the
+service check that a record response must be exactly `count * record_size`
+bytes (short and long responses are rejected). The gated test in `nfctl/tests/hardware_desfire_files.rs`
 creates a reserved application with a value file, a linear record file, and a
 cyclic record file, reads them through `nfc-app`, rejects an over-request, and
 removes the application. It passed on PN532 UART on 2026-11-12; set
