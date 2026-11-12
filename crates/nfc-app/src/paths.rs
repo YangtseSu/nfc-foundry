@@ -45,6 +45,18 @@ pub fn ensure(directory: &Path) -> Result<()> {
         .map_err(|error| NfcError::Io(format!("could not create {}: {error}", directory.display())))
 }
 
+/// Creates `dumps/`, `keys/`, `ndef/`, and `backups/` on first launch.
+pub fn ensure_default_dirs() {
+    for directory in [dumps_dir(), keys_dir(), ndef_dir(), backups_dir()]
+        .into_iter()
+        .flatten()
+    {
+        if let Err(error) = ensure(&directory) {
+            eprintln!("nfc-foundry: {error}");
+        }
+    }
+}
+
 /// Key file paired with a dump: `keys/<dump stem>.dic` under the data
 /// directory. Falls back to a sibling `.dic` when no data directory exists.
 pub fn key_path_for_dump(dump: &Path) -> Option<PathBuf> {

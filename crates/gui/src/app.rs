@@ -148,6 +148,8 @@ pub fn build_ui(app: &adw::Application) {
 
 fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
     install_css();
+    #[cfg(not(test))]
+    nfc_app::paths::ensure_default_dirs();
     let Workbench {
         service,
         keys,
