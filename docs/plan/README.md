@@ -1,11 +1,12 @@
 # Phased implementation plan
 
-Status legend: `done`, `in progress`, `pending`, `optional`, `blocked`.
+Status legend: `done`, `in progress`, `pending`, `optional`, `conditional`,
+`blocked`.
 
 Phase files: phases 00-17 are planned and recorded as sections in this file,
-not as separate `docs/plan/NN-*.md` files. Phases 18, 19, 24, 25, 26, and 27
-have separate plan files because they are large multi-slice efforts. Notes
-exist for phases 20-23 and are linked from their sections below.
+not as separate `docs/plan/NN-*.md` files. Phases 18, 19, and 24-31 have
+separate plan files because they are large multi-slice efforts. Notes exist
+for phases 20-23 and are linked from their sections below.
 
 GUI note: **GTK4-rs (`gtk4` + `libadwaita`) is the selected and only GUI
 stack** as of [ADR 0006](../adr/0006-gtk4-rs.md). The GPUI Kit workspaces were
@@ -52,9 +53,20 @@ work; their current equivalents are the GTK4 workspaces.
 | 25 | Owned-card support: 4K clone, Ultralight EV1, FM11RF08S recovery, DESFire EV3 NDEF, UID NTAG213 | in progress (25.1–25.4 done; 25.5 inventory, factory-key auth, temporary file round trip, read-only GUI workspace done; NDEF format not implemented) |
 | 26 | DESFire workbench: read/write, app/file/key management, secure messaging, NDEF | in progress (26.1 done; 26.2–26.13 pending) |
 | 27 | NDEF workbench: multi-record editor, RTD forms, `.ndef` load/save, Classic/Type 2 write | done |
+| 28 | ACR122U PC/SC transport (ACR122U only, not generic PC/SC) | pending |
+| 29 | CLI machine contract, cross-process reader ownership, cancellation/tasks, developer raw diagnostics | pending |
+| 30 | Workbench/file parity: sector grouping/ASCII, dump sidecars, export all candidates | pending |
+| 31 | Conditional scope register: card emulation, Jewel/Topaz | conditional |
 
 ## Rules
 
+- Phase 28 adds **ACR122U PC/SC only**. Generic PC/SC readers and PN53x USB
+  stay out of scope; ADR 0007 supersedes the ACR122U PC/SC exclusion in ADR
+  0002.
+- Phase 29 developer raw tools (`pn532 shell`, arbitrary `apdu --raw`) are
+  non-default features and never ship in release packages.
+- Phase 31 records conditional directions only; neither card emulation nor
+  Jewel/Topaz is in the support matrix until a phase is accepted.
 - One phase at a time unless work is genuinely independent.
 - A CLI operation is incomplete until the GUI exposes the same operation with
   the same safety rules.
