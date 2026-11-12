@@ -28,5 +28,6 @@ pub use read::{Type2ReadResult, quad_starts, read_page, read_tag};
 pub use version::Type2Version;
 pub use write::{
     PageWriteResult, RestoreOptions, WritePolicy, WriteSummary, check_writable, format_ndef,
-    lock_pages, restore_image, set_password, write_area, write_ndef, write_page_verified,
+    format_unformatted_ev1, lock_pages, restore_image, set_password, write_area, write_ndef,
+    write_page_verified,
 };

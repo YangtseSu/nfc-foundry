@@ -8,8 +8,8 @@ use nfc_core::{CancelToken, CardInfo, NfcError, PAGE_SIZE, Result};
 use nfc_ndef::NdefMessage;
 use nfc_type2::{
     LockUpdate, NdefState, PasswordUpdate, RestoreOptions, Type2Image, Type2Ndef, WritePolicy,
-    WriteSummary, exchange, format_ndef, lock_pages, read_ndef, read_tag, restore_image,
-    set_password, write_ndef, write_page_verified,
+    WriteSummary, exchange, format_ndef, format_unformatted_ev1, lock_pages, read_ndef, read_tag,
+    restore_image, set_password, write_ndef, write_page_verified,
 };
 pub use nfc_type2::{Type2Auth, Type2AuthSession};
 
@@ -164,6 +164,9 @@ impl<'a> Type2NdefWrite<'a> {
 /// Explicit NDEF format request.
 pub struct Type2Format<'a> {
     pub confirm: bool,
+    /// Allow the one-way capability-container write on an unformatted
+    /// Ultralight EV1. The caller must obtain a separate confirmation.
+    pub allow_otp_cc: bool,
     /// Identity of the image the format was composed from.
     pub expected_card: Option<CardInfo>,
     pub auth: Option<Type2Auth>,
@@ -175,11 +178,18 @@ impl<'a> Type2Format<'a> {
     pub fn new(backup: &'a BackupStore) -> Self {
         Self {
             confirm: false,
+            allow_otp_cc: false,
             expected_card: None,
             auth: None,
             backup,
             cancel: CancelToken::new(),
         }
+    }
+
+    /// Allow writing the OTP capability container on an unformatted EV1.
+    pub fn allow_otp_cc(mut self, allow: bool) -> Self {
+        self.allow_otp_cc = allow;
+        self
     }
 
     /// Supply the PWD_AUTH password and expected PACK.
@@ -514,12 +524,26 @@ pub fn format_ndef_area(
     let mut image = read.image;
     ensure_ndef_writable(&image)?;
     let backup = save_backup(&image, request.backup, "ndef-format")?;
-    let summary = format_ndef(
-        operation.reader_mut(),
-        &mut image,
-        &mut access,
-        &request.cancel,
-    )?;
+    let summary = if image.cc.is_present() {
+        format_ndef(
+            operation.reader_mut(),
+            &mut image,
+            &mut access,
+            &request.cancel,
+        )?
+    } else {
+        if !request.allow_otp_cc {
+            return Err(NfcError::Unsupported(
+                "the tag has no capability container; formatting an Ultralight EV1 writes OTP page 3 and needs the OTP confirmation",
+            ));
+        }
+        format_unformatted_ev1(
+            operation.reader_mut(),
+            &mut image,
+            &mut access,
+            &request.cancel,
+        )?
+    };
     operation.check_card()?;
     Ok(Type2MutationResult {
         image,

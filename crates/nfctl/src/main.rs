@@ -390,7 +390,12 @@ enum NdefCommand {
         language: String,
     },
     /// Format the NDEF data area after confirmation.
-    Format,
+    Format {
+        /// Allow the one-way capability-container write on an unformatted
+        /// Ultralight EV1. This permanently writes OTP page 3.
+        #[arg(long)]
+        otp: bool,
+    },
 }
 
 #[derive(Clone, Debug, Subcommand)]
@@ -1971,11 +1976,18 @@ fn ndef(cli: &Cli, service: &mut Service, command: NdefCommand) -> Result<()> {
             println!("backup: {}", result.backup.path.display());
             Ok(())
         }
-        NdefCommand::Format => {
+        NdefCommand::Format { otp } => {
             require_confirmation(cli.yes, "formatting the NDEF data area")?;
+            if otp {
+                require_confirmation(cli.yes, "writing the one-way EV1 capability container")?;
+            }
             let backup = backup_store(cli);
-            let result =
-                service.type2_ndef_format(Type2Format::new(&backup).confirm(true).auth(auth))?;
+            let result = service.type2_ndef_format(
+                Type2Format::new(&backup)
+                    .confirm(true)
+                    .allow_otp_cc(otp)
+                    .auth(auth),
+            )?;
             println!(
                 "NDEF formatted: {} page(s) written, {} unchanged",
                 result.summary.written_pages, result.summary.unchanged_pages

@@ -56,6 +56,24 @@ fn service() -> (Service, MockHandle) {
     (service, handle)
 }
 
+fn ev1_service() -> (Service, MockHandle) {
+    let transport = MockTransport::new();
+    let handle = transport.add(DeviceInfo::new("Mock EV1", "mock:ev1"), Some(card()));
+    handle.set_type2_version(Some([0x00, 0x04, 0x03, 0x01, 0x01, 0x00, 0x0B, 0x03]));
+    for page in 0..20u8 {
+        handle.set_page(page, [0; 4]);
+    }
+    handle.set_page(0, [0x04, 0x43, 0x47, 0x88]);
+    handle.set_page(1, [0x4A, 0x75, 0x22, 0x91]);
+    handle.set_page(2, [0x8C, 0x48, 0x00, 0x00]);
+    handle.set_page(16, [0x00, 0x00, 0x00, 0xFF]);
+    handle.set_page(17, [0x00, 0x05, 0x00, 0x00]);
+    let mut service = Service::with_transport(Arc::new(transport));
+    service.refresh_devices().expect("refresh");
+    service.select_device("mock:ev1").expect("select mock EV1");
+    (service, handle)
+}
+
 fn message(text: &str) -> NdefMessage {
     NdefMessage::new(vec![
         TextRecord::new(text, "en")
@@ -143,6 +161,28 @@ fn ndef_write_read_and_format_round_trip() {
         .type2_ndef_format(Type2Format::new(&backup).confirm(true))
         .expect("format");
     assert!(formatted.summary.written_pages > 0);
+    let read = service
+        .type2_ndef_read(Type2ReadRequest::new(CancelToken::new()))
+        .expect("read NDEF");
+    assert_eq!(read.ndef.state, NdefState::Empty);
+}
+
+#[test]
+fn ev1_format_requires_the_otp_gate_and_writes_the_cc() {
+    let (mut service, handle) = ev1_service();
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+
+    let refused = service.type2_ndef_format(Type2Format::new(&backup).confirm(true));
+    assert!(matches!(refused, Err(NfcError::Unsupported(_))));
+    assert_eq!(handle.page(3), Some([0; 4]));
+
+    let formatted = service
+        .type2_ndef_format(Type2Format::new(&backup).confirm(true).allow_otp_cc(true))
+        .expect("format blank EV1");
+    assert_eq!(handle.page(3), Some([0xE1, 0x10, 0x06, 0x00]));
+    assert_eq!(formatted.image.cc.size, 48);
+    assert_eq!(formatted.image.page(4), Some(&[0x03, 0x00, 0xFE, 0x00]));
     let read = service
         .type2_ndef_read(Type2ReadRequest::new(CancelToken::new()))
         .expect("read NDEF");

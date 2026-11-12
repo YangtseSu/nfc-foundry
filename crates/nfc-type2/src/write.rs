@@ -5,6 +5,7 @@ use nfc_ndef::NdefMessage;
 use nfc_transport::Reader;
 
 use crate::auth::{Type2Auth, Type2AuthSession};
+use crate::cc::CapabilityContainer;
 use crate::config::{Configuration, PasswordUpdate};
 use crate::layout::{PageRole, Type2Layout};
 use crate::lock::{LockBits, LockUpdate};
@@ -159,7 +160,12 @@ pub fn write_page_verified(
     let expected_cc = if role == PageRole::CapabilityContainer {
         let cc = crate::cc::CapabilityContainer::parse(&expected)?;
         let layout = Type2Layout::from_cc(&cc)?;
-        if layout.product != image.layout.product {
+        let ev1 = matches!(
+            image.layout.product,
+            crate::Type2Product::UltralightEv1Ul11 | crate::Type2Product::UltralightEv1Ul21
+        );
+        if layout.product != image.layout.product && !(ev1 && cc.size == image.layout.user_bytes())
+        {
             return Err(NfcError::InvalidArgument(
                 "a capability container write cannot change the tag product or data-area size"
                     .to_owned(),
@@ -314,6 +320,63 @@ pub fn format_ndef(
 ) -> Result<WriteSummary> {
     let area = format_ndef_area(image)?;
     write_area(reader, image, &area, WritePolicy::user(), access, cancel)
+}
+
+/// Format an unformatted Ultralight EV1.
+///
+/// Page 3 is OTP on the MF0ULx1: the capability container can only be written
+/// once, and only while page 3 is still all zero. The user NDEF area is
+/// ordinary EEPROM. A failure after the CC write leaves an unformatted but
+/// one-way page 3; the caller must report that instead of offering a rollback.
+pub fn format_unformatted_ev1(
+    reader: &mut dyn Reader,
+    image: &mut Type2Image,
+    access: &mut Type2AuthSession<'_>,
+    cancel: &CancelToken,
+) -> Result<WriteSummary> {
+    if image.cc.is_present() {
+        return Err(NfcError::InvalidArgument(
+            "the tag already has a Type 2 capability container".to_owned(),
+        ));
+    }
+    if !matches!(
+        image.layout.product,
+        crate::Type2Product::UltralightEv1Ul11 | crate::Type2Product::UltralightEv1Ul21
+    ) {
+        return Err(NfcError::Unsupported(
+            "OTP capability-container formatting is supported only on MIFARE Ultralight EV1",
+        ));
+    }
+    let page = image
+        .page(3)
+        .ok_or_else(|| NfcError::InvalidArgument("page 3 is not readable".to_owned()))?;
+    if page != &[0; PAGE_SIZE] {
+        return Err(NfcError::Unsupported(
+            "page 3 is not blank; refusing to write the one-way EV1 capability container",
+        ));
+    }
+    let cc = CapabilityContainer {
+        major_version: 1,
+        minor_version: 0,
+        size: image.layout.user_bytes(),
+        access: 0,
+    };
+    let cc_write = write_page_verified(
+        reader,
+        image,
+        3,
+        cc.to_bytes(),
+        WritePolicy::advanced(),
+        access,
+        cancel,
+    )?;
+    image.cc = cc;
+    let area = format_ndef_area(image)?;
+    let data_write = write_area(reader, image, &area, WritePolicy::user(), access, cancel)?;
+    Ok(WriteSummary {
+        written_pages: data_write.written_pages + usize::from(cc_write.changed),
+        unchanged_pages: data_write.unchanged_pages + usize::from(!cc_write.changed),
+    })
 }
 
 /// Lock a set of pages. Lock bits are one-way, so every bit is verified.
@@ -716,6 +779,43 @@ mod tests {
         reader.set_page(43, [0xFF; 4]);
         reader.set_page(44, [0x00, 0x00, 0x00, 0x00]);
         reader
+    }
+
+    fn ev1_reader() -> MockReader {
+        let mut reader = MockReader::new(DeviceInfo::new("mock", "mock:ev1"), Some(card()));
+        reader.set_type2_version(Some([0x00, 0x04, 0x03, 0x01, 0x01, 0x00, 0x0B, 0x03]));
+        for page in 0..20u8 {
+            reader.set_page(page, [0; 4]);
+        }
+        reader.set_page(2, [0x8C, 0x48, 0x00, 0x00]);
+        reader.set_page(16, [0x00, 0x00, 0x00, 0xFF]);
+        reader.set_page(17, [0x00, 0x05, 0x00, 0x00]);
+        reader
+    }
+
+    #[test]
+    fn formats_a_blank_ev1_and_writes_the_otp_cc() {
+        let mut reader = ev1_reader();
+        let mut access = Type2AuthSession::none();
+        let mut image = read_tag(&mut reader, &card(), &mut access, &CancelToken::new())
+            .expect("read blank EV1")
+            .image;
+        assert!(!image.cc.is_present());
+
+        let summary =
+            format_unformatted_ev1(&mut reader, &mut image, &mut access, &CancelToken::new())
+                .expect("format EV1");
+
+        assert!(summary.written_pages > 0);
+        assert_eq!(image.page(3), Some(&[0xE1, 0x10, 0x06, 0x00]));
+        assert!(image.cc.is_present());
+        assert_eq!(image.page(4), Some(&[0x03, 0x00, 0xFE, 0x00]));
+        assert_eq!(image.page(15), Some(&[0; 4]));
+        assert_eq!(
+            crate::read_ndef(&image).expect("NDEF").state,
+            crate::NdefState::Empty
+        );
+        assert_eq!(reader.page(3), Some([0xE1, 0x10, 0x06, 0x00]));
     }
 
     fn protected_reader() -> MockReader {
