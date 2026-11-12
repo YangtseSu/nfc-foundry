@@ -82,6 +82,24 @@ cargo test -p nfc-desfire --features hardware --test hardware_legacy -- --ignore
 
 The ACR122U row remains unrecorded.
 
+## CLI read diagnostic
+
+`nfctl desfire read` exposes the same plain-file read without a GUI. On
+2026-11-12 a reserved temporary application `F0 0D 01` was seeded with a
+32-byte standard file containing `NFC Foundry CLI read`, then read through the
+CLI and removed:
+
+```text
+aid F0 0D 01 file 01 settings 00 00 00 00 20 00 00
+data: 4E 46 43 20 46 6F 75 6E 64 72 79 20 43 4C 49 20 72 65 61 64 00 ...
+ascii: NFC Foundry CLI read............
+```
+
+Omitting `--length` reads the rest of the file. A non-parity wrong key returns
+`91AE`; a free-access file can be read without `--key`. The key is accepted
+from `--key` or `NFC_FOUNDRY_DESFIRE_KEY`, never printed. This is a developer
+diagnostic; the read-only GUI DESFire workspace is the next slice.
+
 ## To continue
 
 1. Expose the authenticated read path through `nfc-app`, `nfctl`, and a

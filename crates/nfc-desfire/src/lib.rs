@@ -195,6 +195,11 @@ impl<'a> Desfire<'a> {
     /// Authenticate to the selected application with a legacy DES or 2K3DES
     /// key. The session key is available through [`Self::session_key`].
     pub fn authenticate_legacy(&mut self, key_no: u8, key: &[u8]) -> Result<()> {
+        if key_no > 14 {
+            return Err(NfcError::InvalidArgument(
+                "DESFire application key numbers are 0..=14".to_owned(),
+            ));
+        }
         let key_type = LegacyKeyType::from_key(key)?;
         let tdes_key = expand_tdes_key(key)?;
         let (challenge, sw) = self.transceive(INS_AUTHENTICATE, &[key_no])?;
@@ -397,7 +402,7 @@ impl<'a> Desfire<'a> {
         Ok(())
     }
 
-    /// Read plain data from a standard, backup, value or record file.
+    /// Read plain data from a standard or backup file.
     pub fn read_data(&mut self, file_id: u8, offset: u32, length: u32) -> Result<Vec<u8>> {
         if offset > 0x00FF_FFFF || length > 0x00FF_FFFF {
             return Err(NfcError::InvalidArgument(
@@ -415,6 +420,19 @@ impl<'a> Desfire<'a> {
                 (length >> 8) as u8,
                 (length >> 16) as u8,
             ],
+        )
+    }
+
+    /// Total data size for a standard or backup file from its settings.
+    ///
+    /// Returns `None` for value, record and Transaction MAC files, whose
+    /// contents use different commands.
+    pub fn data_file_size(settings: &[u8]) -> Option<u32> {
+        if settings.len() < 7 || !matches!(settings[0], 0x00 | 0x01) {
+            return None;
+        }
+        Some(
+            u32::from(settings[4]) | (u32::from(settings[5]) << 8) | (u32::from(settings[6]) << 16),
         )
     }
 
@@ -559,6 +577,14 @@ mod tests {
         assert_eq!(&expanded[..8], &[1u8; 8]);
         assert_eq!(&expanded[8..16], &[2u8; 8]);
         assert_eq!(&expanded[16..], &[1u8; 8]);
+    }
+
+    #[test]
+    fn standard_file_size_is_little_endian() {
+        let settings = [0x00, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00];
+        assert_eq!(Desfire::data_file_size(&settings), Some(32));
+        assert_eq!(Desfire::data_file_size(&[0x02, 0, 0, 0, 0, 0, 0]), None);
+        assert_eq!(Desfire::data_file_size(&[0x00; 6]), None);
     }
 
     #[test]

@@ -391,6 +391,32 @@ enum Type2Command {
 enum DesfireCommand {
     /// Read the card version and application/file inventory.
     Info,
+    /// Read one standard or backup file, optionally authenticating first.
+    Read {
+        /// Application ID, e.g. A1B2C3.
+        #[arg(long, value_name = "HEX")]
+        aid: String,
+        /// File ID, e.g. 01.
+        #[arg(long, value_name = "HEX")]
+        file: String,
+        /// Legacy DES/2K3DES key: 16 or 32 hex digits.
+        #[arg(
+            long,
+            value_name = "HEX",
+            env = "NFC_FOUNDRY_DESFIRE_KEY",
+            hide_env_values = true
+        )]
+        key: Option<String>,
+        /// Application key number, 0..=14.
+        #[arg(long, default_value_t = 0, value_name = "N")]
+        key_number: u8,
+        /// Byte offset within the file.
+        #[arg(long, default_value_t = 0, value_name = "N")]
+        offset: u32,
+        /// Read length; defaults to the rest of the file.
+        #[arg(long, value_name = "N")]
+        length: Option<u32>,
+    },
 }
 
 #[derive(Clone, Debug, Subcommand)]
@@ -1793,6 +1819,34 @@ fn type2_auth(cli: &Cli) -> Result<Option<Type2Auth>> {
 fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<()> {
     prepare(service, cli.device.as_deref())?;
     match command {
+        DesfireCommand::Read {
+            aid,
+            file,
+            key,
+            key_number,
+            offset,
+            length,
+        } => {
+            let aid = parse_hex_array::<3>(&aid, "DESFire AID")?;
+            let file_id = parse_hex_array::<1>(&file, "DESFire file ID")?[0];
+            let mut request = nfc_app::desfire::DesfireReadRequest::new(aid, file_id)
+                .key_number(key_number)
+                .offset(offset)
+                .length(length);
+            if let Some(key) = key {
+                request = request.key(parse_hex_bytes(&key, "DESFire key")?);
+            }
+            let read = service.desfire_read(CancelToken::new(), request)?;
+            println!(
+                "aid {} file {:02X} settings {}",
+                hex_bytes(&aid),
+                file_id,
+                hex_bytes(&read.settings)
+            );
+            println!("data: {}", hex_bytes(&read.data));
+            println!("ascii: {}", ascii(&read.data));
+            Ok(())
+        }
         DesfireCommand::Info => {
             let inventory = service.desfire_inventory(CancelToken::new())?;
             println!(
@@ -2301,6 +2355,26 @@ fn parse_page_list(value: &str) -> Result<Vec<u8>> {
     pages.sort_unstable();
     pages.dedup();
     Ok(pages)
+}
+
+fn parse_hex_bytes(value: &str, label: &str) -> Result<Vec<u8>> {
+    let compact: String = value
+        .chars()
+        .filter(|character| !character.is_ascii_whitespace() && *character != ':')
+        .collect();
+    if compact.is_empty() || !compact.len().is_multiple_of(2) {
+        return Err(NfcError::InvalidArgument(format!(
+            "{label} must contain an even number of hexadecimal digits"
+        )));
+    }
+    let mut output = Vec::with_capacity(compact.len() / 2);
+    for index in (0..compact.len()).step_by(2) {
+        output.push(
+            (hex_digit(compact.as_bytes()[index])? << 4)
+                | hex_digit(compact.as_bytes()[index + 1])?,
+        );
+    }
+    Ok(output)
 }
 
 fn parse_hex_array<const N: usize>(value: &str, label: &str) -> Result<[u8; N]> {
@@ -2970,7 +3044,23 @@ fn print_card(card: &CardInfo) {
 
 #[cfg(test)]
 mod tests {
-    use super::confirmation_answer;
+    use super::{confirmation_answer, parse_hex_bytes};
+
+    #[test]
+    fn desfire_key_parser_accepts_compact_and_spaced_hex() {
+        assert_eq!(
+            parse_hex_bytes("0000000000000000", "key").expect("des"),
+            vec![0u8; 8]
+        );
+        assert_eq!(
+            parse_hex_bytes("00:00 00 00 00 00 00 00 00 00 00 00 00 00 00 00", "key")
+                .expect("2k3des"),
+            vec![0u8; 16]
+        );
+        assert!(parse_hex_bytes("ABC", "key").is_err());
+        assert!(parse_hex_bytes("", "key").is_err());
+        assert!(parse_hex_bytes("GG", "key").is_err());
+    }
 
     #[test]
     fn confirmation_accepts_yes_in_any_case() {

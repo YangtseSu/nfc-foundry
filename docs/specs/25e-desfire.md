@@ -23,10 +23,13 @@ DESFire command layer and a read-only inventory.
   `DeleteApplication`, `CreateStdDataFile`, `WriteData`, `ReadData`) for the
   hardware test; no CLI or GUI surface is added.
 - `nfctl desfire info` prints the version and the application/file inventory.
-  It is a developer diagnostic; no GUI path is added yet.
-- The `nfctl desfire info` operation is read-only; it never authenticates or
-  writes. The hardware test creates and removes a reserved temporary
-  application only when both write gates are set.
+- `nfctl desfire read` authenticates with an optional legacy key and reads one
+  standard or backup file. It is a developer diagnostic; the GUI workspace is
+  still pending.
+- `nfctl desfire info` is read-only. `nfctl desfire read` only reads after an
+  optional authentication; neither command writes. The hardware test creates
+  and removes a reserved temporary application only when both write gates are
+  set.
 
 ## Formatting gate
 
