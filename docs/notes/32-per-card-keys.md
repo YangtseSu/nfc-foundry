@@ -49,9 +49,17 @@ edits the set. The scan uses only checked keys.
 A dump and its key file share a base name across the two directories:
 
 ```
-dumps/home.nfc-foundry.json
+dumps/home.bin
 keys/home.dic
 ```
+
+A complete image defaults to raw (`auto` resolves to raw). The project JSON
+format (`home.nfc-foundry.json`) is used only when the image is partial or
+identity-only: raw, MCT, and Proxmark3 formats cannot represent unknown bytes,
+per-block status, or key/provenance metadata. The project JSON is therefore
+not the default for a complete dump; it is the lossless format for an
+incomplete one. The key pairing uses the dump stem regardless of the dump
+extension.
 
 Saving a dump also merges the keys used by the read into the paired `.dic`.
 Loading a dump loads that file (falling back to a sibling `.dic` for older
