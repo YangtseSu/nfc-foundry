@@ -95,6 +95,17 @@ impl<'a> Operation<'a> {
         Ok(())
     }
 
+    /// Reselect an ISO-DEP card and reject a change in ATQA, SAK, or the
+    /// stable UID suffix. A random-UID prefix is expected on cards such as
+    /// the DESFire EV3 and is not a card change.
+    pub fn check_iso_dep_card(&mut self) -> Result<()> {
+        let current = self.reader.card_info()?;
+        if !self.card.same_iso_dep_identity(&current) {
+            return Err(NfcError::CardChanged);
+        }
+        Ok(())
+    }
+
     pub fn authenticate(&mut self, block: u8, key_type: KeyType, key: Key) -> Result<()> {
         self.cancel.check()?;
         // Authentication is bound to the selected UID: the reader appends the

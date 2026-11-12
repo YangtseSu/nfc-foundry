@@ -1,8 +1,9 @@
-# Note: phase 25.5 DESFire EV3 8K inventory
+# Note: phase 25.5 DESFire EV3 8K NDEF enablement
 
-Status: inventory complete 2026-11-12; factory-key authentication and
-primitive file commands validated; NDEF formatting and user-facing writes are
-not implemented.
+Status: inventory, factory-key authentication, NDEF provisioning, undo, CLI,
+and GTK surfaces implemented 2026-11-12. The PN532 UART format/write/delete
+hardware record is pending because the DESFire card was not on the reader when
+the implementation landed.
 Plan: [25-card-support.md](../plan/25-card-support.md). Spec:
 [25e-desfire.md](../specs/25e-desfire.md).
 
@@ -52,10 +53,11 @@ through the CLI or GUI yet. The PICC key is no longer the blocker.
 - Legacy DES/2K3DES authentication (`0x0A`) with D40 send mode, session-key
   derivation, and random RndA.
 - Primitive `CreateApplication`, `DeleteApplication`, `CreateStdDataFile`,
-  `WriteData`, and `ReadData` commands. They are not exposed through the CLI or
-  GUI yet.
+  `WriteData`, `ReadData`, `CommitTransaction`, and `AbortTransaction`.
+- Application and file creation support ISO file IDs and an ISO 7816-4 DF
+  name; these are required for the NDEF Tag Application.
 - `Service::desfire_inventory` and `nfctl desfire info`.
-- No GUI surface is added; this remains a read-only diagnostic.
+- A read-only GTK `DESFire` `Inventory`/`Read` workspace.
 
 ## Temporary application round trip
 
@@ -100,18 +102,67 @@ Omitting `--length` reads the rest of the file. A non-parity wrong key returns
 from `--key` or `NFC_FOUNDRY_DESFIRE_KEY`, never printed. This started as a
 developer diagnostic; the read-only GUI workspace now exposes the same service.
 
-## GUI read-only workspace
+## GUI workspace
 
-The GTK workspace selector now has a third entry, `DESFire`, with `Inventory`
-and `Read` tabs. `Inventory` lists the version and applications; `Read` takes
-an AID, file ID, optional legacy key, key number, offset and length, then shows
-the settings, hex data and ASCII. There are no write controls. The read and
-refresh buttons use the same `nfc-app` service as the CLI.
+The GTK workspace selector has a `DESFire` entry with `Inventory`, `Read`, and
+`NDEF` tabs. `Inventory` lists the version and applications; `Read` takes an
+AID, file ID, optional legacy key, key number, offset, and length, then shows
+the settings, hex data, and ASCII. `NDEF` has a session-scoped Advanced switch,
+a PICC master key and key number, and `Format NDEF application`/`Delete NDEF
+application` actions. Both actions show a typed-confirmation dialog; the
+advanced switch resets on card removal, reader change, and restart. The read
+and refresh buttons use the same `nfc-app` service as the CLI.
 
 The GUI test `desfire_workspace_switches_and_parses_inputs` covers workspace
-selection, the default inventory text, and the AID/key parsers. Hardware
-read/write remains covered by the `nfc-desfire` hardware test and the CLI read
-record above.
+selection, default inventory text, Advanced gating, key/number parsing, and
+the AID/key parsers.
+
+## NDEF provisioning
+
+`nfctl desfire format-ndef` and `nfctl desfire delete-ndef` call
+`Service::desfire_ndef_format`/`Service::desfire_ndef_delete`. The service
+creates `D27600` with DF name `D2760000850101`, app ISO ID `E110`, CC file
+`01`/`E103` (15 bytes), and NDEF file `02`/`E104` (255 bytes), writes the CC
+and empty NLEN, commits, then reads the CC and NDEF file through the Type 4
+adapter. A failure after application creation rolls back by aborting the
+transaction and deleting the application.
+
+Undo validates the exact file numbers, plain communication mode, sizes, and
+CC bytes before deleting, so it does not remove an NDEF application created by
+another tool. Neither operation changes the PICC key or claims a full-card
+backup.
+
+The EV3 random UID changes its leading bytes on reselection. The Type 4 and
+DESFire workflows now compare ATQA, SAK, and the stable last four UID bytes;
+Classic and Type 2 keep the strict UID comparison.
+
+Read-only CLI checks on 2026-11-12:
+
+```sh
+./target/debug/nfctl --device pn532_uart:/dev/ttyUSB0 desfire info
+# unsupported: the selected card is not an ISO/IEC 14443-4 card
+```
+
+The PN532 UART held an NTAG216 (`04 14 B5 7F DD 2A 81`) at that time, so the
+DESFire hardware run could not start.
+
+## Hardware test
+
+```sh
+NFC_FOUNDRY_HARDWARE=1 NFC_FOUNDRY_HARDWARE_WRITE=yes \
+NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
+cargo test -p nfctl --features hardware-write \
+  --test hardware_desfire_ndef -- --ignored
+```
+
+The test refuses to run when the NDEF application already exists. It checks
+the Advanced and confirmation gates, verifies that a wrong key creates
+nothing, formats the card, writes and clears one Text record through the Type
+4 path, deletes only the NDEF application, and compares the final application
+list with the pre-format list. On failure it attempts the same guarded delete.
+
+Record the run below once the DESFire card is on the reader. The ACR122U row
+remains unrecorded.
 
 ## To continue
 

@@ -78,7 +78,7 @@ pub struct Type4MutationResult {
 /// Read the CC and NDEF file.
 pub fn read(operation: &mut Operation<'_>, cancel: &CancelToken) -> Result<Type4ReadResult> {
     let result = read_current(operation, cancel)?;
-    operation.check_card()?;
+    operation.check_iso_dep_card()?;
     Ok(result)
 }
 
@@ -108,7 +108,7 @@ pub fn write_ndef(
         &request.message,
         &request.cancel,
     )?;
-    operation.check_card()?;
+    operation.check_iso_dep_card()?;
     Ok(Type4MutationResult {
         cc: current.cc,
         ndef: written.ndef,
@@ -134,7 +134,7 @@ pub fn clear(
     let card = operation.card().clone();
     let cleared =
         nfc_type4::clear_ndef(operation.reader_mut(), &card, &current.cc, &request.cancel)?;
-    operation.check_card()?;
+    operation.check_iso_dep_card()?;
     Ok(Type4MutationResult {
         cc: current.cc,
         ndef: cleared.ndef,
@@ -150,7 +150,7 @@ pub fn dump(
     cancel: &CancelToken,
 ) -> Result<BackupRecord> {
     let current = read_current(operation, cancel)?;
-    operation.check_card()?;
+    operation.check_iso_dep_card()?;
     save_backup(operation, &current, backup, "dump")
 }
 

@@ -182,9 +182,25 @@ dictionary failed on framing, not on the key. A reserved temporary application
 written and read back, and the application was deleted; `GetApplicationIDs`
 was empty afterwards. The test is idempotent and uses only the reserved AID.
 The inventory itself performed no authentication or write. The GTK test
-`desfire_workspace_switches_and_parses_inputs` covers workspace selection and
-the AID/key parsers; it does not touch hardware. The ACR122U row remains
-unrecorded.
+`desfire_workspace_switches_and_parses_inputs` covers workspace selection,
+Advanced gating, and the AID/key parsers; it does not touch hardware.
+
+The phase 25.5 NDEF provisioning path is implemented but not yet recorded on
+hardware: the PN532 UART run is pending because the DESFire card was not on
+the reader. The gated test refuses to start when an NDEF application already
+exists, checks the Advanced/confirmation gates and a wrong-key refusal,
+formats the card, writes and clears a Text record through Type 4, deletes the
+NDEF application, and compares the final application list with the pre-format
+list:
+
+```sh
+NFC_FOUNDRY_HARDWARE=1 NFC_FOUNDRY_HARDWARE_WRITE=yes \
+NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
+cargo test -p nfctl --features hardware-write \
+  --test hardware_desfire_ndef -- --ignored
+```
+
+The ACR122U row remains unrecorded.
 
 ```sh
 NFC_FOUNDRY_HARDWARE=1 NFC_FOUNDRY_HARDWARE_WRITE=yes \
@@ -237,7 +253,9 @@ The read and write tests passed on 2026-11-12 on PN532 UART
 (`pn532_uart:/dev/ttyUSB0`) with an NTAG 424 DNA `04 86 40 42 22 17 90`:
 CC 2.0, 23 bytes, MLe 256, MLc 255, NDEF file `E104` with 256-byte capacity and
 an empty state. A Text record was written, read back, cleared, and the empty
-state re-read. The ACR122U path is not recorded.
+state re-read. The ACR122U path is not recorded. Type 4 writes on a
+random-UID DESFire compare ATQA, SAK, and the stable last four UID bytes
+instead of the full UID.
 
 The gated Classic NDEF hardware test lives in
 `nfctl/tests/hardware_classic_ndef.rs`. The read-only check needs a Classic

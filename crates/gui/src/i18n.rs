@@ -663,6 +663,106 @@ keys! {
         "Read the card to list DESFire applications.",
         "读取卡片以列出 DESFire 应用。"
     ),
+    DesfireNdefHint => (
+        "Formatting creates the NDEF Tag Application D27600 with the CC and NDEF files. No full-card backup exists; deleting the application is the undo path.",
+        "格式化会创建 NDEF 标签应用 D27600 以及 CC 和 NDEF 文件。不存在整卡备份；删除该应用是撤销路径。"
+    ),
+    DesfirePiccKey => ("PICC master key", "PICC 主密钥"),
+    DesfirePiccKeyNumber => ("PICC key number", "PICC 密钥编号"),
+    DesfireFormatNdef => ("Format NDEF application", "格式化 NDEF 应用"),
+    DesfireDeleteNdef => ("Delete NDEF application", "删除 NDEF 应用"),
+    DesfireFormatHeading => (
+        "Format the DESFire NDEF application?",
+        "格式化 DESFire NDEF 应用？"
+    ),
+    DesfireDeleteHeading => (
+        "Delete the DESFire NDEF application?",
+        "删除 DESFire NDEF 应用？"
+    ),
+    DesfireFormatConfirm => ("Format NDEF", "格式化 NDEF"),
+    DesfireDeleteConfirm => ("Delete NDEF", "删除 NDEF"),
+    DesfireTypeConfirm => ("Type {} to confirm", "输入 {} 以确认"),
+    DesfireFormatPlan => (
+        "Create the NDEF Tag Application D27600 with DF name D2760000850101:",
+        "创建 NDEF 标签应用 D27600，DF 名为 D2760000850101："
+    ),
+    DesfireFormatCcLine => (
+        "CC: DESFire file 01 / ISO E103, 15 bytes, read free and write key 0",
+        "CC：DESFire 文件 01 / ISO E103，15 字节，自由读取，密钥 0 写入"
+    ),
+    DesfireFormatNdefLine => (
+        "NDEF: DESFire file 02 / ISO E104, 255 bytes, read and write free",
+        "NDEF：DESFire 文件 02 / ISO E104，255 字节，自由读写"
+    ),
+    DesfireFormatNoBackup => (
+        "No full-card backup exists. Delete the application with the same PICC key to undo.",
+        "不存在整卡备份。使用同一 PICC 密钥删除该应用即可撤销。"
+    ),
+    DesfireDeletePlan => (
+        "Delete the NDEF Tag Application D27600 and its CC/NDEF files.",
+        "删除 NDEF 标签应用 D27600 及其 CC/NDEF 文件。"
+    ),
+    DesfireDeleteLayout => (
+        "Only the exact AN11004 layout is deleted. No byte-for-byte restore exists.",
+        "仅删除完全符合 AN11004 布局的应用。不存在逐字节恢复。"
+    ),
+    DesfireAdvancedFormat => (
+        "Enable Advanced mode before formatting the NDEF application",
+        "格式化 NDEF 应用前请启用高级模式"
+    ),
+    DesfireAdvancedDelete => (
+        "Enable Advanced mode before deleting the NDEF application",
+        "删除 NDEF 应用前请启用高级模式"
+    ),
+    DesfireCheckingPlan => ("Checking the DESFire NDEF plan…", "正在检查 DESFire NDEF 计划…"),
+    DesfireCheckingApplication => (
+        "Checking the DESFire NDEF application…",
+        "正在检查 DESFire NDEF 应用…"
+    ),
+    DesfireFormatting => (
+        "Formatting the DESFire NDEF application…",
+        "正在格式化 DESFire NDEF 应用…"
+    ),
+    DesfireFormattingShort => ("Formatting the NDEF application…", "正在格式化 NDEF 应用…"),
+    DesfireDeleting => (
+        "Deleting the DESFire NDEF application…",
+        "正在删除 DESFire NDEF 应用…"
+    ),
+    DesfireDeletingShort => ("Deleting the NDEF application…", "正在删除 NDEF 应用…"),
+    DesfireFormatted => ("NDEF application formatted", "NDEF 应用已格式化"),
+    DesfireFormattedLine => (
+        "NDEF application formatted · CC {} · {}",
+        "NDEF 应用已格式化 · CC {} · {}"
+    ),
+    DesfireFormattedStatus => (
+        "DESFire NDEF application formatted",
+        "DESFire NDEF 应用已格式化"
+    ),
+    DesfireFormatFailed => ("NDEF formatting failed", "NDEF 格式化失败"),
+    DesfireFormatFailedStatus => (
+        "DESFire NDEF formatting failed",
+        "DESFire NDEF 格式化失败"
+    ),
+    DesfireDeleted => ("NDEF application deleted", "NDEF 应用已删除"),
+    DesfireDeletedStatus => (
+        "DESFire NDEF application deleted",
+        "DESFire NDEF 应用已删除"
+    ),
+    DesfireDeleteFailed => ("NDEF delete failed", "NDEF 删除失败"),
+    DesfireDeleteFailedStatus => ("DESFire NDEF delete failed", "DESFire NDEF 删除失败"),
+    DesfireNdefExists => (
+        "The NDEF application D27600 already exists; delete it first",
+        "NDEF 应用 D27600 已存在；请先删除"
+    ),
+    DesfireNdefMissing => (
+        "The NDEF application D27600 is not present",
+        "NDEF 应用 D27600 不存在"
+    ),
+    DesfirePiccKeyRequired => ("A PICC master key is required", "需要 PICC 主密钥"),
+    DesfireInventoryLine => ("DESFire inventory: {}", "DESFire 清单：{}"),
+    DesfireNdefFormatLine => ("DESFire NDEF format: {}", "DESFire NDEF 格式化：{}"),
+    DesfireNdefDeleteLine => ("DESFire NDEF delete: {}", "DESFire NDEF 删除：{}"),
+    ReaderWorkerStopped => ("Reader worker stopped", "读卡器工作线程已停止"),
     Actions => ("Actions", "操作"),
     CardPage => ("Card", "卡片"),
     Type2Page => ("Type 2", "Type 2"),
@@ -1242,6 +1342,7 @@ keys! {
         "16 or 32 hex digits; leave empty for free access",
         "16 或 32 位十六进制；留空表示自由访问"
     ),
+    PlaceholderLegacyKey => ("16 or 32 hex digits", "16 或 32 位十六进制"),
     PlaceholderRestOfFile => ("rest of file", "文件剩余部分"),
 
     // Keys.

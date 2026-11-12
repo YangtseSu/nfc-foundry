@@ -1,7 +1,8 @@
 # Phase 26 plan: DESFire workbench
 
-Status: in progress. 26.1 is complete; 26.2–26.13 are pending. Hardware:
-PN532 UART first; ACR122U records after a reader is available.
+Status: in progress. 26.1 is complete; 26.2–26.13 are pending, except that
+26.12's ordinary NDEF provisioning and guarded delete landed in phase 25.5.
+Hardware: PN532 UART first; ACR122U records after a reader is available.
 
 ## Goal
 
@@ -260,17 +261,22 @@ Acceptance:
 
 ### 26.12 NDEF provisioning and format
 
+Status: ordinary provisioning, Type 4 read-back, typed confirmation, and the
+guarded `DeleteApplication` undo landed in phase 25.5. This slice now covers
+the replace path and `FormatPICC`.
+
 Deliver:
 
-- Create the NDEF application (`D27600` with the ISO DF name
-  `D2760000850101`) and the CC/NDEF files.
-- Write the CC and NDEF message through the existing Type 4 NDEF writer, then
-  read back the complete message.
+- Reuse the phase 25.5 provisioning service: create `D27600` with the ISO DF
+  name `D2760000850101` and the CC/NDEF files, then read back the complete
+  message through the Type 4 writer.
 - Delete only the NDEF application created by this product as the undo path.
+- Add the explicit replace path: delete the validated NDEF application and
+  provision it again after a separate typed confirmation.
 - `FormatPICC` as a separate full-reset action that erases every application;
   it is Advanced, typed-confirmation, and never automatic.
-- Refuse NDEF provisioning when a valid NDEF application already exists, unless
-  the user explicitly selected the replace/delete path.
+- Refuse NDEF provisioning when a valid NDEF application already exists unless
+  the user selected the replace path.
 
 Acceptance:
 

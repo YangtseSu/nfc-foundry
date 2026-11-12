@@ -5,9 +5,9 @@
 //! Minimal MIFARE DESFire native command layer over ISO 7816-4 APDUs.
 //!
 //! This crate covers identity and application/file inventory, legacy
-//! DES/2K3DES authentication, and the primitive application/file commands used
-//! by hardware tests. NDEF formatting and the EV1/EV2 secure channel are not
-//! shipped yet.
+//! DES/2K3DES authentication, the primitive application/file commands, and the
+//! AN11004 NDEF Tag Application layout. The EV1/EV2 secure channel and the
+//! general file/key workbench are not part of this layer.
 
 use des::TdesEde3;
 use des::cipher::{BlockCipherDecrypt, KeyInit};
@@ -27,9 +27,46 @@ const INS_DELETE_APPLICATION: u8 = 0xDA;
 const INS_CREATE_STD_DATA_FILE: u8 = 0xCD;
 const INS_WRITE_DATA: u8 = 0x3D;
 const INS_READ_DATA: u8 = 0xBD;
+const INS_COMMIT_TRANSACTION: u8 = 0xC7;
+const INS_ABORT_TRANSACTION: u8 = 0xA7;
 
 const STATUS_OK: u16 = 0x9100;
 const STATUS_ADDITIONAL: u16 = 0x91AF;
+
+/// DESFire application ID that carries the NFC Forum Type 4 NDEF Tag
+/// Application, in native-command byte order (logical AID `D27600`).
+pub const NDEF_APPLICATION_AID: [u8; 3] = [0x00, 0x76, 0xD2];
+/// ISO 7816-4 DF name of the NDEF Tag Application.
+pub const NDEF_DF_NAME: [u8; 7] = [0xD2, 0x76, 0x00, 0x00, 0x85, 0x01, 0x01];
+/// Application ISO file identifier used by the AN11004 layout.
+pub const NDEF_APPLICATION_ISO_FILE: u16 = 0xE110;
+/// Application key settings and key count for the NDEF application.
+///
+/// `0x0B` requires the application master key for create/delete and `0x21`
+/// selects one DES key with ISO file ID support.
+pub const NDEF_APPLICATION_KEY_SETTINGS: (u8, u8) = (0x0B, 0x21);
+/// Factory application key of a newly created DESFire application.
+pub const NDEF_APPLICATION_KEY: [u8; 8] = [0x00; 8];
+/// DESFire file number of the Type 4 capability container.
+pub const NDEF_CC_FILE: u8 = 0x01;
+/// ISO file identifier of the Type 4 capability container.
+pub const NDEF_CC_ISO_FILE: u16 = 0xE103;
+/// Size of the capability container file.
+pub const NDEF_CC_SIZE: u32 = 15;
+/// Access rights of the capability container: read free, write key 0.
+pub const NDEF_CC_ACCESS_RIGHTS: u16 = 0xE000;
+/// DESFire file number of the NDEF data file.
+pub const NDEF_DATA_FILE: u8 = 0x02;
+/// ISO file identifier of the NDEF data file.
+pub const NDEF_DATA_ISO_FILE: u16 = 0xE104;
+/// Size of the NDEF data file, including the two NLEN bytes.
+pub const NDEF_DATA_SIZE: u32 = 255;
+/// Access rights of the NDEF data file: read and write free, change key 0.
+pub const NDEF_DATA_ACCESS_RIGHTS: u16 = 0xEEE0;
+/// Mapping-version 2.0 capability container for one writable NDEF file.
+pub const NDEF_CAPABILITY_CONTAINER: [u8; 15] = [
+    0x00, 0x0F, 0x20, 0x00, 0x3B, 0x00, 0x34, 0x04, 0x06, 0xE1, 0x04, 0x00, 0xFF, 0x00, 0x00,
+];
 
 /// The legacy authentication key families this layer can derive.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -39,7 +76,8 @@ pub enum LegacyKeyType {
 }
 
 impl LegacyKeyType {
-    fn from_key(key: &[u8]) -> Result<Self> {
+    /// Key family selected by the supplied legacy key length.
+    pub fn from_key(key: &[u8]) -> Result<Self> {
         match key.len() {
             8 => Ok(Self::Des),
             16 => Ok(Self::Tdes2),
@@ -297,27 +335,22 @@ impl<'a> Desfire<'a> {
     /// Create an application while authenticated to the PICC master
     /// application. `key_settings2` carries the key count in its low nibble
     /// and the key type in bits 6-7.
+    ///
+    /// `iso_file_id` and `df_name` are optional together. When present, the
+    /// application gets the ISO file ID and ISO 7816-4 DF name, and the ISO
+    /// file ID bit is set in `key_settings2`.
     pub fn create_application(
         &mut self,
         aid: [u8; 3],
         key_settings: u8,
         key_settings2: u8,
+        iso_file_id: Option<u16>,
+        df_name: &[u8],
     ) -> Result<()> {
         self.ensure_authenticated()?;
-        if aid == [0x00; 3] {
-            return Err(NfcError::InvalidArgument(
-                "the PICC master application ID cannot be created".to_owned(),
-            ));
-        }
-        if !(1..=14).contains(&(key_settings2 & 0x0F)) {
-            return Err(NfcError::InvalidArgument(
-                "a DESFire application has 1..=14 keys".to_owned(),
-            ));
-        }
-        self.expect_ok(
-            INS_CREATE_APPLICATION,
-            &[aid[0], aid[1], aid[2], key_settings, key_settings2],
-        )?;
+        let payload =
+            create_application_payload(aid, key_settings, key_settings2, iso_file_id, df_name)?;
+        self.expect_ok(INS_CREATE_APPLICATION, &payload)?;
         Ok(())
     }
 
@@ -338,40 +371,36 @@ impl<'a> Desfire<'a> {
         Ok(())
     }
 
+    /// Commit the open transaction so plain writes become persistent.
+    pub fn commit_transaction(&mut self) -> Result<()> {
+        self.expect_ok(INS_COMMIT_TRANSACTION, &[])?;
+        Ok(())
+    }
+
+    /// Abort the open transaction and discard uncommitted writes.
+    pub fn abort_transaction(&mut self) -> Result<()> {
+        self.expect_ok(INS_ABORT_TRANSACTION, &[])?;
+        Ok(())
+    }
+
     /// Create a standard data file in the selected application.
     ///
     /// `communication` is 0 for plain, 1 for MACed and 3 for enciphered.
-    /// `access_rights` uses the raw DESFire 16-bit encoding.
+    /// `access_rights` uses the raw DESFire 16-bit encoding. When
+    /// `iso_file_id` is present, the file is registered under that ISO 7816-4
+    /// file identifier for Type 4 access.
     pub fn create_standard_file(
         &mut self,
         file_id: u8,
+        iso_file_id: Option<u16>,
         communication: u8,
         access_rights: u16,
         size: u32,
     ) -> Result<()> {
         self.ensure_authenticated()?;
-        if communication > 3 {
-            return Err(NfcError::InvalidArgument(
-                "DESFire communication mode must be 0, 1 or 3".to_owned(),
-            ));
-        }
-        if size == 0 || size > 0x00FF_FFFF {
-            return Err(NfcError::InvalidArgument(
-                "DESFire file size must be 1..=0xFFFFFF bytes".to_owned(),
-            ));
-        }
-        self.expect_ok(
-            INS_CREATE_STD_DATA_FILE,
-            &[
-                file_id,
-                communication,
-                access_rights as u8,
-                (access_rights >> 8) as u8,
-                size as u8,
-                (size >> 8) as u8,
-                (size >> 16) as u8,
-            ],
-        )?;
+        let payload =
+            create_standard_file_payload(file_id, iso_file_id, communication, access_rights, size)?;
+        self.expect_ok(INS_CREATE_STD_DATA_FILE, &payload)?;
         Ok(())
     }
 
@@ -463,6 +492,90 @@ impl<'a> Desfire<'a> {
 /// Read the card inventory without authentication.
 pub fn inventory(reader: &mut dyn Reader) -> Result<Inventory> {
     Desfire::new(reader).inventory()
+}
+
+fn create_application_payload(
+    aid: [u8; 3],
+    key_settings: u8,
+    key_settings2: u8,
+    iso_file_id: Option<u16>,
+    df_name: &[u8],
+) -> Result<Vec<u8>> {
+    if aid == [0x00; 3] {
+        return Err(NfcError::InvalidArgument(
+            "the PICC master application ID cannot be created".to_owned(),
+        ));
+    }
+    if !(1..=14).contains(&(key_settings2 & 0x0F)) {
+        return Err(NfcError::InvalidArgument(
+            "a DESFire application has 1..=14 keys".to_owned(),
+        ));
+    }
+    if df_name.len() > 16 {
+        return Err(NfcError::InvalidArgument(
+            "a DESFire DF name is at most 16 bytes".to_owned(),
+        ));
+    }
+    if iso_file_id.is_some() != !df_name.is_empty() {
+        return Err(NfcError::InvalidArgument(
+            "a DESFire application needs both or neither of an ISO file ID and a DF name"
+                .to_owned(),
+        ));
+    }
+    if iso_file_id.is_none() && key_settings2 & 0x20 != 0 {
+        return Err(NfcError::InvalidArgument(
+            "the ISO file ID key-setting bit needs an ISO file ID and DF name".to_owned(),
+        ));
+    }
+    let mut payload = Vec::with_capacity(7 + df_name.len());
+    payload.extend_from_slice(&[aid[0], aid[1], aid[2], key_settings]);
+    match iso_file_id {
+        Some(iso_file_id) if iso_file_id != 0 => {
+            payload.push(key_settings2 | 0x20);
+            payload.extend_from_slice(&iso_file_id.to_le_bytes());
+            payload.extend_from_slice(df_name);
+        }
+        Some(_) => {
+            return Err(NfcError::InvalidArgument(
+                "a DESFire application ISO file ID must not be zero".to_owned(),
+            ));
+        }
+        None => payload.push(key_settings2),
+    }
+    Ok(payload)
+}
+
+fn create_standard_file_payload(
+    file_id: u8,
+    iso_file_id: Option<u16>,
+    communication: u8,
+    access_rights: u16,
+    size: u32,
+) -> Result<Vec<u8>> {
+    if communication > 3 {
+        return Err(NfcError::InvalidArgument(
+            "DESFire communication mode must be 0, 1 or 3".to_owned(),
+        ));
+    }
+    if size == 0 || size > 0x00FF_FFFF {
+        return Err(NfcError::InvalidArgument(
+            "DESFire file size must be 1..=0xFFFFFF bytes".to_owned(),
+        ));
+    }
+    let mut payload = Vec::with_capacity(9);
+    payload.push(file_id);
+    if let Some(iso_file_id) = iso_file_id {
+        if iso_file_id == 0 {
+            return Err(NfcError::InvalidArgument(
+                "a DESFire file ISO file ID must not be zero".to_owned(),
+            ));
+        }
+        payload.extend_from_slice(&iso_file_id.to_le_bytes());
+    }
+    payload.push(communication);
+    payload.extend_from_slice(&access_rights.to_le_bytes());
+    payload.extend_from_slice(&size.to_le_bytes()[..3]);
+    Ok(payload)
 }
 
 fn expand_tdes_key(key: &[u8]) -> Result<[u8; 24]> {
@@ -591,6 +704,94 @@ mod tests {
     fn rotate_left_and_right_are_inverse() {
         let block = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
         assert_eq!(rotate_right(&rotate_left(&block)), block);
+    }
+
+    #[test]
+    fn ndef_application_payload_has_iso_id_and_df_name() {
+        let payload = create_application_payload(
+            NDEF_APPLICATION_AID,
+            NDEF_APPLICATION_KEY_SETTINGS.0,
+            NDEF_APPLICATION_KEY_SETTINGS.1,
+            Some(NDEF_APPLICATION_ISO_FILE),
+            &NDEF_DF_NAME,
+        )
+        .expect("application payload");
+        assert_eq!(
+            payload,
+            [
+                0x00, 0x76, 0xD2, 0x0B, 0x21, 0x10, 0xE1, 0xD2, 0x76, 0x00, 0x00, 0x85, 0x01, 0x01
+            ]
+        );
+    }
+
+    #[test]
+    fn ndef_file_payloads_carry_iso_ids_and_free_write_access() {
+        let cc = create_standard_file_payload(
+            NDEF_CC_FILE,
+            Some(NDEF_CC_ISO_FILE),
+            0,
+            NDEF_CC_ACCESS_RIGHTS,
+            NDEF_CC_SIZE,
+        )
+        .expect("CC file payload");
+        assert_eq!(cc, [0x01, 0x03, 0xE1, 0x00, 0x00, 0xE0, 0x0F, 0x00, 0x00]);
+
+        let ndef = create_standard_file_payload(
+            NDEF_DATA_FILE,
+            Some(NDEF_DATA_ISO_FILE),
+            0,
+            NDEF_DATA_ACCESS_RIGHTS,
+            NDEF_DATA_SIZE,
+        )
+        .expect("NDEF file payload");
+        assert_eq!(ndef, [0x02, 0x04, 0xE1, 0x00, 0xE0, 0xEE, 0xFF, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn ndef_capability_container_matches_mapping_version_2() {
+        assert_eq!(
+            NDEF_CAPABILITY_CONTAINER,
+            [
+                0x00, 0x0F, 0x20, 0x00, 0x3B, 0x00, 0x34, 0x04, 0x06, 0xE1, 0x04, 0x00, 0xFF, 0x00,
+                0x00
+            ]
+        );
+    }
+
+    #[test]
+    fn application_and_file_iso_names_are_validated() {
+        assert!(
+            create_application_payload(
+                NDEF_APPLICATION_AID,
+                0x0B,
+                0x21,
+                Some(NDEF_APPLICATION_ISO_FILE),
+                &[],
+            )
+            .is_err()
+        );
+        assert!(
+            create_application_payload(NDEF_APPLICATION_AID, 0x0B, 0x21, None, &NDEF_DF_NAME,)
+                .is_err()
+        );
+        assert!(
+            create_application_payload(NDEF_APPLICATION_AID, 0x0B, 0x21, Some(0), &NDEF_DF_NAME)
+                .is_err()
+        );
+        assert!(create_application_payload(NDEF_APPLICATION_AID, 0x0B, 0x21, None, &[]).is_err());
+        assert!(
+            create_application_payload(
+                NDEF_APPLICATION_AID,
+                0x0B,
+                0x21,
+                Some(NDEF_APPLICATION_ISO_FILE),
+                &[0u8; 17],
+            )
+            .is_err()
+        );
+        assert!(create_standard_file_payload(1, Some(0), 0, 0, 15).is_err());
+        assert!(create_standard_file_payload(1, None, 4, 0, 15).is_err());
+        assert!(create_standard_file_payload(1, None, 0, 0, 0).is_err());
     }
 
     #[test]

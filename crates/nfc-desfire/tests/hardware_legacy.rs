@@ -73,7 +73,7 @@ fn run(desfire: &mut Desfire<'_>) -> Result<()> {
     );
     assert_eq!(desfire.session_key().map(<[u8]>::len), Some(8));
 
-    desfire.create_application(TEST_AID, 0x0F, 0x01)?;
+    desfire.create_application(TEST_AID, 0x0F, 0x01, None, &[])?;
 
     desfire.select_application(TEST_AID)?;
     desfire.authenticate_legacy(0, &APP_KEY)?;
@@ -83,8 +83,9 @@ fn run(desfire: &mut Desfire<'_>) -> Result<()> {
     );
     assert_eq!(desfire.session_key().map(<[u8]>::len), Some(16));
 
-    desfire.create_standard_file(TEST_FILE, 0, 0x0000, 32)?;
+    desfire.create_standard_file(TEST_FILE, None, 0, 0x0000, 32)?;
     desfire.write_data(TEST_FILE, 0, PAYLOAD)?;
+    desfire.commit_transaction()?;
     let read = desfire.read_data(TEST_FILE, 0, PAYLOAD.len() as u32)?;
     if read != PAYLOAD {
         return Err(NfcError::VerificationFailed(format!(

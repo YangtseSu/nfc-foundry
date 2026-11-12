@@ -21,7 +21,10 @@ use nfc_app::classic::{
     WorkbenchSnapshot, common_keys, common_only_keys, default_extended_keys, default_keys,
     ev1_signature_keys, format_uid, parse_block_list, parse_uid,
 };
-use nfc_app::desfire::DesfireReadRequest;
+use nfc_app::desfire::{
+    DesfireNdefDeleteRequest, DesfireNdefFormatRequest, DesfireReadRequest, NDEF_APPLICATION_AID,
+    NDEF_CC_FILE, NDEF_CC_SIZE, NDEF_DATA_FILE, NDEF_DATA_SIZE,
+};
 use nfc_app::type2::{
     Type2Auth, Type2Format, Type2Lock, Type2LockResult, Type2MutationResult, Type2NdefWrite,
     Type2PageResult, Type2PageWrite, Type2Password, Type2ReadRequest, Type2ReadResult,
@@ -535,6 +538,7 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
         pending_type2_uid_dialog: RefCell::new(None),
         pending_type2_restore_dialog: RefCell::new(None),
         pending_type2_format_dialog: RefCell::new(None),
+        pending_desfire_dialog: RefCell::new(None),
         devices: RefCell::new(Vec::new()),
         keyscan_cancel: RefCell::new(None),
         keyscan_result: RefCell::new(None),
@@ -559,6 +563,7 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
     update_keyscan_sensitivity(&ui);
     update_recovery_sensitivity(&ui);
     update_restore_sensitivity(&ui);
+    update_desfire_actions(&ui);
     refresh_devices(&ui);
     if auto_monitor {
         start_reader_monitor(ui.clone());
@@ -974,6 +979,7 @@ struct Ui {
     pending_type2_uid_dialog: RefCell<Option<adw::AlertDialog>>,
     pending_type2_restore_dialog: RefCell<Option<adw::AlertDialog>>,
     pending_type2_format_dialog: RefCell<Option<adw::AlertDialog>>,
+    pending_desfire_dialog: RefCell<Option<adw::AlertDialog>>,
     devices: RefCell<Vec<DeviceInfo>>,
     keyscan_cancel: RefCell<Option<CancelToken>>,
     keyscan_result: RefCell<Option<ClassicKeyscanResult>>,
@@ -1041,6 +1047,12 @@ struct DesfireView {
     read: gtk::Button,
     output: gtk::Label,
     status: gtk::Label,
+    advanced: gtk::Switch,
+    ndef_key: gtk::PasswordEntry,
+    ndef_key_number: gtk::Entry,
+    format_ndef: gtk::Button,
+    delete_ndef: gtk::Button,
+    ndef_status: gtk::Label,
 }
 
 struct Type2Editor {
@@ -1678,11 +1690,72 @@ fn build_desfire_view() -> DesfireView {
     read_page.append(&output_scroll);
     read_page.append(&status);
 
+    let ndef_page = page_box();
+    let advanced_row = gtk::Box::new(Orientation::Horizontal, 8);
+    let advanced_label = gtk::Label::new(Some("Advanced mode"));
+    advanced_label.set_xalign(0.0);
+    advanced_label.set_hexpand(true);
+    let advanced = gtk::Switch::new();
+    advanced_row.append(&advanced_label);
+    advanced_row.append(&advanced);
+
+    let ndef_hint = gtk::Label::new(Some(
+        "Formatting creates the NDEF Tag Application D27600 with the CC and NDEF files. \
+         No full-card backup exists; deleting the application is the undo path.",
+    ));
+    ndef_hint.set_xalign(0.0);
+    ndef_hint.set_wrap(true);
+    ndef_hint.add_css_class("caption");
+    ndef_hint.add_css_class("dim-label");
+
+    let ndef_form = gtk::Grid::new();
+    ndef_form.set_row_spacing(8);
+    ndef_form.set_column_spacing(12);
+    let ndef_key_caption = gtk::Label::new(Some("PICC master key"));
+    ndef_key_caption.set_xalign(0.0);
+    ndef_key_caption.add_css_class("caption");
+    ndef_key_caption.add_css_class("dim-label");
+    let ndef_key = gtk::PasswordEntry::new();
+    ndef_key.set_show_peek_icon(true);
+    ndef_key.set_placeholder_text(Some("16 or 32 hex digits"));
+    ndef_form.attach(&ndef_key_caption, 0, 0, 1, 1);
+    ndef_form.attach(&ndef_key, 1, 0, 1, 1);
+    ndef_key.set_hexpand(true);
+    let ndef_key_number_caption = gtk::Label::new(Some("PICC key number"));
+    ndef_key_number_caption.set_xalign(0.0);
+    ndef_key_number_caption.add_css_class("caption");
+    ndef_key_number_caption.add_css_class("dim-label");
+    let ndef_key_number = gtk::Entry::new();
+    ndef_key_number.set_text("0");
+    ndef_key_number.set_max_width_chars(4);
+    ndef_form.attach(&ndef_key_number_caption, 0, 1, 1, 1);
+    ndef_form.attach(&ndef_key_number, 1, 1, 1, 1);
+
+    let format_ndef = gtk::Button::with_label("Format NDEF application");
+    format_ndef.add_css_class("destructive-action");
+    let delete_ndef = gtk::Button::with_label("Delete NDEF application");
+    delete_ndef.add_css_class("destructive-action");
+    let ndef_buttons = gtk::Box::new(Orientation::Horizontal, 8);
+    ndef_buttons.append(&format_ndef);
+    ndef_buttons.append(&delete_ndef);
+    let ndef_status = gtk::Label::new(None);
+    ndef_status.set_xalign(0.0);
+    ndef_status.set_wrap(true);
+    ndef_status.set_selectable(true);
+    ndef_status.add_css_class("caption");
+    ndef_status.add_css_class("dim-label");
+    ndef_page.append(&advanced_row);
+    ndef_page.append(&ndef_hint);
+    ndef_page.append(&ndef_form);
+    ndef_page.append(&ndef_buttons);
+    ndef_page.append(&ndef_status);
+
     let tabs = gtk::Stack::new();
     tabs.set_transition_type(gtk::StackTransitionType::Crossfade);
     tabs.set_vexpand(true);
     tabs.add_titled(&inventory_page, Some("inventory"), "Inventory");
     tabs.add_titled(&read_page, Some("read"), "Read");
+    tabs.add_titled(&ndef_page, Some("ndef"), "NDEF");
     let (root, switcher) = grouped_page(&tabs);
     DesfireView {
         root,
@@ -1699,6 +1772,12 @@ fn build_desfire_view() -> DesfireView {
         read,
         output,
         status,
+        advanced,
+        ndef_key,
+        ndef_key_number,
+        format_ndef,
+        delete_ndef,
+        ndef_status,
     }
 }
 
@@ -3116,6 +3195,18 @@ fn connect_signals(ui: &Rc<Ui>) {
     ui.desfire_view
         .read
         .connect_clicked(move |_| start_desfire_read(ui2.clone()));
+    let ui2 = ui.clone();
+    ui.desfire_view
+        .format_ndef
+        .connect_clicked(move |_| start_desfire_ndef_format(ui2.clone()));
+    let ui2 = ui.clone();
+    ui.desfire_view
+        .delete_ndef
+        .connect_clicked(move |_| start_desfire_ndef_delete(ui2.clone()));
+    let ui2 = ui.clone();
+    ui.desfire_view
+        .advanced
+        .connect_active_notify(move |_| update_desfire_actions(&ui2));
     wire_group_focus(&ui.desfire_view.tabs, &ui.desfire_view.switcher);
 
     let ui2 = ui.clone();
@@ -5674,6 +5765,12 @@ fn clear_desfire_session(ui: &Rc<Ui>) {
     ui.desfire_view.key.set_text("");
     ui.desfire_view.output.set_text("");
     ui.desfire_view.status.set_text("");
+    ui.desfire_view.ndef_key.set_text("");
+    ui.desfire_view.ndef_status.set_text("");
+    ui.desfire_view.advanced.set_active(false);
+    if let Some(dialog) = ui.pending_desfire_dialog.borrow_mut().take() {
+        dialog.force_close();
+    }
 }
 
 fn apply_reader_update(ui: &Rc<Ui>, update: ReaderUpdate) {
@@ -6061,10 +6158,341 @@ fn finish_desfire_read(ui: &Rc<Ui>, result: NfcResult<(String, usize)>) {
     }
 }
 
+fn desfire_key_number(text: &str) -> std::result::Result<u8, String> {
+    let number = text
+        .trim()
+        .parse::<u8>()
+        .map_err(|_| "key number must be 0..=14".to_owned())?;
+    if number > 14 {
+        return Err("key number must be 0..=14".to_owned());
+    }
+    Ok(number)
+}
+
+fn desfire_required_key(text: &str) -> std::result::Result<Vec<u8>, String> {
+    parse_desfire_key(text)?.ok_or_else(|| "a PICC master key is required".to_owned())
+}
+
+fn start_desfire_ndef_format(ui: Rc<Ui>) {
+    if ui.busy.get() {
+        return;
+    }
+    if ui.devices.borrow().is_empty() {
+        toast_error(&ui, "No reader selected");
+        return;
+    }
+    if !ui.desfire_view.advanced.is_active() {
+        toast_error(
+            &ui,
+            "Enable Advanced mode before formatting the NDEF application",
+        );
+        return;
+    }
+    let parsed = (|| -> std::result::Result<_, String> {
+        let key = desfire_required_key(&ui.desfire_view.ndef_key.text())?;
+        let key_number = desfire_key_number(&ui.desfire_view.ndef_key_number.text())?;
+        Ok((key, key_number))
+    })();
+    let (key, key_number) = match parsed {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            toast_error(&ui, &error);
+            return;
+        }
+    };
+
+    set_busy(&ui, true);
+    ui.status.set_localized("Checking the DESFire NDEF plan…");
+    let service = ui.service.clone();
+    let (sender, receiver) = async_channel::bounded(1);
+    std::thread::spawn(move || {
+        let result = match service.lock() {
+            Ok(mut service) => service.desfire_inventory(CancelToken::new()),
+            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
+        };
+        let _ = sender.send_blocking(result);
+    });
+    glib::spawn_future_local(async move {
+        set_busy(&ui, false);
+        let inventory = match receiver.recv().await {
+            Ok(Ok(inventory)) => inventory,
+            Ok(Err(error)) => {
+                toast_error(&ui, &format!("DESFire inventory: {error}"));
+                return;
+            }
+            Err(_) => {
+                toast_error(&ui, "Reader worker stopped");
+                return;
+            }
+        };
+        if inventory
+            .applications
+            .iter()
+            .any(|application| application.aid == NDEF_APPLICATION_AID)
+        {
+            toast_error(
+                &ui,
+                "The NDEF application D27600 already exists; delete it first",
+            );
+            return;
+        }
+        let body = format!(
+            "{}\n\nCreate the NDEF Tag Application D27600 with DF name D2760000850101:\n\
+             CC: DESFire file {:02X} / ISO E103, {} bytes, read free and write key 0\n\
+             NDEF: DESFire file {:02X} / ISO E104, {} bytes, read and write free\n\n\
+             No full-card backup exists. Delete the application with the same PICC key to undo.\n\n\
+             Type FORMAT to confirm",
+            inventory.version.name(),
+            NDEF_CC_FILE,
+            NDEF_CC_SIZE,
+            NDEF_DATA_FILE,
+            NDEF_DATA_SIZE,
+        );
+        let dialog = typed_confirmation_dialog(
+            "Format the DESFire NDEF application?",
+            &body,
+            "Format NDEF",
+            "FORMAT",
+        );
+        ui.pending_desfire_dialog.replace(Some(dialog.clone()));
+        let ui2 = ui.clone();
+        let key = RefCell::new(Some(key));
+        dialog.connect_response(None, move |_, response| {
+            ui2.pending_desfire_dialog.replace(None);
+            if response == "confirm"
+                && let Some(key) = key.borrow_mut().take()
+            {
+                execute_desfire_ndef_format(ui2.clone(), key, key_number);
+            }
+        });
+        present_alert(&dialog, &ui.window);
+    });
+}
+
+fn execute_desfire_ndef_format(ui: Rc<Ui>, key: Vec<u8>, key_number: u8) {
+    set_busy(&ui, true);
+    ui.status
+        .set_localized("Formatting the DESFire NDEF application…");
+    ui.desfire_view
+        .ndef_status
+        .set_localized("Formatting the NDEF application…");
+    let service = ui.service.clone();
+    let (sender, receiver) = async_channel::bounded(1);
+    std::thread::spawn(move || {
+        let result = match service.lock() {
+            Ok(mut service) => service.desfire_ndef_format(
+                DesfireNdefFormatRequest::new(key)
+                    .key_number(key_number)
+                    .advanced(true)
+                    .confirm(true),
+            ),
+            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
+        };
+        let _ = sender.send_blocking(result);
+    });
+    glib::spawn_future_local(async move {
+        set_busy(&ui, false);
+        match receiver.recv().await {
+            Ok(Ok(result)) => {
+                ui.desfire_view.ndef_status.set_localized(&format!(
+                    "NDEF application formatted · CC {} · {}",
+                    type2_ui::hex_bytes(result.cc.raw()),
+                    nfc_app::type4::ndef_label(&result.ndef.state)
+                ));
+                ui.status
+                    .set_localized("DESFire NDEF application formatted");
+                append_log(&ui, "desfire · ndef format");
+                start_desfire_inventory(ui);
+            }
+            Ok(Err(error)) => {
+                ui.desfire_view
+                    .ndef_status
+                    .set_localized("NDEF formatting failed");
+                ui.status.set_localized("DESFire NDEF formatting failed");
+                toast_error(&ui, &format!("DESFire NDEF format: {error}"));
+            }
+            Err(_) => {
+                ui.desfire_view
+                    .ndef_status
+                    .set_localized("NDEF formatting failed");
+                toast_error(&ui, "Reader worker stopped");
+            }
+        }
+    });
+}
+
+fn start_desfire_ndef_delete(ui: Rc<Ui>) {
+    if ui.busy.get() {
+        return;
+    }
+    if ui.devices.borrow().is_empty() {
+        toast_error(&ui, "No reader selected");
+        return;
+    }
+    if !ui.desfire_view.advanced.is_active() {
+        toast_error(
+            &ui,
+            "Enable Advanced mode before deleting the NDEF application",
+        );
+        return;
+    }
+    let parsed = (|| -> std::result::Result<_, String> {
+        let key = desfire_required_key(&ui.desfire_view.ndef_key.text())?;
+        let key_number = desfire_key_number(&ui.desfire_view.ndef_key_number.text())?;
+        Ok((key, key_number))
+    })();
+    let (key, key_number) = match parsed {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            toast_error(&ui, &error);
+            return;
+        }
+    };
+
+    set_busy(&ui, true);
+    ui.status
+        .set_localized("Checking the DESFire NDEF application…");
+    let service = ui.service.clone();
+    let (sender, receiver) = async_channel::bounded(1);
+    std::thread::spawn(move || {
+        let result = match service.lock() {
+            Ok(mut service) => service.desfire_inventory(CancelToken::new()),
+            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
+        };
+        let _ = sender.send_blocking(result);
+    });
+    glib::spawn_future_local(async move {
+        set_busy(&ui, false);
+        let inventory = match receiver.recv().await {
+            Ok(Ok(inventory)) => inventory,
+            Ok(Err(error)) => {
+                toast_error(&ui, &format!("DESFire inventory: {error}"));
+                return;
+            }
+            Err(_) => {
+                toast_error(&ui, "Reader worker stopped");
+                return;
+            }
+        };
+        if !inventory
+            .applications
+            .iter()
+            .any(|application| application.aid == NDEF_APPLICATION_AID)
+        {
+            toast_error(&ui, "The NDEF application D27600 is not present");
+            return;
+        }
+        let body = format!(
+            "{}\n\nDelete the NDEF Tag Application D27600 and its CC/NDEF files.\n\
+             Only the exact AN11004 layout is deleted. No byte-for-byte restore exists.\n\n\
+             Type DELETE to confirm",
+            inventory.version.name()
+        );
+        let dialog = typed_confirmation_dialog(
+            "Delete the DESFire NDEF application?",
+            &body,
+            "Delete NDEF",
+            "DELETE",
+        );
+        ui.pending_desfire_dialog.replace(Some(dialog.clone()));
+        let ui2 = ui.clone();
+        let key = RefCell::new(Some(key));
+        dialog.connect_response(None, move |_, response| {
+            ui2.pending_desfire_dialog.replace(None);
+            if response == "confirm"
+                && let Some(key) = key.borrow_mut().take()
+            {
+                execute_desfire_ndef_delete(ui2.clone(), key, key_number);
+            }
+        });
+        present_alert(&dialog, &ui.window);
+    });
+}
+
+fn execute_desfire_ndef_delete(ui: Rc<Ui>, key: Vec<u8>, key_number: u8) {
+    set_busy(&ui, true);
+    ui.status
+        .set_localized("Deleting the DESFire NDEF application…");
+    ui.desfire_view
+        .ndef_status
+        .set_localized("Deleting the NDEF application…");
+    let service = ui.service.clone();
+    let (sender, receiver) = async_channel::bounded(1);
+    std::thread::spawn(move || {
+        let result = match service.lock() {
+            Ok(mut service) => service.desfire_ndef_delete(
+                DesfireNdefDeleteRequest::new(key)
+                    .key_number(key_number)
+                    .advanced(true)
+                    .confirm(true),
+            ),
+            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
+        };
+        let _ = sender.send_blocking(result);
+    });
+    glib::spawn_future_local(async move {
+        set_busy(&ui, false);
+        match receiver.recv().await {
+            Ok(Ok(_)) => {
+                ui.desfire_view
+                    .ndef_status
+                    .set_localized("NDEF application deleted");
+                ui.status.set_localized("DESFire NDEF application deleted");
+                append_log(&ui, "desfire · ndef delete");
+                start_desfire_inventory(ui);
+            }
+            Ok(Err(error)) => {
+                ui.desfire_view
+                    .ndef_status
+                    .set_localized("NDEF delete failed");
+                ui.status.set_localized("DESFire NDEF delete failed");
+                toast_error(&ui, &format!("DESFire NDEF delete: {error}"));
+            }
+            Err(_) => {
+                ui.desfire_view
+                    .ndef_status
+                    .set_localized("NDEF delete failed");
+                toast_error(&ui, "Reader worker stopped");
+            }
+        }
+    });
+}
+
+fn typed_confirmation_dialog(
+    heading: &str,
+    body: &str,
+    confirm_label: &str,
+    phrase: &str,
+) -> adw::AlertDialog {
+    let dialog = confirmation_dialog(heading, body, confirm_label);
+    let entry = gtk::Entry::new();
+    entry.set_placeholder_text(Some(&format!("Type {phrase} to confirm")));
+    entry.set_activates_default(true);
+    entry.connect_map(|entry| {
+        entry.grab_focus();
+    });
+    dialog.set_extra_child(Some(&entry));
+    dialog.set_response_enabled("confirm", false);
+    dialog.set_default_response(Some("confirm"));
+    let weak = dialog.downgrade();
+    let phrase = phrase.to_owned();
+    entry.connect_changed(move |entry| {
+        if let Some(dialog) = weak.upgrade() {
+            dialog.set_response_enabled("confirm", entry.text().trim() == phrase);
+        }
+    });
+    dialog
+}
+
 fn update_desfire_actions(ui: &Ui) {
     let sensitive = !ui.busy.get();
+    let advanced = sensitive && ui.desfire_view.advanced.is_active();
     ui.desfire_view.refresh.set_sensitive(sensitive);
     ui.desfire_view.read.set_sensitive(sensitive);
+    ui.desfire_view.format_ndef.set_sensitive(advanced);
+    ui.desfire_view.delete_ndef.set_sensitive(advanced);
+    ui.desfire_view.ndef_key.set_sensitive(sensitive);
+    ui.desfire_view.ndef_key_number.set_sensitive(sensitive);
 }
 
 fn start_read(ui: Rc<Ui>) {
@@ -7523,6 +7951,8 @@ fn reset_advanced(ui: &Ui) {
     ui.inspector.uid.set_text("");
     ui.restore_view.uid_advanced.set_active(false);
     ui.restore_view.uid.set_text("");
+    ui.desfire_view.advanced.set_active(false);
+    ui.desfire_view.ndef_key.set_text("");
     if let Some(dialog) = ui.pending_uid_dialog.borrow_mut().take() {
         dialog.force_close();
     }
@@ -14620,6 +15050,36 @@ mod tests {
             ui.desfire_view.summary.label(),
             "Read the card to list DESFire applications."
         );
+        assert!(!ui.desfire_view.format_ndef.is_sensitive());
+        assert!(!ui.desfire_view.delete_ndef.is_sensitive());
+        assert!(!ui.desfire_view.advanced.is_active());
+        ui.desfire_view.advanced.set_active(true);
+        assert!(ui.desfire_view.format_ndef.is_sensitive());
+        assert!(ui.desfire_view.delete_ndef.is_sensitive());
+        ui.desfire_view.advanced.set_active(false);
+        assert!(!ui.desfire_view.format_ndef.is_sensitive());
+
+        assert_eq!(desfire_key_number("0").expect("key number"), 0);
+        assert!(desfire_key_number("15").is_err());
+        assert!(desfire_key_number("x").is_err());
+        assert!(desfire_required_key("").is_err());
+        assert_eq!(
+            desfire_required_key("0000000000000000")
+                .expect("required key")
+                .len(),
+            8
+        );
+
+        let dialog = typed_confirmation_dialog("Test", "Body", "Confirm", "FORMAT");
+        assert!(!dialog.is_response_enabled("confirm"));
+        let entry = dialog
+            .extra_child()
+            .and_downcast::<gtk::Entry>()
+            .expect("typed confirmation entry");
+        entry.set_text("FORMAT");
+        assert!(dialog.is_response_enabled("confirm"));
+        entry.set_text("format");
+        assert!(!dialog.is_response_enabled("confirm"));
 
         assert_eq!(
             parse_desfire_hex("A1 B2 C3", 3, "AID").expect("AID"),

@@ -13,6 +13,11 @@ use nfc_app::classic::{
     KeyFile, KeyKind, KeySource, KeyStore, KeyTypes, RestoreSelection, RestoreUidState,
     common_keys, format_uid, parse_block_list, parse_uid,
 };
+use nfc_app::desfire::{
+    DesfireNdefDeleteRequest, DesfireNdefFormatRequest, NDEF_APPLICATION_AID,
+    NDEF_CAPABILITY_CONTAINER, NDEF_CC_FILE, NDEF_CC_SIZE, NDEF_DATA_FILE, NDEF_DATA_SIZE,
+    NDEF_DF_NAME,
+};
 use nfc_app::type2::{
     Type2Auth, Type2Format, Type2Lock, Type2NdefWrite, Type2PageWrite, Type2Password,
     Type2ReadRequest, Type2Restore, Type2UidExecution, parse_uid_hex,
@@ -122,7 +127,7 @@ enum Command {
         #[command(subcommand)]
         command: Type2Command,
     },
-    /// DESFire inventory.
+    /// DESFire inventory, file read, and NDEF provisioning.
     Desfire {
         #[command(subcommand)]
         command: DesfireCommand,
@@ -394,6 +399,43 @@ enum Type2Command {
 enum DesfireCommand {
     /// Read the card version and application/file inventory.
     Info,
+    /// Create the AN11004 NDEF Tag Application on an unformatted card.
+    FormatNdef {
+        /// PICC master key: 16 or 32 hex digits.
+        #[arg(
+            long,
+            value_name = "HEX",
+            env = "NFC_FOUNDRY_DESFIRE_KEY",
+            hide_env_values = true
+        )]
+        key: String,
+        /// PICC key number, 0..=14.
+        #[arg(long, default_value_t = 0, value_name = "N")]
+        key_number: u8,
+        /// Required: formatting changes the card structure.
+        #[arg(long)]
+        advanced: bool,
+        /// Print the planned application/files and exit without writing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Delete the NDEF Tag Application created by `format-ndef`.
+    DeleteNdef {
+        /// PICC master key: 16 or 32 hex digits.
+        #[arg(
+            long,
+            value_name = "HEX",
+            env = "NFC_FOUNDRY_DESFIRE_KEY",
+            hide_env_values = true
+        )]
+        key: String,
+        /// PICC key number, 0..=14.
+        #[arg(long, default_value_t = 0, value_name = "N")]
+        key_number: u8,
+        /// Required: deleting an application changes the card structure.
+        #[arg(long)]
+        advanced: bool,
+    },
     /// Read one standard or backup file, optionally authenticating first.
     Read {
         /// Application ID, e.g. A1B2C3.
@@ -1876,6 +1918,96 @@ fn type2_auth(cli: &Cli) -> Result<Option<Type2Auth>> {
 fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<()> {
     prepare(service, cli.device.as_deref())?;
     match command {
+        DesfireCommand::FormatNdef {
+            key,
+            key_number,
+            advanced,
+            dry_run,
+        } => {
+            let key = parse_hex_bytes(&key, "DESFire key")?;
+            if key_number > 14 {
+                return Err(NfcError::InvalidArgument(
+                    "DESFire key numbers are 0..=14".to_owned(),
+                ));
+            }
+            if dry_run {
+                let inventory = service.desfire_inventory(CancelToken::new())?;
+                if inventory
+                    .applications
+                    .iter()
+                    .any(|application| application.aid == NDEF_APPLICATION_AID)
+                {
+                    return Err(NfcError::InvalidArgument(
+                        "the NDEF application D27600 already exists".to_owned(),
+                    ));
+                }
+                print_desfire_ndef_plan(key_number);
+                return Ok(());
+            }
+            if !advanced {
+                return Err(NfcError::InvalidArgument(
+                    "DESFire NDEF formatting requires --advanced".to_owned(),
+                ));
+            }
+            print_desfire_ndef_plan(key_number);
+            require_confirmation(cli.yes, "formatting the DESFire NDEF application")?;
+            let result = service.desfire_ndef_format(
+                DesfireNdefFormatRequest::new(key)
+                    .key_number(key_number)
+                    .advanced(true)
+                    .confirm(true),
+            )?;
+            println!("NDEF application formatted");
+            println!("CC: {}", hex_bytes(result.cc.raw()));
+            println!(
+                "NDEF file: {}",
+                nfc_app::type4::ndef_label(&result.ndef.state)
+            );
+            Ok(())
+        }
+        DesfireCommand::DeleteNdef {
+            key,
+            key_number,
+            advanced,
+        } => {
+            let key = parse_hex_bytes(&key, "DESFire key")?;
+            if key_number > 14 {
+                return Err(NfcError::InvalidArgument(
+                    "DESFire key numbers are 0..=14".to_owned(),
+                ));
+            }
+            if !advanced {
+                return Err(NfcError::InvalidArgument(
+                    "deleting the DESFire NDEF application requires --advanced".to_owned(),
+                ));
+            }
+            let inventory = service.desfire_inventory(CancelToken::new())?;
+            if !inventory
+                .applications
+                .iter()
+                .any(|application| application.aid == NDEF_APPLICATION_AID)
+            {
+                return Err(NfcError::InvalidArgument(
+                    "the NDEF application D27600 is not present".to_owned(),
+                ));
+            }
+            require_confirmation(cli.yes, "deleting the DESFire NDEF application D27600")?;
+            let result = service.desfire_ndef_delete(
+                DesfireNdefDeleteRequest::new(key)
+                    .key_number(key_number)
+                    .advanced(true)
+                    .confirm(true),
+            )?;
+            println!("NDEF application D27600 deleted");
+            if result.applications.is_empty() {
+                println!("applications: none");
+            } else {
+                for application in &result.applications {
+                    println!("application {}", hex_bytes(application));
+                }
+            }
+            Ok(())
+        }
         DesfireCommand::Read {
             aid,
             file,
@@ -1929,6 +2061,25 @@ fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<
             Ok(())
         }
     }
+}
+
+fn print_desfire_ndef_plan(key_number: u8) {
+    println!(
+        "NDEF Tag Application D27600 (native AID {})",
+        hex_bytes(&NDEF_APPLICATION_AID)
+    );
+    println!("  DF name: {}", hex_bytes(&NDEF_DF_NAME));
+    println!(
+        "  CC: DESFire file {:02X} / ISO E103, {} bytes, read free and write key 0",
+        NDEF_CC_FILE, NDEF_CC_SIZE
+    );
+    println!(
+        "  NDEF: DESFire file {:02X} / ISO E104, {} bytes, read and write free",
+        NDEF_DATA_FILE, NDEF_DATA_SIZE
+    );
+    println!("  CC content: {}", hex_bytes(&NDEF_CAPABILITY_CONTAINER));
+    println!("  PICC key: key {key_number} (session only)");
+    println!("No full-card backup exists; deleting the NDEF application is the undo path.");
 }
 
 fn type2(cli: &Cli, service: &mut Service, command: Type2Command) -> Result<()> {

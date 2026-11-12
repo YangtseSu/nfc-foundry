@@ -1,7 +1,7 @@
 # Phase 25 plan: owned-card support
 
-Status: 25.1–25.4 complete 2026-11-12; 25.5 inventory and factory-key
-authentication complete, formatting and user-facing writes not implemented.
+Status: 25.1–25.4 complete 2026-11-12; 25.5 (NDEF provisioning, undo, CLI,
+and GTK surfaces) implemented, with the PN532 UART hardware record pending.
 Hardware:
 PN532 UART first; ACR122U records after a reader is available. This phase
 covers the five cards already owned for the project: Fudan FM11RN32N
@@ -217,9 +217,9 @@ Acceptance:
 
 ### 25.5: DESFire EV3 8K NDEF enablement
 
-Status: inventory, factory-key authentication, and a reserved temporary
-application/file round trip complete 2026-11-12; NDEF formatting and
-user-facing writes are not implemented. See
+Status: inventory, factory-key authentication, NDEF provisioning, the
+`DeleteApplication` undo, CLI commands, and GUI surfaces implemented
+2026-11-12; the PN532 UART hardware record is pending. See
 [25e-desfire.md](../notes/25e-desfire.md).
 
 Goal: make the owned unformatted EV3 8K usable with the existing Type 4 NDEF
@@ -253,9 +253,10 @@ Deliver:
   create/write/read/delete commands on the reserved test AID only.
 - Type 4 NDEF read/write/restore after formatting uses the already validated
   NTAG 424 path.
-- The exposed surfaces are the read-only `nfctl desfire info`,
-  `nfctl desfire read`, and the GTK `DESFire` workspace with `Inventory` and
-  `Read` tabs. There are no DESFire write controls.
+- The exposed surfaces are `nfctl desfire info`, `nfctl desfire read`,
+  `nfctl desfire format-ndef`, `nfctl desfire delete-ndef`, and the GTK
+  `DESFire` workspace with `Inventory`, `Read`, and `NDEF` tabs. The NDEF tab
+  is the only DESFire write surface; there is no general file/key editor.
 - This slice only bootstraps NDEF. A general DESFire application/file/key
   workbench is separate scope, because NDEF is only one application on the
   card.

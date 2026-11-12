@@ -90,6 +90,22 @@ impl CardInfo {
     pub fn same_identity(&self, other: &Self) -> bool {
         self.uid == other.uid && self.atqa == other.atqa && self.sak == other.sak
     }
+
+    /// Same ISO-DEP card identity, allowing a random-UID prefix.
+    ///
+    /// DESFire EV3 and other ISO/IEC 14443-4 cards may randomize the leading
+    /// UID bytes on every selection while keeping the last four bytes stable.
+    /// Non-ISO-DEP cards still use the strict identity.
+    pub fn same_iso_dep_identity(&self, other: &Self) -> bool {
+        if self.card_type != CardType::Iso14443 || other.card_type != CardType::Iso14443 {
+            return self.same_identity(other);
+        }
+        if self.atqa != other.atqa || self.sak != other.sak || self.uid.len() != other.uid.len() {
+            return false;
+        }
+        let stable = self.uid.len().min(4);
+        self.uid[self.uid.len() - stable..] == other.uid[other.uid.len() - stable..]
+    }
 }
 
 #[cfg(test)]
@@ -155,5 +171,45 @@ mod tests {
             CardType::MifareClassic4K,
         );
         assert_eq!(ten.identity_key(), "04010203040506070809/0002/18");
+    }
+
+    #[test]
+    fn iso_dep_identity_allows_a_random_uid_prefix() {
+        let first = CardInfo::new(
+            vec![0x04, 0x77, 0x1F, 0xA2, 0xBB, 0x17, 0x90],
+            [0x00, 0x44],
+            0x20,
+            CardType::Iso14443,
+        );
+        let reselected = CardInfo::new(
+            vec![0x04, 0x4D, 0x09, 0xA2, 0xBB, 0x17, 0x90],
+            [0x00, 0x44],
+            0x20,
+            CardType::Iso14443,
+        );
+        assert!(!first.same_identity(&reselected));
+        assert!(first.same_iso_dep_identity(&reselected));
+
+        let different = CardInfo::new(
+            vec![0x04, 0x4D, 0x09, 0xA2, 0xBB, 0x17, 0x91],
+            [0x00, 0x44],
+            0x20,
+            CardType::Iso14443,
+        );
+        assert!(!first.same_iso_dep_identity(&different));
+
+        let classic = CardInfo::new(
+            vec![0xFA, 0xB9, 0xCF, 0xF4],
+            [0x00, 0x04],
+            0x08,
+            CardType::MifareClassic1K,
+        );
+        let other_classic = CardInfo::new(
+            vec![0xFA, 0xB9, 0xCF, 0xF5],
+            [0x00, 0x04],
+            0x08,
+            CardType::MifareClassic1K,
+        );
+        assert!(!classic.same_iso_dep_identity(&other_classic));
     }
 }

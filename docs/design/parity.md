@@ -90,6 +90,22 @@ four flags/checkboxes in both surfaces. Type 2 UID writes are limited to a
 7-byte NTAG213 clone; both surfaces back up pages 0/1/2 first and restore the
 original UID if verification fails.
 
+## DESFire
+
+| Operation | CLI | GUI | Gate | Hardware |
+|---|---|---|---|---|
+| Inventory | `desfire info` | DESFire → Inventory | R | n/r (PN532 record pending) |
+| Read standard/backup file | `desfire read --aid --file [--key]` | DESFire → Read | R | n/r |
+| Format NDEF | `desfire format-ndef --key --advanced [--dry-run]` | DESFire → NDEF → Advanced mode → Format NDEF application… → type `FORMAT` | A, C | n/r |
+| Delete NDEF application | `desfire delete-ndef --key --advanced` | DESFire → NDEF → Advanced mode → Delete NDEF application… → type `DELETE` | A, C | n/r |
+
+Both surfaces call the same `nfc-app` service. The format path refuses an
+existing NDEF application, creates only the AN11004 `D27600` application and
+its `E103`/`E104` files, and reads the CC and empty NDEF file back through the
+Type 4 adapter. Delete validates the exact AN11004 layout before removing it.
+Keys are session-scoped and never printed. The GUI Advanced switch resets on
+card removal, reader change, and restart. Hardware validation is pending.
+
 ## Recovery and system
 
 | Operation | CLI | GUI | Gate | Hardware |
@@ -117,9 +133,9 @@ a strategy/target/reader dialog before any worker or reader lease starts.
   change card semantics.
 - `nfctl` stays English under every locale. The GUI is English-base with a
   complete `zh-CN` catalog and an immediate language switch.
-- Type 4 NDEF has no CLI command and no GUI page. It stays unadvertised until
-  a hardware record exists; a read surface will require the matching `nfctl`
-  read command in the same change.
+- Generic Type 4 NDEF has no CLI command and no GUI page. The DESFire NDEF
+  surface provisions and reads the Type 4 application through the DESFire
+  service; it does not add a generic Type 4 command.
 
 ## Audit result
 
