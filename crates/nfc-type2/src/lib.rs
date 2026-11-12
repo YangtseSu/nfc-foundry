@@ -14,6 +14,7 @@ pub mod lock;
 pub mod ndef;
 pub mod page;
 pub mod read;
+pub mod version;
 pub mod write;
 
 pub use auth::{Type2Auth, Type2AuthSession};
@@ -24,6 +25,7 @@ pub use lock::{LockBits, LockUpdate};
 pub use ndef::{NdefState, Type2Ndef, encode_ndef_area, format_ndef_area, read_ndef};
 pub use page::{Page, Type2Image};
 pub use read::{Type2ReadResult, quad_starts, read_page, read_tag};
+pub use version::Type2Version;
 pub use write::{
     PageWriteResult, RestoreOptions, WritePolicy, WriteSummary, check_writable, format_ndef,
     lock_pages, restore_image, set_password, write_area, write_ndef, write_page_verified,

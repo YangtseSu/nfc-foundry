@@ -59,6 +59,12 @@ impl CapabilityContainer {
         Self::parse(&page)
     }
 
+    /// A parsed container always has a non-zero data area. The default value
+    /// is used for an unformatted tag whose page 3 is not a CC.
+    pub const fn is_present(self) -> bool {
+        self.size != 0
+    }
+
     pub fn to_bytes(self) -> [u8; CC_LENGTH] {
         [
             CC_MAGIC,

@@ -7,6 +7,8 @@ pub const ATQA_LENGTH: usize = 2;
 pub const PAGE_SIZE: usize = 4;
 /// Payload size of one NFC Forum Type 2 READ command.
 pub const PAGE_QUAD_SIZE: usize = PAGE_SIZE * 4;
+/// Payload size of one NFC Forum Type 2 GET_VERSION response.
+pub const TYPE2_VERSION_SIZE: usize = 8;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyType {

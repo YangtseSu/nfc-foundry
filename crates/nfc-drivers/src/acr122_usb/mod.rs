@@ -187,6 +187,10 @@ impl Reader for Acr122Usb {
         self.protocol()?.password_auth(password)
     }
 
+    fn type2_version(&mut self) -> Result<[u8; nfc_core::TYPE2_VERSION_SIZE]> {
+        self.protocol()?.type2_version()
+    }
+
     fn apdu_capabilities(&self) -> ApduCapabilities {
         ApduCapabilities {
             supported: true,

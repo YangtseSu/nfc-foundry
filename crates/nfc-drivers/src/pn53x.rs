@@ -43,6 +43,7 @@ pub(crate) const MIFARE_WRITE: u8 = 0xA0;
 pub(crate) const TYPE2_READ: u8 = 0x30;
 pub(crate) const TYPE2_WRITE: u8 = 0xA2;
 pub(crate) const TYPE2_PWD_AUTH: u8 = 0x1B;
+pub(crate) const TYPE2_GET_VERSION: u8 = 0x60;
 pub(crate) const TYPE2_ACK: u8 = 0x0A;
 
 pub(crate) const TARGET_NUMBER: u8 = 0x01;

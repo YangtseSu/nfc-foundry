@@ -14,6 +14,7 @@ use std::time::Duration;
 
 use nfc_core::{
     BLOCK_SIZE, CardInfo, CardType, Key, KeyType, NfcError, PAGE_QUAD_SIZE, PAGE_SIZE, Result,
+    TYPE2_VERSION_SIZE,
 };
 use nfc_transport::{ApduResponse, ParityFrame};
 
@@ -25,8 +26,8 @@ use crate::pn53x::{
     MAX_ISO_DEP_APDU, MIFARE_AUTH_A, MIFARE_AUTH_B, MIFARE_READ, MIFARE_WRITE, PARITY_DISABLE,
     READ_REGISTER, REG_CIU_BIT_FRAMING, REG_CIU_CONTROL, REG_CIU_MANUAL_RCV, REG_CIU_RX_MODE,
     REG_CIU_STATUS2, REG_CIU_TX_MODE, RF_CONFIGURATION, RF_FIELD, RF_RETRY_SELECT, RX_LAST_BITS,
-    SET_PARAMETERS, TARGET_NUMBER, TX_RX_CRC_ENABLE, TYPE2_ACK, TYPE2_PWD_AUTH, TYPE2_READ,
-    TYPE2_WRITE, WRITE_REGISTER, parse_firmware, parse_passive_target, parse_response,
+    SET_PARAMETERS, TARGET_NUMBER, TX_RX_CRC_ENABLE, TYPE2_ACK, TYPE2_GET_VERSION, TYPE2_PWD_AUTH,
+    TYPE2_READ, TYPE2_WRITE, WRITE_REGISTER, parse_firmware, parse_passive_target, parse_response,
     split_apdu_response, status_error, type2_command, type2_response, unwrap_parity_frame,
     wrap_parity_frame_bits,
 };
@@ -355,6 +356,18 @@ impl Acr122Protocol {
         let mut output = [0u8; PAGE_QUAD_SIZE];
         output.copy_from_slice(&data);
         Ok(output)
+    }
+
+    pub(crate) fn type2_version(&mut self) -> Result<[u8; TYPE2_VERSION_SIZE]> {
+        self.require_type2()?;
+        let data = self.with_raw(|this| {
+            let command = type2_command(&[TYPE2_GET_VERSION]);
+            let response = this.in_communicate_thru(&command)?;
+            type2_response(&response, TYPE2_VERSION_SIZE, "ACR122U")
+        })?;
+        let mut version = [0u8; TYPE2_VERSION_SIZE];
+        version.copy_from_slice(&data);
+        Ok(version)
     }
 
     pub(crate) fn write_page(&mut self, page: u8, data: [u8; PAGE_SIZE]) -> Result<()> {

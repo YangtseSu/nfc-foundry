@@ -8,6 +8,7 @@ use crate::cc::CapabilityContainer;
 use crate::config::Configuration;
 use crate::layout::{PageRole, Type2Layout};
 use crate::page::Type2Image;
+use crate::version::Type2Version;
 
 /// A partial or complete Type 2 read with explicit warnings.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -42,9 +43,45 @@ pub fn read_tag(
     if access.has_credentials() {
         access.authenticate(reader, cancel)?;
     }
+    // GET_VERSION is optional on older tags. A refused or malformed response
+    // falls back to the capability container instead of failing the read.
+    let version = reader
+        .type2_version()
+        .ok()
+        .and_then(|bytes| Type2Version::parse(&bytes).ok());
+    let product = version.and_then(Type2Version::product);
+    let version_layout = product.and_then(Type2Layout::from_product);
+
     let first = reader.read_page_quad(0)?;
-    let cc = CapabilityContainer::from_page(page_from_quad(&first, 3))?;
-    let layout = Type2Layout::from_cc(&cc)?;
+    let cc_page = page_from_quad(&first, 3);
+    let cc = CapabilityContainer::from_page(cc_page);
+    let (layout, cc) = match (version_layout, cc) {
+        (Some(layout), cc) => (layout, cc),
+        (None, Ok(cc)) => (Type2Layout::from_cc(&cc)?, Ok(cc)),
+        (None, Err(error)) => return Err(error),
+    };
+    let mut warnings = Vec::new();
+    let cc = match cc {
+        Ok(cc) => cc,
+        Err(_) => {
+            warnings.push(
+                "no valid Type 2 capability container; the tag memory is unformatted".to_owned(),
+            );
+            CapabilityContainer::default()
+        }
+    };
+    let ev1 = matches!(
+        layout.product,
+        crate::Type2Product::UltralightEv1Ul11 | crate::Type2Product::UltralightEv1Ul21
+    );
+    if ev1 && cc.is_present() && cc.size != layout.user_bytes() {
+        warnings.push(format!(
+            "the capability container data area is {} bytes but the {} layout has {} user bytes",
+            cc.size,
+            layout.product.name(),
+            layout.user_bytes()
+        ));
+    }
     let mut image = Type2Image::new(layout, cc, card.uid.clone());
     image.set_page(0, page_from_quad(&first, 0))?;
     image.set_page(1, page_from_quad(&first, 1))?;
@@ -69,7 +106,6 @@ pub fn read_tag(
         access.authenticate(reader, cancel)?;
     }
 
-    let mut warnings = Vec::new();
     for start in quad_starts(layout.total_pages) {
         if start == 0 {
             continue;
@@ -251,6 +287,20 @@ mod tests {
         reader
     }
 
+    fn reader_with_ev1_ul11() -> MockReader {
+        let mut reader = MockReader::new(DeviceInfo::new("mock", "mock:ev1"), Some(card()));
+        reader.set_type2_version(Some([0x00, 0x04, 0x03, 0x01, 0x01, 0x00, 0x0B, 0x03]));
+        for page in 0..20u8 {
+            reader.set_page(page, [0; 4]);
+        }
+        reader.set_page(0, [0x04, 0x43, 0x47, 0x88]);
+        reader.set_page(1, [0x4A, 0x75, 0x22, 0x91]);
+        reader.set_page(2, [0x8C, 0x48, 0x00, 0x00]);
+        reader.set_page(16, [0x00, 0x00, 0x00, 0xFF]);
+        reader.set_page(17, [0x00, 0x05, 0x00, 0x00]);
+        reader
+    }
+
     fn protected_reader() -> MockReader {
         let mut reader = reader_with_ntag213();
         reader.set_password([1, 2, 3, 4], [0xAA, 0x55]);
@@ -269,6 +319,29 @@ mod tests {
         assert_eq!(result.image.layout.total_pages, 45);
         assert_eq!(result.image.page(44), Some(&[0; 4]));
         assert!(result.warnings.is_empty());
+    }
+
+    #[test]
+    fn reads_a_blank_ultralight_ev1_from_get_version() {
+        let mut reader = reader_with_ev1_ul11();
+        let mut access = Type2AuthSession::none();
+        let result = read_tag(&mut reader, &card(), &mut access, &CancelToken::new())
+            .expect("blank EV1 read");
+        assert!(result.image.is_complete());
+        assert_eq!(
+            result.image.layout.product,
+            crate::Type2Product::UltralightEv1Ul11
+        );
+        assert_eq!(result.image.layout.total_pages, 20);
+        assert!(!result.image.cc.is_present());
+        assert_eq!(result.image.page(16), Some(&[0x00, 0x00, 0x00, 0xFF]));
+        assert_eq!(result.image.page(17), Some(&[0x00, 0x05, 0x00, 0x00]));
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("unformatted"))
+        );
     }
 
     #[test]

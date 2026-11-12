@@ -5,7 +5,10 @@ pub mod mock;
 
 pub use device::{DeviceInfo, ReaderCapabilities};
 
-use nfc_core::{BLOCK_SIZE, CardInfo, Key, KeyType, NfcError, PAGE_QUAD_SIZE, PAGE_SIZE, Result};
+use nfc_core::{
+    BLOCK_SIZE, CardInfo, Key, KeyType, NfcError, PAGE_QUAD_SIZE, PAGE_SIZE, Result,
+    TYPE2_VERSION_SIZE,
+};
 
 /// One raw ISO/IEC 14443A frame exchanged with parity handled by the caller.
 /// `parity` has one bit per data byte in the least significant bit; `bits` is
@@ -89,6 +92,15 @@ pub trait Reader: Send {
     fn password_auth(&mut self, _password: [u8; PAGE_SIZE]) -> Result<[u8; 2]> {
         Err(NfcError::Unsupported(
             "this reader has no Type 2 password authentication",
+        ))
+    }
+
+    /// NFC Forum Type 2 GET_VERSION (0x60). Returns the eight-byte product
+    /// descriptor. Readers or tags without the command report `Unsupported`
+    /// so callers can fall back to the capability container.
+    fn type2_version(&mut self) -> Result<[u8; TYPE2_VERSION_SIZE]> {
+        Err(NfcError::Unsupported(
+            "this reader has no Type 2 GET_VERSION",
         ))
     }
 

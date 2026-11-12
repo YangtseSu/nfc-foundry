@@ -8,10 +8,12 @@ use crate::cc::CapabilityContainer;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Type2Product {
     Ultralight,
+    UltralightEv1Ul11,
+    UltralightEv1Ul21,
     Ntag213,
     Ntag215,
     Ntag216,
-    /// A Type 2 tag whose CC size does not match a known NTAG layout.
+    /// A Type 2 tag whose CC size does not match a known layout.
     Generic,
 }
 
@@ -29,6 +31,8 @@ impl Type2Product {
     pub const fn name(self) -> &'static str {
         match self {
             Self::Ultralight => "MIFARE Ultralight",
+            Self::UltralightEv1Ul11 => "MIFARE Ultralight EV1 (MF0UL11)",
+            Self::UltralightEv1Ul21 => "MIFARE Ultralight EV1 (MF0UL21)",
             Self::Ntag213 => "NTAG213",
             Self::Ntag215 => "NTAG215",
             Self::Ntag216 => "NTAG216",
@@ -39,7 +43,7 @@ impl Type2Product {
     /// Number of pages covered by one dynamic lock bit.
     pub const fn dynamic_lock_granularity(self) -> u16 {
         match self {
-            Self::Ultralight => 0,
+            Self::Ultralight | Self::UltralightEv1Ul11 | Self::UltralightEv1Ul21 => 0,
             Self::Ntag213 => 2,
             Self::Ntag215 | Self::Ntag216 => 16,
             Self::Generic => 0,
@@ -108,9 +112,9 @@ pub struct Type2Layout {
 }
 
 impl Type2Layout {
-    /// Map a capability container to the product page geometry.
-    pub fn from_cc(cc: &CapabilityContainer) -> Result<Self> {
-        let product = Type2Product::from_cc_size(cc.size);
+    /// Page geometry for a product identified by GET_VERSION. `None` means
+    /// the product has no fixed layout and must be mapped from its CC size.
+    pub const fn from_product(product: Type2Product) -> Option<Self> {
         let layout = match product {
             Type2Product::Ultralight => Self {
                 product,
@@ -119,6 +123,32 @@ impl Type2Layout {
                 user_last: 15,
                 dynamic_lock: None,
                 config: None,
+            },
+            Type2Product::UltralightEv1Ul11 => Self {
+                product,
+                total_pages: 20,
+                user_first: 4,
+                user_last: 15,
+                dynamic_lock: None,
+                config: Some(ConfigPages {
+                    cfg0: 16,
+                    cfg1: 17,
+                    pwd: 18,
+                    pack: 19,
+                }),
+            },
+            Type2Product::UltralightEv1Ul21 => Self {
+                product,
+                total_pages: 41,
+                user_first: 4,
+                user_last: 35,
+                dynamic_lock: Some(36),
+                config: Some(ConfigPages {
+                    cfg0: 37,
+                    cfg1: 38,
+                    pwd: 39,
+                    pack: 40,
+                }),
             },
             Type2Product::Ntag213 => Self {
                 product,
@@ -159,7 +189,17 @@ impl Type2Layout {
                     pack: 230,
                 }),
             },
-            Type2Product::Generic => {
+            Type2Product::Generic => return None,
+        };
+        Some(layout)
+    }
+
+    /// Map a capability container to the product page geometry.
+    pub fn from_cc(cc: &CapabilityContainer) -> Result<Self> {
+        let product = Type2Product::from_cc_size(cc.size);
+        let layout = match Self::from_product(product) {
+            Some(layout) => layout,
+            None => {
                 let user_pages = cc.size.div_ceil(4);
                 let total_pages = u8::try_from(user_pages)
                     .ok()
@@ -351,5 +391,27 @@ mod tests {
         assert_eq!(ntag216.dynamic_lock_position(143), Some((0, 7)));
         assert_eq!(ntag216.dynamic_lock_position(144), Some((1, 0)));
         assert_eq!(ntag216.dynamic_lock_position(225), Some((1, 5)));
+    }
+
+    #[test]
+    fn ev1_layouts_come_from_get_version_not_cc_size() {
+        let ul11 = Type2Layout::from_product(Type2Product::UltralightEv1Ul11).expect("UL11");
+        assert_eq!(ul11.total_pages, 20);
+        assert_eq!(ul11.user_bytes(), 48);
+        assert_eq!(ul11.role(15), PageRole::UserMemory);
+        assert_eq!(ul11.role(16), PageRole::Configuration);
+        assert_eq!(ul11.role(17), PageRole::Configuration);
+        assert_eq!(ul11.role(18), PageRole::Password);
+        assert_eq!(ul11.role(19), PageRole::PasswordAck);
+        assert_eq!(ul11.dynamic_lock, None);
+
+        let ul21 = Type2Layout::from_product(Type2Product::UltralightEv1Ul21).expect("UL21");
+        assert_eq!(ul21.total_pages, 41);
+        assert_eq!(ul21.user_bytes(), 128);
+        assert_eq!(ul21.role(35), PageRole::UserMemory);
+        assert_eq!(ul21.role(36), PageRole::DynamicLock);
+        assert_eq!(ul21.role(37), PageRole::Configuration);
+        assert_eq!(ul21.role(40), PageRole::PasswordAck);
+        assert_eq!(ul21.dynamic_lock, Some(36));
     }
 }

@@ -2000,9 +2000,15 @@ fn print_type2_info(image: &Type2Image, warnings: &[String]) {
         image.layout.user_last,
         image.layout.user_bytes()
     );
-    println!("capability container: {}", hex_bytes(&image.cc.to_bytes()));
-    println!("NDEF data area: {} bytes", image.cc.size);
-    println!("NDEF capacity: {} bytes", image.cc.ndef_capacity());
+    if image.cc.is_present() {
+        println!("capability container: {}", hex_bytes(&image.cc.to_bytes()));
+        println!("NDEF data area: {} bytes", image.cc.size);
+        println!("NDEF capacity: {} bytes", image.cc.ndef_capacity());
+    } else {
+        println!("capability container: none (unformatted)");
+        println!("NDEF data area: none");
+        println!("NDEF capacity: none");
+    }
     match nfc_type2::read_ndef(image) {
         Ok(ndef) => {
             let state = match &ndef.state {
@@ -2017,16 +2023,21 @@ fn print_type2_info(image: &Type2Image, warnings: &[String]) {
                 }
             };
             println!("NDEF: {state}");
-            println!("NDEF read-only: {}", ndef.read_only);
+            if image.cc.is_present() {
+                println!("NDEF read-only: {}", ndef.read_only);
+            }
         }
         Err(error) => println!("NDEF: invalid ({error})"),
     }
     match LockBits::from_image(image) {
         Ok(locks) => {
+            let dynamic = image
+                .layout
+                .dynamic_lock
+                .map_or_else(|| "none".to_owned(), |_| hex_bytes(&locks.dynamic_lock));
             println!(
-                "static lock: {}  dynamic lock: {}",
-                hex_bytes(&locks.static_lock),
-                hex_bytes(&locks.dynamic_lock)
+                "static lock: {}  dynamic lock: {dynamic}",
+                hex_bytes(&locks.static_lock)
             );
             let locked: Vec<String> = (0..image.layout.total_pages)
                 .filter(|page| locks.is_locked(&image.layout, *page))

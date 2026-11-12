@@ -3,7 +3,10 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use nfc_core::{BLOCK_SIZE, CardInfo, Key, KeyType, NfcError, PAGE_QUAD_SIZE, PAGE_SIZE, Result};
+use nfc_core::{
+    BLOCK_SIZE, CardInfo, Key, KeyType, NfcError, PAGE_QUAD_SIZE, PAGE_SIZE, Result,
+    TYPE2_VERSION_SIZE,
+};
 
 use crate::{
     ApduCapabilities, ApduResponse, DeviceInfo, ManufacturerWriter, Reader, ReaderCapabilities,
@@ -21,6 +24,7 @@ pub enum MockCall {
     ReadPageQuad,
     WritePage,
     PasswordAuth,
+    Type2Version,
     Apdu,
     /// An UPDATE BINARY APDU. Kept separate so `WriteIgnored` targets a
     /// state-changing exchange instead of the next SELECT or READ.
@@ -248,6 +252,7 @@ struct MockState {
     card: Option<CardInfo>,
     blocks: HashMap<u8, [u8; BLOCK_SIZE]>,
     pages: HashMap<u8, [u8; PAGE_SIZE]>,
+    type2_version: Option<[u8; TYPE2_VERSION_SIZE]>,
     password: Option<([u8; PAGE_SIZE], [u8; 2])>,
     authenticated: bool,
     password_auths: usize,
@@ -268,6 +273,7 @@ impl Default for MockState {
             card: None,
             blocks: HashMap::new(),
             pages: HashMap::new(),
+            type2_version: None,
             password: None,
             authenticated: false,
             password_auths: 0,
@@ -391,6 +397,12 @@ impl MockHandle {
         self.lock().pages.get(&page).copied()
     }
 
+    /// Configure the GET_VERSION response. `None` makes the mock report
+    /// `Unsupported`, so callers exercise the capability-container fallback.
+    pub fn set_type2_version(&self, version: Option<[u8; TYPE2_VERSION_SIZE]>) {
+        self.lock().type2_version = version;
+    }
+
     /// Configure the PWD_AUTH secret and expected PACK.
     pub fn set_password(&self, password: [u8; PAGE_SIZE], pack: [u8; 2]) {
         let mut state = self.lock();
@@ -502,6 +514,10 @@ impl MockReader {
 
     pub fn page(&self, page: u8) -> Option<[u8; PAGE_SIZE]> {
         self.state.page(page)
+    }
+
+    pub fn set_type2_version(&mut self, version: Option<[u8; TYPE2_VERSION_SIZE]>) {
+        self.state.set_type2_version(version);
     }
 
     pub fn set_password(&mut self, password: [u8; PAGE_SIZE], pack: [u8; 2]) {
@@ -646,6 +662,14 @@ impl Reader for MockReader {
         }
         state.pages.insert(page, data);
         Ok(())
+    }
+
+    fn type2_version(&mut self) -> Result<[u8; TYPE2_VERSION_SIZE]> {
+        let mut state = self.state.lock();
+        state.check_call(MockCall::Type2Version)?;
+        state.type2_version.ok_or(NfcError::Unsupported(
+            "the mock reader has no Type 2 GET_VERSION",
+        ))
     }
 
     fn password_auth(&mut self, password: [u8; PAGE_SIZE]) -> Result<[u8; 2]> {
