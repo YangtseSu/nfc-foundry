@@ -49,7 +49,7 @@ work; their current equivalents are the GTK4 workspaces.
 | 22 | Grouped primary navigation and header menu | done (superseded by 23) |
 | 23 | Card-family workspaces and NDEF placement | done |
 | 24 | Parity recovery: verified keys, workbench, UID, reader lifecycle, diagnostics | in progress (S1, S2, S3a, S3b, S4, S6 done) |
-| 25 | Owned-card support: 4K clone, Ultralight EV1, FM11RF08S recovery, DESFire EV3 NDEF, UID NTAG213 | in progress (25.1, 25.2 done) |
+| 25 | Owned-card support: 4K clone, Ultralight EV1, FM11RF08S recovery, DESFire EV3 NDEF, UID NTAG213 | in progress (25.1–25.3 done) |
 
 ## Rules
 
@@ -255,17 +255,18 @@ Acceptance:
 
 Status: complete. PM3 table loading, sum/bitflip filtering, the 64-lane
 bit-sliced solver, fast-select nonce acquisition, EV1/QL88 signature detection,
-static encrypted nonce detection, and FM11RF08S profile reporting are
-implemented. `nfctl recover hardnested` and `recover fm11rf08s` are available.
+and static encrypted nonce detection are implemented. `nfctl recover
+hardnested` and `recover fm11rf08s` are available.
 Simulated fixtures and the full filtering/solver fixture recover the known key.
 Hardware on 2026-11-10: ACR122U collected 1840 frames and recovered sector 0
 Key A `A0A1A2A3A4A5` in 4m3s; PN532 UART collected 1816 frames and recovered
 sector 5 Key A `FBBECDF6304E` in 5m29s. Both keys were verified with fresh
-authentication. FM11RF08S key recovery remains detection-only because the
-PN532 UART and ACR122U transports do not expose the reader-scheduled
-acquisition; the strategy reports that limitation. A hard-PRNG card, an
-FM11RF08S card, and a 4K EV1 card were not available. See
-`docs/notes/07-hardnested.md`.
+authentication. Update 2026-11-12: phase 25.3 replaced the detection-only
+FM11RF08S strategy with native backdoor acquisition and one-nonce recovery on
+PN532 UART. The without-backdoor distance path remains unclaimed because
+host-driven timing did not make it reliable. A hard-PRNG card and a 4K EV1 card
+were not available in phase 07. See `docs/notes/07-hardnested.md` and
+`docs/notes/25c-fm11rf08s.md`.
 
 ### 08: NDEF core
 
@@ -797,7 +798,7 @@ FM11RN32N Classic 4K, FM11RF08S recovery, Ultralight EV1, DESFire EV3 8K NDEF,
 and the UID-changeable NTAG213 clone.
 
 Detailed plan: [25-card-support.md](25-card-support.md). Status: in progress;
-25.1 and 25.2 complete 2026-11-12 (25.2 MF0UL11 only). Slice order: 4K
+25.1, 25.2, and 25.3 complete 2026-11-12 (25.2 MF0UL11 only). Slice order: 4K
 validation, Ultralight EV1 profiles and `GET_VERSION`, native FM11RF08S
 recovery, guarded NTAG213 UID writes, then DESFire EV3 inventory and AN11004
 NDEF formatting. The plan names every operation that is irreversible; DESFire

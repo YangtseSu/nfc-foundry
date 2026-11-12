@@ -97,7 +97,7 @@ four flags/checkboxes in both surfaces.
 | Nested | `recover nested` (confirmation, or `--yes`) | Recovery → Nested → authorization dialog | R | PN532, ACR122U |
 | Static nested | `recover staticnested` (confirmation, or `--yes`) | Recovery → Static nested → authorization dialog | R | PN532, ACR122U |
 | Hardnested | `recover hardnested` (confirmation, or `--yes`) | Recovery → Hardnested → authorization dialog | R | PN532, ACR122U |
-| FM11RF08S profile | `recover fm11rf08s` (confirmation, or `--yes`) | Recovery → FM11RF08S → authorization dialog | R | detection only |
+| FM11RF08S profile | `recover fm11rf08s` (confirmation, or `--yes`) | Recovery → FM11RF08S → authorization dialog | R | backdoor recovery; without-backdoor path not claimed |
 | Save recovered keys | `--key-store` write by the operation | Recovery → Save verified keys | explicit | file only |
 | Self-check | `nfctl diag [--json]` | ☰ → Diagnostics (version, commit, build date, platform, drivers, firmware, capabilities, tables, readers) | R (no card I/O) | no card path |
 

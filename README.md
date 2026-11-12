@@ -13,8 +13,8 @@ recovery. ACR122U Classic data writes, ACR122U Type 2 write/NDEF, ACR122U
 Classic NDEF, one-way locks, passwords, trailer writes, and ACR122U Type 4 are
 not advertised because no release hardware record exists. Classic 4K read/write
 is validated on PN532 UART; the ACR122U 4K path is not. Ultralight EV1 MF0UL11
-is validated on PN532 UART. Type 4 read/write is validated on PN532 UART but
-has no CLI or GUI surface yet. See
+and FM11RF08S backdoor recovery are validated on PN532 UART. Type 4 read/write
+is validated on PN532 UART but has no CLI or GUI surface yet. See
 [Hardware matrix](docs/hardware-matrix.md).
 Both first-release readers are implemented: PN532 UART
 and ACR122U direct USB/CCID. The ACR122U path claims the CCID interface with
@@ -46,8 +46,9 @@ it scans every sector, seeds with an EV1 signature key or host-driven
 darkside, recovers the remaining keys with nested then hardnested, and
 read-verifies the result. Darkside acquisition follows MFCUK's host-driven
 sequence; it needs a card whose PRNG repeats a tag nonce.
-Static encrypted nonce cards are detected and report the FM11RF08S profile and
-the transport limitation instead of a key. EV1/QL88 signature detection uses
+Static encrypted nonce cards use the published FM11RF08S backdoor to acquire
+clear nonces and recover keys natively; the without-backdoor distance path is
+not claimed on host-driven readers. EV1/QL88 signature detection uses
 the originality-signature block as a known key when no supplied key works.
 The hardware-free NDEF core is complete: a strict message/record codec with
 short, normal, and chunked layouts; Type 2 TLV framing with unknown and

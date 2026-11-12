@@ -32,8 +32,10 @@ keyscan, native recovery, diagnostics, activity, and settings.
 - A recovered key is shown with its verification status; offer save to the key
   store.
 - Surface the engine's honest limitations: darkside may report no repeated
-  nonce sample on host-driven readers; FM11RF08S is detection-only when the
-  reader cannot schedule acquisition; hardnested requires tables.
+  nonce sample on host-driven readers; at the time of this phase FM11RF08S was
+  detection-only when the reader could not schedule acquisition; hardnested
+  requires tables. Phase 25.3 later added backdoor recovery; the
+  without-backdoor path remains unclaimed.
 - Recovery is read/authenticate-only. No card write is added.
 
 ### Diagnostics

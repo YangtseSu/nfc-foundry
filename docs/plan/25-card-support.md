@@ -1,10 +1,10 @@
 # Phase 25 plan: owned-card support
 
-Status: in progress; 25.1 and 25.2 complete 2026-11-12. Hardware: PN532 UART
-first; ACR122U records after a reader is available. This phase covers the five
-cards already owned for the project: Fudan FM11RN32N (FM11RF32N, 4K
-Classic-compatible), Fudan FM11RF08S, MIFARE Ultralight EV1, MIFARE DESFire
-EV3 8K, and a UID-changeable NTAG213 clone.
+Status: in progress; 25.1, 25.2, and 25.3 complete 2026-11-12. Hardware:
+PN532 UART first; ACR122U records after a reader is available. This phase
+covers the five cards already owned for the project: Fudan FM11RN32N
+(FM11RF32N, 4K Classic-compatible), Fudan FM11RF08S, MIFARE Ultralight EV1,
+MIFARE DESFire EV3 8K, and a UID-changeable NTAG213 clone.
 
 The goal is to make each card usable through the existing product model, not to
 add a second protocol stack. The cards map onto Classic, Type 2, Classic
@@ -145,34 +145,38 @@ Acceptance:
 
 ### 25.3: FM11RF08S key recovery
 
+Status: complete 2026-11-12 on PN532 UART; ACR122U not recorded.
+See [25c-fm11rf08s.md](../notes/25c-fm11rf08s.md).
+
 Goal: replace the detection-only strategy with a native recovery path.
 
-Evidence: the transport already has parity frames (`transceive_parity`,
-`transceive_parity_expect`), Crypto1 state, `lfsr_recovery32`, and a
-`Collector` that obtains `tag_nonce_encrypted`. The missing pieces are the
-static-encrypted-nonce data set and the `staticnested_1nt` solver, not a new
-reader command. Validate that assumption on hardware before writing the solver.
+Evidence: the transport has parity frames, Crypto1 state, and
+`lfsr_recovery32`. The without-backdoor distance prediction was tested on
+hardware and is not reliable under host-driven timing. The published backdoor
+(`0x64`/`0x65` and the PM3 backdoor keys) decrypts the nested nonce directly,
+so acquisition needs no target key and no reader scheduling.
 
 Deliver:
 
+- Implement custom-command authentication and nested exchange for the backdoor.
 - Collect, for every target sector and key type, the clear nested nonce `nt`,
-  the encrypted nonce `nt_enc`, and the parity-error mask. Repeat the known-key
-  authentication enough times to make the mask stable.
+  the regular encrypted nonce `nt_enc`, and the parity-error mask.
 - Port `staticnested_1nt` from PM3 `tools/mfc/card_only/` into `nfc-recover`,
   reusing `lfsr_recovery32`; keep the GPL notice. Add the optional 2x1nt
   cross-filter only if the first candidate volume is impractical.
-- Verify candidates online, merge verified keys into the key store, and expose
-  progress, cancellation, and per-sector results.
+- Try reused/supplied keys before the solver, verify candidates online, merge
+  verified keys into the key store, and expose progress and cancellation.
 - Route `RecoveryStrategy::Fm11rf08s` and auto classification to the new path
   when the static encrypted profile is confirmed.
-- Keep the existing detection message for cards that do not match.
+- Keep an explicit error for cards whose backdoor does not answer.
 
 Acceptance:
 
-- With one known sector key, recover the remaining FM11RF08S sector keys,
-  produce a full dump, and read every block.
+- The backdoor clear nonce matches a known-key decryption, and the solver
+  candidate set contains that key.
+- Recover 32/32 sector keys on the owned card and read-verify 16/16 sectors.
 - Cancellation stops collection/verification without leaving recovery mode on.
-- The solver produces the same candidates as the PM3 tool for the same
+- The solver produces the same candidate count as the PM3 tool for the same
   `uid/nt/nt_enc/parity` vector.
 - No external process is used.
 

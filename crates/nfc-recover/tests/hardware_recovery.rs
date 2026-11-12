@@ -106,6 +106,43 @@ fn software_authentication_matches_the_card() {
 }
 
 #[test]
+#[ignore = "requires an FM11RF08S card and a known key"]
+fn staticnested_candidates_contain_the_known_key() {
+    let _guard = lock_hardware();
+    let mut reader = open_reader();
+    let card = reader.card_info().expect("select card");
+    assert_eq!(
+        card.card_type,
+        CardType::MifareClassic1K,
+        "place an FM11RF08S (MIFARE Classic 1K) card on the reader"
+    );
+    let target_block = target_block().max(4);
+    let key = classic_key();
+    let sample =
+        nfc_recover::staticnested::collect_sample_backdoor(&mut *reader, target_block, KeyType::A)
+            .expect("collect a backdoor static encrypted nonce");
+    let actual_nt = acquire::decrypt_nested_nonce(sample.uid, sample.nt_enc, key);
+    assert_eq!(
+        sample.nt, actual_nt,
+        "the backdoor clear nonce does not match the known-key decryption"
+    );
+    let candidates = nfc_recover::staticnested::candidates(&sample);
+    println!(
+        "static sample uid={:08X} nt={:08X} nt_enc={:08X} par_err={:02X} candidates={}",
+        sample.uid,
+        sample.nt,
+        sample.nt_enc,
+        sample.par_err,
+        candidates.len()
+    );
+    assert!(
+        candidates.contains(&key),
+        "the known key is missing from the staticnested candidate set"
+    );
+    reader.close().expect("close reader");
+}
+
+#[test]
 #[ignore = "requires a reader and a MIFARE Classic card"]
 fn nested_calibration_reports_distance() {
     let _guard = lock_hardware();

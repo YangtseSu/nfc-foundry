@@ -20,6 +20,9 @@ use crate::crypto1::{Crypto1State, filter, odd_parity8, prng_successor};
 
 pub const MIFARE_AUTH_A: u8 = 0x60;
 pub const MIFARE_AUTH_B: u8 = 0x61;
+/// FM11RF08S backdoor authentication commands, key A and key B slots.
+pub const MIFARE_BACKDOOR_A: u8 = 0x64;
+pub const MIFARE_BACKDOOR_B: u8 = 0x65;
 
 /// One completed MIFARE Classic authentication.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -79,17 +82,13 @@ pub fn key_to_u64(key: &Key) -> u64 {
 }
 
 fn auth_command(block: u8, key_type: KeyType) -> (Vec<u8>, Vec<u8>) {
-    let mut command = vec![
+    command_with_crc(
         match key_type {
             KeyType::A => MIFARE_AUTH_A,
             KeyType::B => MIFARE_AUTH_B,
         },
         block,
-    ];
-    let crc = crc_a(&command);
-    command.extend_from_slice(&crc);
-    let parity = odd_parity(&command);
-    (command, parity)
+    )
 }
 
 fn command_with_crc(command: u8, block: u8) -> (Vec<u8>, Vec<u8>) {
@@ -254,6 +253,18 @@ impl Session {
         self.authenticate_selected(reader, block, key_type, key, None)
     }
 
+    /// Authenticates with a custom command byte, used by the FM11RF08S
+    /// backdoor (0x64/0x65).
+    pub(crate) fn authenticate_command(
+        &mut self,
+        reader: &mut dyn Reader,
+        block: u8,
+        command: u8,
+        key: Key,
+    ) -> Result<()> {
+        self.authenticate_selected_with(reader, block, command, key, None)
+    }
+
     fn authenticate_selected(
         &mut self,
         reader: &mut dyn Reader,
@@ -262,7 +273,22 @@ impl Session {
         key: Key,
         reader_nonce: Option<u32>,
     ) -> Result<()> {
-        let (command, parity) = auth_command(block, key_type);
+        let command = match key_type {
+            KeyType::A => MIFARE_AUTH_A,
+            KeyType::B => MIFARE_AUTH_B,
+        };
+        self.authenticate_selected_with(reader, block, command, key, reader_nonce)
+    }
+
+    fn authenticate_selected_with(
+        &mut self,
+        reader: &mut dyn Reader,
+        block: u8,
+        command: u8,
+        key: Key,
+        reader_nonce: Option<u32>,
+    ) -> Result<()> {
+        let (command, parity) = command_with_crc(command, block);
         let response = reader.transceive_parity_expect(&command, &parity, 36)?;
         let tag_nonce = parse_nonce(&response)?;
         let reader_nonce = reader_nonce.unwrap_or_else(next_reader_nonce);
@@ -323,13 +349,24 @@ impl Session {
         block: u8,
         key_type: KeyType,
     ) -> Result<NestedNonce> {
-        let (plain, _) = command_with_crc(
+        self.nested_nonce_command(
+            reader,
+            block,
             match key_type {
                 KeyType::A => MIFARE_AUTH_A,
                 KeyType::B => MIFARE_AUTH_B,
             },
-            block,
-        );
+        )
+    }
+
+    /// Sends a nested authentication with a custom command byte.
+    pub(crate) fn nested_nonce_command(
+        &mut self,
+        reader: &mut dyn Reader,
+        block: u8,
+        command: u8,
+    ) -> Result<NestedNonce> {
+        let (plain, _) = command_with_crc(command, block);
         let mut encrypted = vec![0u8; plain.len()];
         let mut parity = vec![0u8; plain.len()];
         for (index, byte) in plain.iter().enumerate() {

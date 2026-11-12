@@ -357,7 +357,8 @@ surface.
 - software Crypto1 authentication and nested nonce acquisition;
 - darkside, nested, static-nested, hardnested, and `auto` execution;
 - hardnested filtering, the 64-lane bit-sliced solver, and PM3 table loading;
-- EV1/QL88 signature and static encrypted nonce profile detection;
+- EV1/QL88 signature detection, static encrypted nonce detection, and
+  FM11RF08S backdoor key recovery;
 - progress, cancellation, and result types.
 
 The attack engine receives an exclusive reader lease from `nfc-app`, not a raw

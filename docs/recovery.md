@@ -53,20 +53,23 @@ the configured candidate store:
 3. When there is still no known key, runs host-driven darkside on sector 0
    Key A then Key B and verifies every candidate before using it as a seed.
 4. With a seed key, checks for a static encrypted nonce. A static encrypted
-   card reports the FM11RF08S profile and the transport limitation instead of
-   running an attack that cannot work.
-5. Recovers every missing sector key with nested first and hardnested as the
-   fallback. Each recovered key is verified with a fresh authentication.
+   card is routed to the FM11RF08S backdoor recovery, which acquires clear
+   nonces and needs no target key.
+5. Otherwise recovers every missing sector key with nested first and hardnested
+   as the fallback. Each recovered key is verified with a fresh
+   authentication.
 6. Reads every recovered sector with its verified key and reports the
    read-verification coverage. A partial card is returned with explicit notes
    instead of being reported as complete.
 
 `recover hardnested` loads the PM3 tables, collects encrypted nonces with fast
 select, filters the state space, and runs the bit-sliced solver. It needs a
-candidate key that authenticates the known block. `recover fm11rf08s` reports
-whether the static encrypted nonce profile is present; the FM11RF08S recovery
-sequence itself needs reader-scheduled acquisition that the PN532 UART and
-ACR122U transports do not expose.
+candidate key that authenticates the known block. `recover fm11rf08s` uses the
+published FM11RF08S backdoor (`0x64`/`0x65` and the PM3 backdoor keys) to
+acquire clear static nonces, generates candidates with a Rust port of
+`staticnested_1nt`, verifies them, and read-verifies every recovered sector.
+The without-backdoor distance path depends on deterministic reader timing and
+is not claimed for the PN532 UART or ACR122U.
 
 ## Workbench and CLI
 
@@ -130,8 +133,9 @@ nfc-recover/
 ```
 
 Static encrypted detection and EV1 signature detection live in `classify.rs`.
-FM11RF08S recovery beyond detection is not implemented; the strategy returns an
-actionable transport limitation.
+FM11RF08S backdoor acquisition and the one-nonce candidate generator live in
+`staticnested.rs`; `fm11rf08s_attack` owns key reuse, candidate verification,
+progress, cancellation, and read verification.
 
 `nfc-recover` receives an exclusive `Reader` lease from `nfc-app`. It never
 opens a device itself and never spawns an external attack process.

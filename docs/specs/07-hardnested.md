@@ -2,6 +2,11 @@
 
 Date: 2026-11-10
 
+Update 2026-11-12: phase 25.3 replaced the detection-only FM11RF08S path with
+native backdoor acquisition and one-nonce recovery. The without-backdoor
+distance path remains unclaimed. See
+[25c-fm11rf08s.md](25c-fm11rf08s.md).
+
 ## Goal
 
 Complete the native recovery engine with the hardnested attack, the PM3

@@ -13,6 +13,7 @@ pub mod darkside;
 pub mod hardnested;
 pub mod mfkey;
 pub mod nested;
+pub mod staticnested;
 
 pub use attack::{
     AttackKind, ProgressSink, RecoveredKey, RecoveryProgress, RecoveryRequest, RecoveryResult,

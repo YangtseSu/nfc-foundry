@@ -122,8 +122,10 @@ hardware-validated in release notes.
 - Auto does not yet classify static-nonce cards and route them to a dedicated
   static-nested acquisition. `recover_static_nested` still shares the nested
   acquisition and requires distinct encrypted nonces.
-- FM11RF08S recovery remains detection-only; the transports do not expose the
-  reader-scheduled acquisition.
+- FM11RF08S recovery was detection-only at the time of this phase. Phase 25.3
+  added native backdoor acquisition and one-nonce recovery; the
+  without-backdoor path remains unclaimed. See
+  [25c-fm11rf08s.md](25c-fm11rf08s.md).
 - Hardnested fallback still requires a known key; the seed comes from the
   dictionary, the EV1 signature key, or darkside.
 

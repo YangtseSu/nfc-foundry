@@ -127,9 +127,12 @@ Date: 2026-11-10
 
 ## Deviations
 
-- FM11RF08S key recovery is detection-only on the supported transports. The
-  PN532 UART and ACR122U do not expose the reader-scheduled acquisition the
-  FM11RF08S attack requires. The strategy reports this explicitly.
+- At the time of this phase, FM11RF08S key recovery was detection-only. The
+  without-backdoor distance path needs deterministic reader timing that the
+  PN532 UART and ACR122U do not expose. Update 2026-11-12: phase 25.3 added
+  native backdoor acquisition and one-nonce recovery; see
+  [25c-fm11rf08s.md](25c-fm11rf08s.md). The without-backdoor path remains
+  unclaimed.
 - The bit-sliced kernel is portable 64-lane Rust, not SIMD-dispatched. Release
   hardware runs use the release build; debug builds are intentionally slower.
 - No GUI recovery screen is added in phase 07. The shared `Service::recover`

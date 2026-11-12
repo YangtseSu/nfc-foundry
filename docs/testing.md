@@ -156,6 +156,15 @@ PWD/PACK for 20/20 pages, refused a wrong PACK, and cleared to
 128-byte OTP CC are unit-tested only; no UL21 card was available. The ACR122U
 GET_VERSION and EV1 rows remain unrecorded.
 
+The phase 25.3 FM11RF08S record passed on 2026-11-12 on PN532 UART with UID
+`9C 81 95 D4`: the static encrypted profile was detected; the backdoor sample
+`nt=5B296CC7 nt_enc=A456DE20 par_err=0F` matched the known-key decryption, and
+the 59970-candidate solver list contained `FFFFFFFFFFFF`, matching PM3's
+`staticnested_1nt` count for the same vector. `nfctl recover fm11rf08s`
+recovered 32/32 sector keys and read-verified 16/16 sectors with no writes. The
+without-backdoor distance path was not reliable under host-driven timing and is
+not claimed. The ACR122U row remains unrecorded.
+
 The phase 10 Classic NDEF tests are hardware-free. `nfc-classic-ndef` covers
 MAD1/MAD2 and CRC vectors, NFC AIDs, contiguity, GPB mapping version and
 read-only state, TLV framing/capacity, long messages, leading proprietary TLV

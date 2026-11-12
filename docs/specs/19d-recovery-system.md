@@ -1,7 +1,9 @@
 # Spec: phase 19d recovery and system surfaces
 
 Status: complete 2026-11-11. Plan:
-[19d-recovery-system.md](../plan/19d-recovery-system.md).
+[19d-recovery-system.md](../plan/19d-recovery-system.md). Update 2026-11-12:
+FM11RF08S is no longer detection-only; phase 25.3 added backdoor recovery.
+See [25c-fm11rf08s.md](25c-fm11rf08s.md).
 
 ## Key scan
 
