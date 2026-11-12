@@ -523,8 +523,7 @@ pub fn set_password(
     if let Err(error) = new_session.authenticate(reader, cancel) {
         return Err(password_failure(error, &committed, pages, config, update));
     }
-    let [cfg0, cfg1] =
-        Configuration::config_pages(config.mirror, config.mirror_page, auth0, access);
+    let [cfg0, cfg1] = Configuration::config_pages_for(image.layout.product, config, auth0, access);
     if let Err(error) = write_and_record(
         reader,
         image,

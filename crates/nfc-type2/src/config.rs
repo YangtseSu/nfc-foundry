@@ -1,7 +1,9 @@
-//! NTAG21x configuration pages: MIRROR, AUTH0, ACCESS, PWD, and PACK.
+//! Type 2 configuration pages: MIRROR/MOD, AUTH0, ACCESS, VCTID, PWD, and
+//! PACK.
 
 use nfc_core::{NfcError, PAGE_SIZE, Result};
 
+use crate::layout::Type2Product;
 use crate::page::Type2Image;
 
 /// Requested PWD/PACK and AUTH0/ACCESS values for one configuration write.
@@ -19,10 +21,13 @@ pub struct PasswordUpdate {
 /// derived from an image. Write requests carry the secret separately.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Configuration {
+    /// NTAG MIRROR byte, or the EV1 MOD byte.
     pub mirror: u8,
     pub mirror_page: u8,
     pub auth0: u8,
     pub access: u8,
+    /// EV1 VCTID byte. Unused on NTAG21x.
+    pub vctid: u8,
     pub password: [u8; PAGE_SIZE],
     pub pack: [u8; 2],
 }
@@ -45,6 +50,7 @@ impl Configuration {
             mirror_page: cfg0[2],
             auth0: cfg0[3],
             access: cfg1[0],
+            vctid: cfg1[1],
             password: pwd,
             pack: [pack[0], pack[1]],
         })
@@ -86,6 +92,29 @@ impl Configuration {
             [mirror, 0x00, mirror_page, auth0],
             [access & 0xC7, 0x00, 0x00, 0x00],
         ]
+    }
+
+    /// Build configuration pages for the product. EV1 keeps only the
+    /// `STRG_MOD_EN` bit of MOD and preserves VCTID; NTAG21x keeps MIRROR and
+    /// MIRROR_PAGE.
+    pub fn config_pages_for(
+        product: Type2Product,
+        configuration: Configuration,
+        auth0: u8,
+        access: u8,
+    ) -> [[u8; 4]; 2] {
+        match product {
+            Type2Product::UltralightEv1Ul11 | Type2Product::UltralightEv1Ul21 => [
+                [configuration.mirror & 0x01, 0x00, 0x00, auth0],
+                [access & 0xC7, configuration.vctid, 0x00, 0x00],
+            ],
+            _ => Self::config_pages(
+                configuration.mirror,
+                configuration.mirror_page,
+                auth0,
+                access,
+            ),
+        }
     }
 
     pub fn password_page(password: [u8; PAGE_SIZE]) -> [u8; PAGE_SIZE] {
@@ -144,6 +173,26 @@ mod tests {
         let config = Configuration::from_image(&image).expect("configuration");
         assert_eq!(config.protected_from(), None);
         assert!(!config.requires_password(0));
+    }
+
+    #[test]
+    fn ev1_config_preserves_mod_bit_and_vctid() {
+        let layout =
+            Type2Layout::from_product(crate::Type2Product::UltralightEv1Ul11).expect("EV1 layout");
+        let mut image = Type2Image::new(layout, CapabilityContainer::default(), vec![0; 7]);
+        image.set_page(16, [0x01, 0x00, 0x00, 0xFF]).expect("cfg0");
+        image.set_page(17, [0x00, 0x05, 0x00, 0x00]).expect("cfg1");
+        let config = Configuration::from_image(&image).expect("configuration");
+        assert_eq!(config.vctid, 0x05);
+
+        let [cfg0, cfg1] = Configuration::config_pages_for(
+            crate::Type2Product::UltralightEv1Ul11,
+            config,
+            0x20,
+            0x00,
+        );
+        assert_eq!(cfg0, [0x01, 0x00, 0x00, 0x20]);
+        assert_eq!(cfg1, [0x00, 0x05, 0x00, 0x00]);
     }
 
     #[test]

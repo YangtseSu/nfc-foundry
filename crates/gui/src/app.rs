@@ -38,7 +38,9 @@ use nfc_ndef::{
 use nfc_recover::auto::RecoveryStrategy;
 use nfc_recover::{ProgressSink, RecoveryProgress, RecoveryRequest, RecoveryResult};
 use nfc_transport::{DeviceInfo, ReaderCapabilities};
-use nfc_type2::{NdefState, RestoreOptions, Type2Image, Type2Ndef, exchange as type2_exchange};
+use nfc_type2::{
+    NdefState, RestoreOptions, Type2Image, Type2Ndef, Type2Product, exchange as type2_exchange,
+};
 
 use crate::classic::{self, BlockRow, NdefDraft, NdefSource};
 use crate::i18n::{self, Language, Localized};
@@ -7175,6 +7177,46 @@ fn confirm_type2_ndef_format(ui: Rc<Ui>) {
         toast_error(&ui, &error);
         return;
     }
+    if !session.image.cc.is_present() {
+        if !matches!(
+            session.image.layout.product,
+            Type2Product::UltralightEv1Ul11 | Type2Product::UltralightEv1Ul21
+        ) {
+            toast_error(
+                &ui,
+                "The tag has no capability container and no EV1 OTP format path.",
+            );
+            return;
+        }
+        let cc = [
+            0xE1,
+            0x10,
+            (session.image.layout.user_bytes() / 8) as u8,
+            0x00,
+        ];
+        let body = format!(
+            "{} · UID {}\n\nThe tag has no capability container. Formatting writes the one-way capability container {} to OTP page 3, then writes an empty NDEF Message TLV to the {} bytes of user memory.\n\nOTP bits can only change from 0 to 1; this cannot be undone. A project backup is written first, but it cannot restore page 3.",
+            session.image.layout.product.name(),
+            session.card.uid_hex(),
+            type2_ui::hex_bytes(&cc),
+            session.image.layout.user_bytes(),
+        );
+        let dialog = confirmation_dialog(
+            "Write the one-time EV1 capability container?",
+            &body,
+            "Write OTP CC and format",
+        );
+        let ui2 = ui.clone();
+        dialog.connect_response(None, move |_, response| {
+            ui2.pending_type2_format_dialog.replace(None);
+            if response == "confirm" {
+                start_type2_ndef_format(ui2.clone(), auth, true);
+            }
+        });
+        ui.pending_type2_format_dialog.replace(Some(dialog.clone()));
+        present_alert(&dialog, &ui.window);
+        return;
+    }
     let pages = type2_ui::ndef_area_pages(&session.image);
     let page_range = if pages.is_empty() {
         "none".to_owned()
@@ -7192,14 +7234,14 @@ fn confirm_type2_ndef_format(ui: Rc<Ui>) {
     dialog.connect_response(None, move |_, response| {
         ui2.pending_type2_format_dialog.replace(None);
         if response == "confirm" {
-            start_type2_ndef_format(ui2.clone(), auth);
+            start_type2_ndef_format(ui2.clone(), auth, false);
         }
     });
     ui.pending_type2_format_dialog.replace(Some(dialog.clone()));
     present_alert(&dialog, &ui.window);
 }
 
-fn start_type2_ndef_format(ui: Rc<Ui>, auth: Option<Type2Auth>) {
+fn start_type2_ndef_format(ui: Rc<Ui>, auth: Option<Type2Auth>, allow_otp_cc: bool) {
     set_busy(&ui, true);
     ui.status.set_localized("Formatting the NDEF data area…");
     let service = ui.service.clone();
@@ -7213,7 +7255,10 @@ fn start_type2_ndef_format(ui: Rc<Ui>, auth: Option<Type2Auth>) {
     std::thread::spawn(move || {
         let result = match service.lock() {
             Ok(mut service) => {
-                let mut request = Type2Format::new(&backup).confirm(true).auth(auth);
+                let mut request = Type2Format::new(&backup)
+                    .confirm(true)
+                    .allow_otp_cc(allow_otp_cc)
+                    .auth(auth);
                 if let Some(card) = expected {
                     request = request.expected_card(card);
                 }
@@ -9559,8 +9604,19 @@ mod tests {
         pages
     }
 
+    fn ev1_pages() -> Vec<[u8; 4]> {
+        let mut pages = vec![[0u8; 4]; 20];
+        pages[0] = [0x04, 0x43, 0x47, 0x88];
+        pages[1] = [0x4A, 0x75, 0x22, 0x91];
+        pages[2] = [0x8C, 0x48, 0x00, 0x00];
+        pages[16] = [0x00, 0x00, 0x00, 0xFF];
+        pages[17] = [0x00, 0x05, 0x00, 0x00];
+        pages
+    }
+
     fn install_ntag(handle: &MockHandle, pages: &[[u8; 4]]) {
         handle.set_card(Some(type2_card(0x80)));
+        handle.set_type2_version(None);
         handle.clear_pages();
         for (page, data) in pages.iter().enumerate() {
             handle.set_page(page as u8, *data);
@@ -10059,6 +10115,7 @@ mod tests {
         type2_lock_and_password(&harness);
         type2_protected_access(&harness);
         type2_ndef_write_and_format(&harness);
+        type2_ev1_otp_format_dialog(&harness);
         type2_partial_ndef(&harness);
         type2_dump_and_restore(&harness);
         navigation_busy_and_focus(&harness);
@@ -11986,6 +12043,40 @@ mod tests {
         });
         assert_eq!(harness.ntag.page(4), Some([0x03, 0x00, 0xFE, 0x00]));
         assert!(ndef_log(ui).contains("the card identity changed"));
+    }
+
+    fn type2_ev1_otp_format_dialog(harness: &Harness) {
+        reset(harness);
+        install_ntag(&harness.ntag, &ev1_pages());
+        harness
+            .ntag
+            .set_type2_version(Some([0x00, 0x04, 0x03, 0x01, 0x01, 0x00, 0x0B, 0x03]));
+        choose_reader(harness, "mock:ntag");
+        start_read(harness.ui.clone());
+        pump_until(&harness.ui, "EV1 read", || {
+            !harness.ui.busy.get() && harness.ui.status.label().contains("Read complete")
+        });
+        let ui = &harness.ui;
+        assert_eq!(
+            ui.type2
+                .borrow()
+                .as_ref()
+                .expect("session")
+                .image
+                .layout
+                .product,
+            Type2Product::UltralightEv1Ul11
+        );
+        assert!(ui.ndef_view.format.is_sensitive());
+
+        confirm_ndef_format(ui.clone());
+        let dialog = alert_pending(&ui.pending_type2_format_dialog);
+        let body = dialog.body();
+        assert!(body.contains("OTP page 3"), "{body}");
+        assert!(body.contains("cannot be undone"), "{body}");
+        emit_response(&dialog, "cancel");
+        assert!(ui.pending_type2_format_dialog.borrow().is_none());
+        assert_eq!(harness.ntag.page(3), Some([0; 4]));
     }
 
     fn type2_partial_ndef(harness: &Harness) {

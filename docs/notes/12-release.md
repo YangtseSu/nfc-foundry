@@ -60,9 +60,9 @@ Date: 2026-11-10
   certified operation, records, card UIDs, release claims, and gate commands.
   It explicitly lists ACR122U writes for Classic data blocks, Type 2 NDEF, and
   Classic NDEF, one-way locks, passwords, and trailer writes as not recorded;
-  it records Classic 4K read/write and Type 4 read/write on PN532 UART, with
-  the ACR122U paths unrecorded. Type 4 remains unadvertised because it has no
-  surface.
+  it records Classic 4K read/write, Ultralight EV1 MF0UL11, and Type 4
+  read/write on PN532 UART, with the ACR122U paths unrecorded. Type 4 remains
+  unadvertised because it has no surface.
 
 ## Tested
 
@@ -148,6 +148,8 @@ does not claim the unrecorded ACR122U paths.
   and Classic 4K.
 - Type 4 NDEF ACR122U hardware record; PN532 UART was recorded on 2026-11-12
   (see `docs/notes/11-type4-ndef.md`).
+- Ultralight EV1 MF0UL21 hardware record; MF0UL11 passed on PN532 UART on
+  2026-11-12 (see `docs/notes/25b-ultralight-ev1.md`).
 - ACR122U re-run of the certified rows after any driver change.
 - The GitHub release tag and release publication are approval-gated steps
   outside this phase.

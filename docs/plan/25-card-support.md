@@ -1,8 +1,8 @@
 # Phase 25 plan: owned-card support
 
-Status: in progress; 25.1 complete 2026-11-12. Hardware: PN532 UART first;
-ACR122U records after a reader is available. This phase covers the five cards
-already owned for the project: Fudan FM11RN32N (FM11RF32N, 4K
+Status: in progress; 25.1 and 25.2 complete 2026-11-12. Hardware: PN532 UART
+first; ACR122U records after a reader is available. This phase covers the five
+cards already owned for the project: Fudan FM11RN32N (FM11RF32N, 4K
 Classic-compatible), Fudan FM11RF08S, MIFARE Ultralight EV1, MIFARE DESFire
 EV3 8K, and a UID-changeable NTAG213 clone.
 
@@ -108,6 +108,9 @@ Acceptance:
 - Hardware matrix gains a dated PN532 row with the exact UID.
 
 ### 25.2: MIFARE Ultralight EV1
+
+Status: MF0UL11 complete 2026-11-12 on PN532 UART; MF0UL21 unit-tested only.
+See [25b-ultralight-ev1.md](../notes/25b-ultralight-ev1.md).
 
 Goal: model MF0UL11 and MF0UL21 explicitly instead of guessing from the CC
 size.

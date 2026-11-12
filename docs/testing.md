@@ -144,6 +144,18 @@ failures and a final diff of 0 changed. The static encrypted nonce probe
 reported `the card does not return a static encrypted nonce`. No code change
 was needed. The ACR122U 4K row remains unrecorded.
 
+The phase 25.2 Ultralight EV1 record passed on 2026-11-12 on PN532 UART with
+an MF0UL11, UID `04 43 47 4A 75 22 91`: GET_VERSION selected the 20-page EV1
+layout without a CC; 20/20 pages and the EV1 configuration were readable. The
+OTP CC `E1 10 06 00` was written after explicit confirmation, the NDEF capacity
+became 45 bytes, and an empty NDEF state was verified. A Text record wrote,
+read back as 28 bytes, and cleared to empty. Password protection with
+`AUTH0=4`/`ACCESS=0x80` made an unauthenticated read fail, accepted the correct
+PWD/PACK for 20/20 pages, refused a wrong PACK, and cleared to
+`AUTH0=0xFF`/`ACCESS=0x00` with VCTID `0x05` preserved. The MF0UL21 layout and
+128-byte OTP CC are unit-tested only; no UL21 card was available. The ACR122U
+GET_VERSION and EV1 rows remain unrecorded.
+
 The phase 10 Classic NDEF tests are hardware-free. `nfc-classic-ndef` covers
 MAD1/MAD2 and CRC vectors, NFC AIDs, contiguity, GPB mapping version and
 read-only state, TLV framing/capacity, long messages, leading proprietary TLV
