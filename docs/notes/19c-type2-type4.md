@@ -63,8 +63,9 @@ Plan: [19c-type2-type4.md](../plan/19c-type2-type4.md). Spec:
   Protected access fields in the same tab.
   `Format NDEF area…` requires the confirmation dialog and removes proprietary TLVs,
   matching the service behavior. NDEF writes pass the session identity.
-- Type 4 has no surface. No hardware record exists for a reader/card path, so
-  the read-only view and a matching `nfctl` command are left out.
+- Type 4 has no surface. At the time of this phase no hardware record existed
+  for a reader/card path, so the read-only view and a matching `nfctl` command
+  were left out. The PN532 UART record landed on 2026-11-12.
 
 ## Verification
 
@@ -100,8 +101,9 @@ password, and restore dialogs name the card, values, and backup.
 - No hardware was touched. All Type 2 writes, locks, password changes, and NDEF
   round trips ran against the scripted transport. This note does not add a
   hardware support claim.
-- Type 4 remains software-only with no reader/card record, so it is absent from
-  the GUI and CLI.
+- Type 4 remained software-only with no reader/card record during this phase,
+  so it is absent from the GUI and CLI. The PN532 UART record landed on
+  2026-11-12; the ACR122U path is unrecorded.
 - The phase 19c product had no "authenticate with PWD" workflow. Phase 24 S6
   added `Type2Auth`; a tag whose AUTH0 covers the NDEF data area or lock pages
   now accepts the access password and PACK for reads and writes, and is denied

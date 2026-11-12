@@ -59,8 +59,9 @@ Date: 2026-11-10
 - `docs/hardware-matrix.md` records the two reader certificates, every
   certified operation, records, card UIDs, release claims, and gate commands.
   It explicitly lists ACR122U writes for Classic data blocks, Type 2 NDEF, and
-  Classic NDEF, one-way locks, passwords, trailer writes, Classic 4K, and
-  Type 4 as not recorded and not advertised.
+  Classic NDEF, one-way locks, passwords, trailer writes, and Classic 4K as
+  not recorded, and records Type 4 read/write on PN532 UART with the ACR122U
+  path unrecorded. Type 4 remains unadvertised because it has no surface.
 
 ## Tested
 
@@ -144,7 +145,8 @@ does not claim the unrecorded ACR122U paths.
 - ACR122U hardware records for Classic data-block writes, Type 2 NDEF writes,
   Classic NDEF writes, one-way locks, password configuration, trailer writes,
   and Classic 4K.
-- Type 4 NDEF hardware record.
+- Type 4 NDEF ACR122U hardware record; PN532 UART was recorded on 2026-11-12
+  (see `docs/notes/11-type4-ndef.md`).
 - ACR122U re-run of the certified rows after any driver change.
 - The GitHub release tag and release publication are approval-gated steps
   outside this phase.

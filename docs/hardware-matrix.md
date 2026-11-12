@@ -10,7 +10,7 @@ Release: `0.1.0`.
 
 | Reader | Connection | Firmware | Date | Note |
 |---|---|---|---|---|
-| PN532 UART (CH340 adapter) | `pn532_uart:/dev/ttyUSB0` | PN532 firmware 1.6 | 2026-11-11 | `docs/notes/02-pn532-uart.md`, `04-classic-workflows.md`, `06-recovery-foundation.md`, `07-hardnested.md`, `09-type2-ndef.md`, `10-classic-ndef.md`, `24c-uid-write.md` |
+| PN532 UART (CH340 adapter) | `pn532_uart:/dev/ttyUSB0` | PN532 firmware 1.6 | 2026-11-11 | `docs/notes/02-pn532-uart.md`, `04-classic-workflows.md`, `06-recovery-foundation.md`, `07-hardnested.md`, `09-type2-ndef.md`, `10-classic-ndef.md`, `11-type4-ndef.md`, `24c-uid-write.md` |
 | ACR122U direct USB/CCID | `acr122_usb:001:002` | internal PN532 firmware 1.6 | 2026-11-11 | `docs/notes/05-acr122-usb.md`, `06-recovery-foundation.md`, `07-hardnested.md`, `09-type2-ndef.md`, `24c-uid-write.md`, `24d-restore-with-uid.md` |
 
 `pcscd` was stopped for every ACR122U run. The ACR122U was opened as the
@@ -51,7 +51,7 @@ tested, and no read, write, restore, or recovery operation is claimed for it.
 | Nested, static-nested, and auto recovery | validated | validated | phase 06: recovered and re-verified target keys |
 | Hardnested acquisition and solver | validated | validated | phase 07: 1816 and 1840 frames, recovered and re-verified keys |
 | Darkside repeated-nonce collection | no sample | no sample | phase 06: documented reader limitation, not a key result |
-| Type 4 NDEF read/write | not recorded | not recorded | phase 11; not advertised. A DESFire EV3 8K `04 4D 09 A2 BB 17 90` was probed on PN532 on 2026-11-11; it has no NDEF Tag Application (`6A82`) and is not NDEF-formatted. |
+| Type 4 NDEF read/write | validated | not recorded | phase 11, 2026-11-12: PN532 UART, NTAG 424 DNA `04 86 40 42 22 17 90`; CC 2.0 (23 bytes), MLe 256/MLc 255, NDEF file `E104` with 256-byte capacity, empty state; Text record written and read back, empty state cleared and re-read. An earlier DESFire EV3 8K `04 4D 09 A2 BB 17 90` probe found no NDEF Tag Application (`6A82`). |
 
 ## Card records
 
@@ -60,6 +60,7 @@ tested, and no read, write, restore, or recovery operation is claimed for it.
 | MIFARE Classic 1K | `FA B9 CF F4` | PN532, ACR122U | select, read, raw REQA, recovery; ACR122U dump, data-block/trailer writes, UID, restore, Classic NDEF |
 | MIFARE Classic 1K | `6A 31 5E 28` | PN532 | selection, Classic NDEF format/write/restore |
 | NTAG215 | `04 52 F5 67 D3 2A 81` | PN532 | 135-page read, NDEF write/read/restore |
+| NTAG 424 DNA | `04 86 40 42 22 17 90` | PN532 | Type 4 read, NDEF write, clear/restore |
 | Type 2 tag | `04 34 4C C2 83 5C 80` | ACR122U | page read; NDEF format/write/read/restore |
 | Magic Gen1A Classic 1K | `FA B9 CF F4` | PN532, ACR122U | same-value block 0 write; guarded UID change/restore; restore with UID on both |
 
@@ -77,7 +78,8 @@ card under test.
 - The matrix is not symmetric. ACR122U Type 2 NDEF, one-way locks, password
   configuration, and authenticated access after AUTH0 are not part of the
   release claim.
-- Type 4 NDEF is implemented but has no hardware record; it is not advertised.
+- Type 4 NDEF read/write is validated on PN532 UART and not recorded on
+  ACR122U. It has no CLI or GUI surface yet, so the path is not advertised.
 - Classic 4K has no hardware record; it is not part of the release claim.
 - Classic sector-trailer writes and the guarded UID service are validated on
   both readers. The ACR122U trailer run used a default-access sector because the
@@ -116,6 +118,24 @@ NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
 NFC_FOUNDRY_HARDWARE_WRITE=yes \
 NFC_FOUNDRY_HARDWARE_BACKUP_DIR=/tmp/nfc-type2-backups \
 cargo test -p nfctl --features hardware-write -- --ignored
+```
+
+PN532 UART, Type 4 NDEF read (validated 2026-11-12 with an NTAG 424 DNA):
+
+```sh
+NFC_FOUNDRY_HARDWARE=1 \
+NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
+cargo test -p nfctl --features hardware --test hardware_type4 -- --ignored
+```
+
+PN532 UART, authorized Type 4 NDEF write and restore:
+
+```sh
+NFC_FOUNDRY_HARDWARE=1 \
+NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
+NFC_FOUNDRY_HARDWARE_WRITE=yes \
+NFC_FOUNDRY_HARDWARE_BACKUP_DIR=/tmp/nfc-type4-backups \
+cargo test -p nfctl --features hardware-write --test hardware_type4 -- --ignored
 ```
 
 ACR122U, read-only driver checks:

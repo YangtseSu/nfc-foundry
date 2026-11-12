@@ -167,13 +167,17 @@ original NDEF message or empty state afterwards:
 
 ```sh
 NFC_FOUNDRY_HARDWARE=1 \
-NFC_FOUNDRY_DEVICE=acr122_usb:001:017 \
+NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
 NFC_FOUNDRY_HARDWARE_WRITE=yes \
 NFC_FOUNDRY_HARDWARE_BACKUP_DIR=/tmp/nfc-type4-backups \
 cargo test -p nfctl --features hardware-write --test hardware_type4 -- --ignored
 ```
 
-No Type 4 hardware record exists yet; the gate is defined but has not run.
+The read and write tests passed on 2026-11-12 on PN532 UART
+(`pn532_uart:/dev/ttyUSB0`) with an NTAG 424 DNA `04 86 40 42 22 17 90`:
+CC 2.0, 23 bytes, MLe 256, MLc 255, NDEF file `E104` with 256-byte capacity and
+an empty state. A Text record was written, read back, cleared, and the empty
+state re-read. The ACR122U path is not recorded.
 
 The gated Classic NDEF hardware test lives in
 `nfctl/tests/hardware_classic_ndef.rs`. The read-only check needs a Classic

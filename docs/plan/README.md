@@ -30,7 +30,7 @@ work; their current equivalents are the GTK4 workspaces.
 | 08 | NDEF core: records, TLV, templates, validation | done |
 | 09 | Type 2 / NTAG read/write/NDEF + GUI | done |
 | 10 | Classic NDEF: MAD/GPB/format + GUI | done |
-| 11 | Type 4 / ISO-DEP NDEF adapter | optional; hardware record pending |
+| 11 | Type 4 / ISO-DEP NDEF adapter | optional; PN532 validated 2026-11-12, ACR122U pending |
 | 12 | Packaging, CI, hardware certification, release | done |
 | 13 | RF and transport completion: Type B, high rate, auto-poll, diagnostics | pending |
 | 14 | Read-only protocol adapters: Type 4B/Type 3, EMV, T-Union, FMCOS/Calypso | optional |
@@ -49,6 +49,7 @@ work; their current equivalents are the GTK4 workspaces.
 | 22 | Grouped primary navigation and header menu | done (superseded by 23) |
 | 23 | Card-family workspaces and NDEF placement | done |
 | 24 | Parity recovery: verified keys, workbench, UID, reader lifecycle, diagnostics | in progress (S1, S2, S3a, S3b, S4, S6 done) |
+| 25 | Owned-card support: 4K clone, Ultralight EV1, FM11RF08S recovery, DESFire EV3 NDEF, UID NTAG213 | pending |
 
 ## Rules
 
@@ -360,7 +361,8 @@ Acceptance:
 
 - Hardware validation before advertisement.
 
-Status: software complete; hardware record pending. `nfc-transport` adds
+Status: software complete; PN532 hardware record 2026-11-12 with an NTAG 424
+DNA, ACR122U pending. `nfc-transport` adds
 `ApduCapabilities`/`ApduResponse` and `Reader::transceive_apdu`; both PN532
 UART and ACR122U carry command APDUs over `InDataExchange` without retrying
 state-changing commands. `nfc-type4` implements the mapping-version 2.0 CC and
@@ -368,10 +370,10 @@ TLV parser, NLEN/message reads with MLe chunking, verified writes with MLc and
 transport chunking, clear, and project JSON. `nfc-app` adds backups,
 read-only refusal, confirmation for clear, read-back verification, and card
 identity checks. Unit, property, driver, and scripted workflow tests pass. The
-gated read/write tests are in `crates/nfctl/tests/hardware_type4.rs`; no reader
-or card record exists yet, so Type 4 is not advertised. No CLI or GUI command
-is added in this phase. See `docs/specs/11-type4-ndef.md` and
-`docs/notes/11-type4-ndef.md`.
+gated read/write tests are in `crates/nfctl/tests/hardware_type4.rs`; the
+PN532 UART read/write/restore record exists, the ACR122U path does not. Type 4
+is not advertised because no CLI or GUI command is added in this phase. See
+`docs/specs/11-type4-ndef.md` and `docs/notes/11-type4-ndef.md`.
 
 ### 12: Release
 
@@ -395,8 +397,9 @@ builds on Ubuntu 26.04 for Linux amd64 and publishes the assets on a
 release tag. The AUR package remains outside GitHub
 CI. `docs/hardware-matrix.md` records the certified PN532 UART and
 ACR122U scope; ACR122U writes for Classic data blocks, Type 2 NDEF, and Classic
-NDEF, one-way locks, passwords, trailer writes, Classic 4K, and Type 4 remain
-unrecorded and are not advertised. Version reporting is unified
+NDEF, one-way locks, passwords, trailer writes, and Classic 4K remain
+unrecorded and are not advertised; Type 4 read/write is validated on PN532 UART
+and not recorded on ACR122U. Version reporting is unified
 in `Cargo.toml`, `nfctl --version`, `nfctl diag`, and the GUI window title.
 Local package build, package file list, tarball extraction, `namcap`, and
 `.SRCINFO` checks passed on 2026-11-10. The GitHub release is
@@ -709,7 +712,8 @@ The service read returns card identity, all Type 2 mutations take an expected
 selection. The GUI adds Type 2 Memory/Protection, Advanced page and destructive
 confirmations, lock/password forms, dump/restore, and Type 2 NDEF write/format.
 CC writes keep the product and refresh the parsed CC. Type 4 remains out of the
-UI and CLI because no hardware record exists. See
+UI and CLI; the PN532 hardware record landed on 2026-11-12, after this phase, so
+a read surface is unblocked but not built. See
 [docs/notes/19c-type2-type4.md](../notes/19c-type2-type4.md).
 
 ### 19d: Recovery and system surfaces
@@ -785,3 +789,19 @@ diagnostics, and recovery authorization. S6 (Type 2 authenticated access) is
 implemented and validated on PN532 UART with an owned NTAG216; the ACR122U
 record is pending. Each slice has a spec in `docs/specs/` and a note in
 `docs/notes/`.
+
+### 25: Owned-card support
+
+Goal: make the five owned test cards usable through the existing domains:
+FM11RN32N Classic 4K, FM11RF08S recovery, Ultralight EV1, DESFire EV3 8K NDEF,
+and the UID-changeable NTAG213 clone.
+
+Detailed plan: [25-card-support.md](25-card-support.md). Status: planned
+2026-11-12. Slice order: 4K validation, Ultralight EV1 profiles and
+`GET_VERSION`, native FM11RF08S recovery, guarded NTAG213 UID writes, then
+DESFire EV3 inventory and AN11004 NDEF formatting. The plan names every
+operation that is irreversible; DESFire formatting is the only planned
+mutation without a byte-for-byte restore, but it is undoable by deleting the
+NDEF application with the PICC master key. Ultralight EV1 formatting is
+conditional on a blank OTP CC. Each slice adds one spec and one note before
+implementation.

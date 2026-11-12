@@ -107,6 +107,8 @@ family-aware. Advanced mode, confirmation dialogs, lock/password forms,
 dump/restore, and the NDEF write/format gates are implemented. The gated GTK
 scenario covers the new surfaces against a scripted NTAG213.
 
-Type 4 read remains out of the UI and has no `nfctl` command because no
-reader/card hardware record exists. The Type 4 service and tests stay
-hardware-free. See `docs/notes/19c-type2-type4.md`.
+Type 4 read remains out of the UI and has no `nfctl` command; at the time of
+this phase no reader/card hardware record existed. The PN532 UART record landed
+on 2026-11-12, so a read surface is unblocked but not built, and the ACR122U
+path is still unrecorded. The Type 4 service and tests stay hardware-free. See
+`docs/notes/19c-type2-type4.md`.

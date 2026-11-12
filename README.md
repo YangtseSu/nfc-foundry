@@ -10,8 +10,9 @@ archive, and hardware matrix are in place.** PN532 UART passed every operation
 in its certified scope. The ACR122U passed its certified scope: selection,
 Classic reads, Type 2 reads, raw REQA, Gen1A same-value block 0 write, and
 recovery. ACR122U Classic data writes, ACR122U Type 2 write/NDEF, ACR122U
-Classic NDEF, one-way locks, passwords, trailer writes, Classic 4K, and Type 4
-are not advertised because no release hardware record exists. See
+Classic NDEF, one-way locks, passwords, trailer writes, Classic 4K, and ACR122U
+Type 4 are not advertised because no release hardware record exists. Type 4
+read/write is validated on PN532 UART but has no CLI or GUI surface yet. See
 [Hardware matrix](docs/hardware-matrix.md).
 Both first-release readers are implemented: PN532 UART
 and ACR122U direct USB/CCID. The ACR122U path claims the CCID interface with
@@ -109,7 +110,7 @@ read/write claim; `nfctl diag --json` and the GUI diagnostics page share a
 deterministic self-check with version, commit, build date, platform, drivers,
 selected-reader firmware and capabilities, and hardnested table status; and
 both recovery surfaces require authorization before the engine starts.
-Remaining work is the Type 4 read surface (hardware-gated) and phases 13-17.
+Remaining work is the Type 4 read surface and phases 13-17.
 
 ## Product scope
 
@@ -120,7 +121,8 @@ Two first-class domains:
    native key recovery.
 2. **NDEF**: read, write, format, and protect NDEF data on Type 2 / NTAG and
    MIFARE Classic; a Type 4 / ISO-DEP adapter and application workflows are
-   implemented, with hardware validation still pending.
+   implemented and validated on PN532 UART, with the ACR122U path pending and
+   no CLI or GUI surface yet.
 
 Supported hardware for the first release:
 
@@ -410,9 +412,10 @@ saving, and the engine limitations verbatim. Activity is a session-only record
 that omits key material and NDEF payloads. Settings persist the key store,
 backup directory, hardnested tables, common-key default, and default dump
 format in `$XDG_CONFIG_HOME/nfc-foundry/ui.json` with atomic `0600` writes.
-Type 4 read stays out of the UI until a hardware record exists. The `zh-CN`
-catalog and packaging remain in progress. The application icon and desktop
-entry are in `resources/` for the packaged application.
+Type 4 read stays out of the UI; the PN532 hardware record exists as of
+2026-11-12. The `zh-CN` catalog and packaging remain in progress. The
+application icon and desktop entry are in `resources/` for the packaged
+application.
 
 ## Documentation
 
