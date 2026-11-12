@@ -51,7 +51,7 @@ work; their current equivalents are the GTK4 workspaces.
 | 23 | Card-family workspaces and NDEF placement | done |
 | 24 | Parity recovery: verified keys, workbench, UID, reader lifecycle, diagnostics | in progress (S1, S2, S3a, S3b, S4, S6 done) |
 | 25 | Owned-card support: 4K clone, Ultralight EV1, FM11RF08S recovery, DESFire EV3 NDEF, UID NTAG213 | done (PN532; ACR122U rows pending) |
-| 26 | DESFire workbench: read/write, app/file/key management, secure messaging, NDEF | in progress (26.1 done; 26.2–26.13 pending) |
+| 26 | DESFire workbench: read/write, app/file/key management, secure messaging, NDEF | in progress (26.1, 26.2 done; 26.3–26.13 pending) |
 | 27 | NDEF workbench: multi-record editor, RTD forms, `.ndef` load/save, Classic/Type 2 write | done |
 | 28 | ACR122U PC/SC transport (ACR122U only, not generic PC/SC) | pending |
 | 29 | CLI machine contract, cross-process reader ownership, cancellation/tasks, developer raw diagnostics | pending |
@@ -834,9 +834,9 @@ out. The baseline (legacy DES/2K3DES authentication, plain Standard/Backup
 read, CLI and GTK `DESFire` workspace) is complete.
 
 Detailed plan: [26-desfire-workbench.md](26-desfire-workbench.md). Status: in
-progress; 26.1 done; 26.2 file settings decode, 26.3 value/record read, 26.4
-key families, 26.5 secure-messaging read, 26.6 Type 4 NDEF read, 26.7
-cryptographic verification, 26.8 generic write, 26.9 application/file
+progress; 26.1 and 26.2 (file settings decode) are done. 26.3 value/record
+read, 26.4 key families, 26.5 secure-messaging read, 26.6 Type 4 NDEF read,
+26.7 cryptographic verification, 26.8 generic write, 26.9 application/file
 management, 26.10 value/record/transaction writes, 26.11 key management, 26.12
 NDEF provisioning/format, and 26.13 advanced write gates are pending. Each
 slice adds a spec and a note before implementation.

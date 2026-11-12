@@ -154,11 +154,398 @@ pub struct FileInfo {
     pub settings: Vec<u8>,
 }
 
+impl FileInfo {
+    /// Decode the raw GetFileSettings response.
+    pub fn decoded(&self) -> Result<FileSettings> {
+        FileSettings::parse(&self.settings)
+    }
+}
+
 /// Read-only card inventory.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Inventory {
     pub version: Version,
     pub applications: Vec<Application>,
+}
+
+/// DESFire file type reported by GetFileSettings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FileType {
+    Standard,
+    Backup,
+    Value,
+    LinearRecord,
+    CyclicRecord,
+    TransactionMac,
+}
+
+impl FileType {
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Standard => "standard data",
+            Self::Backup => "backup data",
+            Self::Value => "value",
+            Self::LinearRecord => "linear record",
+            Self::CyclicRecord => "cyclic record",
+            Self::TransactionMac => "transaction MAC",
+        }
+    }
+
+    fn parse(value: u8) -> Result<Self> {
+        match value {
+            0x00 => Ok(Self::Standard),
+            0x01 => Ok(Self::Backup),
+            0x02 => Ok(Self::Value),
+            0x03 => Ok(Self::LinearRecord),
+            0x04 => Ok(Self::CyclicRecord),
+            0x05 => Ok(Self::TransactionMac),
+            other => Err(NfcError::InvalidArgument(format!(
+                "unknown DESFire file type {other:#04X}"
+            ))),
+        }
+    }
+}
+
+/// File communication mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CommunicationMode {
+    Plain,
+    Maced,
+    Enciphered,
+}
+
+impl CommunicationMode {
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Plain => "plain",
+            Self::Maced => "MACed",
+            Self::Enciphered => "enciphered",
+        }
+    }
+
+    fn parse(value: u8) -> Result<Self> {
+        match value {
+            0x00 => Ok(Self::Plain),
+            0x01 => Ok(Self::Maced),
+            0x03 => Ok(Self::Enciphered),
+            0x02 => Err(NfcError::InvalidArgument(
+                "DESFire file communication mode 2 is reserved".to_owned(),
+            )),
+            _ => unreachable!("communication mode is a two-bit field"),
+        }
+    }
+}
+
+/// One access condition from a DESFire file access-rights word.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AccessRight {
+    Key(u8),
+    Free,
+    Denied,
+}
+
+impl AccessRight {
+    const fn from_nibble(nibble: u8) -> Self {
+        match nibble {
+            0x00..=0x0D => Self::Key(nibble),
+            0x0E => Self::Free,
+            _ => Self::Denied,
+        }
+    }
+
+    pub fn name(self) -> String {
+        match self {
+            Self::Key(key) => format!("key {key}"),
+            Self::Free => "free".to_owned(),
+            Self::Denied => "denied".to_owned(),
+        }
+    }
+}
+
+/// File access rights for read, write, read/write, and change.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AccessRights {
+    pub raw: u16,
+    pub read: AccessRight,
+    pub write: AccessRight,
+    pub read_write: AccessRight,
+    pub change: AccessRight,
+}
+
+impl AccessRights {
+    fn parse(bytes: [u8; 2]) -> Self {
+        Self {
+            raw: u16::from_le_bytes(bytes),
+            read: AccessRight::from_nibble(bytes[1] >> 4),
+            write: AccessRight::from_nibble(bytes[1] & 0x0F),
+            read_write: AccessRight::from_nibble(bytes[0] >> 4),
+            change: AccessRight::from_nibble(bytes[0] & 0x0F),
+        }
+    }
+
+    pub fn summary(self) -> String {
+        format!(
+            "read {}, write {}, rw {}, change {}",
+            self.read.name(),
+            self.write.name(),
+            self.read_write.name(),
+            self.change.name()
+        )
+    }
+}
+
+/// Type-specific file contents from GetFileSettings.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FileContents {
+    Data {
+        size: u32,
+    },
+    Value {
+        lower_limit: i32,
+        upper_limit: i32,
+        value: i32,
+        limited_credit: bool,
+        free_get_value: bool,
+    },
+    Record {
+        record_size: u32,
+        max_records: u32,
+        current_records: u32,
+    },
+    TransactionMac {
+        key_option: u8,
+        key_version: u8,
+        counter_limit: Option<u32>,
+    },
+}
+
+/// Decoded DESFire file settings. The raw response is preserved.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileSettings {
+    pub file_type: FileType,
+    pub communication: CommunicationMode,
+    pub access: AccessRights,
+    /// Access rights for keys 1..n when the additional-rights option is set.
+    pub additional_access: Vec<AccessRights>,
+    pub contents: FileContents,
+    raw: Vec<u8>,
+}
+
+impl FileSettings {
+    /// Decode a GetFileSettings response and reject truncated or
+    /// internally inconsistent data.
+    pub fn parse(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() < 4 {
+            return Err(NfcError::InvalidArgument(format!(
+                "DESFire file settings are {} bytes, expected at least 4",
+                bytes.len()
+            )));
+        }
+        let file_type = FileType::parse(bytes[0])?;
+        let option = bytes[1];
+        let communication = CommunicationMode::parse(option & 0x03)?;
+        let access = AccessRights::parse([bytes[2], bytes[3]]);
+        if file_type != FileType::TransactionMac && option & 0x20 != 0 {
+            return Err(NfcError::InvalidArgument(
+                "the transaction MAC counter-limit bit is set on a non-MAC file".to_owned(),
+            ));
+        }
+        let mut offset = 4;
+        let contents = match file_type {
+            FileType::Standard | FileType::Backup => {
+                let raw = take(bytes, &mut offset, 3, "data file size")?;
+                let size = u24(raw);
+                if size == 0 {
+                    return Err(NfcError::InvalidArgument(
+                        "DESFire data file size is zero".to_owned(),
+                    ));
+                }
+                FileContents::Data { size }
+            }
+            FileType::Value => {
+                let raw = take(bytes, &mut offset, 13, "value file limits")?;
+                let lower_limit =
+                    i32::from_le_bytes(raw[0..4].try_into().expect("four-byte lower limit"));
+                let upper_limit =
+                    i32::from_le_bytes(raw[4..8].try_into().expect("four-byte upper limit"));
+                let value = i32::from_le_bytes(raw[8..12].try_into().expect("four-byte value"));
+                let flags = raw[12];
+                if flags & !0x03 != 0 {
+                    return Err(NfcError::InvalidArgument(format!(
+                        "DESFire value file flags {flags:#04X} use reserved bits"
+                    )));
+                }
+                if lower_limit >= upper_limit {
+                    return Err(NfcError::InvalidArgument(format!(
+                        "DESFire value limits {lower_limit}..{upper_limit} are not increasing"
+                    )));
+                }
+                if value < lower_limit || value > upper_limit {
+                    return Err(NfcError::InvalidArgument(format!(
+                        "DESFire value {value} is outside limits {lower_limit}..{upper_limit}"
+                    )));
+                }
+                FileContents::Value {
+                    lower_limit,
+                    upper_limit,
+                    value,
+                    limited_credit: flags & 0x01 != 0,
+                    free_get_value: flags & 0x02 != 0,
+                }
+            }
+            FileType::LinearRecord | FileType::CyclicRecord => {
+                let raw = take(bytes, &mut offset, 9, "record file limits")?;
+                let record_size = u24(&raw[0..3]);
+                let max_records = u24(&raw[3..6]);
+                let current_records = u24(&raw[6..9]);
+                if record_size == 0 {
+                    return Err(NfcError::InvalidArgument(
+                        "DESFire record size is zero".to_owned(),
+                    ));
+                }
+                if max_records == 0 {
+                    return Err(NfcError::InvalidArgument(
+                        "DESFire record file has no maximum record count".to_owned(),
+                    ));
+                }
+                if current_records > max_records {
+                    return Err(NfcError::InvalidArgument(format!(
+                        "DESFire current record count {current_records} exceeds {max_records}"
+                    )));
+                }
+                FileContents::Record {
+                    record_size,
+                    max_records,
+                    current_records,
+                }
+            }
+            FileType::TransactionMac => {
+                let raw = take(bytes, &mut offset, 2, "transaction MAC key fields")?;
+                let key_option = raw[0];
+                let key_version = raw[1];
+                let counter_limit = if option & 0x20 != 0 {
+                    let length = if key_option & 0x02 != 0 { 4 } else { 2 };
+                    let raw = take(bytes, &mut offset, length, "transaction MAC counter limit")?;
+                    Some(
+                        raw.iter()
+                            .fold(0u32, |value, byte| (value << 8) | u32::from(*byte)),
+                    )
+                } else {
+                    None
+                };
+                FileContents::TransactionMac {
+                    key_option,
+                    key_version,
+                    counter_limit,
+                }
+            }
+        };
+        let additional_access = if option & 0x80 != 0 {
+            let count = usize::from(take(bytes, &mut offset, 1, "additional access count")?[0]);
+            if count == 0 || count > 13 {
+                return Err(NfcError::InvalidArgument(format!(
+                    "DESFire additional access-rights count {count} is outside 1..=13"
+                )));
+            }
+            let raw = take(bytes, &mut offset, count * 2, "additional access rights")?;
+            raw.as_chunks::<2>()
+                .0
+                .iter()
+                .map(|chunk| AccessRights::parse([chunk[0], chunk[1]]))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        if offset != bytes.len() {
+            return Err(NfcError::InvalidArgument(format!(
+                "DESFire file settings have {} trailing bytes",
+                bytes.len() - offset
+            )));
+        }
+        Ok(Self {
+            file_type,
+            communication,
+            access,
+            additional_access,
+            contents,
+            raw: bytes.to_vec(),
+        })
+    }
+
+    pub fn raw(&self) -> &[u8] {
+        &self.raw
+    }
+
+    /// One-line protocol summary used by `nfctl` and the GTK inventory.
+    pub fn summary(&self) -> String {
+        let mut text = format!(
+            "{} · {} · {}",
+            self.file_type.name(),
+            self.communication.name(),
+            self.access.summary()
+        );
+        match &self.contents {
+            FileContents::Data { size } => {
+                text.push_str(&format!(" · {size} bytes"));
+            }
+            FileContents::Value {
+                lower_limit,
+                upper_limit,
+                value,
+                limited_credit,
+                free_get_value,
+            } => {
+                text.push_str(&format!(
+                    " · limits {lower_limit}..{upper_limit} · value {value} · limited credit {} · get value {}",
+                    if *limited_credit { "enabled" } else { "disabled" },
+                    if *free_get_value { "free" } else { "restricted" }
+                ));
+            }
+            FileContents::Record {
+                record_size,
+                max_records,
+                current_records,
+            } => {
+                text.push_str(&format!(
+                    " · {record_size}-byte records · {current_records}/{max_records}"
+                ));
+            }
+            FileContents::TransactionMac {
+                key_option,
+                key_version,
+                counter_limit,
+            } => {
+                text.push_str(&format!(
+                    " · key option {key_option:#04X} · key version {key_version}"
+                ));
+                match counter_limit {
+                    Some(limit) => text.push_str(&format!(" · counter limit {limit}")),
+                    None => text.push_str(" · counter limit none"),
+                }
+            }
+        }
+        for (index, rights) in self.additional_access.iter().enumerate() {
+            text.push_str(&format!(" · key {}: {}", index + 1, rights.summary()));
+        }
+        text
+    }
+}
+
+fn take<'a>(bytes: &'a [u8], offset: &mut usize, length: usize, field: &str) -> Result<&'a [u8]> {
+    let end = offset.checked_add(length).ok_or_else(|| {
+        NfcError::InvalidArgument("DESFire file settings length overflow".to_owned())
+    })?;
+    let value = bytes.get(*offset..end).ok_or_else(|| {
+        NfcError::InvalidArgument(format!(
+            "DESFire file settings are truncated at the {field} field"
+        ))
+    })?;
+    *offset = end;
+    Ok(value)
+}
+
+fn u24(bytes: &[u8]) -> u32 {
+    u32::from(bytes[0]) | (u32::from(bytes[1]) << 8) | (u32::from(bytes[2]) << 16)
 }
 
 /// DESFire command context over one reader.
@@ -755,6 +1142,186 @@ mod tests {
             self.commands.push(apdu.to_vec());
             Ok(self.response.clone())
         }
+    }
+
+    fn valid(bytes: &[u8]) -> FileSettings {
+        FileSettings::parse(bytes).expect("valid file settings")
+    }
+
+    #[test]
+    fn parses_standard_and_backup_file_settings() {
+        let standard = valid(&[0x00, 0x00, 0x00, 0xE0, 0x0F, 0x00, 0x00]);
+        assert_eq!(standard.file_type, FileType::Standard);
+        assert_eq!(standard.communication, CommunicationMode::Plain);
+        assert_eq!(standard.access.raw, 0xE000);
+        assert_eq!(standard.access.read, AccessRight::Free);
+        assert_eq!(standard.access.write, AccessRight::Key(0));
+        assert_eq!(standard.access.read_write, AccessRight::Key(0));
+        assert_eq!(standard.access.change, AccessRight::Key(0));
+        assert_eq!(standard.contents, FileContents::Data { size: 15 });
+        assert_eq!(standard.raw(), &[0x00, 0x00, 0x00, 0xE0, 0x0F, 0x00, 0x00]);
+
+        let backup = valid(&[0x01, 0x00, 0x00, 0xE0, 0x20, 0x00, 0x00]);
+        assert_eq!(backup.file_type, FileType::Backup);
+        assert_eq!(backup.contents, FileContents::Data { size: 32 });
+    }
+
+    #[test]
+    fn parses_value_file_settings() {
+        let settings = valid(&[
+            0x02, 0x01, 0x00, 0xE0, 0x9C, 0xFF, 0xFF, 0xFF, 0x64, 0x00, 0x00, 0x00, 0x2A, 0x00,
+            0x00, 0x00, 0x03,
+        ]);
+        assert_eq!(settings.file_type, FileType::Value);
+        assert_eq!(settings.communication, CommunicationMode::Maced);
+        assert_eq!(
+            settings.contents,
+            FileContents::Value {
+                lower_limit: -100,
+                upper_limit: 100,
+                value: 42,
+                limited_credit: true,
+                free_get_value: true,
+            }
+        );
+    }
+
+    #[test]
+    fn parses_linear_and_cyclic_record_file_settings() {
+        let linear = valid(&[
+            0x03, 0x00, 0x00, 0xE0, 0x10, 0x00, 0x00, 0x0A, 0x00, 0x00, 0x03, 0x00, 0x00,
+        ]);
+        assert_eq!(linear.file_type, FileType::LinearRecord);
+        assert_eq!(
+            linear.contents,
+            FileContents::Record {
+                record_size: 16,
+                max_records: 10,
+                current_records: 3,
+            }
+        );
+
+        let cyclic = valid(&[
+            0x04, 0x03, 0x00, 0xE0, 0x20, 0x00, 0x00, 0x04, 0x00, 0x00, 0x04, 0x00, 0x00,
+        ]);
+        assert_eq!(cyclic.file_type, FileType::CyclicRecord);
+        assert_eq!(cyclic.communication, CommunicationMode::Enciphered);
+        assert_eq!(
+            cyclic.contents,
+            FileContents::Record {
+                record_size: 32,
+                max_records: 4,
+                current_records: 4,
+            }
+        );
+    }
+
+    #[test]
+    fn parses_transaction_mac_file_settings() {
+        let with_counter = valid(&[0x05, 0x20, 0x00, 0xE0, 0x02, 0x05, 0x00, 0x00, 0x01, 0x00]);
+        assert_eq!(with_counter.file_type, FileType::TransactionMac);
+        assert_eq!(
+            with_counter.contents,
+            FileContents::TransactionMac {
+                key_option: 0x02,
+                key_version: 5,
+                counter_limit: Some(256),
+            }
+        );
+
+        let without_counter = valid(&[0x05, 0x00, 0x00, 0xE0, 0x02, 0x05]);
+        assert_eq!(
+            without_counter.contents,
+            FileContents::TransactionMac {
+                key_option: 0x02,
+                key_version: 5,
+                counter_limit: None,
+            }
+        );
+    }
+
+    #[test]
+    fn parses_additional_access_rights() {
+        let settings = valid(&[
+            0x00, 0x80, 0x00, 0xE0, 0x0F, 0x00, 0x00, 0x02, 0x00, 0xE0, 0x0E, 0x0E,
+        ]);
+        assert_eq!(settings.additional_access.len(), 2);
+        assert_eq!(settings.additional_access[0].raw, 0xE000);
+        assert_eq!(settings.additional_access[1].raw, 0x0E0E);
+        assert!(settings.summary().contains("key 1: read free"));
+    }
+
+    #[test]
+    fn rejects_truncated_standard_settings() {
+        assert!(FileSettings::parse(&[0x00, 0x00, 0x00, 0xE0, 0x0F]).is_err());
+    }
+
+    #[test]
+    fn rejects_zero_size_backup_file() {
+        assert!(FileSettings::parse(&[0x01, 0x00, 0x00, 0xE0, 0x00, 0x00, 0x00]).is_err());
+    }
+
+    #[test]
+    fn rejects_inconsistent_value_file() {
+        let equal_limits = [
+            0x02, 0x00, 0x00, 0xE0, 0x64, 0x00, 0x00, 0x00, 0x64, 0x00, 0x00, 0x00, 0x64, 0x00,
+            0x00, 0x00, 0x00,
+        ];
+        assert!(FileSettings::parse(&equal_limits).is_err());
+
+        let outside = [
+            0x02, 0x00, 0x00, 0xE0, 0x00, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x0B, 0x00,
+            0x00, 0x00, 0x00,
+        ];
+        assert!(FileSettings::parse(&outside).is_err());
+
+        let reserved_flags = [
+            0x02, 0x00, 0x00, 0xE0, 0x00, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x05, 0x00,
+            0x00, 0x00, 0x04,
+        ];
+        assert!(FileSettings::parse(&reserved_flags).is_err());
+    }
+
+    #[test]
+    fn rejects_inconsistent_record_file() {
+        let current_over_max = [
+            0x03, 0x00, 0x00, 0xE0, 0x10, 0x00, 0x00, 0x02, 0x00, 0x00, 0x03, 0x00, 0x00,
+        ];
+        assert!(FileSettings::parse(&current_over_max).is_err());
+
+        let zero_record_size = [
+            0x04, 0x00, 0x00, 0xE0, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ];
+        assert!(FileSettings::parse(&zero_record_size).is_err());
+    }
+
+    #[test]
+    fn rejects_truncated_transaction_mac_counter() {
+        assert!(FileSettings::parse(&[0x05, 0x20, 0x00, 0xE0, 0x02, 0x05, 0x00, 0x00]).is_err());
+    }
+
+    #[test]
+    fn rejects_unknown_file_type() {
+        assert!(FileSettings::parse(&[0x06, 0x00, 0x00, 0xE0]).is_err());
+    }
+
+    #[test]
+    fn rejects_trailing_bytes_without_the_additional_rights_flag() {
+        assert!(FileSettings::parse(&[0x00, 0x00, 0x00, 0xE0, 0x0F, 0x00, 0x00, 0x00]).is_err());
+    }
+
+    #[test]
+    fn rejects_inconsistent_additional_rights() {
+        let zero_count = [0x00, 0x80, 0x00, 0xE0, 0x0F, 0x00, 0x00, 0x00];
+        assert!(FileSettings::parse(&zero_count).is_err());
+
+        let short = [0x00, 0x80, 0x00, 0xE0, 0x0F, 0x00, 0x00, 0x02, 0x00, 0xE0];
+        assert!(FileSettings::parse(&short).is_err());
+    }
+
+    #[test]
+    fn rejects_counter_limit_bit_on_a_non_mac_file() {
+        assert!(FileSettings::parse(&[0x00, 0x20, 0x00, 0xE0, 0x0F, 0x00, 0x00]).is_err());
     }
 
     #[test]

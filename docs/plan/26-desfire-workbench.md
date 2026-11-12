@@ -1,8 +1,9 @@
 # Phase 26 plan: DESFire workbench
 
-Status: in progress. 26.1 is complete; 26.2–26.13 are pending, except that
-26.12's ordinary NDEF provisioning and guarded delete landed in phase 25.5.
-Hardware: PN532 UART first; ACR122U records after a reader is available.
+Status: in progress. 26.1 and 26.2 are complete; 26.3–26.13 are pending,
+except that 26.12's ordinary NDEF provisioning and guarded delete landed in
+phase 25.5. Hardware: PN532 UART first; ACR122U records after a reader is
+available.
 
 ## Goal
 
@@ -54,6 +55,9 @@ Delivered:
   standard file `01`, write/read/delete, card left with no applications.
 
 ### 26.2 File settings decode
+
+Status: complete 2026-11-12. See
+[26b-file-settings.md](../notes/26b-file-settings.md).
 
 Deliver:
 

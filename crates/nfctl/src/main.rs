@@ -2038,26 +2038,7 @@ fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<
         }
         DesfireCommand::Info => {
             let inventory = service.desfire_inventory(CancelToken::new())?;
-            println!(
-                "{} · vendor {:02X} type {:02X} subtype {:02X} version {}.{} storage {:02X} protocol {:02X}",
-                inventory.version.name(),
-                inventory.version.vendor_id,
-                inventory.version.product_type,
-                inventory.version.product_subtype,
-                inventory.version.major,
-                inventory.version.minor,
-                inventory.version.storage_size,
-                inventory.version.protocol
-            );
-            if inventory.applications.is_empty() {
-                println!("applications: none");
-            }
-            for application in &inventory.applications {
-                println!("application {}", hex_bytes(&application.aid));
-                for file in &application.files {
-                    println!("  file {:02X}: {}", file.file_id, hex_bytes(&file.settings));
-                }
-            }
+            print!("{}", nfc_app::desfire::inventory_text(&inventory));
             Ok(())
         }
     }

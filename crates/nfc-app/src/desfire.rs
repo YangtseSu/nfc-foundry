@@ -3,10 +3,11 @@
 use nfc_core::{CancelToken, CardType, NfcError, Result};
 use nfc_desfire::Desfire;
 pub use nfc_desfire::{
-    NDEF_APPLICATION_AID, NDEF_APPLICATION_ISO_FILE, NDEF_APPLICATION_KEY,
-    NDEF_APPLICATION_KEY_SETTINGS, NDEF_CAPABILITY_CONTAINER, NDEF_CC_ACCESS_RIGHTS, NDEF_CC_FILE,
-    NDEF_CC_ISO_FILE, NDEF_CC_SIZE, NDEF_DATA_ACCESS_RIGHTS, NDEF_DATA_FILE, NDEF_DATA_ISO_FILE,
-    NDEF_DATA_SIZE, NDEF_DF_NAME,
+    AccessRight, AccessRights, Application, CommunicationMode, FileContents, FileInfo,
+    FileSettings, FileType, Inventory, NDEF_APPLICATION_AID, NDEF_APPLICATION_ISO_FILE,
+    NDEF_APPLICATION_KEY, NDEF_APPLICATION_KEY_SETTINGS, NDEF_CAPABILITY_CONTAINER,
+    NDEF_CC_ACCESS_RIGHTS, NDEF_CC_FILE, NDEF_CC_ISO_FILE, NDEF_CC_SIZE, NDEF_DATA_ACCESS_RIGHTS,
+    NDEF_DATA_FILE, NDEF_DATA_ISO_FILE, NDEF_DATA_SIZE, NDEF_DF_NAME, Version,
 };
 use nfc_type4::apdu;
 use nfc_type4::{NdefState, Type4CapabilityContainer, Type4Ndef};
@@ -497,6 +498,56 @@ fn remove_ndef_application(
     Ok(())
 }
 
+/// Human-readable inventory shared by `nfctl` and the GTK DESFire workspace.
+///
+/// A file whose settings cannot be decoded is reported as `undecoded` with the
+/// parse error; its raw settings are always printed.
+pub fn inventory_text(inventory: &Inventory) -> String {
+    let mut text = format!(
+        "{} · vendor {:02X} type {:02X} subtype {:02X} version {}.{} storage {:02X} protocol {:02X}\n",
+        inventory.version.name(),
+        inventory.version.vendor_id,
+        inventory.version.product_type,
+        inventory.version.product_subtype,
+        inventory.version.major,
+        inventory.version.minor,
+        inventory.version.storage_size,
+        inventory.version.protocol
+    );
+    if inventory.applications.is_empty() {
+        text.push_str("applications: none\n");
+    }
+    for application in &inventory.applications {
+        text.push_str(&format!("application {}\n", hex_bytes(&application.aid)));
+        if application.files.is_empty() {
+            text.push_str("  files: none or directory access denied\n");
+        }
+        for file in &application.files {
+            match file.decoded() {
+                Ok(settings) => text.push_str(&format!(
+                    "  file {:02X}: {}\n",
+                    file.file_id,
+                    settings.summary()
+                )),
+                Err(error) => text.push_str(&format!(
+                    "  file {:02X}: undecoded · {error}\n",
+                    file.file_id
+                )),
+            }
+            text.push_str(&format!("    raw: {}\n", hex_bytes(&file.settings)));
+        }
+    }
+    text
+}
+
+fn hex_bytes(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|byte| format!("{byte:02X}"))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -527,6 +578,42 @@ mod tests {
             .desfire_ndef_delete(DesfireNdefDeleteRequest::new(vec![0x00; 8]).advanced(true))
             .expect_err("confirmation is required");
         assert!(error.to_string().contains("confirmation"), "{error}");
+    }
+
+    #[test]
+    fn inventory_text_decodes_known_files_and_marks_unknown_types() {
+        let inventory = Inventory {
+            version: Version {
+                vendor_id: 0x04,
+                product_type: 0x01,
+                product_subtype: 0x01,
+                major: 0x33,
+                minor: 0x00,
+                storage_size: 0x1A,
+                protocol: 0x05,
+            },
+            applications: vec![Application {
+                aid: [0x00, 0x76, 0xD2],
+                files: vec![
+                    FileInfo {
+                        file_id: 0x01,
+                        settings: vec![0x00, 0x00, 0x00, 0xE0, 0x0F, 0x00, 0x00],
+                    },
+                    FileInfo {
+                        file_id: 0x02,
+                        settings: vec![0x06, 0x00, 0x00, 0xE0],
+                    },
+                ],
+            }],
+        };
+        let text = inventory_text(&inventory);
+        assert!(text.contains("MIFARE DESFire EV3"));
+        assert!(text.contains("application 00 76 D2"));
+        assert!(text.contains("file 01: standard data · plain"));
+        assert!(text.contains("raw: 00 00 00 E0 0F 00 00"));
+        assert!(text.contains("file 02: undecoded"));
+        assert!(text.contains("raw: 06 00 00 E0"));
+        assert!(!text.contains("file 02: standard data"));
     }
 
     #[test]

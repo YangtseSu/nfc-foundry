@@ -5977,37 +5977,11 @@ fn start_desfire_inventory(ui: Rc<Ui>) {
             Ok(mut service) => service
                 .desfire_inventory(CancelToken::new())
                 .map(|inventory| {
-                    let mut text = format!(
-                        "{} · vendor {:02X} type {:02X} subtype {:02X} version {}.{} storage {:02X} protocol {:02X}\n",
-                        inventory.version.name(),
-                        inventory.version.vendor_id,
-                        inventory.version.product_type,
-                        inventory.version.product_subtype,
-                        inventory.version.major,
-                        inventory.version.minor,
-                        inventory.version.storage_size,
-                        inventory.version.protocol
-                    );
-                    if inventory.applications.is_empty() {
-                        text.push_str("applications: none\n");
-                    }
-                    for application in &inventory.applications {
-                        text.push_str(&format!(
-                            "AID {}\n",
-                            type2_ui::hex_bytes(&application.aid)
-                        ));
-                        if application.files.is_empty() {
-                            text.push_str("  files: none or directory access denied\n");
-                        }
-                        for file in &application.files {
-                            text.push_str(&format!(
-                                "  file {:02X}: {}\n",
-                                file.file_id,
-                                type2_ui::hex_bytes(&file.settings)
-                            ));
-                        }
-                    }
-                    let first_aid = inventory.applications.first().map(|application| application.aid);
+                    let text = nfc_app::desfire::inventory_text(&inventory);
+                    let first_aid = inventory
+                        .applications
+                        .first()
+                        .map(|application| application.aid);
                     (text, first_aid)
                 }),
             Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),

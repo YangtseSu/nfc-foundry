@@ -213,6 +213,17 @@ NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
 cargo test -p nfc-desfire --features hardware --test hardware_legacy -- --ignored
 ```
 
+The phase 26.2 file-settings decoder is hardware-free. `nfc-desfire` covers
+one valid and one malformed vector for each of the six file types, additional
+access rights, truncation, trailing bytes, reserved communication mode 2,
+reserved value flags, record-count inconsistency, and an unknown file type.
+`nfc-app` tests the shared inventory renderer: a decoded standard file is
+summarized, an undecodable entry is marked `undecoded`, and raw settings are
+kept in both cases. On 2026-11-12 the NDEF application's `E103`/`E104`
+standard files were decoded on PN532 UART through `nfctl desfire info`; the
+Value, Record, and Transaction MAC layouts have unit vectors only. The
+ACR122U row is not recorded.
+
 The phase 10 Classic NDEF tests are hardware-free. `nfc-classic-ndef` covers
 MAD1/MAD2 and CRC vectors, NFC AIDs, contiguity, GPB mapping version and
 read-only state, TLV framing/capacity, long messages, leading proprietary TLV
