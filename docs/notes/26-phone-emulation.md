@@ -62,7 +62,7 @@ The read path now uses, per sector:
 A card with one key authenticates once per sector (16 authentications plus 64
 block reads), which completes in a few seconds. The full dictionary remains
 available through the explicit key scan. `include_common_keys` controls the
-four-key fallback, not the full dictionary.
+three-key default fallback, not the full dictionary.
 
 ## Identity-only fallback
 
@@ -92,9 +92,43 @@ every candidate.
 A full MIFARE Classic emulation can accept data-sector writes if its keys and
 access bits allow them. The normal write gates still apply: authentication,
 access-bit checks, backup, explicit confirmation for trailers/UID/format
-actions, and read-back verification. Sector 0 and the UID may be managed by
-the wallet even when data sectors are writable; the product does not assume
-otherwise.
+actions, and read-back verification.
+
+The UID/manufacturer block is different: the wallet copies the UID from the
+source card, and an external reader cannot write it. `nfctl classic uid` is a
+magic-card path and does not apply to the phone emulation. Trailer writes were
+not exercised on the phone; only a data block was changed and restored.
+
+## Hardware record
+
+Date: 2026-11-12. Reader: PN532 UART, `/dev/ttyUSB0` (CH340, firmware 1.6).
+
+Source card "饭卡": MIFARE Classic 1K, 4-byte UID (redacted), ATQA `0004`, SAK
+`08`. Keys recovered with `recover auto` after one nested sample:
+
+| Sectors | Key A | Key B |
+|---|---|---|
+| 0 | factory default (public) | factory default (public) |
+| 1–5 | one non-default key recovered by nested | factory default (public) |
+| 6–15 | factory default (public) | factory default (public) |
+
+The concrete key values and UID stay in the local per-card `.dic` file and are
+not recorded in this repository. The source card read 64/64 blocks and 16/16
+sectors. A Xiaomi wallet full MIFARE Classic 1K emulation of the same card then
+read 64/64 blocks in 1.2 s using the paired `keys/phone.dic`; a dump diff
+against the source card reported 0 changed, 64 equal, 0 unknown, and 0 trailer
+changes.
+
+Write test on the phone: block 4 (sector 1 data block) changed from
+`45303030303132000000000000000000` ("E000012") to
+`4E464320574F524B0000000000000000` ("NFC WORK"), read back and verified. The
+original value was written back and verified, and a full re-read again
+reported 0 changed / 64 equal against the source dump. Two pre-write backups
+were created under `~/.local/share/nfc-foundry/backups/`.
+
+This validates full read and data-block write on a Xiaomi phone emulation
+through the PN532 UART. It does not validate UID writes (the UID is copy-only
+from the wallet), trailer writes, or the ACR122U path on a phone.
 
 ## Testing
 
@@ -113,6 +147,5 @@ authentication always times out:
 
 Driver tests cover selective reselection without a field cycle and the
 fallback to a full selection when the known card is gone. The GTK scenario
-suite covers both identity-only paths. A phone/reader hardware run for a full
-Xiaomi emulation is still required; the scripted tests cannot reproduce the
-phone's RF/state-machine behavior.
+suite covers both identity-only paths. The hardware record above covers a
+full Xiaomi emulation read and a data-block write/restore on PN532 UART.

@@ -337,6 +337,12 @@ write, and restore are hardware-validated. Writes remain gated by
 [phase 02 note](docs/notes/02-pn532-uart.md), and the
 [phase 04 note](docs/notes/04-classic-workflows.md) for the records.
 
+A Xiaomi wallet full MIFARE Classic 1K emulation was read 64/64 and a data
+block was written, verified, and restored on 2026-11-12; the phone dump
+matched the source card byte for byte. The phone UID is copy-only; an external
+reader cannot write it. See
+[the phone note](docs/notes/26-phone-emulation.md).
+
 ACR122U selection is an exact bus/address connstring:
 
 ```sh

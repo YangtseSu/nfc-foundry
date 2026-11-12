@@ -64,8 +64,12 @@ dump, key scan, temporary data-block write with backup and read-back, and
 restore are validated on a PN532 (CH340 UART adapter, firmware 1.6). The
 guarded Gen1A UID change and restore, sector-trailer write, and full restore
 with UID passed on 2026-11-11 with an owned magic Classic 1K; see
-`docs/notes/24c-uid-write.md` and `docs/notes/24d-restore-with-uid.md`. A 4K
-card run remains a future hardware check.
+`docs/notes/24c-uid-write.md` and `docs/notes/24d-restore-with-uid.md`. On
+2026-11-12 a Xiaomi wallet full MIFARE Classic 1K emulation was read 64/64
+blocks in 1.2 s and a data block was written, verified, and restored; the
+phone dump matched the source card byte for byte. The phone UID is copy-only;
+an external reader cannot write it. See `docs/notes/26-phone-emulation.md`.
+A 4K card run remains a future hardware check.
 
 ## ACR122U
 

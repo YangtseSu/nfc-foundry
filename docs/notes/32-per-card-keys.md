@@ -99,4 +99,8 @@ and for callers that explicitly ask for it.
 - CLI tests cover `.dic` save, sibling/paired dump key files, and legacy JSON.
 - GTK tests cover the selected-key scan and the per-card `.dic` header.
 
-No hardware run is recorded for the file-layout change.
+The layout was exercised on 2026-11-12 with a PN532 UART: the source card
+"饭卡" and its Xiaomi phone emulation used `dumps/饭卡.json` +
+`keys/饭卡.dic` and `dumps/phone.json` + `keys/phone.dic`; the phone read
+64/64 blocks, a data block was written and restored, and a full diff reported
+0 changed / 64 equal. See `26-phone-emulation.md` for the hardware record.
