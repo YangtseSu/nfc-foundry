@@ -15,7 +15,7 @@ use nfc_app::classic::{
 };
 use nfc_app::type2::{
     Type2Auth, Type2Format, Type2Lock, Type2NdefWrite, Type2PageWrite, Type2Password,
-    Type2ReadRequest, Type2Restore,
+    Type2ReadRequest, Type2Restore, Type2UidExecution, parse_uid_hex,
 };
 use nfc_app::{ReaderEvent, ReaderStatus, Service, classic_health};
 use nfc_classic::{DumpFormat, Layout, bcc_for_uid, diff, exchange};
@@ -367,6 +367,18 @@ enum Type2Command {
         pwd: String,
         #[arg(long, value_name = "HEX")]
         pack: String,
+    },
+    /// Change the UID of a UID-writable Type 2 clone.
+    Uid {
+        /// Target seven-byte UID, e.g. 0400E3C2000003.
+        #[arg(long, value_name = "UID")]
+        uid: String,
+        /// Required: UID writes are an Advanced action.
+        #[arg(long)]
+        advanced: bool,
+        /// Print the plan and exit without a backup or card write.
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
@@ -1904,6 +1916,11 @@ fn type2(cli: &Cli, service: &mut Service, command: Type2Command) -> Result<()> 
             }
             Ok(())
         }
+        Type2Command::Uid {
+            uid,
+            advanced,
+            dry_run,
+        } => type2_uid(cli, service, &uid, advanced, dry_run),
         Type2Command::Password {
             auth0,
             access,
@@ -1996,6 +2013,56 @@ fn ndef(cli: &Cli, service: &mut Service, command: NdefCommand) -> Result<()> {
             Ok(())
         }
     }
+}
+
+fn type2_uid(
+    cli: &Cli,
+    service: &mut Service,
+    uid_text: &str,
+    advanced: bool,
+    dry_run: bool,
+) -> Result<()> {
+    if !advanced {
+        return Err(NfcError::InvalidArgument(
+            "UID writes require --advanced".to_owned(),
+        ));
+    }
+    let target = parse_uid_hex(uid_text)?;
+    prepare(service, cli.device.as_deref())?;
+    let plan = service.type2_uid_preflight(&target, CancelToken::new())?;
+    println!(
+        "{} · current UID {}, target UID {}",
+        plan.card.card_type.label(),
+        hex_bytes(&plan.current_uid),
+        hex_bytes(&plan.target_uid)
+    );
+    for page in 0..3u8 {
+        println!(
+            "page {page}: {} -> {}",
+            hex_bytes(&plan.current_pages[usize::from(page)]),
+            hex_bytes(&plan.new_pages[usize::from(page)])
+        );
+    }
+    if dry_run {
+        println!("dry run: no card writes were performed");
+        return Ok(());
+    }
+    require_confirmation(cli.yes, "changing the Type 2 UID")?;
+    let backup = backup_store(cli);
+    let result = service.type2_uid_execute(Type2UidExecution::new(plan, &backup).confirm(true))?;
+    println!(
+        "UID changed: {} -> {}",
+        result.card_before.uid_hex(),
+        result.card_after.uid_hex()
+    );
+    for page in 0..3u8 {
+        println!(
+            "page {page} verified: {}",
+            hex_bytes(&result.pages[usize::from(page)])
+        );
+    }
+    println!("backup: {}", result.backup.path.display());
+    Ok(())
 }
 
 fn print_type2_info(image: &Type2Image, warnings: &[String]) {

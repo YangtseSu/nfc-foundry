@@ -165,6 +165,13 @@ recovered 32/32 sector keys and read-verified 16/16 sectors with no writes. The
 without-backdoor distance path was not reliable under host-driven timing and is
 not claimed. The ACR122U row remains unrecorded.
 
+The phase 25.4 Type 2 UID record passed on 2026-11-12 on PN532 UART with a
+7-byte UID-changeable NTAG213 clone: the same-value page 0/1/2 probe succeeded
+with the UID unchanged; the guarded workflow changed `04 00 E3 C2 00 00 02` to
+`04 00 E3 C2 00 00 03`, reselected and read back pages 0/1/2, then restored the
+original UID. A fresh 45/45-page dump had a page JSON identical to the original;
+static lock bytes remained `00 00`. The ACR122U row remains unrecorded.
+
 The phase 10 Classic NDEF tests are hardware-free. `nfc-classic-ndef` covers
 MAD1/MAD2 and CRC vectors, NFC AIDs, contiguity, GPB mapping version and
 read-only state, TLV framing/capacity, long messages, leading proprietary TLV

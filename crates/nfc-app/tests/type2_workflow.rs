@@ -6,7 +6,7 @@ use nfc_app::Service;
 use nfc_app::classic::BackupStore;
 use nfc_app::type2::{
     Type2Auth, Type2Format, Type2Lock, Type2NdefWrite, Type2PageWrite, Type2Password,
-    Type2ReadRequest, Type2Restore,
+    Type2ReadRequest, Type2Restore, Type2UidExecution, parse_uid_hex,
 };
 use nfc_core::{CancelToken, CardInfo, CardType, NfcError};
 use nfc_ndef::{NdefMessage, TextRecord};
@@ -95,6 +95,75 @@ fn reads_a_complete_ntag215_image() {
     assert!(result.image.is_complete(), "{:?}", result.warnings);
     assert!(result.warnings.is_empty());
     assert_eq!(result.image.cc.size, 496);
+}
+
+fn magic_ntag213_pages() -> Vec<[u8; 4]> {
+    let mut pages = vec![[0u8; 4]; 45];
+    pages[0] = [0x04, 0x00, 0xE3, 0x6F];
+    pages[1] = [0xC2, 0x00, 0x00, 0x02];
+    pages[2] = [0xC0, 0x08, 0x00, 0x00];
+    pages[3] = [0xE1, 0x10, 0x12, 0x00];
+    pages[4] = [0x03, 0x00, 0xFE, 0x00];
+    pages[40] = [0x00, 0x00, 0x00, 0xBD];
+    pages[41] = [0x00, 0x00, 0x00, 0xFF];
+    pages
+}
+
+fn magic_service() -> (Service, MockHandle) {
+    let transport = MockTransport::new();
+    let card = CardInfo::new(
+        vec![0x04, 0x00, 0xE3, 0xC2, 0x00, 0x00, 0x02],
+        [0x00, 0x44],
+        0x00,
+        CardType::Type2,
+    );
+    let handle = transport.add(
+        DeviceInfo::new("Mock magic NTAG213", "mock:magic"),
+        Some(card),
+    );
+    for (page, data) in magic_ntag213_pages().into_iter().enumerate() {
+        handle.set_page(page as u8, data);
+    }
+    handle.set_type2_version(Some([0x00, 0x04, 0x04, 0x02, 0x01, 0x00, 0x0F, 0x03]));
+    handle.set_type2_uid_writable(true);
+    let mut service = Service::with_transport(Arc::new(transport));
+    service.refresh_devices().expect("refresh");
+    service
+        .select_device("mock:magic")
+        .expect("select mock magic tag");
+    (service, handle)
+}
+
+#[test]
+fn type2_uid_changes_and_restores() {
+    let (mut service, handle) = magic_service();
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+
+    let target = parse_uid_hex("0400E3C2000003").expect("target UID");
+    let plan = service
+        .type2_uid_preflight(&target, CancelToken::new())
+        .expect("UID plan");
+    assert_eq!(plan.new_pages[0], [0x04, 0x00, 0xE3, 0x6F]);
+    assert_eq!(plan.new_pages[1], [0xC2, 0x00, 0x00, 0x03]);
+    assert_eq!(plan.new_pages[2], [0xC1, 0x08, 0x00, 0x00]);
+    let changed = service
+        .type2_uid_execute(Type2UidExecution::new(plan, &backup).confirm(true))
+        .expect("change UID");
+    assert_eq!(changed.card_after.uid, target);
+    assert_eq!(handle.page(1), Some([0xC2, 0x00, 0x00, 0x03]));
+    assert_eq!(handle.page(2), Some([0xC1, 0x08, 0x00, 0x00]));
+
+    let original = parse_uid_hex("0400E3C2000002").expect("original UID");
+    let plan = service
+        .type2_uid_preflight(&original, CancelToken::new())
+        .expect("restore plan");
+    let restored = service
+        .type2_uid_execute(Type2UidExecution::new(plan, &backup).confirm(true))
+        .expect("restore UID");
+    assert_eq!(restored.card_after.uid, original);
+    assert_eq!(handle.page(1), Some([0xC2, 0x00, 0x00, 0x02]));
+    assert_eq!(handle.page(2), Some([0xC0, 0x08, 0x00, 0x00]));
 }
 
 #[test]

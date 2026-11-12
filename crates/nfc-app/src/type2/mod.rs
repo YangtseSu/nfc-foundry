@@ -670,6 +670,278 @@ pub fn dump(
     save_backup(&result.image, backup, "dump")
 }
 
+/// One Type 2 magic UID change, computed without touching the card.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Type2UidPlan {
+    pub card: CardInfo,
+    pub image: Type2Image,
+    pub current_uid: Vec<u8>,
+    pub target_uid: Vec<u8>,
+    pub current_pages: [[u8; PAGE_SIZE]; 3],
+    pub new_pages: [[u8; PAGE_SIZE]; 3],
+}
+
+/// Execute a precomputed Type 2 UID change.
+pub struct Type2UidExecution<'a> {
+    pub plan: Type2UidPlan,
+    pub confirm: bool,
+    pub backup: &'a BackupStore,
+    pub cancel: CancelToken,
+}
+
+impl<'a> Type2UidExecution<'a> {
+    pub fn new(plan: Type2UidPlan, backup: &'a BackupStore) -> Self {
+        Self {
+            plan,
+            confirm: false,
+            backup,
+            cancel: CancelToken::new(),
+        }
+    }
+
+    pub fn confirm(mut self, confirm: bool) -> Self {
+        self.confirm = confirm;
+        self
+    }
+
+    pub fn cancel(mut self, cancel: CancelToken) -> Self {
+        self.cancel = cancel;
+        self
+    }
+}
+
+/// Result of a verified Type 2 UID change.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Type2UidResult {
+    pub card_before: CardInfo,
+    pub card_after: CardInfo,
+    pub pages: [[u8; PAGE_SIZE]; 3],
+    pub backup: BackupRecord,
+}
+
+fn type2_bcc0(uid: &[u8]) -> u8 {
+    0x88 ^ uid[0] ^ uid[1] ^ uid[2]
+}
+
+fn type2_bcc1(uid: &[u8]) -> u8 {
+    uid[3] ^ uid[4] ^ uid[5] ^ uid[6]
+}
+
+fn page_from_quad(quad: &[u8; nfc_core::PAGE_QUAD_SIZE], page: u8) -> [u8; PAGE_SIZE] {
+    let index = usize::from(page) * PAGE_SIZE;
+    let mut data = [0u8; PAGE_SIZE];
+    data.copy_from_slice(&quad[index..index + PAGE_SIZE]);
+    data
+}
+
+fn write_uid_page(
+    reader: &mut dyn nfc_transport::Reader,
+    page: u8,
+    data: [u8; PAGE_SIZE],
+) -> Result<()> {
+    reader.write_page(page, data)?;
+    let quad = reader.read_page_quad(0)?;
+    let observed = page_from_quad(&quad, page);
+    if observed != data {
+        return Err(NfcError::VerificationFailed(format!(
+            "page {page} read back as {observed:02X?}, expected {data:02X?}"
+        )));
+    }
+    Ok(())
+}
+
+fn verify_uid_pages(
+    reader: &mut dyn nfc_transport::Reader,
+    pages: &[[u8; PAGE_SIZE]; 3],
+) -> Result<()> {
+    let quad = reader.read_page_quad(0)?;
+    for (page, expected) in pages.iter().enumerate() {
+        let observed = page_from_quad(&quad, page as u8);
+        if observed != *expected {
+            return Err(NfcError::VerificationFailed(format!(
+                "page {page} read back as {observed:02X?}, expected {expected:02X?}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Read the card and build a UID plan. No page is written.
+pub fn uid_preflight(
+    operation: &mut Operation<'_>,
+    target_uid: &[u8],
+    cancel: &CancelToken,
+) -> Result<Type2UidPlan> {
+    cancel.check()?;
+    let card = operation.card().clone();
+    if card.card_type != nfc_core::CardType::Type2 {
+        return Err(NfcError::Unsupported(
+            "Type 2 UID writes need an NFC Forum Type 2 tag",
+        ));
+    }
+    if target_uid.len() != 7 || card.uid.len() != 7 {
+        return Err(NfcError::InvalidArgument(
+            "Type 2 UID writes currently support a 7-byte UID".to_owned(),
+        ));
+    }
+    if target_uid[0] != 0x04 {
+        return Err(NfcError::InvalidArgument(
+            "the UID manufacturer byte must be 04".to_owned(),
+        ));
+    }
+    let mut access = Type2AuthSession::none();
+    let read = read_current(operation, &mut access, cancel)?;
+    let image = read.image;
+    let current_uid = image.uid.clone();
+    if current_uid.len() != 7 {
+        return Err(NfcError::Unsupported(
+            "the selected tag did not report a 7-byte UID",
+        ));
+    }
+    let current_pages = [
+        *image
+            .page(0)
+            .ok_or_else(|| NfcError::InvalidArgument("page 0 is not readable".to_owned()))?,
+        *image
+            .page(1)
+            .ok_or_else(|| NfcError::InvalidArgument("page 1 is not readable".to_owned()))?,
+        *image
+            .page(2)
+            .ok_or_else(|| NfcError::InvalidArgument("page 2 is not readable".to_owned()))?,
+    ];
+    if current_pages[0][..3] != current_uid[..3]
+        || current_pages[1] != current_uid[3..7]
+        || current_pages[0][3] != type2_bcc0(&current_uid)
+        || current_pages[2][0] != type2_bcc1(&current_uid)
+    {
+        return Err(NfcError::Unsupported(
+            "the UID pages are not in the standard 7-byte NTAG layout",
+        ));
+    }
+    let target = target_uid.to_vec();
+    let new_pages = [
+        [target[0], target[1], target[2], type2_bcc0(&target)],
+        [target[3], target[4], target[5], target[6]],
+        [
+            type2_bcc1(&target),
+            current_pages[2][1],
+            current_pages[2][2],
+            current_pages[2][3],
+        ],
+    ];
+    if new_pages == current_pages {
+        return Err(NfcError::InvalidArgument(
+            "the target UID is already set".to_owned(),
+        ));
+    }
+    operation.check_card()?;
+    Ok(Type2UidPlan {
+        card,
+        image,
+        current_uid,
+        target_uid: target,
+        current_pages,
+        new_pages,
+    })
+}
+
+/// Execute a precomputed UID change, verify it, and restore the original UID
+/// if any step fails.
+pub fn uid_execute(
+    operation: &mut Operation<'_>,
+    request: Type2UidExecution<'_>,
+) -> Result<Type2UidResult> {
+    request.cancel.check()?;
+    if !request.confirm {
+        return Err(NfcError::InvalidArgument(
+            "changing the Type 2 UID needs explicit confirmation".to_owned(),
+        ));
+    }
+    let card_before = operation.card().clone();
+    check_expected_card(&card_before, Some(&request.plan.card))?;
+    let backup = save_backup(&request.plan.image, request.backup, "uid")?;
+    let reader = operation.reader_mut();
+
+    let attempt = (|| -> Result<()> {
+        request.cancel.check()?;
+        for page in [1u8, 2, 0] {
+            request.cancel.check()?;
+            let index = usize::from(page);
+            if request.plan.new_pages[index] != request.plan.current_pages[index] {
+                write_uid_page(reader, page, request.plan.new_pages[index])?;
+            }
+        }
+        let after = reader.card_info()?;
+        if after.uid != request.plan.target_uid
+            || after.atqa != request.plan.card.atqa
+            || after.sak != request.plan.card.sak
+        {
+            return Err(NfcError::VerificationFailed(
+                "the card did not reselect with the target UID".to_owned(),
+            ));
+        }
+        verify_uid_pages(reader, &request.plan.new_pages)
+    })();
+
+    if let Err(error) = attempt {
+        let restore = (|| -> Result<()> {
+            for page in [0u8, 1, 2] {
+                let index = usize::from(page);
+                if request.plan.current_pages[index] != request.plan.new_pages[index] {
+                    write_uid_page(reader, page, request.plan.current_pages[index])?;
+                }
+            }
+            let after = reader.card_info()?;
+            if after.uid != request.plan.current_uid {
+                return Err(NfcError::VerificationFailed(
+                    "the card did not reselect with the original UID".to_owned(),
+                ));
+            }
+            verify_uid_pages(reader, &request.plan.current_pages)
+        })();
+        return Err(match restore {
+            Ok(()) => NfcError::VerificationFailed(format!(
+                "UID write failed ({error}); the original UID was restored; backup {}",
+                backup.path.display()
+            )),
+            Err(restore_error) => NfcError::VerificationFailed(format!(
+                "UID write failed ({error}); RESTORE FAILED ({restore_error}); backup {}",
+                backup.path.display()
+            )),
+        });
+    }
+
+    let card_after = reader.card_info()?;
+    Ok(Type2UidResult {
+        card_before,
+        card_after,
+        pages: request.plan.new_pages,
+        backup,
+    })
+}
+
+/// Parse a 7-byte Type 2 UID from separated or compact hex.
+pub fn parse_uid_hex(text: &str) -> Result<Vec<u8>> {
+    let compact = crate::classic::normalize_uid_text(text);
+    if compact.len() != 14 {
+        return Err(NfcError::InvalidArgument(format!(
+            "a Type 2 UID is 14 hexadecimal digits, got {}",
+            compact.len()
+        )));
+    }
+    let mut uid = Vec::with_capacity(7);
+    for index in 0..7 {
+        let start = index * 2;
+        uid.push(
+            u8::from_str_radix(&compact[start..start + 2], 16).map_err(|_| {
+                NfcError::InvalidArgument(format!("{text:?} is not a hexadecimal UID"))
+            })?,
+        );
+    }
+    Ok(uid)
+}
+
 impl crate::Service {
     /// Read the complete Type 2 memory with explicit partial-read warnings.
     pub fn type2_read(&mut self, request: Type2ReadRequest) -> Result<Type2ReadResult> {
@@ -725,6 +997,24 @@ impl crate::Service {
         let cancel = request.cancel.clone();
         let mut operation = self.begin_operation(crate::operation::OperationKind::Write, cancel)?;
         password(&mut operation, request)
+    }
+
+    /// Build a Type 2 UID plan without writing the card.
+    pub fn type2_uid_preflight(
+        &mut self,
+        target_uid: &[u8],
+        cancel: CancelToken,
+    ) -> Result<Type2UidPlan> {
+        let mut operation =
+            self.begin_operation(crate::operation::OperationKind::Read, cancel.clone())?;
+        uid_preflight(&mut operation, target_uid, &cancel)
+    }
+
+    /// Change a Type 2 magic UID after confirmation and verify it.
+    pub fn type2_uid_execute(&mut self, request: Type2UidExecution<'_>) -> Result<Type2UidResult> {
+        let cancel = request.cancel.clone();
+        let mut operation = self.begin_operation(crate::operation::OperationKind::Write, cancel)?;
+        uid_execute(&mut operation, request)
     }
 
     /// Read the tag and save a Type 2 project dump.

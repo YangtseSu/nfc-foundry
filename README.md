@@ -12,9 +12,10 @@ Classic reads, Type 2 reads, raw REQA, Gen1A same-value block 0 write, and
 recovery. ACR122U Classic data writes, ACR122U Type 2 write/NDEF, ACR122U
 Classic NDEF, one-way locks, passwords, trailer writes, and ACR122U Type 4 are
 not advertised because no release hardware record exists. Classic 4K read/write
-is validated on PN532 UART; the ACR122U 4K path is not. Ultralight EV1 MF0UL11
-and FM11RF08S backdoor recovery are validated on PN532 UART. Type 4 read/write
-is validated on PN532 UART but has no CLI or GUI surface yet. See
+is validated on PN532 UART; the ACR122U 4K path is not. Ultralight EV1 MF0UL11,
+FM11RF08S backdoor recovery, and a 7-byte UID-changeable NTAG213 clone are
+validated on PN532 UART. Type 4 read/write is validated on PN532 UART but has
+no CLI or GUI surface yet. See
 [Hardware matrix](docs/hardware-matrix.md).
 Both first-release readers are implemented: PN532 UART
 and ACR122U direct USB/CCID. The ACR122U path claims the CCID interface with

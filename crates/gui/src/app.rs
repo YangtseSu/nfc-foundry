@@ -22,7 +22,8 @@ use nfc_app::classic::{
 };
 use nfc_app::type2::{
     Type2Auth, Type2Format, Type2Lock, Type2LockResult, Type2MutationResult, Type2NdefWrite,
-    Type2PageResult, Type2PageWrite, Type2Password, Type2Restore,
+    Type2PageResult, Type2PageWrite, Type2Password, Type2ReadRequest, Type2ReadResult,
+    Type2Restore, Type2UidExecution, Type2UidPlan, Type2UidResult, parse_uid_hex,
 };
 use nfc_app::{
     CardReadResult, ClassicNdefInfo, ClassicNdefState, DriverInfo, ReaderDevice, ReaderEvent,
@@ -521,6 +522,8 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
         pending_type2_advanced_dialog: RefCell::new(None),
         pending_type2_lock_dialog: RefCell::new(None),
         pending_type2_password_dialog: RefCell::new(None),
+        pending_type2_uid_plan: RefCell::new(None),
+        pending_type2_uid_dialog: RefCell::new(None),
         pending_type2_restore_dialog: RefCell::new(None),
         pending_type2_format_dialog: RefCell::new(None),
         devices: RefCell::new(Vec::new()),
@@ -950,6 +953,8 @@ struct Ui {
     pending_type2_advanced_dialog: RefCell<Option<adw::AlertDialog>>,
     pending_type2_lock_dialog: RefCell<Option<adw::AlertDialog>>,
     pending_type2_password_dialog: RefCell<Option<adw::AlertDialog>>,
+    pending_type2_uid_plan: RefCell<Option<Type2UidPlan>>,
+    pending_type2_uid_dialog: RefCell<Option<adw::AlertDialog>>,
     pending_type2_restore_dialog: RefCell<Option<adw::AlertDialog>>,
     pending_type2_format_dialog: RefCell<Option<adw::AlertDialog>>,
     devices: RefCell<Vec<DeviceInfo>>,
@@ -999,6 +1004,9 @@ struct Type2View {
     pack: gtk::Entry,
     password_apply: gtk::Button,
     password_note: gtk::Label,
+    uid_target: gtk::Entry,
+    uid_apply: gtk::Button,
+    uid_note: gtk::Label,
 }
 
 struct Type2Editor {
@@ -1630,10 +1638,33 @@ fn build_type2_view() -> Type2View {
     password_card.append(&password_apply);
     password_card.append(&password_note);
 
+    let uid_card = gtk::Box::new(Orientation::Vertical, 6);
+    uid_card.add_css_class("card");
+    let uid_title = gtk::Label::new(Some("UID (magic clone)"));
+    uid_title.set_xalign(0.0);
+    uid_title.add_css_class("title-4");
+    let uid_row = field_row("Target UID", "14 hex digits");
+    let uid_target = uid_row.1;
+    let uid_apply = gtk::Button::with_label("Change UID…");
+    uid_apply.add_css_class("destructive-action");
+    uid_apply.set_sensitive(false);
+    let uid_note = gtk::Label::new(Some(
+        "Only a UID-writable NTAG213 clone accepts this. A full backup is written first; page 0/1/2 are read back and reselected, and the original UID is restored on failure.",
+    ));
+    uid_note.set_xalign(0.0);
+    uid_note.set_wrap(true);
+    uid_note.add_css_class("caption");
+    uid_note.add_css_class("dim-label");
+    uid_card.append(&uid_title);
+    uid_card.append(&uid_row.0);
+    uid_card.append(&uid_apply);
+    uid_card.append(&uid_note);
+
     protection_root.append(&config_card);
     protection_root.append(&access_card);
     protection_root.append(&lock_card);
     protection_root.append(&password_card);
+    protection_root.append(&uid_card);
     tabs.add_titled(&protection_scroll, Some("protection"), "Protection");
 
     let ndef_slot = gtk::Box::new(Orientation::Vertical, 0);
@@ -1685,6 +1716,9 @@ fn build_type2_view() -> Type2View {
         pack: pack.1,
         password_apply,
         password_note,
+        uid_target,
+        uid_apply,
+        uid_note,
     }
 }
 
@@ -2903,6 +2937,14 @@ fn connect_signals(ui: &Rc<Ui>) {
     ui.type2_view
         .password_apply
         .connect_clicked(move |_| confirm_type2_password(ui2.clone()));
+    let ui2 = ui.clone();
+    ui.type2_view
+        .uid_target
+        .connect_changed(move |_| update_type2_actions(&ui2));
+    let ui2 = ui.clone();
+    ui.type2_view
+        .uid_apply
+        .connect_clicked(move |_| confirm_type2_uid(ui2.clone()));
 
     let ui2 = ui.clone();
     ui.keys_view.add.connect_clicked(move |_| add_key(&ui2));
@@ -5947,6 +5989,22 @@ fn update_type2_actions(ui: &Ui) {
         "PWD and PACK are write-only; the service verifies PACK with PWD_AUTH after the write."
     });
 
+    let uid_ready = session
+        .as_ref()
+        .is_some_and(|session| session.image.uid.len() == 7);
+    view.uid_target.set_sensitive(live && !busy && advanced);
+    view.uid_apply
+        .set_sensitive(live && !busy && advanced && uid_ready);
+    view.uid_note.set_localized(if !has_session {
+        "Read a Type 2 tag to change its UID."
+    } else if !uid_ready {
+        "This UID length has no supported Type 2 UID workflow."
+    } else if !advanced {
+        "Enable Advanced mode to change the UID."
+    } else {
+        "Only a UID-writable NTAG213 clone accepts this. A full backup is written first; page 0/1/2 are read back and reselected, and the original UID is restored on failure."
+    });
+
     let mut lock_ready = false;
     let mut lock_text = "Enable Advanced mode to change lock bits.".to_owned();
     if advanced {
@@ -6633,6 +6691,144 @@ fn finish_type2_lock(ui: &Rc<Ui>, result: NfcResult<Type2LockResult>) {
         }
         Err(error) => {
             ui.status.set_localized("Type 2 lock failed");
+            toast_error(ui, &error.to_string());
+        }
+    }
+}
+
+fn confirm_type2_uid(ui: Rc<Ui>) {
+    if ui.busy.get() || !ui.live.get() {
+        toast_error(&ui, "Changing the UID needs a live selected card");
+        return;
+    }
+    if !ui.type2_view.advanced.is_active() {
+        toast_error(&ui, "Enable Advanced mode before changing the UID");
+        return;
+    }
+    if ui.type2.borrow().is_none() {
+        toast_error(&ui, "Read a Type 2 tag first");
+        return;
+    }
+    let target = match parse_uid_hex(&ui.type2_view.uid_target.text()) {
+        Ok(uid) => uid,
+        Err(error) => {
+            toast_error(&ui, &error.to_string());
+            return;
+        }
+    };
+    let service = ui.service.clone();
+    set_busy(&ui, true);
+    ui.status.set_localized("Checking the Type 2 UID plan…");
+    let (sender, receiver) = async_channel::bounded(1);
+    std::thread::spawn(move || {
+        let result = match service.lock() {
+            Ok(mut service) => service.type2_uid_preflight(&target, CancelToken::new()),
+            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
+        };
+        let _ = sender.send_blocking(result);
+    });
+    glib::spawn_future_local(async move {
+        set_busy(&ui, false);
+        match receiver.recv().await {
+            Ok(Ok(plan)) => present_type2_uid_plan(&ui, plan),
+            Ok(Err(error)) => toast_error(&ui, &error.to_string()),
+            Err(_) => toast_error(&ui, "reader worker stopped"),
+        }
+    });
+}
+
+fn present_type2_uid_plan(ui: &Rc<Ui>, plan: Type2UidPlan) {
+    let body = format!(
+        "{} · UID {}\n\npage 0: {} -> {}\npage 1: {} -> {}\npage 2: {} -> {}\n\nA project backup is written first. Pages 0/1/2 are read back and the card is reselected. If anything fails, the original UID is written back.",
+        plan.card.card_type.label(),
+        plan.card.uid_hex(),
+        type2_ui::hex_bytes(&plan.current_pages[0]),
+        type2_ui::hex_bytes(&plan.new_pages[0]),
+        type2_ui::hex_bytes(&plan.current_pages[1]),
+        type2_ui::hex_bytes(&plan.new_pages[1]),
+        type2_ui::hex_bytes(&plan.current_pages[2]),
+        type2_ui::hex_bytes(&plan.new_pages[2]),
+    );
+    let dialog = confirmation_dialog("Change the Type 2 UID?", &body, "Change UID");
+    ui.pending_type2_uid_plan.replace(Some(plan));
+    let ui2 = ui.clone();
+    dialog.connect_response(None, move |_, response| {
+        ui2.pending_type2_uid_dialog.replace(None);
+        if response == "confirm"
+            && let Some(plan) = ui2.pending_type2_uid_plan.borrow_mut().take()
+        {
+            start_type2_uid_execute(ui2.clone(), plan);
+        }
+    });
+    ui.pending_type2_uid_dialog.replace(Some(dialog.clone()));
+    present_alert(&dialog, &ui.window);
+}
+
+fn start_type2_uid_execute(ui: Rc<Ui>, plan: Type2UidPlan) {
+    set_busy(&ui, true);
+    ui.status.set_localized("Changing the Type 2 UID…");
+    let service = ui.service.clone();
+    let backup = ui.backup.borrow().clone();
+    let (sender, receiver) = async_channel::bounded(1);
+    std::thread::spawn(move || {
+        let result = match service.lock() {
+            Ok(mut service) => {
+                let executed =
+                    service.type2_uid_execute(Type2UidExecution::new(plan, &backup).confirm(true));
+                match executed {
+                    Ok(result) => {
+                        let read = service
+                            .type2_read(Type2ReadRequest::new(CancelToken::new()))
+                            .ok();
+                        Ok((result, read))
+                    }
+                    Err(error) => Err(error),
+                }
+            }
+            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
+        };
+        let _ = sender.send_blocking(result);
+    });
+    glib::spawn_future_local(async move {
+        match receiver.recv().await {
+            Ok(result) => finish_type2_uid(&ui, result),
+            Err(_) => finish_type2_uid(&ui, Err(NfcError::Io("reader worker stopped".to_owned()))),
+        }
+    });
+}
+
+fn finish_type2_uid(ui: &Rc<Ui>, result: NfcResult<(Type2UidResult, Option<Type2ReadResult>)>) {
+    set_busy(ui, false);
+    match result {
+        Ok((result, read)) => {
+            clear_type2_auth(ui);
+            if let Some(read) = read {
+                ui.type2.replace(Some(Type2Session::new(
+                    read.card,
+                    read.image,
+                    read.warnings,
+                )));
+                render_type2(ui);
+                update_card(ui);
+                update_ndef(ui);
+            }
+            ui.status.set_localized(&format!(
+                "Type 2 UID changed to {}",
+                result.card_after.uid_hex()
+            ));
+            append_log(
+                ui,
+                &format!(
+                    "type2 uid · {} -> {} · {}",
+                    result.card_before.uid_hex(),
+                    result.card_after.uid_hex(),
+                    result.backup.path.display()
+                ),
+            );
+            toast_info(ui, "Type 2 UID changed and verified");
+        }
+        Err(error) => {
+            ui.status.set_localized("Type 2 UID change failed");
             toast_error(ui, &error.to_string());
         }
     }
@@ -9614,6 +9810,27 @@ mod tests {
         pages
     }
 
+    fn magic_ntag213_pages() -> Vec<[u8; 4]> {
+        let mut pages = vec![[0u8; 4]; 45];
+        pages[0] = [0x04, 0x00, 0xE3, 0x6F];
+        pages[1] = [0xC2, 0x00, 0x00, 0x02];
+        pages[2] = [0xC0, 0x08, 0x00, 0x00];
+        pages[3] = [0xE1, 0x10, 0x12, 0x00];
+        pages[4] = [0x03, 0x00, 0xFE, 0x00];
+        pages[40] = [0x00, 0x00, 0x00, 0xBD];
+        pages[41] = [0x00, 0x00, 0x00, 0xFF];
+        pages
+    }
+
+    fn magic_card() -> CardInfo {
+        CardInfo::new(
+            vec![0x04, 0x00, 0xE3, 0xC2, 0x00, 0x00, 0x02],
+            [0x00, 0x44],
+            0x00,
+            CardType::Type2,
+        )
+    }
+
     fn install_ntag(handle: &MockHandle, pages: &[[u8; 4]]) {
         handle.set_card(Some(type2_card(0x80)));
         handle.set_type2_version(None);
@@ -9883,6 +10100,8 @@ mod tests {
         close_alert(&ui.pending_type2_advanced_dialog);
         close_alert(&ui.pending_type2_lock_dialog);
         close_alert(&ui.pending_type2_password_dialog);
+        close_alert(&ui.pending_type2_uid_dialog);
+        ui.pending_type2_uid_plan.replace(None);
         close_alert(&ui.pending_type2_restore_dialog);
         close_alert(&ui.pending_type2_format_dialog);
         ui.type2_view.advanced.set_active(false);
@@ -10116,6 +10335,7 @@ mod tests {
         type2_protected_access(&harness);
         type2_ndef_write_and_format(&harness);
         type2_ev1_otp_format_dialog(&harness);
+        type2_uid_change_and_restore(&harness);
         type2_partial_ndef(&harness);
         type2_dump_and_restore(&harness);
         navigation_busy_and_focus(&harness);
@@ -12043,6 +12263,51 @@ mod tests {
         });
         assert_eq!(harness.ntag.page(4), Some([0x03, 0x00, 0xFE, 0x00]));
         assert!(ndef_log(ui).contains("the card identity changed"));
+    }
+
+    fn type2_uid_change_and_restore(harness: &Harness) {
+        reset(harness);
+        install_ntag(&harness.ntag, &magic_ntag213_pages());
+        harness.ntag.set_card(Some(magic_card()));
+        harness
+            .ntag
+            .set_type2_version(Some([0x00, 0x04, 0x04, 0x02, 0x01, 0x00, 0x0F, 0x03]));
+        harness.ntag.set_type2_uid_writable(true);
+        choose_reader(harness, "mock:ntag");
+        start_read(harness.ui.clone());
+        pump_until(&harness.ui, "magic read", || {
+            !harness.ui.busy.get() && harness.ui.status.label().contains("Read complete")
+        });
+        let ui = &harness.ui;
+        ui.type2_view.advanced.set_active(true);
+        ui.type2_view.uid_target.set_text("0400E3C2000003");
+        confirm_type2_uid(ui.clone());
+        pump_until(ui, "Type 2 UID plan", || {
+            !ui.busy.get() && ui.pending_type2_uid_dialog.borrow().is_some()
+        });
+        let dialog = alert_pending(&ui.pending_type2_uid_dialog);
+        let body = dialog.body();
+        assert!(body.contains("page 1"), "{body}");
+        assert!(body.contains("C2 00 00 03"), "{body}");
+        emit_response(&dialog, "confirm");
+        pump_until(ui, "Type 2 UID change", || {
+            !ui.busy.get() && ui.status.label().contains("UID changed")
+        });
+        assert_eq!(harness.ntag.page(1), Some([0xC2, 0x00, 0x00, 0x03]));
+        assert_eq!(harness.ntag.page(2), Some([0xC1, 0x08, 0x00, 0x00]));
+
+        ui.type2_view.uid_target.set_text("0400E3C2000002");
+        confirm_type2_uid(ui.clone());
+        pump_until(ui, "Type 2 UID restore plan", || {
+            !ui.busy.get() && ui.pending_type2_uid_dialog.borrow().is_some()
+        });
+        let dialog = alert_pending(&ui.pending_type2_uid_dialog);
+        emit_response(&dialog, "confirm");
+        pump_until(ui, "Type 2 UID restore", || {
+            !ui.busy.get() && ui.status.label().contains("UID changed")
+        });
+        assert_eq!(harness.ntag.page(1), Some([0xC2, 0x00, 0x00, 0x02]));
+        assert_eq!(harness.ntag.page(2), Some([0xC0, 0x08, 0x00, 0x00]));
     }
 
     fn type2_ev1_otp_format_dialog(harness: &Harness) {

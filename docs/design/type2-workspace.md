@@ -22,8 +22,10 @@ action bar           status · detail · last backup · Read card
 - The page table is the master view; the inspector holds the write action and
   feedback. User memory is visible by default. CC, static/dynamic lock,
   configuration, and PWD/PACK pages appear only in Advanced mode.
-- Manufacturer and reserved pages are read-only. Locked and
-  password-protected pages explain why the write is refused.
+- Manufacturer and reserved pages are read-only through the normal page
+  workflow. A separate Advanced UID path handles a confirmed 7-byte
+  UID-writable NTAG213 clone. Locked and password-protected pages explain why
+  the write is refused.
 - Restore include options appear after a project image is loaded and only on
   Memory. User memory is on; configuration, CC, and lock bytes are opt-in.
 

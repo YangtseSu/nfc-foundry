@@ -925,6 +925,30 @@ keys! {
     WritingPasswordConfig => ("Writing password configuration…", "正在写入密码配置…"),
     PasswordConfigVerified => ("Password configuration written and verified", "密码配置已写入并校验"),
     Type2PasswordFailed => ("Type 2 password failed", "Type 2 密码配置失败"),
+    Type2UidChecking => ("Checking the Type 2 UID plan…", "正在检查 Type 2 UID 方案…"),
+    Type2UidChanging => ("Changing the Type 2 UID…", "正在更改 Type 2 UID…"),
+    Type2UidChanged => ("Type 2 UID changed to {}", "Type 2 UID 已更改为 {}"),
+    Type2UidFailed => ("Type 2 UID change failed", "Type 2 UID 更改失败"),
+    ChangeType2UidQuestion => ("Change the Type 2 UID?", "更改 Type 2 UID？"),
+    ChangeUidAction => ("Change UID", "更改 UID"),
+    ReadType2ToChangeUid => (
+        "Read a Type 2 tag to change its UID.",
+        "读取 Type 2 标签后可更改其 UID。"
+    ),
+    UidLengthUnsupported => (
+        "This UID length has no supported Type 2 UID workflow.",
+        "此 UID 长度没有受支持的 Type 2 UID 流程。"
+    ),
+    EnableAdvancedForUid => ("Enable Advanced mode to change the UID.", "启用高级模式后可更改 UID。"),
+    Type2UidNote => (
+        "Only a UID-writable NTAG213 clone accepts this. A full backup is written first; page 0/1/2 are read back and reselected, and the original UID is restored on failure.",
+        "仅可写 UID 的 NTAG213 克隆卡支持此操作。写入前会保存完整备份；第 0/1/2 页会回读并重选卡片，失败时会写回原 UID。"
+    ),
+    Type2UidDialogBody => (
+        "{} · UID {}\n\npage 0: {} -> {}\npage 1: {} -> {}\npage 2: {} -> {}\n\nA project backup is written first. Pages 0/1/2 are read back and the card is reselected. If anything fails, the original UID is written back.",
+        "{} · UID {}\n\n第 0 页：{} -> {}\n第 1 页：{} -> {}\n第 2 页：{} -> {}\n\n写入前会保存项目备份。第 0/1/2 页会回读并重选卡片；任何步骤失败都会写回原 UID。"
+    ),
+
     ReadType2ToInspectPassword => (
         "Read a Type 2 tag to inspect its password configuration.",
         "读取 Type 2 标签后可检查其密码配置。"

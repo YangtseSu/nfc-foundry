@@ -1,6 +1,6 @@
 # Phase 25 plan: owned-card support
 
-Status: in progress; 25.1, 25.2, and 25.3 complete 2026-11-12. Hardware:
+Status: in progress; 25.1–25.4 complete 2026-11-12. Hardware:
 PN532 UART first; ACR122U records after a reader is available. This phase
 covers the five cards already owned for the project: Fudan FM11RN32N
 (FM11RF32N, 4K Classic-compatible), Fudan FM11RF08S, MIFARE Ultralight EV1,
@@ -182,22 +182,25 @@ Acceptance:
 
 ### 25.4: UID-changeable NTAG213
 
+Status: complete 2026-11-12 on PN532 UART for a 7-byte clone; ACR122U not
+recorded. See [25d-type2-uid.md](../notes/25d-type2-uid.md).
+
 Goal: add a guarded UID workflow for the owned magic clone without weakening
 the read-only rule for genuine Type 2 tags.
 
 Deliver:
 
-- Hardware experiment on the owned clone: determine UID length, whether pages
-  0/1 are directly writable, whether page 2 or BCC1 is writable, and whether
-  the card auto-recomputes BCC0/BCC1. Record the trace before product code.
+- Hardware experiment on the owned clone: the 7-byte NTAG213 clone accepted
+  same-value writes to pages 0, 1, and 2 with the UID unchanged.
 - A guarded workflow that:
   - reads and backs up the full image and pages 0-2;
   - validates the target UID and recomputes BCC0/BCC1;
-  - writes page 0 and page 1, and page 2 only if the experiment proves it is
-    required, preserving the internal byte and lock bytes;
+  - writes page 1, page 2 (BCC1 plus the preserved internal byte and lock
+    bytes), then page 0;
   - reads back, reselects, verifies ATQA/SAK/UID, and restores the original UID
     on any failure;
-  - refuses cards whose UID pages are not writable.
+  - refuses cards whose UID pages are not writable or whose layout is not the
+    standard 7-byte NTAG213 layout.
 - Advanced mode plus typed confirmation, a dry-run plan with exact old/new
   pages, and no change to the existing page-write policy.
 - CLI and GUI parity: `type2 uid` and a Type 2 Advanced UID dialog.
@@ -205,11 +208,10 @@ Deliver:
 Acceptance:
 
 - On the owned clone, old UID -> new UID -> reselect -> restore old UID, with
-  NDEF still readable after each step.
+  45/45 pages and the original page JSON after the final restore.
 - A genuine NTAG213 refuses the write and shows no mutation.
 - Lock bits are unchanged after the run.
-- If the clone proves not re-writable, the workflow reports the capability as
-  unsupported and does not ship a UID write path.
+- ACR122U remains unrecorded.
 
 ### 25.5: DESFire EV3 8K NDEF enablement
 

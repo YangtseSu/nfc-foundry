@@ -90,7 +90,8 @@ Safety:
 - A lock update may set bits but never clear them.
 - PWD/PACK writes are verified with PWD_AUTH; secrets are not logged, stored in
   images, dumps, backups, or key stores, and are redacted from errors.
-- Genuine Type 2 UID pages are read-only.
+- Genuine Type 2 UID pages are read-only. A confirmed 7-byte UID-writable
+  NTAG213 clone uses the separate Advanced UID workflow, not the NDEF path.
 - A partial image is explicit and is never written as if complete.
 
 ## MIFARE Classic NDEF

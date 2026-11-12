@@ -75,6 +75,7 @@ message bytes that `nfctl classic ndef read --output` writes.
 | Password configuration | `type2 password [--current-pwd --current-pack]` | Protection → Password and access → Apply password configuration… | A, C, B | PN532, NTAG216 |
 | Clear protection | `type2 password --auth0 255 --access 00 [--current-pwd --current-pack]` | Protection → Password and access with AUTH0 255 and ACCESS 00 | A, C, B | PN532, NTAG216 |
 | Authenticated read/write after AUTH0 | `--type2-password --type2-pack` on Type 2 and NDEF commands | Protected access fields | R, C, B | PN532, NTAG216; ACR n/r |
+| UID change (magic clone) | `type2 uid --advanced --uid ... [--dry-run]` | Protection → UID (magic clone) → Change UID… | A, C, B | PN532, 7-byte NTAG213 clone; ACR n/r |
 | NDEF read | `ndef read [--output]` | Type 2 NDEF facts; Export message… | R | PN532 |
 | NDEF write | `ndef write` | NDEF composer → Write NDEF | C, B | PN532; ACR n/r |
 | NDEF format | `ndef format` | NDEF → Format NDEF area… | C, B | PN532; ACR n/r |
@@ -85,7 +86,9 @@ capacity overflow. A page or NDEF area protected by AUTH0 uses the supplied
 PWD_AUTH credentials; without them the operation is denied before mutation.
 The credentials are per operation, are never saved, and are cleared from the
 GUI entries after a successful operation. Restore class selection is the same
-four flags/checkboxes in both surfaces.
+four flags/checkboxes in both surfaces. Type 2 UID writes are limited to a
+7-byte NTAG213 clone; both surfaces back up pages 0/1/2 first and restore the
+original UID if verification fails.
 
 ## Recovery and system
 

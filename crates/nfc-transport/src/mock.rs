@@ -265,6 +265,8 @@ struct MockState {
     capabilities: ReaderCapabilities,
     /// An ordinary write to block 0 is accepted, as on a CUID/Gen2 card.
     block_zero_writable: bool,
+    /// Type 2 pages 0/1 update the selected UID, as on a UID-changeable clone.
+    type2_uid_writable: bool,
 }
 
 impl Default for MockState {
@@ -294,6 +296,7 @@ impl Default for MockState {
                 recovery_parity: false,
             },
             block_zero_writable: true,
+            type2_uid_writable: false,
         }
     }
 }
@@ -384,6 +387,11 @@ impl MockHandle {
     /// Store one Type 2 page.
     pub fn set_page(&self, page: u8, data: [u8; PAGE_SIZE]) {
         self.lock().pages.insert(page, data);
+    }
+
+    /// Make Type 2 page 0/1 writes update the selected card UID.
+    pub fn set_type2_uid_writable(&self, enabled: bool) {
+        self.lock().type2_uid_writable = enabled;
     }
 
     /// Remove every stored Type 2 page.
@@ -518,6 +526,10 @@ impl MockReader {
 
     pub fn set_type2_version(&mut self, version: Option<[u8; TYPE2_VERSION_SIZE]>) {
         self.state.set_type2_version(version);
+    }
+
+    pub fn set_type2_uid_writable(&mut self, enabled: bool) {
+        self.state.set_type2_uid_writable(enabled);
     }
 
     pub fn set_password(&mut self, password: [u8; PAGE_SIZE], pack: [u8; 2]) {
@@ -661,6 +673,16 @@ impl Reader for MockReader {
             }
         }
         state.pages.insert(page, data);
+        if state.type2_uid_writable && page <= 2 {
+            let page0 = state.pages.get(&0).copied();
+            let page1 = state.pages.get(&1).copied();
+            if let (Some(page0), Some(page1), Some(card)) = (page0, page1, state.card.as_mut()) {
+                let mut uid = Vec::with_capacity(7);
+                uid.extend_from_slice(&page0[..3]);
+                uid.extend_from_slice(&page1);
+                card.uid = uid;
+            }
+        }
         Ok(())
     }
 
