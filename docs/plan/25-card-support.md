@@ -272,6 +272,10 @@ Acceptance:
   `GetApplicationIDs` empty, matching the pre-format inventory. PM3
   `hf mfdes deleteapp` reproduces the same result with the same PICC key.
 
+Follow-on read work (file-settings decoding, Value/Record reads, EV1/EV2
+secure messaging, and DESFire Type 4 NDEF) is tracked in
+[phase 26](26-desfire-read.md). This slice remains the NDEF bootstrap only.
+
 ## Cross-cutting work
 
 - `nfctl` commands and GUI paths for every new operation; no CLI-only card

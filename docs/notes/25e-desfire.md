@@ -115,11 +115,13 @@ record above.
 
 ## To continue
 
-1. Decode file settings and read Standard/Backup/Value/Record contents through
-   the GUI; keep keys session-scoped and out of logs.
-2. Add MACed/enciphered read for EV1/EV2 secure messaging.
-3. Add NDEF Type 4 read for DESFire; formatting stays Advanced.
-4. Do not add business templates (access control, wallet, transit).
+The follow-on slices are tracked in
+[phase 26](../plan/26-desfire-read.md): file-settings decoding, Value/Record
+reads, 3K3DES/AES authentication, EV1/EV2 secure-messaging reads, Type 4 NDEF
+read, and cryptographic verification. Writes, formatting, application
+creation, deletion, and key management stay deferred.
+
+Do not add business templates (access control, wallet, transit).
 
 A changed PICC key is not recoverable from the card; record and back it up
 before any key change.

@@ -3,9 +3,9 @@
 Status legend: `done`, `in progress`, `pending`, `optional`, `blocked`.
 
 Phase files: phases 00-17 are planned and recorded as sections in this file,
-not as separate `docs/plan/NN-*.md` files. Phases 18, 19, and 24 have separate
-plan files because they are large multi-slice efforts. Notes exist for phases
-20-23 and are linked from their sections below.
+not as separate `docs/plan/NN-*.md` files. Phases 18, 19, 24, 25, and 26 have
+separate plan files because they are large multi-slice efforts. Notes exist
+for phases 20-23 and are linked from their sections below.
 
 GUI note: **GTK4-rs (`gtk4` + `libadwaita`) is the selected and only GUI
 stack** as of [ADR 0006](../adr/0006-gtk4-rs.md). The GPUI Kit workspaces were
@@ -50,6 +50,7 @@ work; their current equivalents are the GTK4 workspaces.
 | 23 | Card-family workspaces and NDEF placement | done |
 | 24 | Parity recovery: verified keys, workbench, UID, reader lifecycle, diagnostics | in progress (S1, S2, S3a, S3b, S4, S6 done) |
 | 25 | Owned-card support: 4K clone, Ultralight EV1, FM11RF08S recovery, DESFire EV3 NDEF, UID NTAG213 | in progress (25.1–25.4 done; 25.5 inventory, factory-key auth, temporary file round trip, read-only GUI workspace done; NDEF format not implemented) |
+| 26 | DESFire read-only workbench: settings decode, value/records, secure messaging, Type 4 NDEF | in progress (26.1 done; 26.2–26.7 pending; writes deferred) |
 
 ## Rules
 
@@ -808,3 +809,16 @@ formatting is the only unconditional mutation without a byte-for-byte restore,
 but it is undoable by deleting the NDEF application with the PICC master key.
 Ultralight EV1 formatting is conditional on a blank OTP CC. Each slice adds
 one spec and one note before implementation.
+
+### 26: DESFire read-only workbench
+
+Goal: make DESFire a generic read/inspect/verify card family, not an
+application builder. The baseline (legacy DES/2K3DES authentication, plain
+Standard/Backup read, CLI and GTK `DESFire` workspace) is complete.
+
+Detailed plan: [26-desfire-read.md](26-desfire-read.md). Status: in progress;
+26.1 done; 26.2 file settings decode, 26.3 value/record read, 26.4 key
+families, 26.5 secure-messaging read, 26.6 Type 4 NDEF read, and 26.7
+cryptographic verification are pending. Writes, formatting, application
+creation, deletion, and key management are deferred to a separate approved
+phase. Each slice adds a spec and a note before implementation.

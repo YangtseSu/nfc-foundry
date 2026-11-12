@@ -65,3 +65,5 @@ format/delete command is exposed until:
 - The GTK workspace switches to `DESFire`, lists inventory, and parses AID,
   file, key, key number, offset and length inputs.
 - No DESFire format command exists in the CLI or GUI yet.
+- Follow-on read work is scoped in
+  [phase 26](../plan/26-desfire-read.md).
