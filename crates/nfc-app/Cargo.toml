@@ -14,6 +14,7 @@ nfc-recover.workspace = true
 nfc-transport.workspace = true
 nfc-type2.workspace = true
 nfc-type4.workspace = true
+nfc-desfire.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 

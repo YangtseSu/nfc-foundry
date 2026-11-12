@@ -1,6 +1,7 @@
 # Phase 25 plan: owned-card support
 
-Status: in progress; 25.1–25.4 complete 2026-11-12. Hardware:
+Status: 25.1–25.4 complete 2026-11-12; 25.5 inventory complete, formatting
+blocked on the PICC key. Hardware:
 PN532 UART first; ACR122U records after a reader is available. This phase
 covers the five cards already owned for the project: Fudan FM11RN32N
 (FM11RF32N, 4K Classic-compatible), Fudan FM11RF08S, MIFARE Ultralight EV1,
@@ -215,6 +216,9 @@ Acceptance:
 
 ### 25.5: DESFire EV3 8K NDEF enablement
 
+Status: inventory complete 2026-11-12; NDEF formatting blocked on the PICC key.
+See [25e-desfire.md](../notes/25e-desfire.md).
+
 Goal: make the owned unformatted EV3 8K usable with the existing Type 4 NDEF
 workflow, and make its real state visible before any change.
 
@@ -244,6 +248,9 @@ Deliver:
   or default-key dictionary.
 - Type 4 NDEF read/write/restore after formatting uses the already validated
   NTAG 424 path.
+- The only exposed surface until the key is known is the read-only
+  `nfctl desfire info` developer diagnostic. No GUI path is added while the
+  format workflow is blocked.
 
 Acceptance:
 

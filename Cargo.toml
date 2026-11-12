@@ -10,6 +10,7 @@ members = [
     "crates/nfc-type2",
     "crates/nfc-classic-ndef",
     "crates/nfc-type4",
+    "crates/nfc-desfire",
     "crates/nfc-app",
     "crates/nfctl",
     "crates/gui",
@@ -24,6 +25,7 @@ default-members = [
     "crates/nfc-type2",
     "crates/nfc-classic-ndef",
     "crates/nfc-type4",
+    "crates/nfc-desfire",
     "crates/nfc-app",
     "crates/nfctl",
     "crates/gui",
@@ -46,6 +48,7 @@ nfc-ndef = { path = "crates/nfc-ndef" }
 nfc-type2 = { path = "crates/nfc-type2" }
 nfc-classic-ndef = { path = "crates/nfc-classic-ndef" }
 nfc-type4 = { path = "crates/nfc-type4" }
+nfc-desfire = { path = "crates/nfc-desfire" }
 nfc-app = { path = "crates/nfc-app" }
 
 clap = { version = "4.6.7", features = ["derive", "env"] }

@@ -10,7 +10,7 @@ Release: `0.1.0`.
 
 | Reader | Connection | Firmware | Date | Note |
 |---|---|---|---|---|
-| PN532 UART (CH340 adapter) | `pn532_uart:/dev/ttyUSB0` | PN532 firmware 1.6 | 2026-11-11 | `docs/notes/02-pn532-uart.md`, `04-classic-workflows.md`, `06-recovery-foundation.md`, `07-hardnested.md`, `09-type2-ndef.md`, `10-classic-ndef.md`, `11-type4-ndef.md`, `24c-uid-write.md`, `25a-classic-4k.md`, `25b-ultralight-ev1.md`, `25c-fm11rf08s.md`, `25d-type2-uid.md` |
+| PN532 UART (CH340 adapter) | `pn532_uart:/dev/ttyUSB0` | PN532 firmware 1.6 | 2026-11-11 | `docs/notes/02-pn532-uart.md`, `04-classic-workflows.md`, `06-recovery-foundation.md`, `07-hardnested.md`, `09-type2-ndef.md`, `10-classic-ndef.md`, `11-type4-ndef.md`, `24c-uid-write.md`, `25a-classic-4k.md`, `25b-ultralight-ev1.md`, `25c-fm11rf08s.md`, `25d-type2-uid.md`, `25e-desfire.md` |
 | ACR122U direct USB/CCID | `acr122_usb:001:002` | internal PN532 firmware 1.6 | 2026-11-11 | `docs/notes/05-acr122-usb.md`, `06-recovery-foundation.md`, `07-hardnested.md`, `09-type2-ndef.md`, `24c-uid-write.md`, `24d-restore-with-uid.md` |
 
 `pcscd` was stopped for every ACR122U run. The ACR122U was opened as the
@@ -54,6 +54,7 @@ tested, and no read, write, restore, or recovery operation is claimed for it.
 | Hardnested acquisition and solver | validated | validated | phase 07: 1816 and 1840 frames, recovered and re-verified keys |
 | Darkside repeated-nonce collection | no sample | no sample | phase 06: documented reader limitation, not a key result |
 | FM11RF08S backdoor nonce acquisition and key recovery | validated | not recorded | 2026-11-12: PN532 UART, FM11RF08S `9C 81 95 D4`; backdoor clear nonce matched the known-key decryption, the 59970-candidate solver list contained the known key, and the full attack recovered 32/32 sector keys with 16/16 sectors read-verified. No card writes. |
+| DESFire EV3 identity and application inventory | validated | not recorded | 2026-11-12: PN532 UART, MIFARE DESFire EV3 8K (random UID, observed `04 77 1F A2 BB 17 90`); version 51.0, storage `0x1A`, key settings `0F 01`, `applications: none`. Read-only; no authentication or write. |
 | Type 4 NDEF read/write | validated | not recorded | phase 11, 2026-11-12: PN532 UART, NTAG 424 DNA `04 86 40 42 22 17 90`; CC 2.0 (23 bytes), MLe 256/MLc 255, NDEF file `E104` with 256-byte capacity, empty state; Text record written and read back, empty state cleared and re-read. An earlier DESFire EV3 8K `04 4D 09 A2 BB 17 90` probe found no NDEF Tag Application (`6A82`). |
 
 ## Card records
@@ -67,6 +68,7 @@ tested, and no read, write, restore, or recovery operation is claimed for it.
 | NTAG215 | `04 52 F5 67 D3 2A 81` | PN532 | 135-page read, NDEF write/read/restore |
 | MIFARE Ultralight EV1 MF0UL11 | `04 43 47 4A 75 22 91` | PN532 | GET_VERSION, 20-page read, OTP CC format, NDEF write/read/clear, password set/auth/clear |
 | UID-changeable NTAG213 clone | `04 00 E3 C2 00 00 02` | PN532 | 45-page read, UID-page probe, UID change/restore, BCC verification |
+| MIFARE DESFire EV3 8K | random UID, observed `04 77 1F A2 BB 17 90` | PN532 | identity and application/file inventory; NDEF formatting blocked on the PICC key |
 | NTAG 424 DNA | `04 86 40 42 22 17 90` | PN532 | Type 4 read, NDEF write, clear/restore |
 | Type 2 tag | `04 34 4C C2 83 5C 80` | ACR122U | page read; NDEF format/write/read/restore |
 | Magic Gen1A Classic 1K | `FA B9 CF F4` | PN532, ACR122U | same-value block 0 write; guarded UID change/restore; restore with UID on both |
@@ -97,6 +99,9 @@ card under test.
 - Type 2 UID change is validated on PN532 UART for a 7-byte NTAG213 clone and
   not recorded on ACR122U. Genuine Type 2 tags remain read-only at the UID
   pages.
+- DESFire EV3 inventory is read-only and validated on PN532 UART. NDEF
+  formatting is not advertised: the owned card's PICC key is unknown and the
+  required secure channel is not validated.
 - Classic sector-trailer writes and the guarded UID service are validated on
   both readers. The ACR122U trailer run used a default-access sector because the
   generic single-block request cannot supply a separate Key A for a B-only

@@ -844,6 +844,7 @@ dependencies = [
  "nfc-classic",
  "nfc-classic-ndef",
  "nfc-core",
+ "nfc-desfire",
  "nfc-ndef",
  "nfc-recover",
  "nfc-transport",
@@ -879,6 +880,14 @@ name = "nfc-core"
 version = "0.1.0"
 dependencies = [
  "thiserror",
+]
+
+[[package]]
+name = "nfc-desfire"
+version = "0.1.0"
+dependencies = [
+ "nfc-core",
+ "nfc-transport",
 ]
 
 [[package]]

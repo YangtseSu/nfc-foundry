@@ -172,6 +172,13 @@ with the UID unchanged; the guarded workflow changed `04 00 E3 C2 00 00 02` to
 original UID. A fresh 45/45-page dump had a page JSON identical to the original;
 static lock bytes remained `00 00`. The ACR122U row remains unrecorded.
 
+The phase 25.5 DESFire record passed its inventory step on 2026-11-12 on PN532
+UART: `nfctl desfire info` reported MIFARE DESFire EV3, version 51.0, storage
+`0x1A`, key settings `0F 01`, and no applications. The card answers ISO
+authentication (`0x1A`), not EV2/AES; the 54-candidate PM3 default dictionary
+failed, so NDEF formatting is blocked on the PICC key. No authentication or
+write was performed by the inventory. The ACR122U row remains unrecorded.
+
 The phase 10 Classic NDEF tests are hardware-free. `nfc-classic-ndef` covers
 MAD1/MAD2 and CRC vectors, NFC AIDs, contiguity, GPB mapping version and
 read-only state, TLV framing/capacity, long messages, leading proprietary TLV

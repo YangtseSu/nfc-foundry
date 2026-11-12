@@ -4,6 +4,7 @@
 //! The GUI and CLI never touch a driver directly.
 
 pub mod classic;
+pub mod desfire;
 pub mod device;
 pub mod diagnostics;
 pub mod event;

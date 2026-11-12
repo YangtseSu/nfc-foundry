@@ -122,6 +122,11 @@ enum Command {
         #[command(subcommand)]
         command: Type2Command,
     },
+    /// DESFire inventory.
+    Desfire {
+        #[command(subcommand)]
+        command: DesfireCommand,
+    },
     /// NDEF operations.
     Ndef {
         #[command(subcommand)]
@@ -383,6 +388,12 @@ enum Type2Command {
 }
 
 #[derive(Clone, Debug, Subcommand)]
+enum DesfireCommand {
+    /// Read the card version and application/file inventory.
+    Info,
+}
+
+#[derive(Clone, Debug, Subcommand)]
 enum NdefCommand {
     /// Print the NDEF records; optionally write the raw message to a file.
     Read {
@@ -501,6 +512,7 @@ fn run(cli: Cli) -> Result<()> {
         },
         Command::Classic { command } => classic(&cli, &mut service, command),
         Command::Type2 { command } => type2(&cli, &mut service, command),
+        Command::Desfire { command } => desfire(&cli, &mut service, command),
         Command::Ndef { command } => ndef(&cli, &mut service, command),
         Command::Recover { command } => recovery(&cli, &mut service, command),
         Command::Diag { json } => diag(&cli, &mut service, json),
@@ -1775,6 +1787,36 @@ fn type2_auth(cli: &Cli) -> Result<Option<Type2Auth>> {
         _ => Err(NfcError::InvalidArgument(
             "--type2-password and --type2-pack must be supplied together".to_owned(),
         )),
+    }
+}
+
+fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<()> {
+    prepare(service, cli.device.as_deref())?;
+    match command {
+        DesfireCommand::Info => {
+            let inventory = service.desfire_inventory(CancelToken::new())?;
+            println!(
+                "{} · vendor {:02X} type {:02X} subtype {:02X} version {}.{} storage {:02X} protocol {:02X}",
+                inventory.version.name(),
+                inventory.version.vendor_id,
+                inventory.version.product_type,
+                inventory.version.product_subtype,
+                inventory.version.major,
+                inventory.version.minor,
+                inventory.version.storage_size,
+                inventory.version.protocol
+            );
+            if inventory.applications.is_empty() {
+                println!("applications: none");
+            }
+            for application in &inventory.applications {
+                println!("application {}", hex_bytes(&application.aid));
+                for file in &application.files {
+                    println!("  file {:02X}: {}", file.file_id, hex_bytes(&file.settings));
+                }
+            }
+            Ok(())
+        }
     }
 }
 
