@@ -1,7 +1,8 @@
 # Phase 25 plan: owned-card support
 
-Status: 25.1–25.4 complete 2026-11-12; 25.5 inventory complete, formatting
-blocked on the PICC key. Hardware:
+Status: 25.1–25.4 complete 2026-11-12; 25.5 inventory and factory-key
+authentication complete, formatting and user-facing writes not implemented.
+Hardware:
 PN532 UART first; ACR122U records after a reader is available. This phase
 covers the five cards already owned for the project: Fudan FM11RN32N
 (FM11RF32N, 4K Classic-compatible), Fudan FM11RF08S, MIFARE Ultralight EV1,
@@ -216,8 +217,10 @@ Acceptance:
 
 ### 25.5: DESFire EV3 8K NDEF enablement
 
-Status: inventory complete 2026-11-12; NDEF formatting blocked on the PICC key.
-See [25e-desfire.md](../notes/25e-desfire.md).
+Status: inventory, factory-key authentication, and a reserved temporary
+application/file round trip complete 2026-11-12; NDEF formatting and
+user-facing writes are not implemented. See
+[25e-desfire.md](../notes/25e-desfire.md).
 
 Goal: make the owned unformatted EV3 8K usable with the existing Type 4 NDEF
 workflow, and make its real state visible before any change.
@@ -228,7 +231,8 @@ Deliver:
   layer serves inventory, formatting, and undo; no PM3 process is involved:
   - `GetVersion`, `GetApplicationIDs`, `SelectApplication`, `GetFileIDs`,
     `GetFileSettings`;
-  - `AuthenticateEV2First` with AES-128;
+  - `Authenticate` (`0x0A`) with legacy DES/2K3DES and D40 send mode for the
+    factory-blank card; `AuthenticateEV2First` (`0x71`) for AES-keyed cards;
   - `CreateApplication`, `CreateStdDataFile`, `WriteData`, `CommitTransaction`.
 - Read-only inventory: card version, application IDs, and file IDs/settings.
   Works on the current unformatted card without authentication.
@@ -242,21 +246,25 @@ Deliver:
 - `DeleteApplication` as the undo path: record the created AID, require the
   PICC master key, and delete only the NDEF application created by this
   product. This is the same operation as PM3 `hf mfdes deleteapp`, implemented
-  natively over `AuthenticateEV2First` and the EV2 session MAC. It is not a
-  general application manager.
-- No DESFire key change, no file CRUD beyond the NDEF bootstrap, no brute force
-  or default-key dictionary.
+  natively over the authenticated session. It is not a general application
+  manager.
+- No DESFire key change, no user-facing file CRUD beyond the NDEF bootstrap,
+  no brute force or default-key dictionary. The hardware test uses primitive
+  create/write/read/delete commands on the reserved test AID only.
 - Type 4 NDEF read/write/restore after formatting uses the already validated
   NTAG 424 path.
-- The only exposed surface until the key is known is the read-only
-  `nfctl desfire info` developer diagnostic. No GUI path is added while the
-  format workflow is blocked.
+- The only exposed surface is the read-only `nfctl desfire info` developer
+  diagnostic. No GUI path is added until native authentication and the write
+  workflow are implemented.
+- This slice only bootstraps NDEF. A general DESFire application/file/key
+  workbench is separate scope, because NDEF is only one application on the
+  card.
 
 Acceptance:
 
 - Inventory on the owned card reports the DESFire EV3 version and the absence
   of the NDEF application.
-- With the correct PICC key, formatting creates a readable Type 4 CC and a
+- With the factory DES key, formatting creates a readable Type 4 CC and a
   writable NDEF file.
 - A Text record writes, reads back, and restores the original empty state.
 - A wrong key is refused without retry loops and without creating anything.
@@ -286,8 +294,8 @@ Acceptance:
 - Which Ultralight EV1 variant is owned, and does it ship with a valid CC?
 - Which UID clone variant is owned: direct-write pages 0/1, 7-byte or 4-byte
   UID, and does it recompute BCC1?
-- Which DESFire PICC key does the EV3 use, and is `AuthenticateEV2First` with
-  AES-128 available on the current card state?
+- The EV3 PICC key is legacy DES/2K3DES all zero on the owned factory-blank
+  card; `AuthenticateEV2First` with AES-128 is not available in that state.
 
 These questions are answered by the read-only inventory before any irreversible
 step.

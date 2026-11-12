@@ -1,8 +1,8 @@
 # Spec: phase 25.5 DESFire EV3 8K inventory
 
-Status: inventory implemented and hardware-validated 2026-11-12; NDEF
-formatting blocked on the card's PICC key. Plan:
-[25-card-support.md](../plan/25-card-support.md).
+Status: inventory implemented and hardware-validated 2026-11-12; the factory
+legacy DES key authenticates, but NDEF formatting and user-facing writes are
+not implemented. Plan: [25-card-support.md](../plan/25-card-support.md).
 
 ## Problem
 
@@ -17,10 +17,16 @@ DESFire command layer and a read-only inventory.
   no-data APDU form.
 - `GetVersion` with additional-frame chaining.
 - `GetApplicationIDs`, `SelectApplication`, `GetFileIDs`, `GetFileSettings`.
+- Legacy DES/2K3DES authentication (`0x0A`, D40 send mode), session-key
+  derivation, and random RndA.
+- Primitive application/file commands (`CreateApplication`,
+  `DeleteApplication`, `CreateStdDataFile`, `WriteData`, `ReadData`) for the
+  hardware test; no CLI or GUI surface is added.
 - `nfctl desfire info` prints the version and the application/file inventory.
-  It is a developer diagnostic; no GUI path is added until formatting is
-  unblocked.
-- The operation is read-only; it never authenticates or writes.
+  It is a developer diagnostic; no GUI path is added yet.
+- The `nfctl desfire info` operation is read-only; it never authenticates or
+  writes. The hardware test creates and removes a reserved temporary
+  application only when both write gates are set.
 
 ## Formatting gate
 
@@ -31,21 +37,25 @@ AN11004 formatting requires an authenticated PICC session:
 - write the 15-byte CC;
 - verify through the existing Type 4 reader.
 
-The owned card uses a response to `AuthenticateISO` (`0x1A`), not EV2/AES. The
-published PM3 default dictionary was tried; 54 candidates, including AES and
-DES/2K3DES defaults, all failed. The PICC key is therefore custom or otherwise
-unknown.
+The owned factory-blank card authenticates with legacy `Authenticate` (`0x0A`),
+an 8-byte DES zero key, and D40 send mode for the second frame. A 16-byte
+2K3DES zero key works identically; AES EV2 (`0x71`) and 3K3DES (`0x1A`) do not.
+The earlier default-key dictionary failed on framing, not on the key.
 
-No format/delete command is exposed until:
+A full `FormatPICC` is only needed to erase existing applications. It is not
+required to create the NDEF application on an otherwise blank PICC. No
+format/delete command is exposed until:
 
-- the PICC key is known, or PM3 identifies it; and
-- the matching secure channel (EV1/2K3DES or EV2/AES) is implemented and
+- legacy authentication and the command session are implemented and
   hardware-validated; and
-- the delete/undo path is hardware-validated.
+- the create/undo path is hardware-validated.
 
 ## Acceptance
 
 - `nfctl desfire info` reports `MIFARE DESFire EV3`, version 51.0, storage
   `0x1A`, and `applications: none` on the owned card.
 - The operation performs no authentication and no write.
-- No DESFire format command exists in the CLI or GUI while the key is unknown.
+- The hardware test authenticates with the factory DES zero key, creates the
+  reserved temporary application and a standard file, reads back the written
+  payload, deletes the application, and leaves `GetApplicationIDs` empty.
+- No DESFire format command exists in the CLI or GUI yet.

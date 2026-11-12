@@ -61,10 +61,11 @@ Date: 2026-11-10
   It explicitly lists ACR122U writes for Classic data blocks, Type 2 NDEF, and
   Classic NDEF, one-way locks, passwords, and trailer writes as not recorded;
   it records Classic 4K read/write, Ultralight EV1 MF0UL11, FM11RF08S backdoor
-  recovery, a 7-byte Type 2 UID change, DESFire EV3 read-only inventory, and
-  Type 4 read/write on PN532 UART, with the ACR122U paths unrecorded. Type 4
-  remains unadvertised because it has no surface; DESFire NDEF formatting is
-  blocked on the card's PICC key.
+  recovery, a 7-byte Type 2 UID change, DESFire EV3 read-only inventory and a
+  reserved temporary application/file round trip, and Type 4 read/write on
+  PN532 UART, with the ACR122U paths unrecorded. Type 4 remains unadvertised
+  because it has no surface; DESFire EV3 user-facing writes and NDEF
+  formatting are not implemented, although the factory key authenticates.
 
 ## Tested
 
@@ -156,8 +157,10 @@ does not claim the unrecorded ACR122U paths.
   (see `docs/notes/25c-fm11rf08s.md`).
 - ACR122U Type 2 UID-page probe and change record; PN532 UART passed on
   2026-11-12 (see `docs/notes/25d-type2-uid.md`).
-- DESFire EV3 NDEF formatting needs the PICC key and the EV1 secure channel;
-  only read-only inventory is recorded (see `docs/notes/25e-desfire.md`).
+- DESFire EV3 factory-key authentication and a reserved temporary
+  application/file write-read-delete round trip are validated; user-facing
+  writes and NDEF formatting are not implemented
+  (see `docs/notes/25e-desfire.md`).
 - ACR122U re-run of the certified rows after any driver change.
 - The GitHub release tag and release publication are approval-gated steps
   outside this phase.

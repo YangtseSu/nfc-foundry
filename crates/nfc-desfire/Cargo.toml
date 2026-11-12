@@ -6,9 +6,18 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+cipher = "0.5.2"
+des = "0.9.0"
+getrandom = "0.4.3"
 nfc-core.workspace = true
 nfc-transport.workspace = true
 
+[features]
+default = []
+hardware = []
+
+[dev-dependencies]
+nfc-drivers.workspace = true
 
 [lints]
 workspace = true

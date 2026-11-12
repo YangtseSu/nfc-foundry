@@ -49,7 +49,7 @@ work; their current equivalents are the GTK4 workspaces.
 | 22 | Grouped primary navigation and header menu | done (superseded by 23) |
 | 23 | Card-family workspaces and NDEF placement | done |
 | 24 | Parity recovery: verified keys, workbench, UID, reader lifecycle, diagnostics | in progress (S1, S2, S3a, S3b, S4, S6 done) |
-| 25 | Owned-card support: 4K clone, Ultralight EV1, FM11RF08S recovery, DESFire EV3 NDEF, UID NTAG213 | in progress (25.1–25.4 done; 25.5 inventory, format blocked) |
+| 25 | Owned-card support: 4K clone, Ultralight EV1, FM11RF08S recovery, DESFire EV3 NDEF, UID NTAG213 | in progress (25.1–25.4 done; 25.5 inventory, factory-key auth, temporary file round trip done; NDEF format not implemented) |
 
 ## Rules
 
@@ -798,8 +798,9 @@ FM11RN32N Classic 4K, FM11RF08S recovery, Ultralight EV1, DESFire EV3 8K NDEF,
 and the UID-changeable NTAG213 clone.
 
 Detailed plan: [25-card-support.md](25-card-support.md). Status: in progress;
-25.1–25.4 complete 2026-11-12 (25.2 MF0UL11 only); 25.5 inventory is
-read-only and formatting is blocked on the PICC key. Slice order: 4K
+25.1–25.4 complete 2026-11-12 (25.2 MF0UL11 only); 25.5 inventory and
+factory-key authentication are complete, while formatting and user-facing
+writes are not implemented. Slice order: 4K
 validation, Ultralight EV1 profiles and `GET_VERSION`, native FM11RF08S
 recovery, guarded NTAG213 UID writes, then DESFire EV3 inventory and AN11004
 NDEF formatting. The plan names every operation that is irreversible; DESFire
