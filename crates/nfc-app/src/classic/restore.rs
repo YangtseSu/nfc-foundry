@@ -452,7 +452,7 @@ fn prepare(operation: &mut Operation<'_>, request: &PrepareRequest<'_>) -> Resul
     let layout = layout_for_card(operation.card())?;
     validate_source(request.dump, operation.card())?;
 
-    let backup = read_dump(operation, request.keys, request.include_common_keys)?.dump;
+    let backup = read_dump(operation, request.keys, request.include_common_keys, false)?.dump;
     let selected = selected_blocks(
         request.selection,
         request.dump,

@@ -24,12 +24,12 @@ use crate::pn53x::{
     AUTO_ATR_RES_AND_RATS, FirmwareVersion, GET_FIRMWARE_VERSION, IN_COMMUNICATE_THRU,
     IN_DATA_EXCHANGE, IN_LIST_PASSIVE_TARGET, IN_RELEASE, INITIATOR, ISO14443A_106_KBPS,
     MAX_ISO_DEP_APDU, MIFARE_AUTH_A, MIFARE_AUTH_B, MIFARE_READ, MIFARE_WRITE, PARITY_DISABLE,
-    READ_REGISTER, REG_CIU_BIT_FRAMING, REG_CIU_CONTROL, REG_CIU_MANUAL_RCV, REG_CIU_RX_MODE,
-    REG_CIU_STATUS2, REG_CIU_TX_MODE, RF_CONFIGURATION, RF_FIELD, RF_RETRY_SELECT, RX_LAST_BITS,
-    SET_PARAMETERS, TARGET_NUMBER, TX_RX_CRC_ENABLE, TYPE2_ACK, TYPE2_GET_VERSION, TYPE2_PWD_AUTH,
-    TYPE2_READ, TYPE2_WRITE, WRITE_REGISTER, parse_firmware, parse_passive_target, parse_response,
-    split_apdu_response, status_error, type2_command, type2_response, unwrap_parity_frame,
-    wrap_parity_frame_bits,
+    PASSIVE_ACTIVATION_RETRIES, READ_REGISTER, REG_CIU_BIT_FRAMING, REG_CIU_CONTROL,
+    REG_CIU_MANUAL_RCV, REG_CIU_RX_MODE, REG_CIU_STATUS2, REG_CIU_TX_MODE, RF_CONFIGURATION,
+    RF_FIELD, RF_RETRY_SELECT, RX_LAST_BITS, SET_PARAMETERS, TARGET_NUMBER, TX_RX_CRC_ENABLE,
+    TYPE2_ACK, TYPE2_GET_VERSION, TYPE2_PWD_AUTH, TYPE2_READ, TYPE2_WRITE, WRITE_REGISTER,
+    cascade_uid, parse_firmware, parse_passive_target, parse_response, split_apdu_response,
+    status_error, type2_command, type2_response, unwrap_parity_frame, wrap_parity_frame_bits,
 };
 
 #[cfg(test)]
@@ -280,9 +280,26 @@ impl Acr122Protocol {
 
     pub(crate) fn select_card(&mut self) -> Result<CardInfo> {
         self.require_ordinary("card selection")?;
-        if self.selected.is_some() {
-            self.release_card()?;
+        // Re-select the known UID instead of releasing the card: a release
+        // HALTs it, and phone emulations are sensitive to field cycling.
+        if let Some(previous) = self.selected.clone() {
+            match self.select_known(&previous) {
+                Ok(card) => {
+                    self.selected = Some(card.clone());
+                    return Ok(card);
+                }
+                Err(NfcError::NoCard | NfcError::Timeout(_)) => {}
+                Err(error) => return Err(error),
+            }
         }
+        // The known target is gone or did not answer. Release it so a
+        // replacement card can be discovered from IDLE.
+        if let Err(error) = self.release_card()
+            && !matches!(error, NfcError::NoCard | NfcError::Timeout(_))
+        {
+            return Err(error);
+        }
+        self.selected = None;
         self.set_tx_last_bits(0)?;
         let response = self.command(
             &[IN_LIST_PASSIVE_TARGET, 0x01, ISO14443A_106_KBPS],
@@ -292,6 +309,17 @@ impl Acr122Protocol {
         let card = parse_passive_target(&response, "ACR122U")?;
         self.selected = Some(card.clone());
         Ok(card)
+    }
+
+    /// Re-selects a known ISO/IEC 14443A UID without releasing the card.
+    fn select_known(&mut self, card: &CardInfo) -> Result<CardInfo> {
+        self.set_tx_last_bits(0)?;
+        let uid = cascade_uid(&card.uid);
+        let mut command = Vec::with_capacity(3 + uid.len());
+        command.extend_from_slice(&[IN_LIST_PASSIVE_TARGET, 0x01, ISO14443A_106_KBPS]);
+        command.extend_from_slice(&uid);
+        let response = self.command(&command, self.config.command_timeout, Retry::No)?;
+        parse_passive_target(&response, "ACR122U")
     }
 
     pub(crate) fn authenticate(&mut self, block: u8, key_type: KeyType, key: Key) -> Result<()> {
@@ -578,7 +606,13 @@ impl Acr122Protocol {
         )?;
         thread::sleep(Duration::from_millis(10));
         self.command(
-            &[RF_CONFIGURATION, RF_RETRY_SELECT, 0x00, 0x01, 0x02],
+            &[
+                RF_CONFIGURATION,
+                RF_RETRY_SELECT,
+                0x00,
+                0x01,
+                PASSIVE_ACTIVATION_RETRIES,
+            ],
             self.config.command_timeout,
             Retry::Yes,
         )?;
@@ -956,6 +990,27 @@ mod tests {
         )
     }
 
+    fn selected_card_response() -> ApduResponse {
+        response(
+            IN_LIST_PASSIVE_TARGET,
+            &[
+                0x01,
+                TARGET_NUMBER,
+                0x00,
+                0x04,
+                0x08,
+                0x07,
+                0x04,
+                0x11,
+                0x22,
+                0x33,
+                0x44,
+                0x55,
+                0x66,
+            ],
+        )
+    }
+
     fn push(steps: &Arc<Mutex<VecDeque<LinkStep>>>, step: LinkStep) {
         steps
             .lock()
@@ -1060,7 +1115,7 @@ mod tests {
                 RF_RETRY_SELECT,
                 0x00,
                 0x01,
-                0x02
+                PASSIVE_ACTIVATION_RETRIES
             ]
         );
     }
@@ -1154,13 +1209,46 @@ mod tests {
         );
 
         let (link, steps, log) = ScriptedLink::scripted();
-        push(&steps, LinkStep::Apdu(response(IN_RELEASE, &[])));
-        push(&steps, LinkStep::Apdu(classic_card_response()));
-        let mut protocol = unselected_protocol(link);
-        protocol.selected = Some(selected_card());
-        protocol.select_card().expect("reselect");
+        push(&steps, LinkStep::Apdu(selected_card_response()));
+        let mut protocol = test_protocol(link);
+        let card = protocol.select_card().expect("reselect");
+        assert!(card.same_identity(&selected_card()));
         assert_eq!(
             log.lock()[0],
+            vec![
+                0xFF,
+                0x00,
+                0x00,
+                0x00,
+                0x0C,
+                0xD4,
+                IN_LIST_PASSIVE_TARGET,
+                0x01,
+                0x00,
+                0x88,
+                0x04,
+                0x11,
+                0x22,
+                0x33,
+                0x44,
+                0x55,
+                0x66
+            ]
+        );
+
+        let (link, steps, log) = ScriptedLink::scripted();
+        push(
+            &steps,
+            LinkStep::Apdu(response(IN_LIST_PASSIVE_TARGET, &[0x00])),
+        );
+        push(&steps, LinkStep::Apdu(response(IN_RELEASE, &[])));
+        push(&steps, LinkStep::Apdu(classic_card_response()));
+        let mut protocol = test_protocol(link);
+        let card = protocol.select_card().expect("replacement card");
+        assert_eq!(card.uid, vec![0xDE, 0xAD, 0xBE, 0xEF]);
+        let apdus = log.lock();
+        assert_eq!(
+            apdus[1],
             vec![
                 0xFF,
                 0x00,
@@ -1170,6 +1258,20 @@ mod tests {
                 0xD4,
                 IN_RELEASE,
                 TARGET_NUMBER
+            ]
+        );
+        assert_eq!(
+            apdus[2],
+            vec![
+                0xFF,
+                0x00,
+                0x00,
+                0x00,
+                0x04,
+                0xD4,
+                IN_LIST_PASSIVE_TARGET,
+                0x01,
+                0x00
             ]
         );
     }
@@ -1445,8 +1547,7 @@ mod tests {
             0x08,
             CardType::MifareClassic1K,
         ));
-        // Release and reselect the card before raw mode.
-        push(&steps, LinkStep::Apdu(response(IN_RELEASE, &[])));
+        // Reselect the known card before raw mode.
         push(
             &steps,
             LinkStep::Apdu(response(
@@ -1503,9 +1604,9 @@ mod tests {
             .write_manufacturer_block(original)
             .expect("Gen1A write");
         let apdus = log.lock().clone();
-        assert_eq!(apdus.len(), 18);
+        assert_eq!(apdus.len(), 17);
         assert_eq!(
-            &apdus[12][..],
+            &apdus[11][..],
             &[
                 0xFF,
                 0x00,

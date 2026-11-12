@@ -267,6 +267,9 @@ struct MockState {
     block_zero_writable: bool,
     /// Type 2 pages 0/1 update the selected UID, as on a UID-changeable clone.
     type2_uid_writable: bool,
+    /// Selection succeeds but every MIFARE authentication times out, as on a
+    /// phone-emulated UID-only card.
+    mifare_unsupported: bool,
 }
 
 impl Default for MockState {
@@ -297,6 +300,7 @@ impl Default for MockState {
             },
             block_zero_writable: true,
             type2_uid_writable: false,
+            mifare_unsupported: false,
         }
     }
 }
@@ -466,6 +470,12 @@ impl MockHandle {
         self.lock().block_zero_writable = enabled;
     }
 
+    /// Make every MIFARE authentication time out, as on a phone-emulated
+    /// UID-only card. Selection and card identity stay available.
+    pub fn set_mifare_unsupported(&self, enabled: bool) {
+        self.lock().mifare_unsupported = enabled;
+    }
+
     pub fn manufacturer_write(&self) -> bool {
         self.lock().capabilities.manufacturer_write
     }
@@ -601,11 +611,22 @@ impl Reader for MockReader {
     }
 
     fn authenticate(&mut self, _block: u8, _key_type: KeyType, _key: Key) -> Result<()> {
-        self.state.lock().check_call(MockCall::Authenticate)
+        let mut state = self.state.lock();
+        if state.mifare_unsupported {
+            return Err(NfcError::Timeout(
+                "the card did not answer MIFARE authentication".to_owned(),
+            ));
+        }
+        state.check_call(MockCall::Authenticate)
     }
 
     fn read_block(&mut self, block: u8) -> Result<[u8; BLOCK_SIZE]> {
         let mut state = self.state.lock();
+        if state.mifare_unsupported {
+            return Err(NfcError::Timeout(
+                "the card did not answer a MIFARE read".to_owned(),
+            ));
+        }
         state.check_call(MockCall::ReadBlock)?;
         let data = state.blocks.get(&block).copied().ok_or_else(|| {
             NfcError::InvalidArgument(format!("mock block {block} is not loaded"))

@@ -6079,7 +6079,43 @@ fn finish_read(ui: &Rc<Ui>, result: NfcResult<CardReadResult>) {
             let card = read.dump.card.clone();
             let captured = read.keys.clone();
             let warnings = read.warnings;
+            let identity_only = read.identity_only;
             let dump = read.dump;
+            if identity_only {
+                ui.type2.replace(None);
+                ui.type2_restore.replace(None);
+                ui.live.set(false);
+                reset_workbench(ui, &dump);
+                ui.dump.replace(Some(dump.clone()));
+                ui.dump_source.replace(Some("identity only".to_owned()));
+                populate_rows(ui, &dump);
+                switch_workspace(ui, Workspace::Classic);
+                ui.classic_tabs.set_visible_child_name("blocks");
+                invalidate_ndef_editor(ui);
+                update_card(ui);
+                update_ndef(ui);
+                update_restore_sensitivity(ui);
+                render_type2(ui);
+                let uid = card
+                    .as_ref()
+                    .map(CardInfo::uid_hex)
+                    .unwrap_or_else(|| "unknown".to_owned());
+                ui.status.set_localized(&format!(
+                    "Card identified · UID {uid} · no MIFARE data readable"
+                ));
+                append_log(
+                    ui,
+                    &format!(
+                        "read · identity only · UID {uid} · 0/{} blocks",
+                        dump.layout.block_count()
+                    ),
+                );
+                for warning in &warnings {
+                    append_log(ui, &format!("warning · {warning}"));
+                }
+                toast_info(ui, "Card identified; no MIFARE Classic data readable");
+                return;
+            }
             ui.type2.replace(None);
             ui.type2_restore.replace(None);
             ui.live.set(true);
@@ -6158,6 +6194,32 @@ fn finish_read(ui: &Rc<Ui>, result: NfcResult<CardReadResult>) {
                     ),
                 );
             }
+        }
+        Ok(CardReadResult::IdentityOnly(card)) => {
+            ui.type2.replace(None);
+            ui.type2_restore.replace(None);
+            ui.live.set(false);
+            ui.dump.replace(None);
+            ui.dump_source.replace(None);
+            ui.rows.remove_all();
+            ui.table_stack.set_visible_child_name("empty");
+            reset_advanced(ui);
+            update_card(ui);
+            update_ndef(ui);
+            update_restore_sensitivity(ui);
+            render_type2(ui);
+            let uid = card.uid_hex();
+            ui.status.set_localized(&format!(
+                "Card identified · UID {uid} · no supported read path"
+            ));
+            append_log(
+                ui,
+                &format!(
+                    "read · identity only · {} · UID {uid}",
+                    card.card_type.label()
+                ),
+            );
+            toast_info(ui, "Card identified; no supported read path for its data");
         }
         Ok(_) => {
             ui.status.set_localized("Read failed");
@@ -11637,6 +11699,15 @@ mod tests {
             Some(type2_card(0x80)),
         );
         install_ntag(&ntag, &ntag_pages(false, false, true));
+        transport.add(
+            DeviceInfo::new("Mock Unknown", "mock:unknown"),
+            Some(CardInfo::new(
+                vec![0x08, 0x11, 0x22, 0x33],
+                [0x00, 0x04],
+                0x00,
+                CardType::Unknown,
+            )),
+        );
         let mut service = Service::with_transport(Arc::new(transport));
         service.refresh_devices().expect("enumerate");
         service.select_device("mock:classic").expect("select");
@@ -11914,6 +11985,8 @@ mod tests {
         keys_screen_adds_and_saves(&harness);
         details_view_matches_the_dump_and_key_model(&harness);
         read_captures_keys(&harness);
+        identity_only_read_stays_inspect(&harness);
+        unsupported_card_reports_identity(&harness);
         classic_uid_write(&harness);
         keyscan_finds_and_saves(&harness);
         recovery_limitation_and_saved_key(&harness);
@@ -12802,6 +12875,48 @@ mod tests {
         let loaded = KeyStore::load(&path).expect("persisted key store");
         assert!(loaded.verified_count(&test_card()) >= after);
         assert!(activity_text(ui).contains("captured"));
+    }
+
+    fn identity_only_read_stays_inspect(harness: &Harness) {
+        reset(harness);
+        harness.handle.set_mifare_unsupported(true);
+        let ui = &harness.ui;
+        choose_reader(harness, "mock:classic");
+        start_read(ui.clone());
+        pump_until(ui, "identity-only read", || {
+            !ui.busy.get() && ui.status.label().contains("Card identified")
+        });
+        assert!(!ui.live.get(), "identity-only images are not live");
+        let dump = ui.dump.borrow().clone().expect("identity-only dump");
+        assert_eq!(dump.card.as_ref(), Some(&test_card()));
+        assert_eq!(dump.readability().readable_blocks, 0);
+        assert!(
+            ui.status.label().contains("04 A2 24 8A"),
+            "{}",
+            ui.status.label()
+        );
+        assert!(!ui.inspector.commit.is_sensitive());
+        assert!(activity_text(ui).contains("identity only"));
+        harness.handle.set_mifare_unsupported(false);
+    }
+
+    fn unsupported_card_reports_identity(harness: &Harness) {
+        reset(harness);
+        let ui = &harness.ui;
+        choose_reader(harness, "mock:unknown");
+        start_read(ui.clone());
+        pump_until(ui, "identity-only unsupported read", || {
+            !ui.busy.get() && ui.status.label().contains("no supported read path")
+        });
+        assert!(!ui.live.get());
+        assert!(ui.dump.borrow().is_none());
+        assert!(
+            ui.status.label().contains("08 11 22 33"),
+            "{}",
+            ui.status.label()
+        );
+        assert!(activity_text(ui).contains("identity only"));
+        choose_reader(harness, "mock:classic");
     }
 
     fn classic_uid_write(harness: &Harness) {

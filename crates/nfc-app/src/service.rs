@@ -27,6 +27,9 @@ use crate::type2::{Type2ReadRequest, Type2ReadResult};
 pub enum CardReadResult {
     Classic(ClassicReadResult),
     Type2(Type2ReadResult),
+    /// The card was selected but its SAK/ATQA does not identify a supported
+    /// read path. Only the selection identity (UID, ATQA, SAK) is available.
+    IdentityOnly(CardInfo),
 }
 
 struct PendingWrite {
@@ -157,17 +160,19 @@ impl Service {
             )
             .map(CardReadResult::Type2),
             CardType::MifareClassic1K | CardType::MifareClassic4K => {
-                let mut result =
-                    crate::classic::read::read_dump(&mut operation, keys, include_common_keys)?;
+                let mut result = crate::classic::read::read_dump(
+                    &mut operation,
+                    keys,
+                    include_common_keys,
+                    true,
+                )?;
                 result.dump.metadata.device = device;
                 Ok(CardReadResult::Classic(result))
             }
             CardType::MifareMini => Err(NfcError::Unsupported(
                 "MIFARE Mini is identified but has no supported layout; read and write are unavailable",
             )),
-            _ => Err(NfcError::Unsupported(
-                "the selected card is not a supported Classic or Type 2 tag",
-            )),
+            _ => Ok(CardReadResult::IdentityOnly(operation.card().clone())),
         }
     }
 
@@ -178,11 +183,16 @@ impl Service {
             keys,
             include_common_keys,
             cancel,
+            allow_identity_only,
         } = request;
         let device = self.devices.selected().map(str::to_owned);
         let mut operation = self.begin_operation(OperationKind::Read, cancel)?;
-        let mut result =
-            crate::classic::read::read_dump(&mut operation, keys, include_common_keys)?;
+        let mut result = crate::classic::read::read_dump(
+            &mut operation,
+            keys,
+            include_common_keys,
+            allow_identity_only,
+        )?;
         result.dump.metadata.device = device;
         Ok(result)
     }
@@ -551,7 +561,8 @@ impl Service {
         backup: &BackupStore,
     ) -> Result<BackupRecord> {
         let mut operation = self.begin_operation(OperationKind::Read, CancelToken::new())?;
-        let dump = crate::classic::read::read_dump(&mut operation, keys, include_common_keys)?.dump;
+        let dump =
+            crate::classic::read::read_dump(&mut operation, keys, include_common_keys, false)?.dump;
         backup.save(
             &dump,
             &crate::classic::write::backup_label(&dump, dump.layout, "backup"),
@@ -739,6 +750,15 @@ mod tests {
             Some(type2_card(0x80)),
         );
         seed_ntag(&ntag);
+        transport.add(
+            DeviceInfo::new("Mock Unknown", "mock:unknown"),
+            Some(CardInfo::new(
+                vec![0x08, 0x11, 0x22, 0x33],
+                [0x00, 0x04],
+                0x00,
+                CardType::Unknown,
+            )),
+        );
         let mut service = Service::with_transport(Arc::new(transport));
         service.refresh_devices().expect("refresh");
 
@@ -762,6 +782,20 @@ mod tests {
             .read_card(&KeyStore::new(), true, None, CancelToken::new())
             .expect("classic read");
         assert!(matches!(read, CardReadResult::Classic(_)));
+
+        service
+            .select_device("mock:unknown")
+            .expect("select unknown");
+        let read = service
+            .read_card(&KeyStore::new(), true, None, CancelToken::new())
+            .expect("identity-only read");
+        match read {
+            CardReadResult::IdentityOnly(card) => {
+                assert_eq!(card.card_type, CardType::Unknown);
+                assert_eq!(card.uid, vec![0x08, 0x11, 0x22, 0x33]);
+            }
+            other => panic!("unexpected read result: {other:?}"),
+        }
     }
 
     #[test]

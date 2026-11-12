@@ -16,6 +16,7 @@ use nfc_transport::{DeviceInfo, ManufacturerWriter, Reader, ReaderCapabilities, 
 const UID: [u8; 4] = [0x04, 0xA2, 0x24, 0x8A];
 const KEY_A: Key = Key::new([0xFF; 6]);
 const KEY_B: Key = Key::new([0xA0; 6]);
+const KEY_ZERO: Key = Key::new([0x00; 6]);
 const DENIED: Key = Key::new([0x99; 6]);
 
 fn card() -> CardInfo {
@@ -75,6 +76,14 @@ struct TestState {
     write_applied_error: Option<u8>,
     /// Remove the card after a successful write, before the verification read.
     vanish_after_write: bool,
+    /// Selection succeeds but every MIFARE authentication times out, as on a
+    /// phone-emulated UID-only card.
+    mifare_unsupported: bool,
+    /// A denied key times out instead of returning a NAK, as some phone
+    /// emulations do. A MIFARE read still answers, proving MIFARE support.
+    auth_timeout_on_denied: bool,
+    /// One block read times out while the card stays present.
+    read_timeout_block: Option<u8>,
     /// Advertise the protected Gen1A manufacturer writer.
     manufacturer_write: bool,
     /// Fail the protected writer without touching the card.
@@ -198,11 +207,21 @@ impl Reader for TestReader {
         if state.card.is_none() {
             return Err(NfcError::NoCard);
         }
+        if state.mifare_unsupported {
+            return Err(NfcError::Timeout(
+                "the card did not answer MIFARE authentication".to_owned(),
+            ));
+        }
         state.auth_log.push((block, key_type, key));
         let sector = block / 4;
         if let Some(rules) = state.sector_rules.get(&sector)
             && !rules.contains(&(key_type, key))
         {
+            if state.auth_timeout_on_denied {
+                return Err(NfcError::Timeout(
+                    "the card did not answer MIFARE authentication".to_owned(),
+                ));
+            }
             return Err(NfcError::AuthenticationFailed);
         }
         if let Some((threshold, token)) = &state.cancel_after_auths
@@ -217,6 +236,16 @@ impl Reader for TestReader {
         let state = self.handle.lock();
         if state.card.is_none() {
             return Err(NfcError::NoCard);
+        }
+        if state.mifare_unsupported {
+            return Err(NfcError::Timeout(
+                "the card did not answer a MIFARE read".to_owned(),
+            ));
+        }
+        if state.read_timeout_block == Some(block) {
+            return Err(NfcError::Timeout(format!(
+                "the card did not answer a read of block {block}"
+            )));
         }
         let mut data = state
             .blocks
@@ -436,6 +465,163 @@ fn dump_leaves_block_zero_unknown_when_sector_zero_does_not_authenticate() {
         nfc_classic::BlockStatus::AuthFailed
     );
     assert!(result.dump.blocks[4].complete());
+}
+
+#[test]
+fn uid_only_emulation_reads_identity_without_data() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    handle.lock().mifare_unsupported = true;
+    let mut service = service(&handle);
+    let store = KeyStore::new();
+
+    let result = service
+        .classic_read(ClassicRead::new(&store).allow_identity_only(true))
+        .expect("identity-only read");
+    assert!(result.identity_only);
+    assert_eq!(result.dump.card.as_ref(), Some(&card()));
+    assert_eq!(result.dump.readability().readable_blocks, 0);
+    assert!(result.keys.is_empty());
+    assert!(
+        result
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("did not answer MIFARE authentication")),
+        "{:?}",
+        result.warnings
+    );
+    assert!(
+        result
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("selection identity")),
+        "{:?}",
+        result.warnings
+    );
+}
+
+#[test]
+fn uid_only_emulation_is_an_error_without_the_identity_fallback() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    handle.lock().mifare_unsupported = true;
+    let mut service = service(&handle);
+    let store = KeyStore::new();
+
+    let result = service.classic_read(ClassicRead::new(&store));
+    assert!(matches!(result, Err(NfcError::Timeout(_))));
+}
+
+#[test]
+fn phone_emulation_continues_after_a_timed_out_wrong_key() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    {
+        let mut state = handle.lock();
+        state.accept_only(0, &[(KeyType::A, KEY_A)]);
+        state.auth_timeout_on_denied = true;
+    }
+    let mut service = service(&handle);
+    // The stored key is tried first and times out; the common-key fallback
+    // then authenticates. The unauthenticated READ probe must prove that the
+    // card speaks MIFARE so the read does not stop as identity-only.
+    let store = key_store(&[(KeyType::A, DENIED)]);
+    let result = service
+        .classic_read(
+            ClassicRead::new(&store)
+                .include_common_keys(true)
+                .allow_identity_only(true),
+        )
+        .expect("phone emulation read");
+    assert!(!result.identity_only);
+    assert!(result.dump.blocks[0].complete());
+    assert!(
+        result
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("answered a MIFARE read")),
+        "{:?}",
+        result.warnings
+    );
+}
+
+#[test]
+fn dump_reuses_the_last_authenticated_key() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    {
+        let mut state = handle.lock();
+        for sector in 0..16 {
+            state.accept_only(sector, &[(KeyType::A, KEY_ZERO)]);
+        }
+    }
+    let mut service = service(&handle);
+
+    let result = service
+        .classic_read(ClassicRead::new(&KeyStore::new()).include_common_keys(true))
+        .expect("read");
+    assert!(result.dump.complete());
+    let auths = handle.lock().auth_log.len();
+    assert!(
+        auths <= 20,
+        "expected the preferred key to be reused across sectors, got {auths} auths"
+    );
+}
+
+#[test]
+fn dump_does_not_brute_force_the_full_common_dictionary() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    let late = Key::from_hex("AABBCCDDEEFF").expect("key");
+    {
+        let mut state = handle.lock();
+        for sector in 0..16 {
+            state.accept_only(sector, &[(KeyType::A, late)]);
+        }
+    }
+    let mut service = service(&handle);
+
+    let result = service.classic_read(ClassicRead::new(&KeyStore::new()).include_common_keys(true));
+    assert!(matches!(result, Err(NfcError::AuthenticationFailed)));
+    let auths = handle.lock().auth_log.len();
+    assert!(
+        auths <= 16 * 8,
+        "a read must not scan the full dictionary, got {auths} auths"
+    );
+}
+
+#[test]
+fn keyscan_continues_after_a_timed_out_wrong_key() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    {
+        let mut state = handle.lock();
+        state.accept_only(0, &[(KeyType::A, KEY_A)]);
+        state.auth_timeout_on_denied = true;
+    }
+    let mut service = service(&handle);
+
+    let result = service
+        .classic_keyscan(
+            ClassicKeyscan::new(&KeyStore::new(), vec![DENIED, KEY_A])
+                .include_common_keys(false)
+                .key_types(KeyTypes::a_only()),
+        )
+        .expect("key scan on a phone emulation");
+    assert_eq!(result.sectors[0].key_a, Some(KEY_A));
+}
+
+#[test]
+fn read_timeout_marks_one_block_and_keeps_the_rest() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    handle.lock().read_timeout_block = Some(4);
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+
+    let result = service
+        .classic_read(ClassicRead::new(&store).include_common_keys(false))
+        .expect("partial read after a block timeout");
+    assert_eq!(
+        result.dump.blocks[4].status,
+        nfc_classic::BlockStatus::ReadFailed
+    );
+    assert!(result.dump.blocks[0].complete());
+    assert!(result.dump.blocks[5].complete());
+    assert!(!result.identity_only);
 }
 
 #[test]

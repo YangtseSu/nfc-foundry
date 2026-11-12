@@ -97,7 +97,11 @@ impl<'a> Operation<'a> {
 
     pub fn authenticate(&mut self, block: u8, key_type: KeyType, key: Key) -> Result<()> {
         self.cancel.check()?;
-        self.check_card()?;
+        // Authentication is bound to the selected UID: the reader appends the
+        // cached UID suffix to the MIFARE authentication frame. Reselecting the
+        // card before each attempt resets Crypto1 and disturbs phone
+        // emulations that expect one selection followed by a command stream.
+        // Operations check identity explicitly at their boundaries.
         self.reader.authenticate(block, key_type, key)
     }
 

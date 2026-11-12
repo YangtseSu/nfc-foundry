@@ -1612,6 +1612,22 @@ keys! {
         "Card read with {} warning(s); see the activity log",
         "卡片读取完成，有 {} 个警告；请查看活动日志"
     ),
+    CardIdentifiedNoData => (
+        "Card identified · UID {uid} · no MIFARE data readable",
+        "已识别卡片 · UID {uid} · 无可读取的 MIFARE 数据"
+    ),
+    CardIdentifiedNoDataToast => (
+        "Card identified; no MIFARE Classic data readable",
+        "已识别卡片；无可读取的 MIFARE Classic 数据"
+    ),
+    CardIdentifiedNoPath => (
+        "Card identified · UID {uid} · no supported read path",
+        "已识别卡片 · UID {uid} · 无受支持的读取路径"
+    ),
+    CardIdentifiedNoPathToast => (
+        "Card identified; no supported read path for its data",
+        "已识别卡片；其数据没有受支持的读取路径"
+    ),
     Type2ReadComplete => ("Type 2 tag read complete", "Type 2 标签读取完成"),
     Type2ReadWarnings => (
         "Type 2 read with {} warning(s); see the activity log",

@@ -48,6 +48,9 @@ pub(crate) const TYPE2_ACK: u8 = 0x0A;
 
 pub(crate) const TARGET_NUMBER: u8 = 0x01;
 pub(crate) const ISO14443A_106_KBPS: u8 = 0x00;
+/// Bounded passive-activation retries. The chip default is infinite and zero
+/// disables retries; phone emulations need more than one activation attempt.
+pub(crate) const PASSIVE_ACTIVATION_RETRIES: u8 = 0x0A;
 pub(crate) const MAX_RAW_PAYLOAD: usize = 252;
 /// Largest complete command APDU carried by one exchange. The ACR122U
 /// pseudo-APDU is limited to 255 bytes, and its `D4 40 01` wrapper leaves 247
@@ -136,6 +139,29 @@ pub(crate) fn parse_passive_target(response: &[u8], source: &str) -> Result<Card
     }
     let uid = targets[5..5 + uid_length].to_vec();
     Ok(CardInfo::new(uid, atqa, sak, CardType::infer(atqa, sak)))
+}
+
+/// Builds the `InListPassiveTarget` `InitiatorData` for a known ISO/IEC
+/// 14443A UID. The PN532 expects the cascade tag `0x88` in front of each
+/// cascaded level, matching libnfc's `iso14443_cascade_uid`.
+pub(crate) fn cascade_uid(uid: &[u8]) -> Vec<u8> {
+    match uid.len() {
+        7 => {
+            let mut data = Vec::with_capacity(8);
+            data.push(0x88);
+            data.extend_from_slice(uid);
+            data
+        }
+        10 => {
+            let mut data = Vec::with_capacity(12);
+            data.push(0x88);
+            data.extend_from_slice(&uid[..3]);
+            data.push(0x88);
+            data.extend_from_slice(&uid[3..]);
+            data
+        }
+        _ => uid.to_vec(),
+    }
 }
 
 /// Validates the `D5 <command+1>` prefix and returns the payload.
@@ -402,5 +428,21 @@ mod tests {
         assert_eq!(data, vec![0x05]);
         assert_eq!(bits, 4);
         assert!(parity.is_empty());
+    }
+
+    #[test]
+    fn cascade_uid_adds_a_tag_for_each_cascaded_level() {
+        assert_eq!(
+            cascade_uid(&[0x04, 0x11, 0x22, 0x33]),
+            vec![0x04, 0x11, 0x22, 0x33]
+        );
+        assert_eq!(
+            cascade_uid(&[0x04, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66]),
+            vec![0x88, 0x04, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66]
+        );
+        assert_eq!(
+            cascade_uid(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]),
+            vec![0x88, 1, 2, 3, 0x88, 4, 5, 6, 7, 8, 9, 10]
+        );
     }
 }

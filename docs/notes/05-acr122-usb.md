@@ -142,3 +142,13 @@ byte-for-byte. NTAG215 NDEF format/write/read/restore restored the original
 - Cross-process locking and physical-reader identity are still future work.
 - The PC/SC alias and the direct USB path cannot be used at the same time;
   users must stop `pcscd` for `acr122_usb`.
+
+## 2026-11-12 phone-emulated card selection
+
+- `select_card` re-selects the cached UID with `InListPassiveTarget`
+  `InitiatorData` before falling back to `InRelease` and an unrestricted
+  selection. This avoids halting a phone emulation on every poll.
+- Passive activation retries are set to `0x0A` instead of `0x02` so a phone
+  that needs a moment to arm its emulation is still found.
+- The identity-only read behavior is shared with the PN532 path; see
+  `26-phone-emulation.md`.

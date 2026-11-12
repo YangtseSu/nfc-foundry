@@ -226,6 +226,17 @@ pub fn keyscan(
                         break 'sectors;
                     }
                     Err(NfcError::AuthenticationFailed) => continue,
+                    Err(NfcError::Timeout(message)) => {
+                        // A phone emulation may time out on a wrong key. An
+                        // unauthenticated READ tells a MIFARE card (NAK) from
+                        // a UID-only emulation (no answer).
+                        operation.check_card()?;
+                        match operation.read_block(first as u8) {
+                            Err(NfcError::Timeout(_)) => return Err(NfcError::Timeout(message)),
+                            Err(NfcError::AuthenticationFailed) | Ok(_) => continue,
+                            Err(error) => return Err(error),
+                        }
+                    }
                     Err(error) => return Err(error),
                 }
             }

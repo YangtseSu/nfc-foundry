@@ -126,7 +126,7 @@ pub fn write_block(
         )?;
     }
 
-    let backup_dump = read_dump(operation, request.keys, request.include_common_keys)?.dump;
+    let backup_dump = read_dump(operation, request.keys, request.include_common_keys, false)?.dump;
     let current = backup_dump
         .blocks
         .get(request.block)

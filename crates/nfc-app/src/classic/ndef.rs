@@ -12,11 +12,32 @@ use nfc_ndef::NdefMessage;
 use crate::operation::Operation;
 
 use super::backup::{BackupRecord, BackupStore};
-use super::keys::KeyStore;
+use super::keys::{KeyEntry, KeyKind, KeySource, KeyStore};
 use super::read::candidate_keys;
 use super::write::{AllowedTypes, backup_label, check_expected_card};
 
 const FACTORY_KEY_B: [u8; 6] = [0xFF; 6];
+
+/// Keys the NDEF mapping itself uses. They are public constants, so a read
+/// does not need to find them in the common dictionary.
+fn ndef_read_keys(keys: &KeyStore) -> KeyStore {
+    let mut keys = keys.clone();
+    let _ = keys.add(KeyEntry::new(
+        Some(0),
+        KeyKind::A,
+        Key::new(MAD_KEY_A),
+        KeySource::ReadContext,
+    ));
+    for sector in (1..=15).chain(17..=39) {
+        let _ = keys.add(KeyEntry::new(
+            Some(sector),
+            KeyKind::A,
+            Key::new(NFC_KEY_A),
+            KeySource::ReadContext,
+        ));
+    }
+    keys
+}
 
 /// Options for reading the Classic NDEF mapping.
 pub struct ClassicNdefRead<'a> {
@@ -172,7 +193,8 @@ pub(crate) fn read(
     operation: &mut Operation<'_>,
     request: ClassicNdefRead<'_>,
 ) -> Result<ClassicNdefReadResult> {
-    let read = super::read::read_dump(operation, request.keys, request.include_common_keys)?;
+    let read_keys = ndef_read_keys(request.keys);
+    let read = super::read::read_dump(operation, &read_keys, request.include_common_keys, false)?;
     let info = read_ndef(&read.dump)?;
     Ok(ClassicNdefReadResult {
         dump: read.dump,
@@ -193,7 +215,8 @@ pub(crate) fn write(
 ) -> Result<ClassicNdefWriteResult> {
     request.cancel.check()?;
     check_expected_card(operation.card(), request.expected_card.as_ref())?;
-    let read = super::read::read_dump(operation, request.keys, request.include_common_keys)?;
+    let read_keys = ndef_read_keys(request.keys);
+    let read = super::read::read_dump(operation, &read_keys, request.include_common_keys, false)?;
     let info = read_ndef(&read.dump)?;
     let layout = info.layout.as_ref().ok_or_else(|| {
         NfcError::InvalidArgument(
@@ -302,7 +325,7 @@ pub(crate) fn write(
     operation.check_card()?;
 
     let verification =
-        super::read::read_dump(operation, request.keys, request.include_common_keys)?;
+        super::read::read_dump(operation, request.keys, request.include_common_keys, false)?;
     let verified = read_ndef(&verification.dump)?;
     if verified.ndef.state != NdefState::Message(request.message.clone()) {
         return Err(NfcError::VerificationFailed(
@@ -330,7 +353,8 @@ pub(crate) fn format(
         ));
     }
     check_expected_card(operation.card(), request.expected_card.as_ref())?;
-    let read = super::read::read_dump(operation, request.keys, request.include_common_keys)?;
+    let read_keys = ndef_read_keys(request.keys);
+    let read = super::read::read_dump(operation, &read_keys, request.include_common_keys, false)?;
     if !read.dump.complete() {
         return Err(NfcError::VerificationFailed(
             "format requires a complete card read; unreadable sectors were left alone".to_owned(),
@@ -472,7 +496,18 @@ pub(crate) fn format(
     }
     operation.check_card()?;
 
-    let verification = super::read::read_dump(operation, request.keys, true)?;
+    let mut verification_keys = request.keys.clone();
+    for (block, data) in &trailer_plan {
+        let sector = layout.sector_for_block(*block)?;
+        let key_a = Key::new(data[..6].try_into().expect("trailer Key A is six bytes"));
+        verification_keys.add(KeyEntry::new(
+            Some(sector),
+            KeyKind::A,
+            key_a,
+            KeySource::ReadContext,
+        ))?;
+    }
+    let verification = super::read::read_dump(operation, &verification_keys, true, false)?;
     let verified = read_ndef(&verification.dump)?;
     let verified_layout = verified.layout.as_ref().ok_or_else(|| {
         NfcError::VerificationFailed("the formatted card has no readable MAD".to_owned())

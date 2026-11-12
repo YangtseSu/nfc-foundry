@@ -158,3 +158,18 @@ Date: 2026-11-09
 - ACR122U USB/CCID remains a stub.
 - Classic geometry, workflows, recovery, and NDEF build on this driver in later
   phases.
+
+## 2026-11-12 phone-emulated card selection
+
+- `select_card` now re-selects a cached UID with `InListPassiveTarget`
+  `InitiatorData` instead of cycling the RF field and running an unrestricted
+  selection on every poll. The cascade tag is added for 7-byte and 10-byte
+  UIDs, matching libnfc's `iso14443a_cascade_uid`.
+- A full field cycle and unrestricted selection remain the fallback when the
+  known card does not answer, so a replacement card is still discovered.
+- `RFConfiguration` item `0x05` now sets `MxRtyPassiveActivation` to `0x0A`
+  instead of `0x00`; the previous value disabled the retries a phone needs
+  while it arms its emulation.
+- A MIFARE authentication timeout is no longer always fatal for a read: the
+  application rechecks the card identity and can return an identity-only
+  result. See `26-phone-emulation.md`.

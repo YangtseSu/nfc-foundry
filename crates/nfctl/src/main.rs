@@ -940,10 +940,18 @@ fn classic_dump(cli: &Cli, service: &mut Service, output: &Path, format: &str) -
     prepare(service, cli.device.as_deref())?;
     let mut keys = load_key_store(cli)?;
     let requested = DumpFormat::parse(format)?;
-    let result =
-        service.classic_read(ClassicRead::new(&keys).include_common_keys(!cli.no_common_keys))?;
+    let result = service.classic_read(
+        ClassicRead::new(&keys)
+            .include_common_keys(!cli.no_common_keys)
+            .allow_identity_only(true),
+    )?;
     for warning in &result.warnings {
         eprintln!("warning: {warning}");
+    }
+    if result.identity_only {
+        eprintln!(
+            "note: the card exposed only its selection identity; no MIFARE Classic data was readable"
+        );
     }
     let bytes = exchange::export(&result.dump, requested)?;
     let chosen = requested.resolve(&result.dump);
@@ -3039,6 +3047,14 @@ fn print_card(card: &CardInfo) {
     println!("sak: {:02X}", card.sak);
     if card.card_type == CardType::MifareMini {
         println!("note: MIFARE Mini is identified only; this product does not read or write it");
+    }
+    if card.card_type == CardType::Unknown {
+        println!(
+            "note: only UID, ATQA, and SAK are available; a UID-only phone emulation does not implement MIFARE commands"
+        );
+    }
+    if card.card_type == CardType::Iso14443 {
+        println!("note: ISO/IEC 14443-4 card; the Classic and Type 2 read paths do not apply");
     }
 }
 
