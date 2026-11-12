@@ -1,6 +1,6 @@
 # Phase 26 plan: DESFire workbench
 
-Status: in progress. 26.1–26.3 are complete; 26.4–26.13 are pending, except
+Status: in progress. 26.1–26.4 are complete; 26.5–26.13 are pending, except
 that 26.12's ordinary NDEF provisioning and guarded delete landed in phase
 25.5. Hardware: PN532 UART first; ACR122U records after a reader is available.
 
@@ -98,6 +98,9 @@ Acceptance:
   than requested.
 
 ### 26.4 Authentication key families
+
+Status: complete 2026-11-12. See
+[26d-auth-key-families.md](../notes/26d-auth-key-families.md).
 
 Deliver:
 

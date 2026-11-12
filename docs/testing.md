@@ -213,7 +213,26 @@ NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
 cargo test -p nfc-desfire --features hardware --test hardware_legacy -- --ignored
 ```
 
-The phase 26.3 read path is covered by unit tests for the `GetValue` command
+The phase 26.4 authentication tests are hardware-free except for the gated
+fixture. `nfc-desfire` matches the AN12343 EV2 ENC/MAC session-key vectors,
+checks AES/3DES CBC round trips, key-length mapping, and key validation.
+`nfctl/tests/hardware_desfire_auth.rs` creates reserved 3K3DES and AES
+applications with zero test keys, authenticates with `0x1A`, `0xAA`, and
+`0x71`, checks session key lengths and EV2 ENC/MAC separation, and verifies
+wrong-key/key-number/family failures. It passed on PN532 UART on 2026-11-12.
+Deleted DESFire applications keep EEPROM tombstones until FormatPICC; the test
+requires `NFC_FOUNDRY_HARDWARE_FORMAT=yes` to format the test card when free
+memory is low (or always when set):
+
+```sh
+NFC_FOUNDRY_HARDWARE=1 NFC_FOUNDRY_HARDWARE_WRITE=yes \
+NFC_FOUNDRY_HARDWARE_FORMAT=yes NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
+cargo test -p nfctl --features hardware-write \
+  --test hardware_desfire_auth -- --ignored
+```
+
+3K3DES/AES file reads require secure messaging and return a typed error until
+phase 26.5. The phase 26.3 read path is covered by unit tests for the `GetValue` command
 shape and the `ReadRecords` payload, plus the service check that a record
 response must be exactly `count * record_size` bytes (short and long responses
 are rejected). The gated test in `nfctl/tests/hardware_desfire_files.rs`

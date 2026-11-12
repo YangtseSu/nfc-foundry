@@ -6,7 +6,9 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+aes = "0.9"
 cipher = "0.5.2"
+cmac = "0.8"
 des = "0.9.0"
 getrandom = "0.4.3"
 nfc-core.workspace = true

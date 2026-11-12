@@ -656,6 +656,8 @@ keys! {
     DesfireOffset => ("Offset", "偏移"),
     DesfireLength => ("Length (optional)", "长度（可选）"),
     DesfireStartRecord => ("Start record (0 = newest)", "起始记录（0 = 最新）"),
+    DesfireKeyType => ("Key type", "密钥类型"),
+    DesfireAutoKeyType => ("Auto", "自动"),
     DesfireRecordCount => ("Record count (optional)", "记录数（可选）"),
     DesfireHint => (
         "Read the card, then enter an application ID and file ID. The file type selects data, value, or record reading.",

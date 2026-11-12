@@ -4,13 +4,16 @@
 
 //! Minimal MIFARE DESFire native command layer over ISO 7816-4 APDUs.
 //!
-//! This crate covers identity and application/file inventory, legacy
-//! DES/2K3DES authentication, the primitive application/file commands, and the
-//! AN11004 NDEF Tag Application layout. The EV1/EV2 secure channel and the
-//! general file/key workbench are not part of this layer.
+//! This crate covers identity and application/file inventory, DES/2K3DES,
+//! 3K3DES, AES EV1, and AES EV2 authentication with session-key derivation,
+//! the primitive application/file commands, and the AN11004 NDEF Tag
+//! Application layout. Secure messaging and the general file/key workbench are
+//! not part of this layer.
 
+use aes::Aes128;
+use cmac::{Cmac, Mac};
 use des::TdesEde3;
-use des::cipher::{BlockCipherDecrypt, KeyInit};
+use des::cipher::{BlockCipherDecrypt, BlockCipherEncrypt, KeyInit};
 use nfc_core::{NfcError, Result};
 use nfc_transport::Reader;
 
@@ -22,6 +25,8 @@ const INS_GET_APPLICATION_IDS: u8 = 0x6A;
 const INS_SELECT_APPLICATION: u8 = 0x5A;
 const INS_GET_FILE_IDS: u8 = 0x6F;
 const INS_GET_FILE_SETTINGS: u8 = 0xF5;
+const INS_GET_FREE_MEMORY: u8 = 0x6E;
+const INS_FORMAT_PICC: u8 = 0xFC;
 const INS_CREATE_APPLICATION: u8 = 0xCA;
 const INS_DELETE_APPLICATION: u8 = 0xDA;
 const INS_CREATE_STD_DATA_FILE: u8 = 0xCD;
@@ -77,32 +82,89 @@ pub const NDEF_CAPABILITY_CONTAINER: [u8; 15] = [
     0x00, 0x0F, 0x20, 0x00, 0x3B, 0x00, 0x34, 0x04, 0x06, 0xE1, 0x04, 0x00, 0xFF, 0x00, 0x00,
 ];
 
-/// The legacy authentication key families this layer can derive.
+/// DESFire authentication key families.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LegacyKeyType {
+pub enum AuthKeyType {
+    /// 8-byte DES or 2K3DES key through `Authenticate` (`0x0A`).
     Des,
+    /// 16-byte 2K3DES key through `Authenticate` (`0x0A`).
     Tdes2,
+    /// 24-byte 3K3DES key through `AuthenticateISO` (`0x1A`).
+    Tdes3,
+    /// 16-byte AES-128 key through `AuthenticateAES` (`0xAA`).
+    Aes,
+    /// 16-byte AES-128 key through `AuthenticateEV2First` (`0x71`).
+    AesEv2,
 }
 
-impl LegacyKeyType {
-    /// Key family selected by the supplied legacy key length.
+impl AuthKeyType {
+    /// Key family implied by a key length. A 16-byte key defaults to
+    /// 2K3DES; AES needs an explicit selection.
     pub fn from_key(key: &[u8]) -> Result<Self> {
         match key.len() {
             8 => Ok(Self::Des),
             16 => Ok(Self::Tdes2),
-            24 => Err(NfcError::Unsupported(
-                "3K3DES authentication is not implemented",
-            )),
+            24 => Ok(Self::Tdes3),
             _ => Err(NfcError::InvalidArgument(
-                "legacy DESFire keys are 8-byte DES or 16-byte 2K3DES".to_owned(),
+                "DESFire keys are 8-byte DES, 16-byte 2K3DES, 24-byte 3K3DES, or 16-byte AES"
+                    .to_owned(),
             )),
+        }
+    }
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Des => "DES",
+            Self::Tdes2 => "2K3DES",
+            Self::Tdes3 => "3K3DES",
+            Self::Aes => "AES",
+            Self::AesEv2 => "AES EV2",
+        }
+    }
+
+    pub const fn key_length(self) -> usize {
+        match self {
+            Self::Des => 8,
+            Self::Tdes2 | Self::Aes | Self::AesEv2 => 16,
+            Self::Tdes3 => 24,
+        }
+    }
+
+    const fn challenge_length(self) -> usize {
+        match self {
+            Self::Des | Self::Tdes2 => 8,
+            Self::Tdes3 | Self::Aes | Self::AesEv2 => 16,
+        }
+    }
+
+    const fn command(self) -> u8 {
+        match self {
+            Self::Des | Self::Tdes2 => INS_AUTHENTICATE,
+            Self::Tdes3 => 0x1A,
+            Self::Aes => 0xAA,
+            Self::AesEv2 => 0x71,
+        }
+    }
+
+    pub fn validate_key(self, key: &[u8]) -> Result<()> {
+        if key.len() == self.key_length() {
+            Ok(())
+        } else {
+            Err(NfcError::InvalidArgument(format!(
+                "{} authentication needs a {}-byte key, got {}",
+                self.name(),
+                self.key_length(),
+                key.len()
+            )))
         }
     }
 }
 
 struct Session {
-    key: Vec<u8>,
-    key_type: LegacyKeyType,
+    enc_key: Vec<u8>,
+    mac_key: Vec<u8>,
+    key_type: AuthKeyType,
+    key_version: u8,
 }
 
 /// DESFire version information.
@@ -671,72 +733,165 @@ impl<'a> Desfire<'a> {
         Ok(())
     }
 
-    /// Authenticate to the selected application with a legacy DES or 2K3DES
-    /// key. The session key is available through [`Self::session_key`].
+    /// Authenticate with the key family inferred from the key length.
+    ///
+    /// A 16-byte key defaults to 2K3DES; AES must be selected explicitly with
+    /// [`Self::authenticate`] and [`AuthKeyType::Aes`] or
+    /// [`AuthKeyType::AesEv2`].
     pub fn authenticate_legacy(&mut self, key_no: u8, key: &[u8]) -> Result<()> {
+        let key_type = AuthKeyType::from_key(key)?;
+        self.authenticate(key_no, key, key_type)
+    }
+
+    /// Authenticate with an explicit key family.
+    ///
+    /// EV2 authentication uses key version 0 (current) and derives both the
+    /// session ENC and MAC keys. Other families use the session key for both.
+    pub fn authenticate(&mut self, key_no: u8, key: &[u8], key_type: AuthKeyType) -> Result<()> {
         if key_no > 14 {
             return Err(NfcError::InvalidArgument(
                 "DESFire application key numbers are 0..=14".to_owned(),
             ));
         }
-        let key_type = LegacyKeyType::from_key(key)?;
-        let tdes_key = expand_tdes_key(key)?;
-        let (challenge, sw) = self.transceive(INS_AUTHENTICATE, &[key_no])?;
+        key_type.validate_key(key)?;
+        let command = key_type.command();
+        let challenge_length = key_type.challenge_length();
+        let request = if matches!(key_type, AuthKeyType::AesEv2) {
+            vec![key_no, 0x00]
+        } else {
+            vec![key_no]
+        };
+        let (mut challenge, sw) = self.transceive(command, &request)?;
         if sw != STATUS_ADDITIONAL {
-            return Err(status_error(INS_AUTHENTICATE, sw));
+            return Err(status_error(command, sw));
         }
-        if challenge.len() != 8 {
+        strip_leading_status(&mut challenge, challenge_length);
+        if challenge.len() != challenge_length {
             return Err(NfcError::VerificationFailed(format!(
-                "legacy authentication returned {} challenge bytes, expected 8",
+                "{} authentication returned {} challenge bytes, expected {challenge_length}",
+                key_type.name(),
                 challenge.len()
             )));
         }
-        let rnd_b = cbc_decrypt(&tdes_key, &challenge)?;
-        let rotated = rotate_left(&rnd_b);
-
-        let mut rnd_a = [0u8; 8];
+        let rnd_b = decrypt_auth_challenge(key, key_type, &challenge)?;
+        if rnd_b.len() != challenge_length {
+            return Err(NfcError::VerificationFailed(
+                "the authentication challenge did not decrypt to one nonce".to_owned(),
+            ));
+        }
+        let rotated_b = rotate_left(&rnd_b);
+        let mut rnd_a = vec![0u8; challenge_length];
         getrandom::fill(&mut rnd_a)
             .map_err(|error| NfcError::Io(format!("random nonce unavailable: {error}")))?;
-
-        let mut payload = Vec::with_capacity(16);
-        payload.extend_from_slice(&rnd_a);
-        payload.extend_from_slice(&rotated);
-        let encrypted = d40_send(&tdes_key, &payload);
-        let (response, sw) = self.transceive(INS_ADDITIONAL_FRAME, &encrypted)?;
+        let mut plain = Vec::with_capacity(challenge_length * 2);
+        plain.extend_from_slice(&rnd_a);
+        plain.extend_from_slice(&rotated_b);
+        let sent = encrypt_auth_payload(key, key_type, &challenge, &plain)?;
+        let (mut response, sw) = self.transceive(INS_ADDITIONAL_FRAME, &sent)?;
         if sw != STATUS_OK {
             return Err(status_error(INS_ADDITIONAL_FRAME, sw));
         }
-        if response.len() != 8 {
+        let expected = if matches!(key_type, AuthKeyType::AesEv2) {
+            32
+        } else {
+            challenge_length
+        };
+        strip_leading_status(&mut response, expected);
+        if response.len() != expected {
             return Err(NfcError::VerificationFailed(format!(
-                "legacy authentication returned {} final bytes, expected 8",
+                "{} authentication returned {} final bytes, expected {expected}",
+                key_type.name(),
                 response.len()
             )));
         }
-        let decrypted = cbc_decrypt(&tdes_key, &response)?;
-        if rotate_right(&decrypted) != rnd_a {
-            return Err(NfcError::AuthenticationFailed);
-        }
-
+        let decrypted = decrypt_auth_response(key, key_type, &sent, &response)?;
+        let rotated_a = rotate_left(&rnd_a);
+        let (enc_key, mac_key, key_version) = match key_type {
+            AuthKeyType::AesEv2 => {
+                if decrypted.len() != 32 {
+                    return Err(NfcError::VerificationFailed(
+                        "EV2 authentication did not return 32 plain bytes".to_owned(),
+                    ));
+                }
+                if decrypted[4..20] != rotated_a {
+                    return Err(NfcError::AuthenticationFailed);
+                }
+                let enc = ev2_session_key(key, &rnd_a, &rnd_b, true)?;
+                let mac = ev2_session_key(key, &rnd_a, &rnd_b, false)?;
+                (enc, mac, 0)
+            }
+            _ => {
+                if decrypted.len() != challenge_length || decrypted != rotated_a {
+                    return Err(NfcError::AuthenticationFailed);
+                }
+                let enc = derive_session_key(key_type, &rnd_a, &rnd_b);
+                let mac = enc.clone();
+                (enc, mac, 0)
+            }
+        };
         self.session = Some(Session {
-            key: session_key(key_type, &rnd_a, &rnd_b),
+            enc_key,
+            mac_key,
             key_type,
+            key_version,
         });
         Ok(())
     }
 
-    /// Session key derived by the legacy authentication, if a session exists.
+    /// Session ENC key, if a session exists.
     pub fn session_key(&self) -> Option<&[u8]> {
-        self.session.as_ref().map(|session| session.key.as_slice())
+        self.session
+            .as_ref()
+            .map(|session| session.enc_key.as_slice())
+    }
+
+    /// Session MAC key. EV2 derives it separately; other families use the ENC
+    /// key.
+    pub fn session_mac_key(&self) -> Option<&[u8]> {
+        self.session
+            .as_ref()
+            .map(|session| session.mac_key.as_slice())
     }
 
     /// Key family used by the current session.
-    pub fn session_key_type(&self) -> Option<LegacyKeyType> {
+    pub fn session_key_type(&self) -> Option<AuthKeyType> {
         self.session.as_ref().map(|session| session.key_type)
+    }
+
+    /// Key version used by the current session.
+    pub fn session_key_version(&self) -> Option<u8> {
+        self.session.as_ref().map(|session| session.key_version)
     }
 
     /// Selected application ID, or `[0, 0, 0]` for the PICC master application.
     pub fn selected_application(&self) -> [u8; 3] {
         self.selected
+    }
+
+    /// Format the PICC and erase every application.
+    ///
+    /// This is a destructive factory reset: deleted applications keep their
+    /// EEPROM until this command runs, so it is the recovery path for a test
+    /// card filled by repeated fixtures. The PICC key returns to the factory
+    /// state. It is not used by ordinary workflows.
+    pub fn format_picc(&mut self) -> Result<()> {
+        self.ensure_authenticated()?;
+        self.expect_ok(INS_FORMAT_PICC, &[])?;
+        self.session = None;
+        self.selected = [0x00; 3];
+        Ok(())
+    }
+
+    /// Free EEPROM bytes reported by the card.
+    pub fn free_memory(&mut self) -> Result<u32> {
+        let body = self.chained_ok(INS_GET_FREE_MEMORY, &[])?;
+        if body.len() != 3 {
+            return Err(NfcError::VerificationFailed(format!(
+                "GetFreeMemory returned {} bytes, expected 3",
+                body.len()
+            )));
+        }
+        Ok(u24(&body))
     }
 
     pub fn get_version(&mut self) -> Result<Version> {
@@ -1187,35 +1342,14 @@ fn expand_tdes_key(key: &[u8]) -> Result<[u8; 24]> {
             expanded[0..16].copy_from_slice(key);
             expanded[16..24].copy_from_slice(&key[0..8]);
         }
+        24 => expanded.copy_from_slice(key),
         _ => {
             return Err(NfcError::InvalidArgument(
-                "legacy DESFire keys are 8-byte DES or 16-byte 2K3DES".to_owned(),
+                "DESFire legacy keys are 8-byte DES, 16-byte 2K3DES, or 24-byte 3K3DES".to_owned(),
             ));
         }
     }
     Ok(expanded)
-}
-
-fn cbc_decrypt(key: &[u8; 24], data: &[u8]) -> Result<Vec<u8>> {
-    if data.is_empty() || !data.len().is_multiple_of(8) {
-        return Err(NfcError::InvalidArgument(
-            "DESFire CBC input must be a non-empty multiple of 8 bytes".to_owned(),
-        ));
-    }
-    let cipher = TdesEde3::new_from_slice(key)
-        .map_err(|_| NfcError::InvalidArgument("invalid 3DES key".to_owned()))?;
-    let mut previous = [0u8; 8];
-    let mut output = Vec::with_capacity(data.len());
-    for block in data.as_chunks::<8>().0 {
-        let mut current = [0u8; 8];
-        current.copy_from_slice(block);
-        cipher.decrypt_block((&mut current).into());
-        for index in 0..8 {
-            output.push(current[index] ^ previous[index]);
-        }
-        previous.copy_from_slice(block);
-    }
-    Ok(output)
 }
 
 /// D40 send mode: XOR the plaintext with the previous ciphertext block, then
@@ -1236,15 +1370,183 @@ fn d40_send(key: &[u8; 24], data: &[u8]) -> Vec<u8> {
     output
 }
 
-fn session_key(key_type: LegacyKeyType, rnd_a: &[u8], rnd_b: &[u8]) -> Vec<u8> {
+fn cbc_decrypt(key: &[u8; 24], data: &[u8]) -> Result<Vec<u8>> {
+    cbc_decrypt_iv(key, &[0u8; 8], data)
+}
+
+fn cbc_decrypt_iv(key: &[u8; 24], iv: &[u8], data: &[u8]) -> Result<Vec<u8>> {
+    if iv.len() != 8 || data.is_empty() || !data.len().is_multiple_of(8) {
+        return Err(NfcError::InvalidArgument(
+            "DESFire CBC input must be a non-empty multiple of 8 bytes with an 8-byte IV"
+                .to_owned(),
+        ));
+    }
+    let cipher = TdesEde3::new_from_slice(key)
+        .map_err(|_| NfcError::InvalidArgument("invalid 3DES key".to_owned()))?;
+    let mut previous = [0u8; 8];
+    previous.copy_from_slice(iv);
+    let mut output = Vec::with_capacity(data.len());
+    for block in data.as_chunks::<8>().0 {
+        let mut current = [0u8; 8];
+        current.copy_from_slice(block);
+        cipher.decrypt_block((&mut current).into());
+        for index in 0..8 {
+            output.push(current[index] ^ previous[index]);
+        }
+        previous.copy_from_slice(block);
+    }
+    Ok(output)
+}
+
+fn cbc_encrypt_iv(key: &[u8; 24], iv: &[u8], data: &[u8]) -> Result<Vec<u8>> {
+    if iv.len() != 8 || data.is_empty() || !data.len().is_multiple_of(8) {
+        return Err(NfcError::InvalidArgument(
+            "DESFire CBC input must be a non-empty multiple of 8 bytes with an 8-byte IV"
+                .to_owned(),
+        ));
+    }
+    let cipher = TdesEde3::new_from_slice(key)
+        .map_err(|_| NfcError::InvalidArgument("invalid 3DES key".to_owned()))?;
+    let mut previous = [0u8; 8];
+    previous.copy_from_slice(iv);
+    let mut output = Vec::with_capacity(data.len());
+    for block in data.as_chunks::<8>().0 {
+        let mut current = [0u8; 8];
+        for index in 0..8 {
+            current[index] = block[index] ^ previous[index];
+        }
+        cipher.encrypt_block((&mut current).into());
+        output.extend_from_slice(&current);
+        previous = current;
+    }
+    Ok(output)
+}
+
+fn aes_cbc_decrypt(key: &[u8], iv: &[u8], data: &[u8]) -> Result<Vec<u8>> {
+    if key.len() != 16 || iv.len() != 16 || data.is_empty() || !data.len().is_multiple_of(16) {
+        return Err(NfcError::InvalidArgument(
+            "AES-CBC input must be a non-empty multiple of 16 bytes with a 16-byte key and IV"
+                .to_owned(),
+        ));
+    }
+    let cipher = Aes128::new_from_slice(key)
+        .map_err(|_| NfcError::InvalidArgument("invalid AES-128 key".to_owned()))?;
+    let mut previous = [0u8; 16];
+    previous.copy_from_slice(iv);
+    let mut output = Vec::with_capacity(data.len());
+    for block in data.as_chunks::<16>().0 {
+        let mut current = [0u8; 16];
+        current.copy_from_slice(block);
+        cipher.decrypt_block((&mut current).into());
+        for index in 0..16 {
+            output.push(current[index] ^ previous[index]);
+        }
+        previous.copy_from_slice(block);
+    }
+    Ok(output)
+}
+
+fn aes_cbc_encrypt(key: &[u8], iv: &[u8], data: &[u8]) -> Result<Vec<u8>> {
+    if key.len() != 16 || iv.len() != 16 || data.is_empty() || !data.len().is_multiple_of(16) {
+        return Err(NfcError::InvalidArgument(
+            "AES-CBC input must be a non-empty multiple of 16 bytes with a 16-byte key and IV"
+                .to_owned(),
+        ));
+    }
+    let cipher = Aes128::new_from_slice(key)
+        .map_err(|_| NfcError::InvalidArgument("invalid AES-128 key".to_owned()))?;
+    let mut previous = [0u8; 16];
+    previous.copy_from_slice(iv);
+    let mut output = Vec::with_capacity(data.len());
+    for block in data.as_chunks::<16>().0 {
+        let mut current = [0u8; 16];
+        for index in 0..16 {
+            current[index] = block[index] ^ previous[index];
+        }
+        cipher.encrypt_block((&mut current).into());
+        output.extend_from_slice(&current);
+        previous = current;
+    }
+    Ok(output)
+}
+
+fn cmac_aes(key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
+    if key.len() != 16 {
+        return Err(NfcError::InvalidArgument(
+            "AES-CMAC needs a 16-byte key".to_owned(),
+        ));
+    }
+    let mut mac = Cmac::<Aes128>::new_from_slice(key)
+        .map_err(|_| NfcError::InvalidArgument("invalid AES-CMAC key".to_owned()))?;
+    mac.update(data);
+    Ok(mac.finalize().into_bytes().to_vec())
+}
+
+fn last_block(data: &[u8], length: usize) -> Result<&[u8]> {
+    data.get(data.len().saturating_sub(length)..)
+        .filter(|value| value.len() == length)
+        .ok_or_else(|| {
+            NfcError::InvalidArgument(format!(
+                "DESFire authentication needs a {length}-byte ciphertext block"
+            ))
+        })
+}
+
+fn strip_leading_status(data: &mut Vec<u8>, expected: usize) {
+    if data.len() == expected + 1 && data.first() == Some(&0x00) {
+        data.remove(0);
+    }
+}
+
+fn decrypt_auth_challenge(key: &[u8], key_type: AuthKeyType, challenge: &[u8]) -> Result<Vec<u8>> {
     match key_type {
-        LegacyKeyType::Des => {
+        AuthKeyType::Des | AuthKeyType::Tdes2 => cbc_decrypt(&expand_tdes_key(key)?, challenge),
+        AuthKeyType::Tdes3 => cbc_decrypt_iv(&expand_tdes_key(key)?, &[0u8; 8], challenge),
+        AuthKeyType::Aes | AuthKeyType::AesEv2 => aes_cbc_decrypt(key, &[0u8; 16], challenge),
+    }
+}
+
+fn encrypt_auth_payload(
+    key: &[u8],
+    key_type: AuthKeyType,
+    challenge: &[u8],
+    plain: &[u8],
+) -> Result<Vec<u8>> {
+    match key_type {
+        AuthKeyType::Des | AuthKeyType::Tdes2 => Ok(d40_send(&expand_tdes_key(key)?, plain)),
+        AuthKeyType::Tdes3 => {
+            cbc_encrypt_iv(&expand_tdes_key(key)?, last_block(challenge, 8)?, plain)
+        }
+        AuthKeyType::Aes => aes_cbc_encrypt(key, last_block(challenge, 16)?, plain),
+        AuthKeyType::AesEv2 => aes_cbc_encrypt(key, &[0u8; 16], plain),
+    }
+}
+
+fn decrypt_auth_response(
+    key: &[u8],
+    key_type: AuthKeyType,
+    sent: &[u8],
+    response: &[u8],
+) -> Result<Vec<u8>> {
+    match key_type {
+        AuthKeyType::Des | AuthKeyType::Tdes2 => cbc_decrypt(&expand_tdes_key(key)?, response),
+        AuthKeyType::Tdes3 => {
+            cbc_decrypt_iv(&expand_tdes_key(key)?, last_block(sent, 8)?, response)
+        }
+        AuthKeyType::Aes => aes_cbc_decrypt(key, last_block(sent, 16)?, response),
+        AuthKeyType::AesEv2 => aes_cbc_decrypt(key, &[0u8; 16], response),
+    }
+}
+
+fn derive_session_key(key_type: AuthKeyType, rnd_a: &[u8], rnd_b: &[u8]) -> Vec<u8> {
+    match key_type {
+        AuthKeyType::Des => {
             let mut key = Vec::with_capacity(8);
             key.extend_from_slice(&rnd_a[0..4]);
             key.extend_from_slice(&rnd_b[0..4]);
             key
         }
-        LegacyKeyType::Tdes2 => {
+        AuthKeyType::Tdes2 => {
             let mut key = Vec::with_capacity(16);
             key.extend_from_slice(&rnd_a[0..4]);
             key.extend_from_slice(&rnd_b[0..4]);
@@ -1252,18 +1554,51 @@ fn session_key(key_type: LegacyKeyType, rnd_a: &[u8], rnd_b: &[u8]) -> Vec<u8> {
             key.extend_from_slice(&rnd_b[4..8]);
             key
         }
+        AuthKeyType::Tdes3 => {
+            let mut key = Vec::with_capacity(24);
+            key.extend_from_slice(&rnd_a[0..4]);
+            key.extend_from_slice(&rnd_b[0..4]);
+            key.extend_from_slice(&rnd_a[6..10]);
+            key.extend_from_slice(&rnd_b[6..10]);
+            key.extend_from_slice(&rnd_a[12..16]);
+            key.extend_from_slice(&rnd_b[12..16]);
+            key
+        }
+        AuthKeyType::Aes => {
+            let mut key = Vec::with_capacity(16);
+            key.extend_from_slice(&rnd_a[0..4]);
+            key.extend_from_slice(&rnd_b[0..4]);
+            key.extend_from_slice(&rnd_a[12..16]);
+            key.extend_from_slice(&rnd_b[12..16]);
+            key
+        }
+        AuthKeyType::AesEv2 => unreachable!("EV2 session keys use CMAC derivation"),
     }
+}
+
+fn ev2_session_key(key: &[u8], rnd_a: &[u8], rnd_b: &[u8], enc: bool) -> Result<Vec<u8>> {
+    if key.len() != 16 || rnd_a.len() != 16 || rnd_b.len() != 16 {
+        return Err(NfcError::InvalidArgument(
+            "EV2 session-key derivation needs 16-byte inputs".to_owned(),
+        ));
+    }
+    let mut data = [0u8; 32];
+    data[0] = if enc { 0xA5 } else { 0x5A };
+    data[1] = if enc { 0x5A } else { 0xA5 };
+    data[3] = 0x01;
+    data[5] = 0x80;
+    data[6..14].copy_from_slice(&rnd_a[0..8]);
+    for index in 0..6 {
+        data[8 + index] ^= rnd_b[index];
+    }
+    data[14..24].copy_from_slice(&rnd_b[6..16]);
+    data[24..32].copy_from_slice(&rnd_a[8..16]);
+    cmac_aes(key, &data)
 }
 
 fn rotate_left(block: &[u8]) -> Vec<u8> {
     let mut output = block.to_vec();
     output.rotate_left(1);
-    output
-}
-
-fn rotate_right(block: &[u8]) -> Vec<u8> {
-    let mut output = block.to_vec();
-    output.rotate_right(1);
     output
 }
 
@@ -1533,6 +1868,102 @@ mod tests {
     }
 
     #[test]
+    fn ev2_session_keys_match_an12343_vectors() {
+        let rnd_a = [
+            0xB0, 0x4D, 0x07, 0x87, 0xC9, 0x3E, 0xE0, 0xCC, 0x8C, 0xAC, 0xC8, 0xE8, 0x6F, 0x16,
+            0xC6, 0xFE,
+        ];
+        let rnd_b = [
+            0xFA, 0x65, 0x9A, 0xD0, 0xDC, 0xA7, 0x38, 0xDD, 0x65, 0xDC, 0x7D, 0xC3, 0x86, 0x12,
+            0xAD, 0x81,
+        ];
+        assert_eq!(
+            ev2_session_key(&[0x00; 16], &rnd_a, &rnd_b, true).expect("ENC"),
+            [
+                0x63, 0xDC, 0x07, 0x28, 0x62, 0x89, 0xA7, 0xA6, 0xC0, 0x33, 0x4C, 0xA3, 0x1C, 0x31,
+                0x4A, 0x04
+            ]
+        );
+        assert_eq!(
+            ev2_session_key(&[0x00; 16], &rnd_a, &rnd_b, false).expect("MAC"),
+            [
+                0x77, 0x4F, 0x26, 0x74, 0x3E, 0xCE, 0x6A, 0xF5, 0x03, 0x3B, 0x6A, 0xE8, 0x52, 0x29,
+                0x46, 0xF6
+            ]
+        );
+
+        let key = [
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD,
+            0xEE, 0xFF,
+        ];
+        let rnd_a = [
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB,
+            0xCD, 0xEF,
+        ];
+        let rnd_b = [
+            0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54, 0x32, 0x10, 0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54,
+            0x32, 0x10,
+        ];
+        assert_eq!(
+            ev2_session_key(&key, &rnd_a, &rnd_b, true).expect("ENC2"),
+            [
+                0x19, 0x54, 0x28, 0x11, 0x9C, 0x85, 0x28, 0xD5, 0x95, 0x80, 0xA7, 0x3C, 0x7C, 0x96,
+                0xC6, 0xA3
+            ]
+        );
+        assert_eq!(
+            ev2_session_key(&key, &rnd_a, &rnd_b, false).expect("MAC2"),
+            [
+                0x0A, 0xF0, 0x0F, 0x6E, 0x39, 0xF9, 0x04, 0xC4, 0xA6, 0x38, 0x8C, 0x81, 0x2D, 0x53,
+                0xDC, 0x94
+            ]
+        );
+    }
+
+    #[test]
+    fn aes_and_3des_cbc_round_trip() {
+        let aes_key = [0x11; 16];
+        let iv = [0x22; 16];
+        let plain = [0x33; 32];
+        let cipher = aes_cbc_encrypt(&aes_key, &iv, &plain).expect("AES encrypt");
+        assert_ne!(cipher, plain);
+        assert_eq!(
+            aes_cbc_decrypt(&aes_key, &iv, &cipher).expect("AES decrypt"),
+            plain
+        );
+
+        let tdes_key = expand_tdes_key(&[0x44; 24]).expect("3K3DES key");
+        let iv = [0x55; 8];
+        let plain = [0x66; 16];
+        let cipher = cbc_encrypt_iv(&tdes_key, &iv, &plain).expect("3DES encrypt");
+        assert_ne!(cipher, plain);
+        assert_eq!(
+            cbc_decrypt_iv(&tdes_key, &iv, &cipher).expect("3DES decrypt"),
+            plain
+        );
+    }
+
+    #[test]
+    fn key_types_map_from_lengths_and_validate_keys() {
+        assert_eq!(
+            AuthKeyType::from_key(&[0u8; 8]).expect("DES"),
+            AuthKeyType::Des
+        );
+        assert_eq!(
+            AuthKeyType::from_key(&[0u8; 16]).expect("2K3DES"),
+            AuthKeyType::Tdes2
+        );
+        assert_eq!(
+            AuthKeyType::from_key(&[0u8; 24]).expect("3K3DES"),
+            AuthKeyType::Tdes3
+        );
+        assert!(AuthKeyType::from_key(&[0u8; 7]).is_err());
+        assert!(AuthKeyType::Aes.validate_key(&[0u8; 16]).is_ok());
+        assert!(AuthKeyType::Aes.validate_key(&[0u8; 8]).is_err());
+        assert!(AuthKeyType::Tdes3.validate_key(&[0u8; 16]).is_err());
+    }
+
+    #[test]
     fn commit_accepts_no_changes_as_success() {
         let mut reader = ScriptedReader::new([0x91, 0x0C]);
         let mut desfire = Desfire::new(&mut reader);
@@ -1568,9 +1999,12 @@ mod tests {
     }
 
     #[test]
-    fn rotate_left_and_right_are_inverse() {
+    fn rotate_left_wraps_the_nonce() {
         let block = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
-        assert_eq!(rotate_right(&rotate_left(&block)), block);
+        assert_eq!(
+            rotate_left(&block),
+            [0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x01]
+        );
     }
 
     #[test]

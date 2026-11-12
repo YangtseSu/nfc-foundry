@@ -69,7 +69,7 @@ fn run(desfire: &mut Desfire<'_>) -> Result<()> {
     desfire.authenticate_legacy(0, &PICC_KEY)?;
     assert_eq!(
         desfire.session_key_type(),
-        Some(nfc_desfire::LegacyKeyType::Des)
+        Some(nfc_desfire::AuthKeyType::Des)
     );
     assert_eq!(desfire.session_key().map(<[u8]>::len), Some(8));
 
@@ -79,7 +79,7 @@ fn run(desfire: &mut Desfire<'_>) -> Result<()> {
     desfire.authenticate_legacy(0, &APP_KEY)?;
     assert_eq!(
         desfire.session_key_type(),
-        Some(nfc_desfire::LegacyKeyType::Tdes2)
+        Some(nfc_desfire::AuthKeyType::Tdes2)
     );
     assert_eq!(desfire.session_key().map(<[u8]>::len), Some(16));
 

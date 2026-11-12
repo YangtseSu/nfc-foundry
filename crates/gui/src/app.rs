@@ -22,8 +22,9 @@ use nfc_app::classic::{
     ev1_signature_keys, format_uid, parse_block_list, parse_uid,
 };
 use nfc_app::desfire::{
-    DesfireNdefDeleteRequest, DesfireNdefFormatRequest, DesfireReadRequest, DesfireReadResult,
-    NDEF_APPLICATION_AID, NDEF_CC_FILE, NDEF_CC_SIZE, NDEF_DATA_FILE, NDEF_DATA_SIZE,
+    AuthKeyType, DesfireNdefDeleteRequest, DesfireNdefFormatRequest, DesfireReadRequest,
+    DesfireReadResult, NDEF_APPLICATION_AID, NDEF_CC_FILE, NDEF_CC_SIZE, NDEF_DATA_FILE,
+    NDEF_DATA_SIZE,
 };
 use nfc_app::type2::{
     Type2Auth, Type2Format, Type2Lock, Type2LockResult, Type2MutationResult, Type2NdefWrite,
@@ -1041,6 +1042,7 @@ struct DesfireView {
     aid: gtk::Entry,
     file: gtk::Entry,
     key: gtk::PasswordEntry,
+    read_key_type: gtk::DropDown,
     key_number: gtk::Entry,
     offset: gtk::Entry,
     length: gtk::Entry,
@@ -1051,6 +1053,7 @@ struct DesfireView {
     status: gtk::Label,
     advanced: gtk::Switch,
     ndef_key: gtk::PasswordEntry,
+    ndef_key_type: gtk::DropDown,
     ndef_key_number: gtk::Entry,
     format_ndef: gtk::Button,
     delete_ndef: gtk::Button,
@@ -1647,6 +1650,11 @@ fn build_desfire_view() -> DesfireView {
     key.set_placeholder_text(Some("16 or 32 hex digits; leave empty for free access"));
     add_field("Legacy key (optional)", key.upcast_ref());
 
+    let read_key_type =
+        gtk::DropDown::from_strings(&["Auto", "DES", "2K3DES", "3K3DES", "AES", "AES EV2"]);
+    read_key_type.set_selected(0);
+    add_field("Key type", read_key_type.upcast_ref());
+
     let key_number = gtk::Entry::new();
     key_number.set_text("0");
     key_number.set_max_width_chars(4);
@@ -1733,6 +1741,15 @@ fn build_desfire_view() -> DesfireView {
     ndef_form.attach(&ndef_key_caption, 0, 0, 1, 1);
     ndef_form.attach(&ndef_key, 1, 0, 1, 1);
     ndef_key.set_hexpand(true);
+    let ndef_key_type_caption = gtk::Label::new(Some("Key type"));
+    ndef_key_type_caption.set_xalign(0.0);
+    ndef_key_type_caption.add_css_class("caption");
+    ndef_key_type_caption.add_css_class("dim-label");
+    let ndef_key_type =
+        gtk::DropDown::from_strings(&["Auto", "DES", "2K3DES", "3K3DES", "AES", "AES EV2"]);
+    ndef_key_type.set_selected(0);
+    ndef_form.attach(&ndef_key_type_caption, 0, 1, 1, 1);
+    ndef_form.attach(&ndef_key_type, 1, 1, 1, 1);
     let ndef_key_number_caption = gtk::Label::new(Some("PICC key number"));
     ndef_key_number_caption.set_xalign(0.0);
     ndef_key_number_caption.add_css_class("caption");
@@ -1740,8 +1757,8 @@ fn build_desfire_view() -> DesfireView {
     let ndef_key_number = gtk::Entry::new();
     ndef_key_number.set_text("0");
     ndef_key_number.set_max_width_chars(4);
-    ndef_form.attach(&ndef_key_number_caption, 0, 1, 1, 1);
-    ndef_form.attach(&ndef_key_number, 1, 1, 1, 1);
+    ndef_form.attach(&ndef_key_number_caption, 0, 2, 1, 1);
+    ndef_form.attach(&ndef_key_number, 1, 2, 1, 1);
 
     let format_ndef = gtk::Button::with_label("Format NDEF application");
     format_ndef.add_css_class("destructive-action");
@@ -1778,6 +1795,7 @@ fn build_desfire_view() -> DesfireView {
         aid,
         file,
         key,
+        read_key_type,
         key_number,
         offset,
         length,
@@ -1788,6 +1806,7 @@ fn build_desfire_view() -> DesfireView {
         status,
         advanced,
         ndef_key,
+        ndef_key_type,
         ndef_key_number,
         format_ndef,
         delete_ndef,
@@ -5783,6 +5802,8 @@ fn clear_desfire_session(ui: &Rc<Ui>) {
     ui.desfire_view.ndef_status.set_text("");
     ui.desfire_view.start_record.set_text("0");
     ui.desfire_view.record_count.set_text("");
+    ui.desfire_view.read_key_type.set_selected(0);
+    ui.desfire_view.ndef_key_type.set_selected(0);
     ui.desfire_view.advanced.set_active(false);
     if let Some(dialog) = ui.pending_desfire_dialog.borrow_mut().take() {
         dialog.force_close();
@@ -6047,6 +6068,7 @@ fn start_desfire_read(ui: Rc<Ui>) {
         let aid = parse_desfire_hex(&view.aid.text(), 3, "application ID")?;
         let file = parse_desfire_hex(&view.file.text(), 1, "file ID")?[0];
         let key = parse_desfire_key(&view.key.text())?;
+        let key_type = desfire_key_type(&view.read_key_type);
         let key_number = view
             .key_number
             .text()
@@ -6074,6 +6096,7 @@ fn start_desfire_read(ui: Rc<Ui>) {
             [aid[0], aid[1], aid[2]],
             file,
             key,
+            key_type,
             key_number,
             offset,
             length,
@@ -6081,17 +6104,18 @@ fn start_desfire_read(ui: Rc<Ui>) {
             record_count,
         ))
     })();
-    let (aid, file, key, key_number, offset, length, start_record, record_count) = match parsed {
-        Ok(parsed) => parsed,
-        Err(error) => {
-            ui.desfire_view
-                .status
-                .set_localized("Read input is invalid");
-            ui.status.set_localized("DESFire read input is invalid");
-            toast_error(&ui, &error);
-            return;
-        }
-    };
+    let (aid, file, key, key_type, key_number, offset, length, start_record, record_count) =
+        match parsed {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                ui.desfire_view
+                    .status
+                    .set_localized("Read input is invalid");
+                ui.status.set_localized("DESFire read input is invalid");
+                toast_error(&ui, &error);
+                return;
+            }
+        };
     let mut request = DesfireReadRequest::new(aid, file)
         .key_number(key_number)
         .offset(offset)
@@ -6100,6 +6124,9 @@ fn start_desfire_read(ui: Rc<Ui>) {
         .record_count(record_count);
     if let Some(key) = key {
         request = request.key(key);
+    }
+    if let Some(key_type) = key_type {
+        request = request.key_type(key_type);
     }
     set_busy(&ui, true);
     ui.status.set_localized("Reading DESFire file…");
@@ -6177,6 +6204,17 @@ fn finish_desfire_read(ui: &Rc<Ui>, result: NfcResult<(String, String)>) {
     }
 }
 
+fn desfire_key_type(dropdown: &gtk::DropDown) -> Option<AuthKeyType> {
+    match dropdown.selected() {
+        1 => Some(AuthKeyType::Des),
+        2 => Some(AuthKeyType::Tdes2),
+        3 => Some(AuthKeyType::Tdes3),
+        4 => Some(AuthKeyType::Aes),
+        5 => Some(AuthKeyType::AesEv2),
+        _ => None,
+    }
+}
+
 fn desfire_optional_u32(text: &str, label: &str) -> std::result::Result<Option<u32>, String> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -6221,10 +6259,11 @@ fn start_desfire_ndef_format(ui: Rc<Ui>) {
     }
     let parsed = (|| -> std::result::Result<_, String> {
         let key = desfire_required_key(&ui.desfire_view.ndef_key.text())?;
+        let key_type = desfire_key_type(&ui.desfire_view.ndef_key_type);
         let key_number = desfire_key_number(&ui.desfire_view.ndef_key_number.text())?;
-        Ok((key, key_number))
+        Ok((key, key_type, key_number))
     })();
-    let (key, key_number) = match parsed {
+    let (key, key_type, key_number) = match parsed {
         Ok(parsed) => parsed,
         Err(error) => {
             toast_error(&ui, &error);
@@ -6293,14 +6332,19 @@ fn start_desfire_ndef_format(ui: Rc<Ui>) {
             if response == "confirm"
                 && let Some(key) = key.borrow_mut().take()
             {
-                execute_desfire_ndef_format(ui2.clone(), key, key_number);
+                execute_desfire_ndef_format(ui2.clone(), key, key_type, key_number);
             }
         });
         present_alert(&dialog, &ui.window);
     });
 }
 
-fn execute_desfire_ndef_format(ui: Rc<Ui>, key: Vec<u8>, key_number: u8) {
+fn execute_desfire_ndef_format(
+    ui: Rc<Ui>,
+    key: Vec<u8>,
+    key_type: Option<AuthKeyType>,
+    key_number: u8,
+) {
     set_busy(&ui, true);
     ui.status
         .set_localized("Formatting the DESFire NDEF application…");
@@ -6311,12 +6355,16 @@ fn execute_desfire_ndef_format(ui: Rc<Ui>, key: Vec<u8>, key_number: u8) {
     let (sender, receiver) = async_channel::bounded(1);
     std::thread::spawn(move || {
         let result = match service.lock() {
-            Ok(mut service) => service.desfire_ndef_format(
-                DesfireNdefFormatRequest::new(key)
+            Ok(mut service) => {
+                let mut request = DesfireNdefFormatRequest::new(key)
                     .key_number(key_number)
                     .advanced(true)
-                    .confirm(true),
-            ),
+                    .confirm(true);
+                if let Some(key_type) = key_type {
+                    request = request.key_type(key_type);
+                }
+                service.desfire_ndef_format(request)
+            }
             Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
         };
         let _ = sender.send_blocking(result);
@@ -6369,10 +6417,11 @@ fn start_desfire_ndef_delete(ui: Rc<Ui>) {
     }
     let parsed = (|| -> std::result::Result<_, String> {
         let key = desfire_required_key(&ui.desfire_view.ndef_key.text())?;
+        let key_type = desfire_key_type(&ui.desfire_view.ndef_key_type);
         let key_number = desfire_key_number(&ui.desfire_view.ndef_key_number.text())?;
-        Ok((key, key_number))
+        Ok((key, key_type, key_number))
     })();
-    let (key, key_number) = match parsed {
+    let (key, key_type, key_number) = match parsed {
         Ok(parsed) => parsed,
         Err(error) => {
             toast_error(&ui, &error);
@@ -6433,14 +6482,19 @@ fn start_desfire_ndef_delete(ui: Rc<Ui>) {
             if response == "confirm"
                 && let Some(key) = key.borrow_mut().take()
             {
-                execute_desfire_ndef_delete(ui2.clone(), key, key_number);
+                execute_desfire_ndef_delete(ui2.clone(), key, key_type, key_number);
             }
         });
         present_alert(&dialog, &ui.window);
     });
 }
 
-fn execute_desfire_ndef_delete(ui: Rc<Ui>, key: Vec<u8>, key_number: u8) {
+fn execute_desfire_ndef_delete(
+    ui: Rc<Ui>,
+    key: Vec<u8>,
+    key_type: Option<AuthKeyType>,
+    key_number: u8,
+) {
     set_busy(&ui, true);
     ui.status
         .set_localized("Deleting the DESFire NDEF application…");
@@ -6451,12 +6505,16 @@ fn execute_desfire_ndef_delete(ui: Rc<Ui>, key: Vec<u8>, key_number: u8) {
     let (sender, receiver) = async_channel::bounded(1);
     std::thread::spawn(move || {
         let result = match service.lock() {
-            Ok(mut service) => service.desfire_ndef_delete(
-                DesfireNdefDeleteRequest::new(key)
+            Ok(mut service) => {
+                let mut request = DesfireNdefDeleteRequest::new(key)
                     .key_number(key_number)
                     .advanced(true)
-                    .confirm(true),
-            ),
+                    .confirm(true);
+                if let Some(key_type) = key_type {
+                    request = request.key_type(key_type);
+                }
+                service.desfire_ndef_delete(request)
+            }
             Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
         };
         let _ = sender.send_blocking(result);
@@ -15084,6 +15142,8 @@ mod tests {
         assert!(!ui.desfire_view.format_ndef.is_sensitive());
         assert!(!ui.desfire_view.delete_ndef.is_sensitive());
         assert!(!ui.desfire_view.advanced.is_active());
+        assert_eq!(ui.desfire_view.read_key_type.selected(), 0);
+        assert_eq!(ui.desfire_view.ndef_key_type.selected(), 0);
         ui.desfire_view.advanced.set_active(true);
         assert!(ui.desfire_view.format_ndef.is_sensitive());
         assert!(ui.desfire_view.delete_ndef.is_sensitive());
@@ -15102,6 +15162,13 @@ mod tests {
             Some(3)
         );
         assert!(desfire_optional_u32("x", "record count").is_err());
+        assert_eq!(desfire_key_type(&ui.desfire_view.read_key_type), None);
+        ui.desfire_view.read_key_type.set_selected(4);
+        assert_eq!(
+            desfire_key_type(&ui.desfire_view.read_key_type),
+            Some(AuthKeyType::Aes)
+        );
+        ui.desfire_view.read_key_type.set_selected(0);
         assert!(desfire_required_key("").is_err());
         assert_eq!(
             desfire_required_key("0000000000000000")

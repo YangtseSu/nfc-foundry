@@ -106,5 +106,5 @@ The ACR122U row remains unrecorded.
 
 ## Next
 
-Phase 26.4 adds 3K3DES and AES authentication key families. It must not infer a
-key type from the key length alone.
+Phase 26.4 adds 3K3DES and AES authentication key families (complete
+2026-11-12). Secure-messaging reads for those families remain in phase 26.5.

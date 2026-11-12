@@ -95,7 +95,8 @@ original UID if verification fails.
 | Operation | CLI | GUI | Gate | Hardware |
 |---|---|---|---|---|
 | Inventory | `desfire info` | DESFire → Inventory | R | PN532 |
-| Read file | `desfire read --aid --file [--key] [--offset] [--length] [--start-record] [--record-count]` | DESFire → Read with the same fields | R | PN532: data, value, linear and cyclic records |
+| Read file | `desfire read --aid --file [--key] [--key-type] [--offset] [--length] [--start-record] [--record-count]` | DESFire → Read with the same fields and key-type dropdown | R | PN532: data, value, linear and cyclic records with legacy DES; 3K3DES/AES secure reads pending 26.5 |
+| Explicit authentication family | `--key-type des|2k3des|3k3des|aes|ev2` on read/format/delete | Key type dropdown on Read and NDEF tabs | explicit key, R for authentication | PN532: 3K3DES, AES EV1, AES EV2 |
 | Format NDEF | `desfire format-ndef --key --advanced [--dry-run]` | DESFire → NDEF → Advanced mode → Format NDEF application… → type `FORMAT` | A, C | PN532; ACR n/r |
 | Delete NDEF application | `desfire delete-ndef --key --advanced` | DESFire → NDEF → Advanced mode → Delete NDEF application… → type `DELETE` | A, C | PN532; ACR n/r |
 
@@ -108,8 +109,10 @@ application and its `E103`/`E104` files, and reads the CC and empty NDEF file
 back through the Type 4 adapter. Delete validates the exact AN11004 layout
 before removing it. Keys are session-scoped and never printed. The GUI
 Advanced switch resets on card removal, reader change, and restart. The PN532
-UART format/write/delete and Standard/Backup decode records passed on
-2026-11-12; the ACR122U row remains unrecorded.
+UART format/write/delete, Standard/Backup decode, value/record reads, and
+3K3DES/AES authentication records passed on 2026-11-12; the ACR122U row remains
+unrecorded. 3K3DES/AES reads answer with a typed secure-messaging gate until
+26.5.
 
 ## Recovery and system
 

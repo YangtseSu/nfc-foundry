@@ -3,7 +3,7 @@
 use nfc_core::{CancelToken, CardType, NfcError, Result};
 use nfc_desfire::Desfire;
 pub use nfc_desfire::{
-    AccessRight, AccessRights, Application, CommunicationMode, FileContents, FileInfo,
+    AccessRight, AccessRights, Application, AuthKeyType, CommunicationMode, FileContents, FileInfo,
     FileSettings, FileType, Inventory, NDEF_APPLICATION_AID, NDEF_APPLICATION_ISO_FILE,
     NDEF_APPLICATION_KEY, NDEF_APPLICATION_KEY_SETTINGS, NDEF_CAPABILITY_CONTAINER,
     NDEF_CC_ACCESS_RIGHTS, NDEF_CC_FILE, NDEF_CC_ISO_FILE, NDEF_CC_SIZE, NDEF_DATA_ACCESS_RIGHTS,
@@ -24,6 +24,7 @@ pub struct DesfireReadRequest {
     pub aid: [u8; 3],
     pub file_id: u8,
     pub key: Option<Vec<u8>>,
+    pub key_type: Option<AuthKeyType>,
     pub key_number: u8,
     pub offset: u32,
     pub length: Option<u32>,
@@ -37,6 +38,7 @@ impl DesfireReadRequest {
             aid,
             file_id,
             key: None,
+            key_type: None,
             key_number: 0,
             offset: 0,
             length: None,
@@ -47,6 +49,11 @@ impl DesfireReadRequest {
 
     pub fn key(mut self, key: Vec<u8>) -> Self {
         self.key = Some(key);
+        self
+    }
+
+    pub fn key_type(mut self, key_type: AuthKeyType) -> Self {
+        self.key_type = Some(key_type);
         self
     }
 
@@ -115,6 +122,7 @@ pub struct DesfireRecordRead {
 /// path.
 pub struct DesfireNdefFormatRequest {
     key: Vec<u8>,
+    pub key_type: Option<AuthKeyType>,
     pub key_number: u8,
     pub advanced: bool,
     pub confirm: bool,
@@ -125,11 +133,17 @@ impl DesfireNdefFormatRequest {
     pub fn new(key: Vec<u8>) -> Self {
         Self {
             key,
+            key_type: None,
             key_number: 0,
             advanced: false,
             confirm: false,
             cancel: CancelToken::new(),
         }
+    }
+
+    pub fn key_type(mut self, key_type: AuthKeyType) -> Self {
+        self.key_type = Some(key_type);
+        self
     }
 
     pub fn key_number(mut self, key_number: u8) -> Self {
@@ -156,6 +170,7 @@ impl DesfireNdefFormatRequest {
 /// Delete the NDEF Tag Application created by [`Service::desfire_ndef_format`].
 pub struct DesfireNdefDeleteRequest {
     key: Vec<u8>,
+    pub key_type: Option<AuthKeyType>,
     pub key_number: u8,
     pub advanced: bool,
     pub confirm: bool,
@@ -166,11 +181,17 @@ impl DesfireNdefDeleteRequest {
     pub fn new(key: Vec<u8>) -> Self {
         Self {
             key,
+            key_type: None,
             key_number: 0,
             advanced: false,
             confirm: false,
             cancel: CancelToken::new(),
         }
+    }
+
+    pub fn key_type(mut self, key_type: AuthKeyType) -> Self {
+        self.key_type = Some(key_type);
+        self
     }
 
     pub fn key_number(mut self, key_number: u8) -> Self {
@@ -227,11 +248,24 @@ impl Service {
         cancel: CancelToken,
         request: DesfireReadRequest,
     ) -> Result<DesfireReadResult> {
+        if matches!(
+            request.key_type,
+            Some(AuthKeyType::Tdes3 | AuthKeyType::Aes | AuthKeyType::AesEv2)
+        ) {
+            return Err(NfcError::Unsupported(
+                "3K3DES and AES reads need secure messaging (phase 26.5)",
+            ));
+        }
         let mut operation = self.begin_operation(OperationKind::Read, cancel)?;
         let mut desfire = nfc_desfire::Desfire::new(operation.reader_mut());
         desfire.select_application(request.aid)?;
         if let Some(key) = request.key.as_deref() {
-            desfire.authenticate_legacy(request.key_number, key)?;
+            match request.key_type {
+                Some(key_type) => {
+                    desfire.authenticate(request.key_number, key, key_type)?;
+                }
+                None => desfire.authenticate_legacy(request.key_number, key)?,
+            }
         }
         let raw = desfire.file_settings(request.file_id)?;
         let settings = FileSettings::parse(&raw)?;
@@ -358,9 +392,19 @@ impl Service {
                 "DESFire application key numbers are 0..=14".to_owned(),
             ));
         }
-        nfc_desfire::LegacyKeyType::from_key(&request.key)?;
+        if let Some(key_type) = request.key_type {
+            key_type.validate_key(&request.key)?;
+        } else {
+            nfc_desfire::AuthKeyType::from_key(&request.key)?;
+        }
         let mut operation = self.begin_operation(OperationKind::Write, cancel.clone())?;
-        format_ndef(&mut operation, &request.key, request.key_number, &cancel)
+        format_ndef(
+            &mut operation,
+            &request.key,
+            request.key_type,
+            request.key_number,
+            &cancel,
+        )
     }
 
     /// Delete only the NDEF Tag Application created by
@@ -385,15 +429,26 @@ impl Service {
                 "DESFire application key numbers are 0..=14".to_owned(),
             ));
         }
-        nfc_desfire::LegacyKeyType::from_key(&request.key)?;
+        if let Some(key_type) = request.key_type {
+            key_type.validate_key(&request.key)?;
+        } else {
+            nfc_desfire::AuthKeyType::from_key(&request.key)?;
+        }
         let mut operation = self.begin_operation(OperationKind::Write, cancel.clone())?;
-        delete_ndef(&mut operation, &request.key, request.key_number, &cancel)
+        delete_ndef(
+            &mut operation,
+            &request.key,
+            request.key_type,
+            request.key_number,
+            &cancel,
+        )
     }
 }
 
 fn format_ndef(
     operation: &mut Operation<'_>,
     key: &[u8],
+    key_type: Option<AuthKeyType>,
     key_number: u8,
     cancel: &CancelToken,
 ) -> Result<DesfireNdefFormatResult> {
@@ -405,7 +460,7 @@ fn format_ndef(
     let outcome = (|| -> Result<DesfireNdefFormatResult> {
         let mut desfire = Desfire::new(operation.reader_mut());
         desfire.select_application([0x00; 3])?;
-        desfire.authenticate_legacy(key_number, key)?;
+        authenticate_key(&mut desfire, key_number, key, key_type)?;
         cancel.check()?;
         desfire.create_application(
             NDEF_APPLICATION_AID,
@@ -461,12 +516,14 @@ fn format_ndef(
 
     match outcome {
         Ok(result) => Ok(result),
-        Err(error) if created => match remove_ndef_application(operation, key, key_number) {
-            Ok(()) => Err(error),
-            Err(rollback) => Err(NfcError::VerificationFailed(format!(
-                "NDEF formatting failed: {error}; rollback failed: {rollback}"
-            ))),
-        },
+        Err(error) if created => {
+            match remove_ndef_application(operation, key, key_type, key_number) {
+                Ok(()) => Err(error),
+                Err(rollback) => Err(NfcError::VerificationFailed(format!(
+                    "NDEF formatting failed: {error}; rollback failed: {rollback}"
+                ))),
+            }
+        }
         Err(error) => Err(error),
     }
 }
@@ -474,6 +531,7 @@ fn format_ndef(
 fn delete_ndef(
     operation: &mut Operation<'_>,
     key: &[u8],
+    key_type: Option<AuthKeyType>,
     key_number: u8,
     cancel: &CancelToken,
 ) -> Result<DesfireNdefDeleteResult> {
@@ -497,7 +555,7 @@ fn delete_ndef(
     {
         let mut desfire = Desfire::new(operation.reader_mut());
         desfire.select_application([0x00; 3])?;
-        desfire.authenticate_legacy(key_number, key)?;
+        authenticate_key(&mut desfire, key_number, key, key_type)?;
         desfire.delete_application(NDEF_APPLICATION_AID)?;
     }
     let applications = {
@@ -521,6 +579,18 @@ fn verify_record_bytes(actual: usize, count: u32, record_size: u32) -> Result<()
         Err(NfcError::VerificationFailed(format!(
             "ReadRecords returned {actual} bytes, expected {expected}"
         )))
+    }
+}
+
+fn authenticate_key(
+    desfire: &mut Desfire<'_>,
+    key_number: u8,
+    key: &[u8],
+    key_type: Option<AuthKeyType>,
+) -> Result<()> {
+    match key_type {
+        Some(key_type) => desfire.authenticate(key_number, key, key_type),
+        None => desfire.authenticate_legacy(key_number, key),
     }
 }
 
@@ -612,12 +682,13 @@ fn file_layout_matches(settings: &[u8], access: [u8; 2], size: u32) -> bool {
 fn remove_ndef_application(
     operation: &mut Operation<'_>,
     key: &[u8],
+    key_type: Option<AuthKeyType>,
     key_number: u8,
 ) -> Result<()> {
     let mut desfire = Desfire::new(operation.reader_mut());
     let _ = desfire.abort_transaction();
     desfire.select_application([0x00; 3])?;
-    desfire.authenticate_legacy(key_number, key)?;
+    authenticate_key(&mut desfire, key_number, key, key_type)?;
     desfire.delete_application(NDEF_APPLICATION_AID)?;
     if desfire.application_ids()?.contains(&NDEF_APPLICATION_AID) {
         return Err(NfcError::VerificationFailed(

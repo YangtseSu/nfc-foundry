@@ -14,9 +14,9 @@ use nfc_app::classic::{
     common_keys, format_uid, parse_block_list, parse_uid,
 };
 use nfc_app::desfire::{
-    DesfireNdefDeleteRequest, DesfireNdefFormatRequest, DesfireReadResult, NDEF_APPLICATION_AID,
-    NDEF_CAPABILITY_CONTAINER, NDEF_CC_FILE, NDEF_CC_SIZE, NDEF_DATA_FILE, NDEF_DATA_SIZE,
-    NDEF_DF_NAME,
+    AuthKeyType, DesfireNdefDeleteRequest, DesfireNdefFormatRequest, DesfireReadResult,
+    NDEF_APPLICATION_AID, NDEF_CAPABILITY_CONTAINER, NDEF_CC_FILE, NDEF_CC_SIZE, NDEF_DATA_FILE,
+    NDEF_DATA_SIZE, NDEF_DF_NAME,
 };
 use nfc_app::type2::{
     Type2Auth, Type2Format, Type2Lock, Type2NdefWrite, Type2PageWrite, Type2Password,
@@ -409,6 +409,9 @@ enum DesfireCommand {
             hide_env_values = true
         )]
         key: String,
+        /// Explicit key family: des, 2k3des, 3k3des, aes, or ev2.
+        #[arg(long, value_name = "TYPE")]
+        key_type: Option<String>,
         /// PICC key number, 0..=14.
         #[arg(long, default_value_t = 0, value_name = "N")]
         key_number: u8,
@@ -429,6 +432,9 @@ enum DesfireCommand {
             hide_env_values = true
         )]
         key: String,
+        /// Explicit key family: des, 2k3des, 3k3des, aes, or ev2.
+        #[arg(long, value_name = "TYPE")]
+        key_type: Option<String>,
         /// PICC key number, 0..=14.
         #[arg(long, default_value_t = 0, value_name = "N")]
         key_number: u8,
@@ -452,6 +458,9 @@ enum DesfireCommand {
             hide_env_values = true
         )]
         key: Option<String>,
+        /// Explicit key family: des, 2k3des, 3k3des, aes, or ev2.
+        #[arg(long, value_name = "TYPE")]
+        key_type: Option<String>,
         /// Application key number, 0..=14.
         #[arg(long, default_value_t = 0, value_name = "N")]
         key_number: u8,
@@ -1926,11 +1935,13 @@ fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<
     match command {
         DesfireCommand::FormatNdef {
             key,
+            key_type,
             key_number,
             advanced,
             dry_run,
         } => {
             let key = parse_hex_bytes(&key, "DESFire key")?;
+            let key_type = key_type.as_deref().map(parse_auth_key_type).transpose()?;
             if key_number > 14 {
                 return Err(NfcError::InvalidArgument(
                     "DESFire key numbers are 0..=14".to_owned(),
@@ -1957,12 +1968,14 @@ fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<
             }
             print_desfire_ndef_plan(key_number);
             require_confirmation(cli.yes, "formatting the DESFire NDEF application")?;
-            let result = service.desfire_ndef_format(
-                DesfireNdefFormatRequest::new(key)
-                    .key_number(key_number)
-                    .advanced(true)
-                    .confirm(true),
-            )?;
+            let mut request = DesfireNdefFormatRequest::new(key)
+                .key_number(key_number)
+                .advanced(true)
+                .confirm(true);
+            if let Some(key_type) = key_type {
+                request = request.key_type(key_type);
+            }
+            let result = service.desfire_ndef_format(request)?;
             println!("NDEF application formatted");
             println!("CC: {}", hex_bytes(result.cc.raw()));
             println!(
@@ -1973,10 +1986,12 @@ fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<
         }
         DesfireCommand::DeleteNdef {
             key,
+            key_type,
             key_number,
             advanced,
         } => {
             let key = parse_hex_bytes(&key, "DESFire key")?;
+            let key_type = key_type.as_deref().map(parse_auth_key_type).transpose()?;
             if key_number > 14 {
                 return Err(NfcError::InvalidArgument(
                     "DESFire key numbers are 0..=14".to_owned(),
@@ -1998,12 +2013,14 @@ fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<
                 ));
             }
             require_confirmation(cli.yes, "deleting the DESFire NDEF application D27600")?;
-            let result = service.desfire_ndef_delete(
-                DesfireNdefDeleteRequest::new(key)
-                    .key_number(key_number)
-                    .advanced(true)
-                    .confirm(true),
-            )?;
+            let mut request = DesfireNdefDeleteRequest::new(key)
+                .key_number(key_number)
+                .advanced(true)
+                .confirm(true);
+            if let Some(key_type) = key_type {
+                request = request.key_type(key_type);
+            }
+            let result = service.desfire_ndef_delete(request)?;
             println!("NDEF application D27600 deleted");
             if result.applications.is_empty() {
                 println!("applications: none");
@@ -2018,6 +2035,7 @@ fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<
             aid,
             file,
             key,
+            key_type,
             key_number,
             offset,
             length,
@@ -2034,6 +2052,9 @@ fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<
                 .record_count(record_count);
             if let Some(key) = key {
                 request = request.key(parse_hex_bytes(&key, "DESFire key")?);
+            }
+            if let Some(key_type) = key_type {
+                request = request.key_type(parse_auth_key_type(&key_type)?);
             }
             let read = service.desfire_read(CancelToken::new(), request)?;
             match read {
@@ -2086,6 +2107,19 @@ fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<
             print!("{}", nfc_app::desfire::inventory_text(&inventory));
             Ok(())
         }
+    }
+}
+
+fn parse_auth_key_type(value: &str) -> Result<AuthKeyType> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "des" => Ok(AuthKeyType::Des),
+        "2k3des" | "tdes2" | "3des" => Ok(AuthKeyType::Tdes2),
+        "3k3des" | "tdes3" => Ok(AuthKeyType::Tdes3),
+        "aes" | "aes-ev1" => Ok(AuthKeyType::Aes),
+        "ev2" | "aes-ev2" => Ok(AuthKeyType::AesEv2),
+        other => Err(NfcError::InvalidArgument(format!(
+            "unknown DESFire key type {other}; use des, 2k3des, 3k3des, aes, or ev2"
+        ))),
     }
 }
 
