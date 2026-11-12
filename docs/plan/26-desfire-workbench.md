@@ -1,6 +1,6 @@
 # Phase 26 plan: DESFire workbench
 
-Status: in progress. 26.1–26.6 are complete; 26.7–26.13 are pending, except
+Status: in progress. 26.1–26.7 are complete; 26.8–26.13 are pending, except
 that 26.12's ordinary NDEF provisioning and guarded delete landed in phase
 25.5. Hardware: PN532 UART first; ACR122U records after a reader is available.
 
@@ -170,7 +170,11 @@ Acceptance:
 - Hardware validation uses a provisioned NDEF card or a reserved test
   application created by the test harness and removed afterwards.
 
-### 26.7 Cryptographic verification
+### 26.7 Cryptographic verification (done)
+
+Status: complete 2026-11-13. See
+[26g-cryptographic-verification.md](../notes/26g-cryptographic-verification.md)
+and the [26g spec](../specs/26g-cryptographic-verification.md).
 
 Deliver:
 
@@ -179,7 +183,8 @@ Deliver:
 - CMAC verification results for MACed reads.
 - Authenticated UID read where the card supports it; the UID is shown only
   after the session and any response MAC verify.
-- Optional, separately specified originality-signature read/verification.
+- Optional, separately specified originality-signature read/verification
+  remains pending that separate spec; no unverified signature is surfaced.
 
 Acceptance:
 

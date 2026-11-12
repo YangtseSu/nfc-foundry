@@ -219,8 +219,12 @@ checks AES/3DES CBC round trips, key-length mapping, and key validation.
 `nfctl/tests/hardware_desfire_auth.rs` creates reserved 3K3DES and AES
 applications with zero test keys, authenticates with `0x1A`, `0xAA`, and
 `0x71`, checks session key lengths and EV2 ENC/MAC separation, and verifies
-wrong-key/key-number/family failures. It passed on PN532 UART and ACR122U
-on 2026-11-12.
+wrong-key/key-number/family failures. The same test runs `verify_key`
+(authentication plus GetKeyVersion) and `card_uid` (EV1 CRC32, EV2 CMAC) for
+each family. It passed on PN532 UART and ACR122U on 2026-11-12; the
+verification checks passed on ACR122U on 2026-11-13. Set
+`NFC_FOUNDRY_HARDWARE_KEEP_APP=1` to keep the fixtures for `nfctl desfire
+verify-key` and `desfire uid`; the next run without it removes them.
 Deleted DESFire applications keep EEPROM tombstones until FormatPICC; the test
 requires `NFC_FOUNDRY_HARDWARE_FORMAT=yes` to format the test card when free
 memory is low (or always when set):

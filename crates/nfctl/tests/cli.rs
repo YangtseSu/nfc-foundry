@@ -118,6 +118,67 @@ fn desfire_ndef_read_prints_type4_records_and_tlvs() {
 }
 
 #[test]
+fn desfire_verify_key_reports_the_session_and_key_version() {
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:desfire",
+        "desfire",
+        "verify-key",
+        "--aid",
+        "F00D01",
+        "--key",
+        "0000000000000000",
+    ]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("aid F0 0D 01 · key 0 · DES"), "{text}");
+    assert!(text.contains("session: established"), "{text}");
+    assert!(text.contains("legacy D40 channel"), "{text}");
+    assert!(text.contains("key version: 0"), "{text}");
+    assert!(!text.contains("0000000000000000"), "the key is not printed");
+}
+
+#[test]
+fn desfire_verify_key_fails_once_for_a_wrong_key() {
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:desfire",
+        "desfire",
+        "verify-key",
+        "--aid",
+        "F00D01",
+        "--key",
+        "FFFFFFFFFFFFFFFF",
+    ]);
+    assert!(!output.status.success());
+    let text = stderr(&output);
+    assert!(text.contains("status 0x91AE"), "{text}");
+    assert!(!text.contains("FFFFFFFFFFFFFFFF"), "the key is not printed");
+}
+
+#[test]
+fn desfire_uid_reports_the_authenticated_uid() {
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:desfire",
+        "desfire",
+        "uid",
+        "--aid",
+        "F00D01",
+        "--key",
+        "0000000000000000",
+    ]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("aid F0 0D 01 · key 0 · DES"), "{text}");
+    assert!(text.contains("uid: 04 21 22 23 24 25 26"), "{text}");
+    assert!(text.contains("response: no response MAC"), "{text}");
+}
+
+#[test]
 fn desfire_ndef_read_writes_the_raw_message() {
     let directory = tempfile::tempdir().expect("temp dir");
     let path = directory.path().join("message.ndef");

@@ -25,7 +25,7 @@ use std::env;
 use std::sync::{Mutex, MutexGuard};
 
 use nfc_core::{NfcError, Result};
-use nfc_desfire::{AuthKeyType, Desfire};
+use nfc_desfire::{AuthKeyType, Desfire, IntegrityCheck};
 use nfc_drivers::DriverRegistry;
 use nfc_transport::{Reader, Transport};
 
@@ -134,6 +134,18 @@ fn session_checks(desfire: &mut Desfire<'_>) -> Result<()> {
         desfire.session_mac_key().map(<[u8]>::len) == Some(24),
         "3K3DES session MAC length",
     )?;
+    eprintln!("3K3DES verify_key");
+    let verification = desfire.verify_key(0, &TDES3_KEY, AuthKeyType::Tdes3)?;
+    verify(
+        verification.key_version == Some(0) && verification.secure_messaging,
+        "3K3DES verify-key result",
+    )?;
+    eprintln!("3K3DES card_uid");
+    let uid = desfire.card_uid()?;
+    verify(
+        uid.integrity == IntegrityCheck::Ev1Crc32,
+        "3K3DES authenticated UID must carry a verified CRC32",
+    )?;
 
     desfire.select_application(AES_AID)?;
     desfire.authenticate(0, &AES_KEY, AuthKeyType::Aes)?;
@@ -148,6 +160,18 @@ fn session_checks(desfire: &mut Desfire<'_>) -> Result<()> {
     verify(
         desfire.session_mac_key().map(<[u8]>::len) == Some(16),
         "AES session MAC length",
+    )?;
+    eprintln!("AES verify_key");
+    let verification = desfire.verify_key(0, &AES_KEY, AuthKeyType::Aes)?;
+    verify(
+        verification.key_version == Some(0) && verification.secure_messaging,
+        "AES verify-key result",
+    )?;
+    eprintln!("AES card_uid");
+    let uid = desfire.card_uid()?;
+    verify(
+        uid.integrity == IntegrityCheck::Ev1Crc32,
+        "AES authenticated UID must carry a verified CRC32",
     )?;
 
     desfire.select_application(AES_AID)?;
@@ -164,6 +188,18 @@ fn session_checks(desfire: &mut Desfire<'_>) -> Result<()> {
     verify(enc.len() == 16 && mac.len() == 16, "EV2 key lengths")?;
     verify(enc != mac, "EV2 ENC and MAC keys must differ")?;
     verify(desfire.session_key_version() == Some(0), "EV2 key version")?;
+    eprintln!("EV2 verify_key");
+    let verification = desfire.verify_key(0, &AES_KEY, AuthKeyType::AesEv2)?;
+    verify(
+        verification.key_version == Some(0) && verification.secure_messaging,
+        "EV2 verify-key result",
+    )?;
+    eprintln!("EV2 card_uid");
+    let uid = desfire.card_uid()?;
+    verify(
+        uid.integrity == IntegrityCheck::Ev2Cmac,
+        "EV2 authenticated UID must carry a verified CMAC",
+    )?;
     Ok(())
 }
 
@@ -210,11 +246,12 @@ fn authenticates_with_3k3des_aes_and_ev2_keys() -> Result<()> {
         Err(error)
     } else {
         let mut reader = open(&conn)?;
+        eprintln!("card info UID {:02X?}", reader.card_info()?.uid);
         let mut desfire = Desfire::new(reader.as_mut());
         session_checks(&mut desfire).and_then(|()| failures(&mut desfire))
     };
 
-    {
+    if env::var_os("NFC_FOUNDRY_HARDWARE_KEEP_APP").is_none() {
         let mut reader = open(&conn)?;
         let mut desfire = Desfire::new(reader.as_mut());
         for aid in [TDES3_AID, AES_AID] {

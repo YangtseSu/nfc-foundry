@@ -96,7 +96,9 @@ original UID if verification fails.
 |---|---|---|---|---|
 | Inventory | `desfire info` | DESFire → Inventory | R | PN532 and ACR122U |
 | Read file | `desfire read --aid --file [--key] [--key-type] [--offset] [--length] [--start-record] [--record-count]` | DESFire → Read with the same fields and key-type dropdown | R | PN532 and ACR122U: data, value, linear and cyclic records with legacy DES, 3K3DES/AES EV1, and AES EV2 |
-| Explicit authentication family | `--key-type des|2k3des|3k3des|aes|ev2` on read/format/delete | Key type dropdown on Read and NDEF tabs | explicit key, R for authentication | PN532 and ACR122U: 3K3DES, AES EV1, AES EV2 |
+| Explicit authentication family | `--key-type des|2k3des|3k3des|aes|ev2` on read/verify/uid/format/delete | Key type dropdown on Read, Verify, and NDEF tabs | explicit key, R for authentication | PN532 and ACR122U: 3K3DES, AES EV1, AES EV2 |
+| Verify key | `desfire verify-key --aid --key [--key-type] [--key-number]` | DESFire → Verify → Verify key | R | ACR122U: DES, 3K3DES, AES EV1, AES EV2; key version and session reported |
+| Read authenticated UID | `desfire uid --aid --key [--key-type] [--key-number]` | DESFire → Verify → Read UID | R | ACR122U: EV1 CRC32, EV2 CMAC |
 | Read NDEF | `desfire ndef-read [--output]` | DESFire → NDEF → Read NDEF | R | PN532 and ACR122U: CC, file facts, records, extra TLVs |
 | Format NDEF | `desfire format-ndef --key --advanced [--dry-run]` | DESFire → NDEF → Advanced mode → Format NDEF application… → type `FORMAT` | A, C | PN532 and ACR122U |
 | Delete NDEF application | `desfire delete-ndef --key --advanced` | DESFire → NDEF → Advanced mode → Delete NDEF application… → type `DELETE` | A, C | PN532 and ACR122U |
@@ -104,7 +106,11 @@ original UID if verification fails.
 Both surfaces call the same `nfc-app` service and render inventory through
 `inventory_text`. Each file shows the decoded type, communication mode,
 access rights, capacity or limits, and raw settings; a response that does not
-parse is marked `undecoded` with the raw bytes, never guessed. The format path
+parse is marked `undecoded` with the raw bytes, never guessed. Reads report
+the effective communication mode, the session key family, and the response
+check that passed. Verify key sends no file command; the authenticated UID is
+shown only after the EV1 CRC32 or EV2 CMAC check passes, and a legacy DES
+session is labelled as having no response MAC. The format path
 refuses an existing NDEF application, creates only the AN11004 `D27600`
 application and its `E103`/`E104` files, and reads the CC and empty NDEF file
 back through the Type 4 adapter. Read NDEF lists the CC, file facts, decoded
@@ -114,7 +120,9 @@ before removing it. Keys are session-scoped and never printed. The GUI
 Advanced switch resets on card removal, reader change, and restart. The PN532
 UART format/write/delete, Standard/Backup decode, value/record reads, and
 3K3DES/AES authentication records passed on 2026-11-12. EV1 and EV2
-secure-messaging reads pass on PN532 UART and ACR122U.
+secure-messaging reads pass on PN532 UART and ACR122U. Key verification and
+authenticated UID reads pass on ACR122U; the PN532 UART row is pending a card
+on that reader.
 
 ## Recovery and system
 

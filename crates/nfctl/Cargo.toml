@@ -20,6 +20,7 @@ nfc-recover.workspace = true
 nfc-type2.workspace = true
 nfc-type4.workspace = true
 nfc-drivers.workspace = true
+nfc-desfire = { workspace = true, features = ["mock-card"] }
 nfc-transport.workspace = true
 
 [features]

@@ -1,13 +1,15 @@
-//! DESFire inventory, authenticated read, and NDEF provisioning workflows.
+//! DESFire inventory, verification, authenticated read, and NDEF provisioning
+//! workflows.
 
 use nfc_core::{CancelToken, CardType, NfcError, Result};
 use nfc_desfire::Desfire;
 pub use nfc_desfire::{
     AccessRight, AccessRights, Application, AuthKeyType, CommunicationMode, FileContents, FileInfo,
-    FileSettings, FileType, Inventory, NDEF_APPLICATION_AID, NDEF_APPLICATION_ISO_FILE,
-    NDEF_APPLICATION_KEY, NDEF_APPLICATION_KEY_SETTINGS, NDEF_CAPABILITY_CONTAINER,
-    NDEF_CC_ACCESS_RIGHTS, NDEF_CC_FILE, NDEF_CC_ISO_FILE, NDEF_CC_SIZE, NDEF_DATA_ACCESS_RIGHTS,
-    NDEF_DATA_FILE, NDEF_DATA_ISO_FILE, NDEF_DATA_SIZE, NDEF_DF_NAME, Version,
+    FileSettings, FileType, IntegrityCheck, Inventory, NDEF_APPLICATION_AID,
+    NDEF_APPLICATION_ISO_FILE, NDEF_APPLICATION_KEY, NDEF_APPLICATION_KEY_SETTINGS,
+    NDEF_CAPABILITY_CONTAINER, NDEF_CC_ACCESS_RIGHTS, NDEF_CC_FILE, NDEF_CC_ISO_FILE, NDEF_CC_SIZE,
+    NDEF_DATA_ACCESS_RIGHTS, NDEF_DATA_FILE, NDEF_DATA_ISO_FILE, NDEF_DATA_SIZE, NDEF_DF_NAME,
+    Version,
 };
 use nfc_type4::apdu;
 use nfc_type4::{NdefState, Type4CapabilityContainer, Type4Ndef};
@@ -91,16 +93,29 @@ pub enum DesfireReadResult {
     Records(DesfireRecordRead),
 }
 
+/// Protection that was verified for one file read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DesfireReadProtection {
+    /// Communication mode actually used after the access-right decision.
+    pub communication: CommunicationMode,
+    /// Key family of the session that protected the response.
+    pub key_type: Option<AuthKeyType>,
+    /// Response check that passed before the data was returned.
+    pub integrity: IntegrityCheck,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DesfireDataRead {
     pub settings: FileSettings,
     pub data: Vec<u8>,
+    pub protection: DesfireReadProtection,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DesfireValueRead {
     pub settings: FileSettings,
     pub value: i32,
+    pub protection: DesfireReadProtection,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -112,6 +127,89 @@ pub struct DesfireRecordRead {
     pub first_record: u32,
     pub record_size: u32,
     pub records: Vec<Vec<u8>>,
+    pub protection: DesfireReadProtection,
+}
+
+/// Verify one application key without reading file data.
+///
+/// The key is session-scoped and deliberately not part of `Debug`.
+pub struct DesfireVerifyKeyRequest {
+    pub aid: [u8; 3],
+    key: Vec<u8>,
+    pub key_type: Option<AuthKeyType>,
+    pub key_number: u8,
+}
+
+impl DesfireVerifyKeyRequest {
+    pub fn new(aid: [u8; 3], key: Vec<u8>) -> Self {
+        Self {
+            aid,
+            key,
+            key_type: None,
+            key_number: 0,
+        }
+    }
+
+    pub fn key_type(mut self, key_type: AuthKeyType) -> Self {
+        self.key_type = Some(key_type);
+        self
+    }
+
+    pub fn key_number(mut self, key_number: u8) -> Self {
+        self.key_number = key_number;
+        self
+    }
+}
+
+/// Result of an authentication check.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DesfireKeyVerification {
+    pub aid: [u8; 3],
+    pub key_number: u8,
+    pub key_type: AuthKeyType,
+    pub secure_messaging: bool,
+    pub key_version: Option<u8>,
+}
+
+/// Read the authenticated card UID.
+///
+/// The key is session-scoped and deliberately not part of `Debug`.
+pub struct DesfireUidRequest {
+    pub aid: [u8; 3],
+    key: Vec<u8>,
+    pub key_type: Option<AuthKeyType>,
+    pub key_number: u8,
+}
+
+impl DesfireUidRequest {
+    pub fn new(aid: [u8; 3], key: Vec<u8>) -> Self {
+        Self {
+            aid,
+            key,
+            key_type: None,
+            key_number: 0,
+        }
+    }
+
+    pub fn key_type(mut self, key_type: AuthKeyType) -> Self {
+        self.key_type = Some(key_type);
+        self
+    }
+
+    pub fn key_number(mut self, key_number: u8) -> Self {
+        self.key_number = key_number;
+        self
+    }
+}
+
+/// Authenticated UID and the check that protected it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DesfireUid {
+    pub aid: [u8; 3],
+    pub key_number: u8,
+    pub key_type: AuthKeyType,
+    pub uid: [u8; 7],
+    pub integrity: IntegrityCheck,
 }
 
 /// Create the AN11004 NDEF Tag Application on an unformatted card.
@@ -236,6 +334,63 @@ impl Service {
         nfc_desfire::inventory(operation.reader_mut())
     }
 
+    /// Authenticate one application key and report the protocol result.
+    ///
+    /// This reads no file data and changes no stored card state. A wrong key or
+    /// an invalid response check fails once; there is no retry.
+    pub fn desfire_verify_key(
+        &mut self,
+        cancel: CancelToken,
+        request: DesfireVerifyKeyRequest,
+    ) -> Result<DesfireKeyVerification> {
+        let key_type = validate_desfire_key(&request.key, request.key_type)?;
+        if request.key_number > 14 {
+            return Err(NfcError::InvalidArgument(
+                "DESFire application key numbers are 0..=14".to_owned(),
+            ));
+        }
+        let mut operation = self.begin_operation(OperationKind::Read, cancel)?;
+        let mut desfire = Desfire::new(operation.reader_mut());
+        desfire.select_application(request.aid)?;
+        let verification = desfire.verify_key(request.key_number, &request.key, key_type)?;
+        Ok(DesfireKeyVerification {
+            aid: request.aid,
+            key_number: request.key_number,
+            key_type: verification.key_type,
+            secure_messaging: verification.secure_messaging,
+            key_version: verification.key_version,
+        })
+    }
+
+    /// Read the UID after authentication and verify the response check.
+    ///
+    /// This reads no file data and changes no stored card state. A wrong key or
+    /// an invalid response check fails once; there is no retry.
+    pub fn desfire_card_uid(
+        &mut self,
+        cancel: CancelToken,
+        request: DesfireUidRequest,
+    ) -> Result<DesfireUid> {
+        let key_type = validate_desfire_key(&request.key, request.key_type)?;
+        if request.key_number > 14 {
+            return Err(NfcError::InvalidArgument(
+                "DESFire application key numbers are 0..=14".to_owned(),
+            ));
+        }
+        let mut operation = self.begin_operation(OperationKind::Read, cancel)?;
+        let mut desfire = Desfire::new(operation.reader_mut());
+        desfire.select_application(request.aid)?;
+        desfire.authenticate(request.key_number, &request.key, key_type)?;
+        let card_uid = desfire.card_uid()?;
+        Ok(DesfireUid {
+            aid: request.aid,
+            key_number: request.key_number,
+            key_type,
+            uid: card_uid.uid,
+            integrity: card_uid.integrity,
+        })
+    }
+
     /// Read one file after GetFileSettings selects the command.
     ///
     /// Standard and backup files use ReadData with the byte offset and length.
@@ -278,30 +433,46 @@ impl Service {
                         "read length {length} is outside the remaining {remaining} bytes"
                     )));
                 }
-                let data =
+                let read =
                     desfire.read_data(request.file_id, request.offset, length, communication)?;
-                if data.len() as u32 != length {
+                if read.data.len() as u32 != length {
                     return Err(NfcError::VerificationFailed(format!(
                         "read returned {} bytes, expected {length}",
-                        data.len()
+                        read.data.len()
                     )));
                 }
-                Ok(DesfireReadResult::Data(DesfireDataRead { settings, data }))
+                let protection = DesfireReadProtection {
+                    communication,
+                    key_type: desfire.session_key_type(),
+                    integrity: read.integrity,
+                };
+                Ok(DesfireReadResult::Data(DesfireDataRead {
+                    settings,
+                    data: read.data,
+                    protection,
+                }))
             }
             FileContents::Value {
                 lower_limit,
                 upper_limit,
                 ..
             } => {
-                let value = desfire.get_value(request.file_id, communication)?;
-                if value < *lower_limit || value > *upper_limit {
+                let read = desfire.get_value(request.file_id, communication)?;
+                if read.value < *lower_limit || read.value > *upper_limit {
                     return Err(NfcError::VerificationFailed(format!(
-                        "GetValue returned {value}, outside the declared limits {lower_limit}..{upper_limit}"
+                        "GetValue returned {}, outside the declared limits {lower_limit}..{upper_limit}",
+                        read.value
                     )));
                 }
+                let protection = DesfireReadProtection {
+                    communication,
+                    key_type: desfire.session_key_type(),
+                    integrity: read.integrity,
+                };
                 Ok(DesfireReadResult::Value(DesfireValueRead {
                     settings,
-                    value,
+                    value: read.value,
+                    protection,
                 }))
             }
             FileContents::Record {
@@ -325,6 +496,11 @@ impl Service {
                         first_record: 0,
                         record_size,
                         records: Vec::new(),
+                        protection: DesfireReadProtection {
+                            communication,
+                            key_type: desfire.session_key_type(),
+                            integrity: IntegrityCheck::None,
+                        },
                     }));
                 }
                 if request.start_record >= current_records {
@@ -342,24 +518,31 @@ impl Service {
                     )));
                 }
                 let first_record = current_records - request.start_record - count;
-                let data = desfire.read_records(
+                let read = desfire.read_records(
                     request.file_id,
                     request.start_record,
                     count,
                     record_size,
                     communication,
                 )?;
-                verify_record_bytes(data.len(), count, record_size)?;
-                let records = data
+                verify_record_bytes(read.data.len(), count, record_size)?;
+                let records = read
+                    .data
                     .chunks_exact(record_size as usize)
                     .map(<[u8]>::to_vec)
                     .collect();
+                let protection = DesfireReadProtection {
+                    communication,
+                    key_type: desfire.session_key_type(),
+                    integrity: read.integrity,
+                };
                 Ok(DesfireReadResult::Records(DesfireRecordRead {
                     settings,
                     start_record: request.start_record,
                     first_record,
                     record_size,
                     records,
+                    protection,
                 }))
             }
             FileContents::TransactionMac { .. } => Err(NfcError::Unsupported(
@@ -613,6 +796,16 @@ fn verify_record_bytes(actual: usize, count: u32, record_size: u32) -> Result<()
     }
 }
 
+fn validate_desfire_key(key: &[u8], key_type: Option<AuthKeyType>) -> Result<AuthKeyType> {
+    match key_type {
+        Some(key_type) => {
+            key_type.validate_key(key)?;
+            Ok(key_type)
+        }
+        None => AuthKeyType::from_key(key),
+    }
+}
+
 fn authenticate_key(
     desfire: &mut Desfire<'_>,
     key_number: u8,
@@ -698,7 +891,7 @@ fn validate_ndef_layout(operation: &mut Operation<'_>, cancel: &CancelToken) -> 
         NDEF_CC_SIZE,
         nfc_desfire::CommunicationMode::Plain,
     )?;
-    if cc.as_slice() != NDEF_CAPABILITY_CONTAINER.as_slice() {
+    if cc.data.as_slice() != NDEF_CAPABILITY_CONTAINER.as_slice() {
         return Err(NfcError::Unsupported(
             "the NDEF capability container was not created by this product",
         ));
@@ -774,6 +967,48 @@ pub fn inventory_text(inventory: &Inventory) -> String {
         }
     }
     text
+}
+
+/// Human-readable authentication result shared by `nfctl` and the GTK
+/// DESFire workspace.
+pub fn key_verification_text(result: &DesfireKeyVerification) -> String {
+    let session = if result.secure_messaging {
+        "session: established · CMAC secure messaging"
+    } else {
+        "session: established · legacy D40 channel"
+    };
+    let version = match result.key_version {
+        Some(version) => format!("key version: {version}"),
+        None => "key version: unavailable".to_owned(),
+    };
+    format!(
+        "aid {} · key {} · {}\n{session}\n{version}\n",
+        hex_bytes(&result.aid),
+        result.key_number,
+        result.key_type.name()
+    )
+}
+
+/// Human-readable authenticated UID result.
+pub fn card_uid_text(result: &DesfireUid) -> String {
+    format!(
+        "aid {} · key {} · {}\nuid: {}\nresponse: {}\n",
+        hex_bytes(&result.aid),
+        result.key_number,
+        result.key_type.name(),
+        hex_bytes(&result.uid),
+        result.integrity.label()
+    )
+}
+
+/// Effective read protection and the response check that passed.
+pub fn read_protection_text(protection: &DesfireReadProtection) -> String {
+    format!(
+        "{} · {} · {}",
+        protection.communication.name(),
+        protection.key_type.map_or("no session", AuthKeyType::name),
+        protection.integrity.label()
+    )
 }
 
 fn hex_bytes(bytes: &[u8]) -> String {
@@ -886,6 +1121,58 @@ mod tests {
         assert_eq!(
             effective_read_communication(&free_value, 0, true),
             CommunicationMode::Plain
+        );
+    }
+
+    #[test]
+    fn verification_text_names_the_protocol_facts() {
+        let verified = DesfireKeyVerification {
+            aid: [0xF0, 0x0D, 0x01],
+            key_number: 2,
+            key_type: AuthKeyType::AesEv2,
+            secure_messaging: true,
+            key_version: Some(4),
+        };
+        let text = key_verification_text(&verified);
+        assert!(text.contains("aid F0 0D 01 · key 2 · AES EV2"), "{text}");
+        assert!(text.contains("CMAC secure messaging"), "{text}");
+        assert!(text.contains("key version: 4"), "{text}");
+
+        let unknown = DesfireKeyVerification {
+            key_version: None,
+            ..verified
+        };
+        assert!(
+            key_verification_text(&unknown).contains("key version: unavailable"),
+            "a refused GetKeyVersion is reported, not guessed"
+        );
+
+        let uid = DesfireUid {
+            aid: [0xF0, 0x0D, 0x01],
+            key_number: 0,
+            key_type: AuthKeyType::Aes,
+            uid: [0x04, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26],
+            integrity: IntegrityCheck::Ev1Crc32,
+        };
+        let text = card_uid_text(&uid);
+        assert!(text.contains("uid: 04 21 22 23 24 25 26"), "{text}");
+        assert!(text.contains("response: EV1 CRC32 verified"), "{text}");
+
+        assert_eq!(
+            read_protection_text(&DesfireReadProtection {
+                communication: CommunicationMode::Enciphered,
+                key_type: Some(AuthKeyType::AesEv2),
+                integrity: IntegrityCheck::Ev2Cmac,
+            }),
+            "enciphered · AES EV2 · EV2 CMAC verified"
+        );
+        assert_eq!(
+            read_protection_text(&DesfireReadProtection {
+                communication: CommunicationMode::Plain,
+                key_type: None,
+                integrity: IntegrityCheck::None,
+            }),
+            "plain · no session · no response MAC"
         );
     }
 

@@ -17,6 +17,7 @@ nfc-transport.workspace = true
 [features]
 default = []
 hardware = []
+mock-card = []
 
 [dev-dependencies]
 nfc-drivers.workspace = true

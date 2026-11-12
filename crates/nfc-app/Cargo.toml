@@ -19,6 +19,7 @@ serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+nfc-desfire = { workspace = true, features = ["mock-card"] }
 tempfile = "3"
 
 [lints]

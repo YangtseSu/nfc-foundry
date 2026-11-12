@@ -16,7 +16,8 @@ not advertised because no release hardware record exists. Classic 4K read/write
 is validated on PN532 UART; the ACR122U 4K path is not. Ultralight EV1 MF0UL11,
 FM11RF08S backdoor recovery, and a 7-byte UID-changeable NTAG213 clone are
 validated on PN532 UART. DESFire EV3 inventory, factory-key authentication, and
-plain/MACed/enciphered file reads are validated on both readers; the Type 4
+plain/MACed/enciphered file reads are validated on both readers; key
+verification and authenticated UID reads are validated on ACR122U. The Type 4
 NDEF read is exposed in CLI and GUI, and NDEF provisioning and guarded delete
 are implemented. Generic secure-messaging writes remain pending. Type 4 read/write is validated on
 PN532 UART but has no CLI or GUI surface yet. See

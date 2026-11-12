@@ -23,8 +23,9 @@ use nfc_app::classic::{
 };
 use nfc_app::desfire::{
     AuthKeyType, DesfireNdefDeleteRequest, DesfireNdefFormatRequest, DesfireReadRequest,
-    DesfireReadResult, NDEF_APPLICATION_AID, NDEF_CC_FILE, NDEF_CC_SIZE, NDEF_DATA_FILE,
-    NDEF_DATA_SIZE,
+    DesfireReadResult, DesfireUidRequest, DesfireVerifyKeyRequest, NDEF_APPLICATION_AID,
+    NDEF_CC_FILE, NDEF_CC_SIZE, NDEF_DATA_FILE, NDEF_DATA_SIZE, card_uid_text,
+    key_verification_text, read_protection_text,
 };
 use nfc_app::type2::{
     Type2Auth, Type2Format, Type2Lock, Type2LockResult, Type2MutationResult, Type2NdefWrite,
@@ -1051,6 +1052,14 @@ struct DesfireView {
     read: gtk::Button,
     output: gtk::Label,
     status: gtk::Label,
+    verify_aid: gtk::Entry,
+    verify_key: gtk::PasswordEntry,
+    verify_key_type: gtk::DropDown,
+    verify_key_number: gtk::Entry,
+    verify: gtk::Button,
+    read_uid: gtk::Button,
+    verify_output: gtk::Label,
+    verify_status: gtk::Label,
     advanced: gtk::Switch,
     ndef_key: gtk::PasswordEntry,
     ndef_key_type: gtk::DropDown,
@@ -1712,6 +1721,73 @@ fn build_desfire_view() -> DesfireView {
     read_page.append(&output_scroll);
     read_page.append(&status);
 
+    let verify_page = page_box();
+    let verify_form = gtk::Grid::new();
+    verify_form.set_row_spacing(8);
+    verify_form.set_column_spacing(12);
+    let mut verify_row = 0;
+    let mut add_verify_field = |label: &str, widget: &gtk::Widget| {
+        let caption = gtk::Label::new(Some(label));
+        caption.set_xalign(0.0);
+        caption.add_css_class("caption");
+        caption.add_css_class("dim-label");
+        verify_form.attach(&caption, 0, verify_row, 1, 1);
+        verify_form.attach(widget, 1, verify_row, 1, 1);
+        widget.set_hexpand(true);
+        verify_row += 1;
+    };
+    let verify_aid = gtk::Entry::new();
+    verify_aid.set_placeholder_text(Some("A1B2C3"));
+    verify_aid.set_max_width_chars(12);
+    add_verify_field("Application ID", verify_aid.upcast_ref());
+    let verify_key = gtk::PasswordEntry::new();
+    verify_key.set_show_peek_icon(true);
+    verify_key.set_placeholder_text(Some("DES 16 hex digits; AES/2K3DES 32; 3K3DES 48"));
+    add_verify_field("Key", verify_key.upcast_ref());
+    let verify_key_type =
+        gtk::DropDown::from_strings(&["Auto", "DES", "2K3DES", "3K3DES", "AES", "AES EV2"]);
+    verify_key_type.set_selected(0);
+    add_verify_field("Key type", verify_key_type.upcast_ref());
+    let verify_key_number = gtk::Entry::new();
+    verify_key_number.set_text("0");
+    verify_key_number.set_max_width_chars(4);
+    add_verify_field("Key number", verify_key_number.upcast_ref());
+
+    let verify_hint = gtk::Label::new(Some(
+        "Authenticate an application key without reading file data. The card UID is \
+         returned only after authentication, and any response check must verify.",
+    ));
+    verify_hint.set_xalign(0.0);
+    verify_hint.set_wrap(true);
+    verify_hint.add_css_class("caption");
+    verify_hint.add_css_class("dim-label");
+
+    let verify_buttons = gtk::Box::new(Orientation::Horizontal, 8);
+    let verify = gtk::Button::with_label("Verify key");
+    verify.add_css_class("suggested-action");
+    let read_uid = gtk::Button::with_label("Read UID");
+    verify_buttons.append(&verify);
+    verify_buttons.append(&read_uid);
+
+    let verify_output = gtk::Label::new(None);
+    verify_output.set_xalign(0.0);
+    verify_output.set_wrap(true);
+    verify_output.set_selectable(true);
+    verify_output.add_css_class("monospace");
+    let verify_output_scroll = gtk::ScrolledWindow::builder()
+        .child(&verify_output)
+        .vexpand(true)
+        .build();
+    let verify_status = gtk::Label::new(None);
+    verify_status.set_xalign(0.0);
+    verify_status.add_css_class("caption");
+    verify_status.add_css_class("dim-label");
+    verify_page.append(&verify_form);
+    verify_page.append(&verify_hint);
+    verify_page.append(&verify_buttons);
+    verify_page.append(&verify_output_scroll);
+    verify_page.append(&verify_status);
+
     let ndef_page = page_box();
     let advanced_row = gtk::Box::new(Orientation::Horizontal, 8);
     let advanced_label = gtk::Label::new(Some("Advanced mode"));
@@ -1801,6 +1877,7 @@ fn build_desfire_view() -> DesfireView {
     tabs.set_vexpand(true);
     tabs.add_titled(&inventory_page, Some("inventory"), "Inventory");
     tabs.add_titled(&read_page, Some("read"), "Read");
+    tabs.add_titled(&verify_page, Some("verify"), "Verify");
     tabs.add_titled(&ndef_page, Some("ndef"), "NDEF");
     let (root, switcher) = grouped_page(&tabs);
     DesfireView {
@@ -1821,6 +1898,14 @@ fn build_desfire_view() -> DesfireView {
         read,
         output,
         status,
+        verify_aid,
+        verify_key,
+        verify_key_type,
+        verify_key_number,
+        verify,
+        read_uid,
+        verify_output,
+        verify_status,
         advanced,
         ndef_key,
         ndef_key_type,
@@ -3247,6 +3332,14 @@ fn connect_signals(ui: &Rc<Ui>) {
     ui.desfire_view
         .read
         .connect_clicked(move |_| start_desfire_read(ui2.clone()));
+    let ui2 = ui.clone();
+    ui.desfire_view
+        .verify
+        .connect_clicked(move |_| start_desfire_verify_key(ui2.clone()));
+    let ui2 = ui.clone();
+    ui.desfire_view
+        .read_uid
+        .connect_clicked(move |_| start_desfire_uid(ui2.clone()));
     let ui2 = ui.clone();
     ui.desfire_view
         .read_ndef
@@ -5821,12 +5914,16 @@ fn clear_desfire_session(ui: &Rc<Ui>) {
     ui.desfire_view.key.set_text("");
     ui.desfire_view.output.set_text("");
     ui.desfire_view.status.set_text("");
+    ui.desfire_view.verify_key.set_text("");
+    ui.desfire_view.verify_output.set_text("");
+    ui.desfire_view.verify_status.set_text("");
     ui.desfire_view.ndef_key.set_text("");
     ui.desfire_view.ndef_status.set_text("");
     ui.desfire_view.ndef_output.set_text("");
     ui.desfire_view.start_record.set_text("0");
     ui.desfire_view.record_count.set_text("");
     ui.desfire_view.read_key_type.set_selected(0);
+    ui.desfire_view.verify_key_type.set_selected(0);
     ui.desfire_view.ndef_key_type.set_selected(0);
     ui.desfire_view.advanced.set_active(false);
     if let Some(dialog) = ui.pending_desfire_dialog.borrow_mut().take() {
@@ -6163,9 +6260,10 @@ fn start_desfire_read(ui: Rc<Ui>) {
                 .map(|read| match read {
                     DesfireReadResult::Data(read) => {
                         let text = format!(
-                            "settings: {}\nraw: {}\ndata: {}\nascii: {}",
+                            "settings: {}\nraw: {}\nprotection: {}\ndata: {}\nascii: {}",
                             read.settings.summary(),
                             type2_ui::hex_bytes(read.settings.raw()),
+                            read_protection_text(&read.protection),
                             type2_ui::hex_bytes(&read.data),
                             desfire_ascii(&read.data)
                         );
@@ -6173,16 +6271,18 @@ fn start_desfire_read(ui: Rc<Ui>) {
                     }
                     DesfireReadResult::Value(read) => {
                         let text = format!(
-                            "settings: {}\nvalue: {}",
+                            "settings: {}\nprotection: {}\nvalue: {}",
                             read.settings.summary(),
+                            read_protection_text(&read.protection),
                             read.value
                         );
                         (text, format!("value {}", read.value))
                     }
                     DesfireReadResult::Records(read) => {
                         let mut text = format!(
-                            "settings: {}\nrecord offset: {} · {} record(s) × {} bytes",
+                            "settings: {}\nprotection: {}\nrecord offset: {} · {} record(s) × {} bytes",
                             read.settings.summary(),
+                            read_protection_text(&read.protection),
                             read.start_record,
                             read.records.len(),
                             read.record_size
@@ -6228,6 +6328,174 @@ fn finish_desfire_read(ui: &Rc<Ui>, result: NfcResult<(String, String)>) {
     }
 }
 
+struct DesfireKeyInput {
+    aid: [u8; 3],
+    key: Vec<u8>,
+    key_type: Option<AuthKeyType>,
+    key_number: u8,
+}
+
+fn desfire_verify_input(
+    aid_text: &str,
+    key_text: &str,
+    key_type_dropdown: &gtk::DropDown,
+    key_number_text: &str,
+) -> std::result::Result<DesfireKeyInput, String> {
+    let aid = parse_desfire_hex(aid_text, 3, "application ID")?;
+    Ok(DesfireKeyInput {
+        aid: [aid[0], aid[1], aid[2]],
+        key: desfire_required_application_key(key_text)?,
+        key_type: desfire_key_type(key_type_dropdown),
+        key_number: desfire_key_number(key_number_text)?,
+    })
+}
+
+fn start_desfire_verify_key(ui: Rc<Ui>) {
+    if ui.busy.get() {
+        return;
+    }
+    let view = &ui.desfire_view;
+    let input = match desfire_verify_input(
+        &view.verify_aid.text(),
+        &view.verify_key.text(),
+        &view.verify_key_type,
+        &view.verify_key_number.text(),
+    ) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            ui.desfire_view
+                .verify_status
+                .set_localized("Verification input is invalid");
+            ui.status
+                .set_localized("DESFire verification input is invalid");
+            toast_error(&ui, &error);
+            return;
+        }
+    };
+    let mut request =
+        DesfireVerifyKeyRequest::new(input.aid, input.key).key_number(input.key_number);
+    if let Some(key_type) = input.key_type {
+        request = request.key_type(key_type);
+    }
+    set_busy(&ui, true);
+    ui.status.set_localized("Verifying the DESFire key…");
+    let service = ui.service.clone();
+    let (sender, receiver) = async_channel::bounded(1);
+    std::thread::spawn(move || {
+        let result = match service.lock() {
+            Ok(mut service) => {
+                service
+                    .desfire_verify_key(CancelToken::new(), request)
+                    .map(|verification| {
+                        let detail = format!("key {}", verification.key_number);
+                        (key_verification_text(&verification), detail)
+                    })
+            }
+            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
+        };
+        let _ = sender.send_blocking(result);
+    });
+    glib::spawn_future_local(async move {
+        match receiver.recv().await {
+            Ok(result) => finish_desfire_verify(&ui, result),
+            Err(_) => {
+                finish_desfire_verify(&ui, Err(NfcError::Io("reader worker stopped".to_owned())))
+            }
+        }
+    });
+}
+
+fn finish_desfire_verify(ui: &Rc<Ui>, result: NfcResult<(String, String)>) {
+    set_busy(ui, false);
+    match result {
+        Ok((text, detail)) => {
+            ui.desfire_view.verify_output.set_text(&text);
+            ui.desfire_view.verify_status.set_localized("Key verified");
+            ui.status
+                .set_localized(&format!("DESFire key verified · {detail}"));
+            append_log(ui, &format!("desfire · verify · {detail}"));
+        }
+        Err(error) => {
+            ui.desfire_view
+                .verify_status
+                .set_localized("Verification failed");
+            ui.status.set_localized("DESFire verification failed");
+            toast_error(ui, &format!("DESFire verify: {error}"));
+        }
+    }
+}
+
+fn start_desfire_uid(ui: Rc<Ui>) {
+    if ui.busy.get() {
+        return;
+    }
+    let view = &ui.desfire_view;
+    let input = match desfire_verify_input(
+        &view.verify_aid.text(),
+        &view.verify_key.text(),
+        &view.verify_key_type,
+        &view.verify_key_number.text(),
+    ) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            ui.desfire_view
+                .verify_status
+                .set_localized("UID input is invalid");
+            ui.status.set_localized("DESFire UID input is invalid");
+            toast_error(&ui, &error);
+            return;
+        }
+    };
+    let mut request = DesfireUidRequest::new(input.aid, input.key).key_number(input.key_number);
+    if let Some(key_type) = input.key_type {
+        request = request.key_type(key_type);
+    }
+    set_busy(&ui, true);
+    ui.status.set_localized("Reading the authenticated UID…");
+    let service = ui.service.clone();
+    let (sender, receiver) = async_channel::bounded(1);
+    std::thread::spawn(move || {
+        let result = match service.lock() {
+            Ok(mut service) => service
+                .desfire_card_uid(CancelToken::new(), request)
+                .map(|read| {
+                    let detail = format!("UID {}", type2_ui::hex_bytes(&read.uid));
+                    (card_uid_text(&read), detail)
+                }),
+            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
+        };
+        let _ = sender.send_blocking(result);
+    });
+    glib::spawn_future_local(async move {
+        match receiver.recv().await {
+            Ok(result) => finish_desfire_uid(&ui, result),
+            Err(_) => {
+                finish_desfire_uid(&ui, Err(NfcError::Io("reader worker stopped".to_owned())))
+            }
+        }
+    });
+}
+
+fn finish_desfire_uid(ui: &Rc<Ui>, result: NfcResult<(String, String)>) {
+    set_busy(ui, false);
+    match result {
+        Ok((text, detail)) => {
+            ui.desfire_view.verify_output.set_text(&text);
+            ui.desfire_view.verify_status.set_localized("UID read");
+            ui.status
+                .set_localized(&format!("DESFire UID read · {detail}"));
+            append_log(ui, &format!("desfire · uid · {detail}"));
+        }
+        Err(error) => {
+            ui.desfire_view
+                .verify_status
+                .set_localized("UID read failed");
+            ui.status.set_localized("DESFire UID read failed");
+            toast_error(ui, &format!("DESFire UID: {error}"));
+        }
+    }
+}
+
 fn desfire_key_type(dropdown: &gtk::DropDown) -> Option<AuthKeyType> {
     match dropdown.selected() {
         1 => Some(AuthKeyType::Des),
@@ -6264,6 +6532,10 @@ fn desfire_key_number(text: &str) -> std::result::Result<u8, String> {
 
 fn desfire_required_key(text: &str) -> std::result::Result<Vec<u8>, String> {
     parse_desfire_key(text)?.ok_or_else(|| "a PICC master key is required".to_owned())
+}
+
+fn desfire_required_application_key(text: &str) -> std::result::Result<Vec<u8>, String> {
+    parse_desfire_key(text)?.ok_or_else(|| "a DESFire key is required".to_owned())
 }
 
 fn desfire_type4_access_label(access: u8) -> String {
@@ -6717,6 +6989,8 @@ fn update_desfire_actions(ui: &Ui) {
     let advanced = sensitive && ui.desfire_view.advanced.is_active();
     ui.desfire_view.refresh.set_sensitive(sensitive);
     ui.desfire_view.read.set_sensitive(sensitive);
+    ui.desfire_view.verify.set_sensitive(sensitive);
+    ui.desfire_view.read_uid.set_sensitive(sensitive);
     ui.desfire_view.read_ndef.set_sensitive(sensitive);
     ui.desfire_view.format_ndef.set_sensitive(advanced);
     ui.desfire_view.delete_ndef.set_sensitive(advanced);
@@ -15287,7 +15561,19 @@ mod tests {
             Some("Read NDEF")
         );
         assert!(ui.desfire_view.read_ndef.is_sensitive());
+        assert!(ui.desfire_view.tabs.child_by_name("verify").is_some());
+        assert_eq!(
+            ui.desfire_view.verify.label().as_deref(),
+            Some("Verify key")
+        );
+        assert_eq!(
+            ui.desfire_view.read_uid.label().as_deref(),
+            Some("Read UID")
+        );
+        assert!(ui.desfire_view.verify.is_sensitive());
+        assert!(ui.desfire_view.read_uid.is_sensitive());
         assert_eq!(ui.desfire_view.read_key_type.selected(), 0);
+        assert_eq!(ui.desfire_view.verify_key_type.selected(), 0);
         assert_eq!(ui.desfire_view.ndef_key_type.selected(), 0);
         ui.desfire_view.advanced.set_active(true);
         assert!(ui.desfire_view.format_ndef.is_sensitive());
@@ -15321,6 +15607,19 @@ mod tests {
                 .len(),
             8
         );
+        assert!(desfire_required_application_key("").is_err());
+        let input = desfire_verify_input(
+            "A1B2C3",
+            "0000000000000000",
+            &ui.desfire_view.verify_key_type,
+            "0",
+        )
+        .expect("verification input");
+        assert_eq!(input.aid, [0xA1, 0xB2, 0xC3]);
+        assert_eq!(input.key.len(), 8);
+        assert_eq!(input.key_type, None);
+        assert_eq!(input.key_number, 0);
+        assert!(desfire_verify_input("A1B2", "00", &ui.desfire_view.verify_key_type, "0").is_err());
 
         let dialog = typed_confirmation_dialog("Test", "Body", "Confirm", "FORMAT");
         assert!(!dialog.is_response_enabled("confirm"));

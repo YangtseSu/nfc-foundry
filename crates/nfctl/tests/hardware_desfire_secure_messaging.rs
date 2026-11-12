@@ -195,7 +195,9 @@ fn direct_reads(
         (FULL_FILE, CommunicationMode::Enciphered),
     ] {
         let settings = settings(desfire, file_id, mode)?;
-        let data = desfire.read_data(file_id, 0, DATA_SIZE, settings.communication)?;
+        let data = desfire
+            .read_data(file_id, 0, DATA_SIZE, settings.communication)?
+            .data;
         verify(
             data == vec![0u8; DATA_SIZE as usize],
             format!(
@@ -211,7 +213,7 @@ fn direct_reads(
         (FULL_VALUE, CommunicationMode::Enciphered, FULL_VALUE_INIT),
     ] {
         let settings = settings(desfire, file_id, mode)?;
-        let value = desfire.get_value(file_id, settings.communication)?;
+        let value = desfire.get_value(file_id, settings.communication)?.value;
         verify(
             value == expected,
             format!(

@@ -15,8 +15,9 @@ use nfc_app::classic::{
 };
 use nfc_app::desfire::{
     AuthKeyType, DesfireNdefDeleteRequest, DesfireNdefFormatRequest, DesfireReadResult,
-    NDEF_APPLICATION_AID, NDEF_CAPABILITY_CONTAINER, NDEF_CC_FILE, NDEF_CC_SIZE, NDEF_DATA_FILE,
-    NDEF_DATA_SIZE, NDEF_DF_NAME,
+    DesfireUidRequest, DesfireVerifyKeyRequest, NDEF_APPLICATION_AID, NDEF_CAPABILITY_CONTAINER,
+    NDEF_CC_FILE, NDEF_CC_SIZE, NDEF_DATA_FILE, NDEF_DATA_SIZE, NDEF_DF_NAME, card_uid_text,
+    key_verification_text, read_protection_text,
 };
 use nfc_app::type2::{
     Type2Auth, Type2Format, Type2Lock, Type2NdefWrite, Type2PageWrite, Type2Password,
@@ -30,12 +31,13 @@ use nfc_classic_ndef::{
 use nfc_core::{
     BLOCK_SIZE, CancelToken, CardInfo, CardType, Key, KeyType, NfcError, PAGE_SIZE, Result,
 };
+use nfc_desfire::mock::{MockDesfire, MockDesfireTransport};
 use nfc_drivers::DriverRegistry;
 use nfc_ndef::{NdefMessage, NdefRecord, TextRecord, UriRecord, WifiRecord};
 use nfc_recover::auto::RecoveryStrategy;
 use nfc_recover::{RecoveryProgress, RecoveryRequest};
-use nfc_transport::DeviceInfo;
 use nfc_transport::mock::{MockTransport, MockType4Tag};
+use nfc_transport::{DeviceInfo, Reader, Transport};
 use nfc_type2::{
     Configuration, LockBits, NdefState, RestoreOptions, Type2Image, exchange as type2,
 };
@@ -128,7 +130,7 @@ enum Command {
         #[command(subcommand)]
         command: Type2Command,
     },
-    /// DESFire inventory, file read, and NDEF provisioning.
+    /// DESFire inventory, verification, file read, and NDEF provisioning.
     Desfire {
         #[command(subcommand)]
         command: DesfireCommand,
@@ -448,6 +450,46 @@ enum DesfireCommand {
         /// Write the raw NDEF message to this file.
         #[arg(long, short, value_name = "PATH")]
         output: Option<PathBuf>,
+    },
+    /// Authenticate one application key without reading file data.
+    VerifyKey {
+        /// Application ID, e.g. A1B2C3.
+        #[arg(long, value_name = "HEX")]
+        aid: String,
+        /// Key for the selected family: DES 8, AES/2K3DES 16, 3K3DES 24 bytes.
+        #[arg(
+            long,
+            value_name = "HEX",
+            env = "NFC_FOUNDRY_DESFIRE_KEY",
+            hide_env_values = true
+        )]
+        key: String,
+        /// Explicit key family: des, 2k3des, 3k3des, aes, or ev2.
+        #[arg(long, value_name = "TYPE")]
+        key_type: Option<String>,
+        /// Application key number, 0..=14.
+        #[arg(long, default_value_t = 0, value_name = "N")]
+        key_number: u8,
+    },
+    /// Read the card UID after authentication.
+    Uid {
+        /// Application ID, e.g. A1B2C3.
+        #[arg(long, value_name = "HEX")]
+        aid: String,
+        /// Key for the selected family: DES 8, AES/2K3DES 16, 3K3DES 24 bytes.
+        #[arg(
+            long,
+            value_name = "HEX",
+            env = "NFC_FOUNDRY_DESFIRE_KEY",
+            hide_env_values = true
+        )]
+        key: String,
+        /// Explicit key family: des, 2k3des, 3k3des, aes, or ev2.
+        #[arg(long, value_name = "TYPE")]
+        key_type: Option<String>,
+        /// Application key number, 0..=14.
+        #[arg(long, default_value_t = 0, value_name = "N")]
+        key_number: u8,
     },
     /// Read one data, value, or record file, optionally authenticating first.
     Read {
@@ -2050,6 +2092,38 @@ fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<
             }
             Ok(())
         }
+        DesfireCommand::VerifyKey {
+            aid,
+            key,
+            key_type,
+            key_number,
+        } => {
+            let aid = parse_hex_array::<3>(&aid, "DESFire AID")?;
+            let key = parse_hex_bytes(&key, "DESFire key")?;
+            let mut request = DesfireVerifyKeyRequest::new(aid, key).key_number(key_number);
+            if let Some(key_type) = key_type {
+                request = request.key_type(parse_auth_key_type(&key_type)?);
+            }
+            let result = service.desfire_verify_key(CancelToken::new(), request)?;
+            print!("{}", key_verification_text(&result));
+            Ok(())
+        }
+        DesfireCommand::Uid {
+            aid,
+            key,
+            key_type,
+            key_number,
+        } => {
+            let aid = parse_hex_array::<3>(&aid, "DESFire AID")?;
+            let key = parse_hex_bytes(&key, "DESFire key")?;
+            let mut request = DesfireUidRequest::new(aid, key).key_number(key_number);
+            if let Some(key_type) = key_type {
+                request = request.key_type(parse_auth_key_type(&key_type)?);
+            }
+            let result = service.desfire_card_uid(CancelToken::new(), request)?;
+            print!("{}", card_uid_text(&result));
+            Ok(())
+        }
         DesfireCommand::Read {
             aid,
             file,
@@ -2084,6 +2158,7 @@ fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<
                         file_id,
                         read.settings.summary()
                     );
+                    println!("protection: {}", read_protection_text(&read.protection));
                     println!("data: {}", hex_bytes(&read.data));
                     println!("ascii: {}", ascii(&read.data));
                 }
@@ -2094,6 +2169,7 @@ fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<
                         file_id,
                         read.settings.summary()
                     );
+                    println!("protection: {}", read_protection_text(&read.protection));
                     println!("value: {}", read.value);
                 }
                 DesfireReadResult::Records(read) => {
@@ -2103,6 +2179,7 @@ fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<
                         file_id,
                         read.settings.summary()
                     );
+                    println!("protection: {}", read_protection_text(&read.protection));
                     println!(
                         "record offset: {} · records: {} × {} bytes",
                         read.start_record,
@@ -3032,7 +3109,41 @@ fn mock_service() -> Service {
             CardType::MifareMini,
         )),
     );
-    Service::with_transport(Arc::new(transport))
+    let desfire = MockDesfireTransport::with_tag(
+        MockDesfire::new([0x00; 8], AuthKeyType::Des).with_key_version(0),
+    );
+    Service::with_transport(Arc::new(MockDevices {
+        standard: transport,
+        desfire,
+    }))
+}
+
+/// Routes the scripted Classic/Type 2/Type 4 devices and the DESFire card
+/// through one mock transport.
+struct MockDevices {
+    standard: MockTransport,
+    desfire: MockDesfireTransport,
+}
+
+impl Transport for MockDevices {
+    fn enumerate(&self) -> Result<Vec<DeviceInfo>> {
+        let mut devices = self.standard.enumerate()?;
+        devices.extend(self.desfire.enumerate()?);
+        Ok(devices)
+    }
+
+    fn open(&self, conn_string: &str) -> Result<Box<dyn Reader>> {
+        let is_desfire = self
+            .desfire
+            .enumerate()?
+            .iter()
+            .any(|device| device.conn_string == conn_string);
+        if is_desfire {
+            self.desfire.open(conn_string)
+        } else {
+            self.standard.open(conn_string)
+        }
+    }
 }
 
 fn mock_type4_cc() -> Vec<u8> {
