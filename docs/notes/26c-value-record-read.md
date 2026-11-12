@@ -102,7 +102,12 @@ left `current_records` at 1. The read path is valid for a one-record cyclic
 file and is recorded above, but cyclic write-position semantics need their own
 hardware investigation in phase 26.10. The Phase 26.3 acceptance is read-only.
 
-The ACR122U row remains unrecorded.
+## ACR122U record
+
+2026-11-12: `acr122_usb:001:002` (direct USB/CCID, `pcscd` stopped) passed
+`reads_value_and_record_files_on_a_reserved_application`: the value file,
+linear records, and cyclic records were read through `nfc-app`, the
+over-request was refused, and the application was removed.
 
 ## Next
 

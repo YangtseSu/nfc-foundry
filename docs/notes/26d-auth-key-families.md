@@ -59,8 +59,13 @@ The test created reserved 3K3DES `F0 0D 04` (24-byte zero key) and AES
 - rejected a wrong AES key, key number 1, a 3K3DES key length against the AES
   application, and a 2K3DES-family attempt against the AES key.
 
-Both applications were removed afterwards; `applications: none`. The ACR122U
-row remains unrecorded.
+Both applications were removed afterwards; `applications: none`.
+
+## ACR122U record
+
+2026-11-12: `acr122_usb:001:002` (direct USB/CCID, `pcscd` stopped) passed the
+same test on the same reader: `0x1A`, `0xAA`, and `0x71` authenticated, the
+session-key and wrong-key checks passed, and both applications were removed.
 
 ## Tests
 

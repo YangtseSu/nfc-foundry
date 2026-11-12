@@ -219,7 +219,8 @@ checks AES/3DES CBC round trips, key-length mapping, and key validation.
 `nfctl/tests/hardware_desfire_auth.rs` creates reserved 3K3DES and AES
 applications with zero test keys, authenticates with `0x1A`, `0xAA`, and
 `0x71`, checks session key lengths and EV2 ENC/MAC separation, and verifies
-wrong-key/key-number/family failures. It passed on PN532 UART on 2026-11-12.
+wrong-key/key-number/family failures. It passed on PN532 UART and ACR122U
+on 2026-11-12.
 Deleted DESFire applications keep EEPROM tombstones until FormatPICC; the test
 requires `NFC_FOUNDRY_HARDWARE_FORMAT=yes` to format the test card when free
 memory is low (or always when set):
@@ -236,8 +237,8 @@ cover the CMAC and CRC primitives, AN12343 EV2 MAC/IV vectors, chained
 responses, EV2 counter advancement, and tampered responses. The
 `hardware_desfire_secure_messaging` test creates reserved 3K3DES and AES
 applications with plain, MACed, and enciphered files and reads them through the
-direct layer and `nfc-app`. It passed on PN532 UART on 2026-11-12; the same
-`NFC_FOUNDRY_HARDWARE_FORMAT=yes` rule applies:
+direct layer and `nfc-app`. It passed on PN532 UART and ACR122U on
+2026-11-12; the same `NFC_FOUNDRY_HARDWARE_FORMAT=yes` rule applies:
 
 ```sh
 NFC_FOUNDRY_HARDWARE=1 NFC_FOUNDRY_HARDWARE_WRITE=yes \
@@ -245,6 +246,9 @@ NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
 cargo test -p nfctl --features hardware-write \
   --test hardware_desfire_secure_messaging -- --ignored
 ```
+
+For ACR122U use `NFC_FOUNDRY_DEVICE=acr122_usb:<bus>:<address>` and stop
+`pcscd` first.
 
 The phase 26.3 read path remains covered by unit
 tests for the `GetValue` command shape and the `ReadRecords` payload, plus the

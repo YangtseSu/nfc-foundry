@@ -8,17 +8,18 @@ Forum Type 2 / NDEF cards, written in Rust.
 **Release 0.1.0: the AUR source package, GitHub CI binary tarball, source
 archive, and hardware matrix are in place.** PN532 UART passed every operation
 in its certified scope. The ACR122U passed its certified scope: selection,
-Classic reads, Type 2 reads, raw REQA, Gen1A same-value block 0 write, and
-recovery. ACR122U Classic data writes, ACR122U Type 2 write/NDEF, ACR122U
+Classic reads, Type 2 reads, raw REQA, Gen1A same-value block 0 write,
+recovery, and DESFire inventory, 3K3DES/AES authentication, and
+secure-messaging reads. ACR122U Classic data writes, ACR122U Type 2 write/NDEF, ACR122U
 Classic NDEF, one-way locks, passwords, trailer writes, and ACR122U Type 4 are
 not advertised because no release hardware record exists. Classic 4K read/write
 is validated on PN532 UART; the ACR122U 4K path is not. Ultralight EV1 MF0UL11,
 FM11RF08S backdoor recovery, and a 7-byte UID-changeable NTAG213 clone are
 validated on PN532 UART. DESFire EV3 inventory, factory-key authentication, and
-a reserved temporary application/file round trip are validated; native NDEF
-formatting and user-facing writes are not implemented. DESFire also has a
-read-only GTK workspace for inventory and plain file reads. Type 4 read/write
-is validated on PN532 UART but has no CLI or GUI surface yet. See
+plain/MACed/enciphered file reads are validated on both readers; NDEF
+provisioning and guarded delete are implemented, while generic
+secure-messaging writes remain pending. Type 4 read/write is validated on
+PN532 UART but has no CLI or GUI surface yet. See
 [Hardware matrix](docs/hardware-matrix.md).
 Both first-release readers are implemented: PN532 UART
 and ACR122U direct USB/CCID. The ACR122U path claims the CCID interface with

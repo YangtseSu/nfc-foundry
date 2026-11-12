@@ -85,7 +85,27 @@ value: 43
 ```
 
 The fixtures were removed afterwards; `nfctl desfire info` reported
-`applications: none`. The ACR122U row remains unrecorded.
+`applications: none`.
+
+## ACR122U record
+
+`pcscd` was stopped and the reader opened as `acr122_usb:001:002` (direct
+USB/CCID, internal PN532 firmware 1.6). The same test passed for 3K3DES EV1,
+AES EV1, and AES EV2, including the plain, MACed, and enciphered fixtures and
+the `nfc-app` path. `nfctl desfire read` then returned the same three results
+through the ACR122U:
+
+```text
+aid F0 0D 06 file 03 standard data · enciphered · 48 bytes
+aid F0 0D 07 file 02 standard data · MACed · 48 bytes
+aid F0 0D 07 file 05 value · enciphered · value: 43
+```
+
+The fixtures were removed and `nfctl desfire info` reported
+`applications: none`. `GetFileSettings` decoded the standard and value fixture
+settings on the same reader. The 3K3DES/AES authentication and value/record
+hardware tests also passed on this reader. No PICC format was needed for the
+ACR122U run.
 
 ## Tests
 
