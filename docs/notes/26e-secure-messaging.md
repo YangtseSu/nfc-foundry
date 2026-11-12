@@ -42,9 +42,11 @@ assert both the error and the dropped session.
 
 ## Hardware record
 
-Run on 2026-11-12 on `pn532_uart:/dev/ttyUSB0` with a DESFire EV3 8K. The test
-created reserved 3K3DES `F0 0D 06` and AES `F0 0D 07` applications with
-24-byte and 16-byte zero keys. Each application held:
+Run on 2026-11-12 on `pn532_uart:/dev/ttyUSB0` with a DESFire EV3 8K. The
+owner approved a FormatPICC first because earlier fixtures had left 384 free
+EEPROM bytes; formatting restored 8192 bytes. The test created reserved 3K3DES
+`F0 0D 06` and AES `F0 0D 07` applications with 24-byte and 16-byte zero keys.
+Each application held:
 
 - Standard files `01` (plain), `02` (MACed), `03` (enciphered), 48 bytes each;
 - Value files `04` (MACed, initial value 21) and `05` (enciphered, initial
@@ -66,7 +68,24 @@ applications: none
 test reads_maced_and_enciphered_files_over_ev1_and_ev2 ... ok
 ```
 
-The ACR122U row remains unrecorded.
+`nfctl` then read the same fixtures through the CLI:
+
+```text
+$ nfctl desfire read --aid F00D06 --file 03 --key <24-byte zero> --key-type 3k3des
+aid F0 0D 06 file 03 standard data · enciphered · ... · 48 bytes
+data: 00 00 ... (48 zero bytes)
+
+$ nfctl desfire read --aid F00D07 --file 02 --key <16-byte zero> --key-type aes
+aid F0 0D 07 file 02 standard data · MACed · ... · 48 bytes
+data: 00 00 ... (48 zero bytes)
+
+$ nfctl desfire read --aid F00D07 --file 05 --key <16-byte zero> --key-type ev2
+aid F0 0D 07 file 05 value · enciphered · ... · get value restricted
+value: 43
+```
+
+The fixtures were removed afterwards; `nfctl desfire info` reported
+`applications: none`. The ACR122U row remains unrecorded.
 
 ## Tests
 
