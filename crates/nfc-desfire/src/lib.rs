@@ -32,6 +32,9 @@ const INS_ABORT_TRANSACTION: u8 = 0xA7;
 
 const STATUS_OK: u16 = 0x9100;
 const STATUS_ADDITIONAL: u16 = 0x91AF;
+/// `NoChanges`: a commit with no uncommitted data is already in the
+/// requested state, so callers treat it as success.
+const STATUS_NO_CHANGES: u16 = 0x910C;
 
 /// DESFire application ID that carries the NFC Forum Type 4 NDEF Tag
 /// Application, in native-command byte order (logical AID `D27600`).
@@ -372,9 +375,16 @@ impl<'a> Desfire<'a> {
     }
 
     /// Commit the open transaction so plain writes become persistent.
+    ///
+    /// `NoChanges` means the card has nothing pending to commit and the
+    /// requested state is already stored; it is not an error.
     pub fn commit_transaction(&mut self) -> Result<()> {
-        self.expect_ok(INS_COMMIT_TRANSACTION, &[])?;
-        Ok(())
+        let (_, sw) = self.transceive(INS_COMMIT_TRANSACTION, &[])?;
+        if sw == STATUS_OK || sw == STATUS_NO_CHANGES {
+            Ok(())
+        } else {
+            Err(status_error(INS_COMMIT_TRANSACTION, sw))
+        }
     }
 
     /// Abort the open transaction and discard uncommitted writes.
@@ -679,6 +689,88 @@ fn status_error(ins: u8, sw: u16) -> NfcError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nfc_core::{CardInfo, Key, KeyType};
+    use nfc_transport::{ApduResponse, DeviceInfo};
+
+    struct ScriptedReader {
+        response: ApduResponse,
+        commands: Vec<Vec<u8>>,
+        device: DeviceInfo,
+    }
+
+    impl ScriptedReader {
+        fn new(sw: [u8; 2]) -> Self {
+            Self {
+                response: ApduResponse::new(Vec::new(), sw),
+                commands: Vec::new(),
+                device: DeviceInfo::new("scripted", "scripted:0"),
+            }
+        }
+    }
+
+    impl Reader for ScriptedReader {
+        fn device(&self) -> &DeviceInfo {
+            &self.device
+        }
+
+        fn open(&mut self, _conn_string: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn close(&mut self) -> Result<()> {
+            Ok(())
+        }
+
+        fn card_info(&mut self) -> Result<CardInfo> {
+            Err(NfcError::Unsupported("scripted reader has no card"))
+        }
+
+        fn authenticate(&mut self, _block: u8, _key_type: KeyType, _key: Key) -> Result<()> {
+            Err(NfcError::Unsupported(
+                "scripted reader has no authentication",
+            ))
+        }
+
+        fn read_block(&mut self, _block: u8) -> Result<[u8; 16]> {
+            Err(NfcError::Unsupported("scripted reader has no blocks"))
+        }
+
+        fn write_block(&mut self, _block: u8, _data: [u8; 16]) -> Result<()> {
+            Err(NfcError::Unsupported("scripted reader has no blocks"))
+        }
+
+        fn transceive_bytes(&mut self, _tx: &[u8]) -> Result<Vec<u8>> {
+            Err(NfcError::Unsupported("scripted reader has no raw mode"))
+        }
+
+        fn transceive_bits(&mut self, _tx: &[u8], _tx_bits: usize) -> Result<(Vec<u8>, usize)> {
+            Err(NfcError::Unsupported("scripted reader has no raw mode"))
+        }
+
+        fn set_raw_mode(&mut self, _enabled: bool) -> Result<()> {
+            Ok(())
+        }
+
+        fn transceive_apdu(&mut self, apdu: &[u8]) -> Result<ApduResponse> {
+            self.commands.push(apdu.to_vec());
+            Ok(self.response.clone())
+        }
+    }
+
+    #[test]
+    fn commit_accepts_no_changes_as_success() {
+        let mut reader = ScriptedReader::new([0x91, 0x0C]);
+        let mut desfire = Desfire::new(&mut reader);
+        desfire.commit_transaction().expect("NoChanges is success");
+        assert_eq!(reader.commands, [vec![0x90, 0xC7, 0x00, 0x00, 0x00]]);
+    }
+
+    #[test]
+    fn commit_rejects_other_status_words() {
+        let mut reader = ScriptedReader::new([0x91, 0x01]);
+        let mut desfire = Desfire::new(&mut reader);
+        assert!(desfire.commit_transaction().is_err());
+    }
 
     #[test]
     fn expand_tdes_key_repeats_des_and_uses_third_key_for_2k3des() {
