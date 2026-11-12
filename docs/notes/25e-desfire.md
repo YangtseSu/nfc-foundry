@@ -143,8 +143,10 @@ Read-only CLI checks on 2026-11-12:
 # unsupported: the selected card is not an ISO/IEC 14443-4 card
 ```
 
-The PN532 UART held an NTAG216 (`04 14 B5 7F DD 2A 81`) at that time, so the
-DESFire hardware run could not start.
+The PN532 UART held an NTAG216 (`04 14 B5 7F DD 2A 81`) at that time, and the
+ACR122U held a MIFARE Classic 1K (ATR `3B 8F 80 01 80 4F 0C A0 00 00 03 06 03
+00 01 00 00 00 00 6A`). Neither reader had the DESFire EV3, so the hardware
+run could not start.
 
 ## Hardware test
 
