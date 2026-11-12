@@ -185,13 +185,12 @@ The inventory itself performed no authentication or write. The GTK test
 `desfire_workspace_switches_and_parses_inputs` covers workspace selection,
 Advanced gating, and the AID/key parsers; it does not touch hardware.
 
-The phase 25.5 NDEF provisioning path is implemented but not yet recorded on
-hardware: the PN532 UART run is pending because the DESFire card was not on
-the reader. The gated test refuses to start when an NDEF application already
-exists, checks the Advanced/confirmation gates and a wrong-key refusal,
-formats the card, writes and clears a Text record through Type 4, deletes the
-NDEF application, and compares the final application list with the pre-format
-list:
+The phase 25.5 NDEF provisioning path passed on PN532 UART on 2026-11-12
+with the DESFire EV3 (random UID, observed `04 4D 09 A2 BB 17 90`). The gated
+test refuses to start when an NDEF application already exists, checks the
+Advanced/confirmation gates and a wrong-key refusal, formats the card, writes
+and clears a Text record through Type 4, deletes the NDEF application, and
+compares the final application list with the pre-format list:
 
 ```sh
 NFC_FOUNDRY_HARDWARE=1 NFC_FOUNDRY_HARDWARE_WRITE=yes \
@@ -200,7 +199,13 @@ cargo test -p nfctl --features hardware-write \
   --test hardware_desfire_ndef -- --ignored
 ```
 
-The ACR122U row remains unrecorded.
+The run created `D27600` with the `E103`/`E104` files, verified the 15-byte
+CC and empty NDEF file through Type 4, wrote/read/cleared one Text record, and
+removed the application; the final list was empty. The CLI
+`format-ndef`/`info`/`delete-ndef` cycle passed on the same card. The first
+run stopped at `CommitTransaction` with `0x910C` (`NoChanges`); treating that
+status as success, as PM3 does, let the next run pass. The ACR122U row remains
+unrecorded.
 
 ```sh
 NFC_FOUNDRY_HARDWARE=1 NFC_FOUNDRY_HARDWARE_WRITE=yes \

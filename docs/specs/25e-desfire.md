@@ -1,9 +1,9 @@
 # Spec: phase 25.5 DESFire EV3 8K NDEF enablement
 
-Status: inventory, factory-key authentication, NDEF provisioning, undo, and
-the CLI/GTK surfaces are implemented. The PN532 UART hardware record is
-pending because the DESFire card was not on the reader when the software
-landed. Plan: [25-card-support.md](../plan/25-card-support.md).
+Status: inventory, factory-key authentication, NDEF provisioning, undo, the
+CLI/GTK surfaces, and the PN532 UART hardware record are complete 2026-11-12.
+The ACR122U row remains unrecorded. Plan:
+[25-card-support.md](../plan/25-card-support.md).
 
 ## Problem
 
@@ -91,5 +91,5 @@ stable UID suffix. Classic and Type 2 operations keep the strict UID check.
 - A wrong PICC key fails once and creates nothing.
 - The Advanced and confirmation gates are enforced by the service, CLI, and
   GTK dialog.
-- The PN532 UART hardware test passes and is recorded in the note; the ACR122U
-  row remains unrecorded until that reader is run.
+- The PN532 UART hardware test passed on 2026-11-12 and is recorded in the
+  note; the ACR122U row remains unrecorded until that reader is run.

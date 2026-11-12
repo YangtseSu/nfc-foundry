@@ -94,17 +94,18 @@ original UID if verification fails.
 
 | Operation | CLI | GUI | Gate | Hardware |
 |---|---|---|---|---|
-| Inventory | `desfire info` | DESFire → Inventory | R | n/r (PN532 record pending) |
-| Read standard/backup file | `desfire read --aid --file [--key]` | DESFire → Read | R | n/r |
-| Format NDEF | `desfire format-ndef --key --advanced [--dry-run]` | DESFire → NDEF → Advanced mode → Format NDEF application… → type `FORMAT` | A, C | n/r |
-| Delete NDEF application | `desfire delete-ndef --key --advanced` | DESFire → NDEF → Advanced mode → Delete NDEF application… → type `DELETE` | A, C | n/r |
+| Inventory | `desfire info` | DESFire → Inventory | R | PN532 |
+| Read standard/backup file | `desfire read --aid --file [--key]` | DESFire → Read | R | PN532 |
+| Format NDEF | `desfire format-ndef --key --advanced [--dry-run]` | DESFire → NDEF → Advanced mode → Format NDEF application… → type `FORMAT` | A, C | PN532; ACR n/r |
+| Delete NDEF application | `desfire delete-ndef --key --advanced` | DESFire → NDEF → Advanced mode → Delete NDEF application… → type `DELETE` | A, C | PN532; ACR n/r |
 
 Both surfaces call the same `nfc-app` service. The format path refuses an
 existing NDEF application, creates only the AN11004 `D27600` application and
 its `E103`/`E104` files, and reads the CC and empty NDEF file back through the
 Type 4 adapter. Delete validates the exact AN11004 layout before removing it.
 Keys are session-scoped and never printed. The GUI Advanced switch resets on
-card removal, reader change, and restart. Hardware validation is pending.
+card removal, reader change, and restart. The PN532 UART format/write/delete
+record passed on 2026-11-12; the ACR122U row remains unrecorded.
 
 ## Recovery and system
 

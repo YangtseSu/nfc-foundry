@@ -50,7 +50,7 @@ work; their current equivalents are the GTK4 workspaces.
 | 22 | Grouped primary navigation and header menu | done (superseded by 23) |
 | 23 | Card-family workspaces and NDEF placement | done |
 | 24 | Parity recovery: verified keys, workbench, UID, reader lifecycle, diagnostics | in progress (S1, S2, S3a, S3b, S4, S6 done) |
-| 25 | Owned-card support: 4K clone, Ultralight EV1, FM11RF08S recovery, DESFire EV3 NDEF, UID NTAG213 | in progress (25.1–25.4 done; 25.5 implemented, PN532 hardware record pending) |
+| 25 | Owned-card support: 4K clone, Ultralight EV1, FM11RF08S recovery, DESFire EV3 NDEF, UID NTAG213 | done (PN532; ACR122U rows pending) |
 | 26 | DESFire workbench: read/write, app/file/key management, secure messaging, NDEF | in progress (26.1 done; 26.2–26.13 pending) |
 | 27 | NDEF workbench: multi-record editor, RTD forms, `.ndef` load/save, Classic/Type 2 write | done |
 | 28 | ACR122U PC/SC transport (ACR122U only, not generic PC/SC) | pending |
@@ -811,14 +811,15 @@ Goal: make the five owned test cards usable through the existing domains:
 FM11RN32N Classic 4K, FM11RF08S recovery, Ultralight EV1, DESFire EV3 8K NDEF,
 and the UID-changeable NTAG213 clone.
 
-Detailed plan: [25-card-support.md](25-card-support.md). Status: in progress;
-25.1–25.4 complete 2026-11-12 (25.2 MF0UL11 only). 25.5 implements inventory,
-factory-key authentication, AN11004 NDEF provisioning, the guarded
-`DeleteApplication` undo, `nfctl desfire format-ndef|delete-ndef`, and the GTK
-`NDEF` tab; the PN532 UART format/write/delete hardware record is pending.
-Slice order: 4K validation, Ultralight EV1 profiles and `GET_VERSION`, native
-FM11RF08S recovery, guarded NTAG213 UID writes, then DESFire EV3 inventory and
-AN11004 NDEF formatting. The plan names every operation that is irreversible; DESFire
+Detailed plan: [25-card-support.md](25-card-support.md). Status: complete
+2026-11-12 on PN532 UART; the ACR122U rows remain unrecorded. 25.1–25.4 are
+complete (25.2 MF0UL11 only). 25.5 implements inventory, factory-key
+authentication, AN11004 NDEF provisioning, the guarded `DeleteApplication`
+undo, `nfctl desfire format-ndef|delete-ndef`, and the GTK `NDEF` tab. The
+PN532 UART format/Type 4 write/delete record passed. Slice order: 4K
+validation, Ultralight EV1 profiles and `GET_VERSION`, native FM11RF08S
+recovery, guarded NTAG213 UID writes, then DESFire EV3 inventory and AN11004
+NDEF formatting. The plan names every operation that is irreversible; DESFire
 formatting is the only unconditional mutation without a byte-for-byte restore,
 but it is undoable by deleting the NDEF application with the PICC master key.
 Ultralight EV1 formatting is conditional on a blank OTP CC. Each slice adds

@@ -1,9 +1,8 @@
 # Note: phase 25.5 DESFire EV3 8K NDEF enablement
 
 Status: inventory, factory-key authentication, NDEF provisioning, undo, CLI,
-and GTK surfaces implemented 2026-11-12. The PN532 UART format/write/delete
-hardware record is pending because the DESFire card was not on the reader when
-the implementation landed.
+GTK surfaces, and the PN532 UART format/write/delete hardware record complete
+2026-11-12. The ACR122U row remains unrecorded.
 Plan: [25-card-support.md](../plan/25-card-support.md). Spec:
 [25e-desfire.md](../specs/25e-desfire.md).
 
@@ -163,8 +162,57 @@ nothing, formats the card, writes and clears one Text record through the Type
 4 path, deletes only the NDEF application, and compares the final application
 list with the pre-format list. On failure it attempts the same guarded delete.
 
-Record the run below once the DESFire card is on the reader. The ACR122U row
-remains unrecorded.
+## PN532 UART hardware record
+
+Run on 2026-11-12 with the DESFire EV3 on `pn532_uart:/dev/ttyUSB0` (PN532
+firmware 1.6). The card had a random UID; the observed selection was
+`04 4D 09 A2 BB 17 90` with the stable suffix `A2 BB 17 90`.
+
+The gated service test passed:
+
+```text
+formatted aid=[00, 76, D2] cc=15 state=Empty
+test formats_writes_restores_and_deletes_the_ndef_application ... ok
+```
+
+It checked the Advanced and confirmation gates, verified that a wrong key
+created nothing, created `D27600` and the `E103`/`E104` files, read the CC and
+empty NDEF file back through the Type 4 adapter, wrote and read one Text
+record, cleared it to the empty state, deleted the NDEF application, and
+compared the final application list with the pre-format list (`applications:
+none`).
+
+The first run stopped at `CommitTransaction` with `0x910C` (`NoChanges`).
+Treating that status as success, as PM3 does, let the next run pass; the
+Type 4 read-back then verified the CC and empty NDEF. The service still fails
+on any other commit status.
+
+The CLI surfaces were exercised on the same card:
+
+```text
+$ nfctl --device pn532_uart:/dev/ttyUSB0 --yes desfire format-ndef \
+    --key 0000000000000000 --advanced
+...
+NDEF application formatted
+CC: 00 0F 20 00 3B 00 34 04 06 E1 04 00 FF 00 00
+NDEF file: empty
+
+$ nfctl --device pn532_uart:/dev/ttyUSB0 desfire info
+MIFARE DESFire EV3 · vendor 04 type 01 subtype 01 version 51.0 storage 1A protocol 05
+application 00 76 D2
+  file 01: 00 00 00 E0 0F 00 00
+  file 02: 00 00 E0 EE FF 00 00
+
+$ nfctl --device pn532_uart:/dev/ttyUSB0 --yes desfire delete-ndef \
+    --key 0000000000000000 --advanced
+NDEF application D27600 deleted
+applications: none
+```
+
+`desfire info` prints the native AID bytes (`00 76 D2`); the logical
+application ID is `D27600`. The test and the CLI cycle both left the card with
+no applications, matching the pre-format state. The ACR122U row remains
+unrecorded.
 
 ## To continue
 

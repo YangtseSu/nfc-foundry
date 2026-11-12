@@ -55,7 +55,7 @@ tested, and no read, write, restore, or recovery operation is claimed for it.
 | Darkside repeated-nonce collection | no sample | no sample | phase 06: documented reader limitation, not a key result |
 | FM11RF08S backdoor nonce acquisition and key recovery | validated | not recorded | 2026-11-12: PN532 UART, FM11RF08S `9C 81 95 D4`; backdoor clear nonce matched the known-key decryption, the 59970-candidate solver list contained the known key, and the full attack recovered 32/32 sector keys with 16/16 sectors read-verified. No card writes. |
 | DESFire EV3 identity, inventory, and factory-key authentication | validated | not recorded | 2026-11-12: PN532 UART, MIFARE DESFire EV3 8K (random UID, observed `04 77 1F A2 BB 17 90`); version 51.0, storage `0x1A`, key settings `0F 01`, `applications: none`. Legacy `Authenticate` (`0x0A`) with a DES zero key and D40 send mode completes mutual authentication; AES EV2 and 3K3DES zero keys fail. Read-only; no application or file was created. |
-| DESFire EV3 NDEF provision, Type 4 write, delete | not recorded | not recorded | phase 25.5, 2026-11-12: implementation, CLI, and GTK surfaces complete; the PN532 UART run is pending because the DESFire card was not on the reader. See `docs/notes/25e-desfire.md`. |
+| DESFire EV3 NDEF provision, Type 4 write, delete | validated | not recorded | phase 25.5, 2026-11-12: PN532 UART, MIFARE DESFire EV3 8K (random UID, observed `04 4D 09 A2 BB 17 90`). Advanced/confirmation gates and a wrong-key refusal were checked; `D27600` with `E103`/`E104` was created, the 15-byte CC and empty NDEF file read back through Type 4, a Text record written/read/cleared, and the application deleted; final application list empty, matching pre-format. The CLI `format-ndef`/`info`/`delete-ndef` cycle passed on the same card. Commit `0x910C` (`NoChanges`) is accepted as success. ACR122U not recorded. See `docs/notes/25e-desfire.md`. |
 | DESFire EV3 temporary application/file round trip | validated | not recorded | 2026-11-12: PN532 UART; created reserved AID `F0 0D 01` (1 key, 2K3DES), authenticated app key 0, created plain standard file `01` (32 bytes, key-0 access), wrote and read back `NFC Foundry DESFire` at offset 0, deleted the app, and confirmed `GetApplicationIDs` empty. No other application was touched. |
 | Type 4 NDEF read/write | validated | not recorded | phase 11, 2026-11-12: PN532 UART, NTAG 424 DNA `04 86 40 42 22 17 90`; CC 2.0 (23 bytes), MLe 256/MLc 255, NDEF file `E104` with 256-byte capacity, empty state; Text record written and read back, empty state cleared and re-read. An earlier DESFire EV3 8K `04 4D 09 A2 BB 17 90` probe found no NDEF Tag Application (`6A82`). |
 
@@ -70,7 +70,7 @@ tested, and no read, write, restore, or recovery operation is claimed for it.
 | NTAG215 | `04 52 F5 67 D3 2A 81` | PN532 | 135-page read, NDEF write/read/restore |
 | MIFARE Ultralight EV1 MF0UL11 | `04 43 47 4A 75 22 91` | PN532 | GET_VERSION, 20-page read, OTP CC format, NDEF write/read/clear, password set/auth/clear |
 | UID-changeable NTAG213 clone | `04 00 E3 C2 00 00 02` | PN532 | 45-page read, UID-page probe, UID change/restore, BCC verification |
-| MIFARE DESFire EV3 8K | random UID, observed `04 77 1F A2 BB 17 90` | PN532 | identity and application/file inventory; legacy DES zero-key authentication; reserved temporary application/file write-read-delete round trip; card left with no applications |
+| MIFARE DESFire EV3 8K | random UID, observed `04 4D 09 A2 BB 17 90` | PN532 | identity and application/file inventory; legacy DES zero-key authentication; reserved temporary application/file write-read-delete round trip; NDEF provisioning, Type 4 Text write/read/clear, and guarded application delete; card left with no applications |
 | NTAG 424 DNA | `04 86 40 42 22 17 90` | PN532 | Type 4 read, NDEF write, clear/restore |
 | Type 2 tag | `04 34 4C C2 83 5C 80` | ACR122U | page read; NDEF format/write/read/restore |
 | Magic Gen1A Classic 1K | `FA B9 CF F4` | PN532, ACR122U | same-value block 0 write; guarded UID change/restore; restore with UID on both |
@@ -101,9 +101,9 @@ card under test.
 - Type 2 UID change is validated on PN532 UART for a 7-byte NTAG213 clone and
   not recorded on ACR122U. Genuine Type 2 tags remain read-only at the UID
   pages.
-- DESFire EV3 inventory and factory-key authentication are validated on PN532
-  UART. NDEF provisioning, Type 4 write, and the guarded delete are implemented
-  but not advertised until the PN532 UART record is added.
+- DESFire EV3 inventory, factory-key authentication, NDEF provisioning, Type 4
+  Text write/read/clear, and the guarded delete are validated on PN532 UART.
+  The ACR122U row is not recorded.
 - Classic sector-trailer writes and the guarded UID service are validated on
   both readers. The ACR122U trailer run used a default-access sector because the
   generic single-block request cannot supply a separate Key A for a B-only
