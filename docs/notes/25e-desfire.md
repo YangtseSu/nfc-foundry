@@ -116,10 +116,9 @@ record above.
 ## To continue
 
 The follow-on slices are tracked in
-[phase 26](../plan/26-desfire-read.md): file-settings decoding, Value/Record
-reads, 3K3DES/AES authentication, EV1/EV2 secure-messaging reads, Type 4 NDEF
-read, and cryptographic verification. Writes, formatting, application
-creation, deletion, and key management stay deferred.
+[phase 26](../plan/26-desfire-workbench.md): file-settings decoding, Value/Record
+reads and writes, 3K3DES/AES authentication, EV1/EV2 secure messaging,
+application/file/key management, Type 4 NDEF, and cryptographic verification.
 
 Do not add business templates (access control, wallet, transit).
 
