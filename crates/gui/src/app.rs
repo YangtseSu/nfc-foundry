@@ -33,10 +33,7 @@ use nfc_app::{
 use nfc_classic::{Dump, DumpFormat, DumpLoad, diff, exchange};
 use nfc_core::{CancelToken, CardInfo, CardType, Key, NfcError, Result as NfcResult};
 use nfc_drivers::DriverRegistry;
-use nfc_ndef::{
-    NdefMessage, NdefRecord, TextRecord, Tnf, UriRecord, WifiAuthentication, WifiEncryption,
-    WifiRecord,
-};
+use nfc_ndef::{LeAddressType, LeRole, NdefMessage, SmartPosterAction, TextEncoding, TextRecord};
 use nfc_recover::auto::RecoveryStrategy;
 use nfc_recover::{ProgressSink, RecoveryProgress, RecoveryRequest, RecoveryResult};
 use nfc_transport::{DeviceInfo, ReaderCapabilities};
@@ -44,8 +41,13 @@ use nfc_type2::{
     NdefState, RestoreOptions, Type2Image, Type2Ndef, Type2Product, exchange as type2_exchange,
 };
 
-use crate::classic::{self, BlockRow, NdefDraft, NdefSource};
+use crate::classic::{self, BlockRow};
 use crate::i18n::{self, Language, Localized};
+use crate::ndef::{
+    self as ndef_editor, BluetoothDraft, DppCarrier, DppDraft, MediaDraft, NdefEditor, RawDraft,
+    RecordDraft, RecordKind, RecordRow, SmartPosterDraft, TextDraft, UriDraft, VCardDraft,
+    WifiDraft,
+};
 use crate::settings::{UiPreferences, preferences_path};
 use crate::type2::{self as type2_ui, Session as Type2Session};
 
@@ -1048,21 +1050,43 @@ struct Type2Editor {
 struct NdefView {
     root: gtk::Box,
     state: gtk::Label,
-    info: gtk::Box,
-    source: gtk::DropDown,
-    input_stack: gtk::Stack,
-    language: gtk::Entry,
-    text: gtk::TextView,
-    uri: gtk::Entry,
-    raw_choose: gtk::Button,
-    raw_label: gtk::Label,
-    preview: gtk::Label,
+    edit_state: gtk::Label,
+    facts: gtk::Label,
+    capacity_used: gtk::Label,
+    capacity_meta: gtk::Label,
+    capacity_meter: gtk::ProgressBar,
+    capacity_state: gtk::Label,
+    rows: gio::ListStore,
+    selection: gtk::SingleSelection,
+    rebuilding: Cell<bool>,
+    inspector_title: gtk::Label,
+    inspector_kind: gtk::Label,
+    inspector_fields: gtk::Label,
+    inspector_payload: gtk::Label,
+    inspector_valid: gtk::Label,
+    edit: gtk::Button,
+    remove: gtk::Button,
+    move_up: gtk::Button,
+    move_down: gtk::Button,
+    add: gtk::Button,
+    load: gtk::Button,
+    export: gtk::Button,
+    reload: gtk::Button,
+    clear: gtk::Button,
+    validate: gtk::Button,
+    preflight_tlv: gtk::Label,
+    preflight_fit: gtk::Label,
+    preflight_protected: gtk::Label,
+    raw_head: gtk::Label,
+    raw_hex: gtk::Label,
     feedback: gtk::Label,
     write: gtk::Button,
     format: gtk::Button,
-    export: gtk::Button,
     read_only: gtk::CheckButton,
-    draft: RefCell<NdefDraft>,
+    editor: RefCell<NdefEditor>,
+    editor_key: RefCell<Option<String>>,
+    force_editor_reset: Cell<bool>,
+    pending_record_dialog: RefCell<Option<gtk::Window>>,
 }
 
 fn rail_card(title: &str) -> (gtk::Box, gtk::Box, gtk::Box) {
@@ -1285,136 +1309,273 @@ fn build_ndef_view() -> NdefView {
     let root = page_box();
     let state = gtk::Label::new(Some("No card loaded"));
     state.set_xalign(0.0);
+    state.set_hexpand(true);
     state.add_css_class("title-3");
+    let edit_state = gtk::Label::new(Some("No unsaved changes"));
+    edit_state.set_xalign(1.0);
+    edit_state.add_css_class("caption");
+    edit_state.add_css_class("dim-label");
+    let state_row = gtk::Box::new(Orientation::Horizontal, 8);
+    state_row.append(&state);
+    state_row.append(&edit_state);
 
-    let info = gtk::Box::new(Orientation::Vertical, 8);
-    let info_scroll = gtk::ScrolledWindow::builder().child(&info).build();
-    info_scroll.set_vexpand(true);
-    info_scroll.set_has_frame(false);
+    let facts = gtk::Label::new(Some("Read a card to inspect its NDEF message."));
+    facts.set_xalign(0.0);
+    facts.set_wrap(true);
+    facts.set_selectable(true);
+    facts.add_css_class("caption");
+    facts.add_css_class("dim-label");
 
-    let composer = gtk::Box::new(Orientation::Vertical, 8);
-    composer.add_css_class("card");
-    composer.set_margin_top(6);
-    composer.set_margin_bottom(6);
-    let title = gtk::Label::new(Some("Compose message"));
-    title.set_xalign(0.0);
-    title.add_css_class("title-4");
+    let capacity = gtk::Box::new(Orientation::Vertical, 6);
+    capacity.add_css_class("card");
+    let capacity_head = gtk::Box::new(Orientation::Horizontal, 8);
+    let capacity_title = gtk::Label::new(Some("NDEF capacity"));
+    capacity_title.set_xalign(0.0);
+    capacity_title.set_hexpand(true);
+    capacity_title.add_css_class("rail-title");
+    let capacity_state = gtk::Label::new(Some("No message"));
+    capacity_state.set_xalign(1.0);
+    capacity_state.add_css_class("title-4");
+    capacity_head.append(&capacity_title);
+    capacity_head.append(&capacity_state);
+    let capacity_numbers = gtk::Box::new(Orientation::Horizontal, 8);
+    let capacity_used = gtk::Label::new(Some("0 B"));
+    capacity_used.set_xalign(0.0);
+    capacity_used.add_css_class("title-2");
+    let capacity_meta = gtk::Label::new(Some("0 records · capacity unavailable"));
+    capacity_meta.set_xalign(0.0);
+    capacity_meta.set_hexpand(true);
+    capacity_meta.set_wrap(true);
+    capacity_meta.add_css_class("caption");
+    capacity_meta.add_css_class("dim-label");
+    capacity_numbers.append(&capacity_used);
+    capacity_numbers.append(&capacity_meta);
+    let capacity_meter = gtk::ProgressBar::new();
+    capacity_meter.set_show_text(false);
+    capacity_meter.set_hexpand(true);
+    capacity.append(&capacity_head);
+    capacity.append(&capacity_numbers);
+    capacity.append(&capacity_meter);
 
-    let source_model = gtk::StringList::new(
-        &NdefSource::ALL
-            .iter()
-            .map(|source| source.label())
-            .collect::<Vec<_>>(),
-    );
-    let source = gtk::DropDown::new(Some(source_model), None::<gtk::Expression>);
-    let source_row = gtk::Box::new(Orientation::Horizontal, 8);
-    let source_label = gtk::Label::new(Some("Record"));
-    source_label.set_xalign(0.0);
-    source_row.append(&source_label);
-    source_row.append(&source);
+    let records = gtk::Box::new(Orientation::Vertical, 6);
+    records.add_css_class("card");
+    let records_head = gtk::Box::new(Orientation::Horizontal, 8);
+    let records_title = gtk::Label::new(Some("Message records"));
+    records_title.set_xalign(0.0);
+    records_title.set_hexpand(true);
+    records_title.add_css_class("title-4");
+    let load = gtk::Button::with_label("Load .ndef…");
+    let reload = gtk::Button::with_label("Reload from card");
+    let clear = gtk::Button::with_label("New message");
+    let add = gtk::Button::with_label("Add record…");
+    add.add_css_class("suggested-action");
+    records_head.append(&records_title);
+    records_head.append(&load);
+    records_head.append(&reload);
+    records_head.append(&clear);
+    records_head.append(&add);
 
-    let input_stack = gtk::Stack::new();
-    input_stack.set_transition_type(gtk::StackTransitionType::Crossfade);
+    let rows = gio::ListStore::new::<glib::BoxedAnyObject>();
+    let selection = gtk::SingleSelection::new(Some(rows.clone()));
+    selection.set_autoselect(false);
+    selection.set_can_unselect(true);
+    let table = gtk::ColumnView::new(Some(selection.clone()));
+    table.set_show_column_separators(true);
+    table.set_show_row_separators(true);
+    table.set_vexpand(true);
+    table.append_column(&text_column::<RecordRow>("#", 40, false, |row| {
+        format!("{:02}", row.index + 1)
+    }));
+    table.append_column(&text_column::<RecordRow>("Type", 150, false, |row| {
+        row.kind.clone()
+    }));
+    let preview_column = text_column::<RecordRow>("Preview", 260, false, |row| row.preview.clone());
+    preview_column.set_expand(true);
+    table.append_column(&preview_column);
+    table.append_column(&text_column::<RecordRow>("Size", 64, true, |row| {
+        row.size.clone()
+    }));
+    let table_scroll = gtk::ScrolledWindow::builder().child(&table).build();
+    table_scroll.set_has_frame(true);
+    table_scroll.set_overlay_scrolling(false);
+    table_scroll.set_min_content_height(180);
+    table_scroll.set_policy(gtk::PolicyType::Automatic, gtk::PolicyType::Automatic);
+    table_scroll.set_vexpand(true);
+    table_scroll.set_hexpand(true);
+    records.append(&records_head);
+    records.append(&table_scroll);
 
-    let text_page = gtk::Box::new(Orientation::Vertical, 6);
-    let language_row = gtk::Box::new(Orientation::Horizontal, 8);
-    let language_label = gtk::Label::new(Some("Language"));
-    language_label.set_xalign(0.0);
-    let language = gtk::Entry::builder()
-        .text("en")
-        .placeholder_text("en")
-        .width_chars(8)
-        .build();
-    language_row.append(&language_label);
-    language_row.append(&language);
-    let text = gtk::TextView::new();
-    text.set_wrap_mode(gtk::WrapMode::WordChar);
-    text.set_accepts_tab(false);
-    text.set_top_margin(6);
-    text.set_bottom_margin(6);
-    let text_scroll = gtk::ScrolledWindow::builder()
-        .child(&text)
-        .min_content_height(84)
-        .has_frame(true)
-        .build();
-    text_page.append(&language_row);
-    text_page.append(&text_scroll);
-    input_stack.add_named(&text_page, Some(NdefSource::Text.stack_name()));
+    let preflight = gtk::Box::new(Orientation::Vertical, 6);
+    preflight.add_css_class("card");
+    let preflight_head = gtk::Box::new(Orientation::Horizontal, 8);
+    let preflight_title = gtk::Label::new(Some("Preflight"));
+    preflight_title.set_xalign(0.0);
+    preflight_title.set_hexpand(true);
+    preflight_title.add_css_class("title-4");
+    let validate = gtk::Button::with_label("Validate");
+    preflight_head.append(&preflight_title);
+    preflight_head.append(&validate);
+    let preflight_tlv = gtk::Label::new(Some("TLV pending"));
+    let preflight_fit = gtk::Label::new(Some("Capacity pending"));
+    let preflight_protected =
+        gtk::Label::new(Some("Protected areas are never written by an NDEF write."));
+    preflight.append(&preflight_head);
+    for label in [&preflight_tlv, &preflight_fit, &preflight_protected] {
+        label.set_xalign(0.0);
+        label.set_wrap(true);
+        label.add_css_class("caption");
+        preflight.append(label);
+    }
 
-    let uri_page = gtk::Box::new(Orientation::Vertical, 6);
-    let uri = gtk::Entry::builder()
-        .placeholder_text("https://example.com/")
-        .build();
-    uri_page.append(&uri);
-    input_stack.add_named(&uri_page, Some(NdefSource::Uri.stack_name()));
+    let raw = gtk::Box::new(Orientation::Vertical, 6);
+    raw.add_css_class("card");
+    let raw_head = gtk::Label::new(Some("Raw message"));
+    raw_head.set_xalign(0.0);
+    raw_head.add_css_class("title-4");
+    let raw_hex = gtk::Label::new(Some("No message composed"));
+    raw_hex.set_xalign(0.0);
+    raw_hex.set_wrap(true);
+    raw_hex.set_selectable(true);
+    raw_hex.add_css_class("mono");
+    raw.append(&raw_head);
+    raw.append(&raw_hex);
 
-    let raw_page = gtk::Box::new(Orientation::Horizontal, 8);
-    let raw_choose = gtk::Button::with_label("Choose NDEF file…");
-    let raw_label = gtk::Label::new(Some("No file chosen"));
-    raw_label.set_xalign(0.0);
-    raw_label.set_hexpand(true);
-    raw_label.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
-    raw_label.add_css_class("dim-label");
-    raw_page.append(&raw_choose);
-    raw_page.append(&raw_label);
-    input_stack.add_named(&raw_page, Some(NdefSource::Raw.stack_name()));
+    let left = gtk::Box::new(Orientation::Vertical, 10);
+    left.append(&capacity);
+    left.append(&records);
+    left.append(&preflight);
+    left.append(&raw);
+    let left_scroll = gtk::ScrolledWindow::builder().child(&left).build();
+    left_scroll.set_has_frame(false);
+    left_scroll.set_overlay_scrolling(false);
+    left_scroll.set_policy(gtk::PolicyType::Automatic, gtk::PolicyType::Automatic);
+    left_scroll.set_vexpand(true);
+    left_scroll.set_hexpand(true);
 
-    let preview = gtk::Label::new(Some("No message composed"));
-    preview.set_xalign(0.0);
-    preview.set_wrap(true);
-    preview.set_selectable(true);
-    preview.add_css_class("mono");
+    let inspector = gtk::Box::new(Orientation::Vertical, 8);
+    inspector.add_css_class("card");
+    inspector.set_width_request(320);
+    inspector.set_hexpand(false);
+    inspector.set_valign(gtk::Align::Start);
+    let inspector_kicker = gtk::Label::new(Some("RECORD INSPECTOR"));
+    inspector_kicker.set_xalign(0.0);
+    inspector_kicker.add_css_class("rail-title");
+    let inspector_title = gtk::Label::new(Some("No record selected"));
+    inspector_title.set_xalign(0.0);
+    inspector_title.set_wrap(true);
+    inspector_title.add_css_class("title-4");
+    let inspector_kind = gtk::Label::new(Some("Add or select a record."));
+    inspector_kind.set_xalign(0.0);
+    inspector_kind.set_wrap(true);
+    let inspector_fields = gtk::Label::new(None);
+    inspector_fields.set_xalign(0.0);
+    inspector_fields.set_wrap(true);
+    inspector_fields.set_selectable(true);
+    inspector_fields.add_css_class("mono");
+    let inspector_payload = gtk::Label::new(None);
+    inspector_payload.set_xalign(0.0);
+    inspector_payload.set_wrap(true);
+    inspector_payload.set_selectable(true);
+    inspector_payload.add_css_class("mono");
+    let inspector_valid = gtk::Label::new(None);
+    inspector_valid.set_xalign(0.0);
+    inspector_valid.set_wrap(true);
+    inspector_valid.add_css_class("caption");
+    inspector_valid.add_css_class("dim-label");
+    let edit = gtk::Button::with_label("Edit record…");
+    edit.add_css_class("suggested-action");
+    let remove = gtk::Button::with_label("Remove");
+    remove.add_css_class("destructive-action");
+    let move_up = gtk::Button::from_icon_name("go-up-symbolic");
+    move_up.set_tooltip_text(Some("Move record up"));
+    let move_down = gtk::Button::from_icon_name("go-down-symbolic");
+    move_down.set_tooltip_text(Some("Move record down"));
+    move_up.add_css_class("flat");
+    move_down.add_css_class("flat");
+    let inspector_actions = gtk::Box::new(Orientation::Horizontal, 6);
+    inspector_actions.append(&edit);
+    inspector_actions.append(&remove);
+    inspector_actions.append(&move_up);
+    inspector_actions.append(&move_down);
+    inspector.append(&inspector_kicker);
+    inspector.append(&inspector_title);
+    inspector.append(&inspector_kind);
+    inspector.append(&inspector_fields);
+    inspector.append(&inspector_payload);
+    inspector.append(&inspector_valid);
+    inspector.append(&inspector_actions);
+
+    let content = gtk::Box::new(Orientation::Horizontal, 12);
+    content.set_vexpand(true);
+    content.append(&left_scroll);
+    content.append(&inspector);
 
     let feedback = gtk::Label::new(None);
     feedback.set_xalign(0.0);
     feedback.set_wrap(true);
+    feedback.set_hexpand(true);
     feedback.add_css_class("caption");
     feedback.add_css_class("dim-label");
-
-    let actions = gtk::Box::new(Orientation::Horizontal, 8);
-    let write = gtk::Button::with_label("Write NDEF");
-    write.add_css_class("suggested-action");
-    write.set_sensitive(false);
+    let export = gtk::Button::with_label("Save .ndef…");
     let format = gtk::Button::with_label("Format NDEF area…");
     format.add_css_class("destructive-action");
     format.set_sensitive(false);
-    let export = gtk::Button::with_label("Export message…");
-    export.set_sensitive(false);
     let read_only = gtk::CheckButton::with_label("Leave the NDEF area read-only");
-    actions.append(&write);
-    actions.append(&format);
+    let write = gtk::Button::with_label("Write NDEF");
+    write.add_css_class("suggested-action");
+    write.set_sensitive(false);
+    let actions = gtk::Box::new(Orientation::Horizontal, 8);
+    actions.append(&feedback);
     actions.append(&export);
+    actions.append(&format);
     actions.append(&read_only);
+    actions.append(&write);
 
-    composer.append(&title);
-    composer.append(&source_row);
-    composer.append(&input_stack);
-    composer.append(&preview);
-    composer.append(&feedback);
-    composer.append(&actions);
-
-    root.append(&state);
-    root.append(&composer);
-    root.append(&info_scroll);
+    root.append(&state_row);
+    root.append(&facts);
+    root.append(&content);
+    root.append(&actions);
 
     NdefView {
         root,
         state,
-        info,
-        source,
-        input_stack,
-        language,
-        text,
-        uri,
-        raw_choose,
-        raw_label,
-        preview,
+        edit_state,
+        facts,
+        capacity_used,
+        capacity_meta,
+        capacity_meter,
+        capacity_state,
+        rows,
+        selection,
+        rebuilding: Cell::new(false),
+        inspector_title,
+        inspector_kind,
+        inspector_fields,
+        inspector_payload,
+        inspector_valid,
+        edit,
+        remove,
+        move_up,
+        move_down,
+        add,
+        load,
+        export,
+        reload,
+        clear,
+        validate,
+        preflight_tlv,
+        preflight_fit,
+        preflight_protected,
+        raw_head,
+        raw_hex,
         feedback,
         write,
         format,
-        export,
         read_only,
-        draft: RefCell::new(NdefDraft::default()),
+        editor: RefCell::new(NdefEditor::default()),
+        editor_key: RefCell::new(None),
+        force_editor_reset: Cell::new(false),
+        pending_record_dialog: RefCell::new(None),
     }
 }
 
@@ -2971,40 +3132,56 @@ fn connect_signals(ui: &Rc<Ui>) {
 
     let ui2 = ui.clone();
     ui.ndef_view
-        .source
-        .connect_selected_notify(move |dropdown| {
-            let Some(source) = NdefSource::ALL.get(dropdown.selected() as usize) else {
+        .selection
+        .connect_selected_notify(move |selection| {
+            if ui2.ndef_view.rebuilding.get() {
                 return;
-            };
-            {
-                ui2.ndef_view.draft.borrow_mut().source = *source;
             }
+            let selected = selection.selected();
             ui2.ndef_view
-                .input_stack
-                .set_visible_child_name(source.stack_name());
+                .editor
+                .borrow_mut()
+                .select((selected != gtk::INVALID_LIST_POSITION).then_some(selected as usize));
+            update_ndef_inspector(&ui2);
             update_ndef_actions(&ui2);
         });
     let ui2 = ui.clone();
-    ui.ndef_view.language.connect_changed(move |entry| {
-        ui2.ndef_view.draft.borrow_mut().language = entry.text().to_string();
-        update_ndef_actions(&ui2);
-    });
+    ui.ndef_view
+        .add
+        .connect_clicked(move |_| open_ndef_record_dialog(ui2.clone(), None));
     let ui2 = ui.clone();
-    let text_buffer = ui.ndef_view.text.buffer();
-    text_buffer.connect_changed(move |buffer| {
-        let text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false);
-        ui2.ndef_view.draft.borrow_mut().text = text.to_string();
-        update_ndef_actions(&ui2);
-    });
-    let ui2 = ui.clone();
-    ui.ndef_view.uri.connect_changed(move |entry| {
-        ui2.ndef_view.draft.borrow_mut().uri = entry.text().to_string();
-        update_ndef_actions(&ui2);
+    ui.ndef_view.edit.connect_clicked(move |_| {
+        let selected = ui2.ndef_view.editor.borrow().selected();
+        open_ndef_record_dialog(ui2.clone(), selected);
     });
     let ui2 = ui.clone();
     ui.ndef_view
-        .raw_choose
-        .connect_clicked(move |_| choose_ndef_raw(&ui2));
+        .remove
+        .connect_clicked(move |_| remove_selected_ndef_record(&ui2));
+    let ui2 = ui.clone();
+    ui.ndef_view
+        .move_up
+        .connect_clicked(move |_| move_selected_ndef_record(&ui2, true));
+    let ui2 = ui.clone();
+    ui.ndef_view
+        .move_down
+        .connect_clicked(move |_| move_selected_ndef_record(&ui2, false));
+    let ui2 = ui.clone();
+    ui.ndef_view
+        .load
+        .connect_clicked(move |_| choose_ndef_file(&ui2));
+    let ui2 = ui.clone();
+    ui.ndef_view
+        .reload
+        .connect_clicked(move |_| reload_ndef_from_card(&ui2));
+    let ui2 = ui.clone();
+    ui.ndef_view
+        .clear
+        .connect_clicked(move |_| clear_ndef_message(&ui2));
+    let ui2 = ui.clone();
+    ui.ndef_view
+        .validate
+        .connect_clicked(move |_| validate_ndef_message(&ui2));
     let ui2 = ui.clone();
     ui.ndef_view
         .write
@@ -3017,6 +3194,10 @@ fn connect_signals(ui: &Rc<Ui>) {
     ui.ndef_view
         .export
         .connect_clicked(move |_| export_ndef_message(&ui2));
+    let ui2 = ui.clone();
+    ui.ndef_view
+        .read_only
+        .connect_toggled(move |_| update_ndef_actions(&ui2));
 
     let ui2 = ui.clone();
     ui.type2_view
@@ -3849,35 +4030,33 @@ fn update_ndef(ui: &Ui) {
     }
 }
 
-/// Renders NDEF facts supplied by the last read or service result. The composer
-/// state is refreshed from those facts and the current draft.
+/// Renders NDEF facts supplied by the last read or service result. The editor
+/// is reloaded only when the card source changed or a read explicitly reset it,
+/// so an unsaved draft is not overwritten by unrelated refreshes.
 fn render_ndef(ui: &Ui, info: Option<&ClassicNdefInfo>, error: Option<&str>) {
     let view = &ui.ndef_view;
     view.read_only.set_visible(true);
-    while let Some(child) = view.info.first_child() {
-        view.info.remove(&child);
-    }
 
     if ui.dump.borrow().is_none() {
         view.state.set_localized("No card loaded");
-        let hint = ndef_note("Read a card to inspect its MAD mapping and NDEF message.");
-        view.info.append(&hint);
-        update_ndef_actions(ui);
+        view.facts
+            .set_localized("Read a card to inspect its MAD mapping and NDEF message.");
+        view.facts.remove_css_class("error");
+        refresh_ndef_editor(ui);
         return;
     }
     if let Some(error) = error {
         view.state.set_localized("NDEF unavailable");
-        let label = ndef_note(error);
-        label.add_css_class("error");
-        view.info.append(&label);
-        update_ndef_actions(ui);
+        view.facts.set_localized(error);
+        view.facts.add_css_class("error");
+        refresh_ndef_editor(ui);
         return;
     }
     let Some(info) = info else {
         view.state.set_localized("NDEF unavailable");
-        let hint = ndef_note("The NDEF facts are unavailable.");
-        view.info.append(&hint);
-        update_ndef_actions(ui);
+        view.facts.set_localized("The NDEF facts are unavailable.");
+        view.facts.remove_css_class("error");
+        refresh_ndef_editor(ui);
         return;
     };
 
@@ -3893,6 +4072,7 @@ fn render_ndef(ui: &Ui, info: Option<&ClassicNdefInfo>, error: Option<&str>) {
         }
     });
 
+    let mut facts = Vec::new();
     if let Some(layout) = &info.layout {
         let sectors = layout
             .sectors
@@ -3900,8 +4080,8 @@ fn render_ndef(ui: &Ui, info: Option<&ClassicNdefInfo>, error: Option<&str>) {
             .map(u8::to_string)
             .collect::<Vec<_>>()
             .join(", ");
-        let mapping = format!(
-            "MAD sectors: {}\nMapping version {}.{}\n{}",
+        facts.push(format!(
+            "MAD sectors: {} · mapping version {}.{} · {}",
             if sectors.is_empty() {
                 "none".to_owned()
             } else {
@@ -3916,341 +4096,1436 @@ fn render_ndef(ui: &Ui, info: Option<&ClassicNdefInfo>, error: Option<&str>) {
             } else {
                 "not writable"
             }
-        );
-        let label = ndef_note(&mapping);
-        label.add_css_class("caption");
-        view.info.append(&label);
-    } else {
-        view.info.append(&ndef_note(
-            "No MAD or NFC sector mapping was found on this card.",
         ));
+    } else {
+        facts.push("No MAD or NFC sector mapping was found on this card.".to_owned());
     }
-
     match &info.ndef.state {
-        ClassicNdefState::Unformatted => {
-            view.info.append(&ndef_note(
-                "Format the NDEF area before writing; Format creates the MAD and NFC sectors.",
-            ));
-        }
-        ClassicNdefState::Empty => {
-            view.info.append(&ndef_note(&format!(
-                "Capacity {} bytes · message empty",
-                info.ndef.capacity
-            )));
-        }
-        ClassicNdefState::Message(message) => {
-            let capacity = ndef_note(&format!(
-                "Capacity {} bytes · message {} bytes",
-                info.ndef.capacity, info.ndef.message_bytes
-            ));
-            capacity.add_css_class("caption");
-            view.info.append(&capacity);
-            for (index, record) in message.records().iter().enumerate() {
-                view.info.append(&record_card(index, record));
-            }
-        }
+        ClassicNdefState::Unformatted => facts.push(
+            "Format the NDEF area before writing; Format creates the MAD and NFC sectors."
+                .to_owned(),
+        ),
+        ClassicNdefState::Empty => facts.push(format!(
+            "Capacity {} bytes · message empty",
+            info.ndef.capacity
+        )),
+        ClassicNdefState::Message(message) => facts.push(format!(
+            "Capacity {} bytes · message {} bytes · {} record(s)",
+            info.ndef.capacity,
+            info.ndef.message_bytes,
+            message.records().len()
+        )),
     }
+    facts.extend(info.warnings.iter().cloned());
+    view.facts.set_localized(&facts.join("\n"));
+    view.facts.remove_css_class("error");
 
-    for warning in &info.warnings {
-        let label = ndef_note(warning);
-        label.add_css_class("caption");
-        view.info.append(&label);
-    }
-    update_ndef_actions(ui);
+    sync_ndef_editor(ui, info.ndef.message(), classic_ndef_key(ui));
+    refresh_ndef_editor(ui);
 }
 
-fn ndef_note(text: &str) -> gtk::Label {
-    let label = gtk::Label::new(None);
-    label.set_localized(text);
-    label.set_xalign(0.0);
-    label.set_wrap(true);
-    label.add_css_class("dim-label");
-    label
+fn classic_ndef_key(ui: &Ui) -> String {
+    let uid = ui
+        .dump
+        .borrow()
+        .as_ref()
+        .and_then(|dump| dump.card.as_ref().map(CardInfo::uid_hex))
+        .unwrap_or_default();
+    let source = ui.dump_source.borrow().clone().unwrap_or_default();
+    let live = if ui.live.get() { "live" } else { "inspect" };
+    format!("classic:{live}:{uid}:{source}")
 }
 
-/// Button state and preview for the composer. The service keeps its own gates.
-fn update_ndef_actions(ui: &Ui) {
-    if ui.workspace.get() == Workspace::Type2 {
-        let type2 = ui.type2.borrow().clone();
-        if let Some(session) = type2 {
-            update_type2_composer(ui, &session);
-            return;
-        }
+/// Load the card message into the editor unless the user has unsaved edits.
+/// `force_editor_reset` is set by an explicit read so the old draft cannot
+/// outlive a fresh card image.
+fn invalidate_ndef_editor(ui: &Ui) {
+    ui.ndef_view.editor_key.replace(None);
+    ui.ndef_view.force_editor_reset.set(true);
+}
+
+fn sync_ndef_editor(ui: &Ui, message: Option<&NdefMessage>, key: String) {
+    let force = ui.ndef_view.force_editor_reset.replace(false);
+    let current = ui.ndef_view.editor_key.borrow().clone();
+    if current.as_deref() == Some(key.as_str()) && !force {
+        return;
     }
-    let view = &ui.ndef_view;
-    let info = ui.ndef.borrow();
-    let info = info.as_ref();
-    let draft = view.draft.borrow();
-    let live = ui.live.get();
+    if ui.ndef_view.editor.borrow().is_dirty() && !force {
+        return;
+    }
+    ui.ndef_view.editor.borrow_mut().load_message(message);
+    ui.ndef_view.editor_key.replace(Some(key));
+    populate_ndef_rows(ui);
+    update_ndef_inspector(ui);
+}
+
+/// Active target facts and the service-level gates for the shared NDEF page.
+struct NdefTarget {
+    capacity: Option<usize>,
+    stored: Option<NdefMessage>,
+    write: std::result::Result<(), String>,
+    format: std::result::Result<(), String>,
+    protected: &'static str,
+    loaded: bool,
+}
+
+fn ndef_target(ui: &Ui) -> NdefTarget {
     let busy = ui.busy.get();
-    let (has_dump, complete) = match ui.dump.borrow().as_ref() {
-        Some(dump) => (true, dump.complete()),
-        None => (false, false),
-    };
-    let encoded = draft
-        .message()
-        .map_err(|error| format!("Cannot encode the message: {error}"))
-        .and_then(|message| {
-            message
-                .encode()
-                .map(|bytes| (message, bytes))
-                .map_err(|error| format!("Cannot encode the message: {error}"))
-        });
+    let live = ui.live.get();
+    if ui.workspace.get() == Workspace::Type2 {
+        let session = ui.type2.borrow().clone();
+        let Some(session) = session else {
+            return NdefTarget {
+                capacity: None,
+                stored: None,
+                write: Err("Read a Type 2 tag first".to_owned()),
+                format: Err("Read a Type 2 tag first".to_owned()),
+                protected: "Configuration, lock, and password pages are not changed by an NDEF write.",
+                loaded: false,
+            };
+        };
+        let auth_ready = type2_auth_ready(ui);
+        let ndef = session.ndef().ok();
+        return NdefTarget {
+            capacity: ndef.as_ref().map(|ndef| ndef.capacity),
+            stored: ndef.as_ref().and_then(|ndef| ndef.message()).cloned(),
+            write: if busy {
+                Err("An operation is running.".to_owned())
+            } else if !live {
+                Err("Read a live Type 2 tag to write or format.".to_owned())
+            } else {
+                type2_ndef_gate(&session, auth_ready)
+            },
+            format: if busy {
+                Err("An operation is running.".to_owned())
+            } else if !live {
+                Err("Read a live Type 2 tag to write or format.".to_owned())
+            } else {
+                type2_format_gate(&session, auth_ready)
+            },
+            protected: "Configuration, lock, and password pages are not changed by an NDEF write.",
+            loaded: true,
+        };
+    }
 
-    let area = info.and_then(|info| info.layout.as_ref());
-    let area_ready = area
-        .is_some_and(|layout| !layout.sectors.is_empty() && layout.writable && !layout.read_only);
-    let state_ready = matches!(
-        info.map(|info| &info.ndef.state),
-        Some(ClassicNdefState::Empty | ClassicNdefState::Message(_))
-    );
-    let capacity = info.map(|info| info.ndef.capacity);
-
-    let mut ready = false;
-    let mut feedback_error = false;
-    let feedback = if !live {
-        "Read a live card to write or format.".to_owned()
-    } else if busy {
-        "An operation is running.".to_owned()
-    } else if !has_dump {
-        "Read a card to inspect its MAD mapping and NDEF message.".to_owned()
+    let dump = ui.dump.borrow().clone();
+    let info = ui.ndef.borrow().clone();
+    let complete = dump.as_ref().is_some_and(Dump::complete);
+    let layout = info.as_ref().and_then(|info| info.layout.as_ref());
+    let format = if busy {
+        Err("An operation is running.".to_owned())
+    } else if !live {
+        Err("Read a live card to write or format.".to_owned())
+    } else if dump.is_none() {
+        Err("Read a card to inspect its MAD mapping and NDEF message.".to_owned())
     } else if !complete {
-        "The image is partial; read the whole card first.".to_owned()
+        Err("The image is partial; read the whole card first.".to_owned())
     } else if info.is_none() {
-        "NDEF state is unavailable.".to_owned()
-    } else if !state_ready {
-        "Not NDEF formatted · Format is required before writing.".to_owned()
-    } else if !area_ready {
-        feedback_error = true;
-        if area.is_some_and(|layout| layout.read_only) {
-            "The NDEF area is read-only; writing is disabled.".to_owned()
+        Err("NDEF state is unavailable.".to_owned())
+    } else {
+        Ok(())
+    };
+    let write = if format.is_err() {
+        format.clone()
+    } else if !matches!(
+        info.as_ref().map(|info| &info.ndef.state),
+        Some(ClassicNdefState::Empty | ClassicNdefState::Message(_))
+    ) {
+        Err("Not NDEF formatted · Format is required before writing.".to_owned())
+    } else if !layout
+        .is_some_and(|layout| !layout.sectors.is_empty() && layout.writable && !layout.read_only)
+    {
+        if layout.is_some_and(|layout| layout.read_only) {
+            Err("The NDEF area is read-only; writing is disabled.".to_owned())
         } else {
-            "The NFC mapping is not writable; format the card.".to_owned()
+            Err("The NFC mapping is not writable; format the card.".to_owned())
         }
+    } else {
+        Ok(())
+    };
+    NdefTarget {
+        capacity: info.as_ref().map(|info| info.ndef.capacity),
+        stored: info.as_ref().and_then(|info| info.ndef.message().cloned()),
+        write,
+        format,
+        protected: "Sector trailers, keys, and access bits are not changed by an NDEF write.",
+        loaded: dump.is_some(),
+    }
+}
+
+fn refresh_ndef_editor(ui: &Ui) {
+    populate_ndef_rows(ui);
+    update_ndef_inspector(ui);
+    let view = &ui.ndef_view;
+    let target = ndef_target(ui);
+    let editor = view.editor.borrow();
+    let encoded = editor.message().and_then(|message| {
+        message
+            .encode()
+            .map(|bytes| (message, bytes))
+            .map_err(|error| error.to_string())
+    });
+    let used = encoded.as_ref().ok().map(|(_, bytes)| bytes.len());
+    let records = editor.records().len();
+
+    match (used, target.capacity) {
+        (Some(used), Some(capacity)) => {
+            view.capacity_used
+                .set_localized(&format!("{used} / {capacity} B"));
+            view.capacity_meta.set_localized(&format!(
+                "{records} record(s) · {} B free",
+                capacity.saturating_sub(used)
+            ));
+            view.capacity_meter.set_fraction(if capacity == 0 {
+                0.0
+            } else {
+                (used as f64 / capacity as f64).min(1.0)
+            });
+        }
+        (Some(used), None) => {
+            view.capacity_used.set_localized(&format!("{used} B"));
+            view.capacity_meta
+                .set_localized(&format!("{records} record(s) · capacity unavailable"));
+            view.capacity_meter.set_fraction(0.0);
+        }
+        (None, capacity) => {
+            view.capacity_used.set_localized(
+                &capacity
+                    .map(|capacity| format!("— / {capacity} B"))
+                    .unwrap_or_else(|| "—".to_owned()),
+            );
+            view.capacity_meta
+                .set_localized(&format!("{records} record(s) · message not encodable"));
+            view.capacity_meter.set_fraction(0.0);
+        }
+    }
+
+    let (capacity_state, state_error) = if records == 0 {
+        ("No records".to_owned(), false)
+    } else {
+        match &encoded {
+            Err(_) => ("Invalid message".to_owned(), true),
+            Ok((_, bytes)) => match target.capacity {
+                Some(capacity) if bytes.len() > capacity => ("Over capacity".to_owned(), true),
+                Some(_) => ("Valid NDEF".to_owned(), false),
+                None => ("Capacity unavailable".to_owned(), false),
+            },
+        }
+    };
+    view.capacity_state.set_localized(&capacity_state);
+    if state_error {
+        view.capacity_state.add_css_class("error");
+    } else {
+        view.capacity_state.remove_css_class("error");
+    }
+
+    let mut feedback_error = false;
+    let feedback = if let Err(error) = &target.write {
+        if error.contains("Format is required") {
+            error.clone()
+        } else {
+            feedback_error = true;
+            error.clone()
+        }
+    } else if records == 0 {
+        "Add at least one record to write.".to_owned()
     } else {
         match &encoded {
             Err(error) => {
                 feedback_error = true;
                 error.clone()
             }
-            Ok((message, bytes)) => match capacity {
+            Ok((message, bytes)) => match target.capacity {
                 Some(capacity) => match classic::ndef_capacity_error(bytes.len(), capacity) {
                     Some(error) => {
                         feedback_error = true;
                         error
                     }
-                    None if info.is_some_and(|info| info.ndef.message() == Some(message)) => {
+                    None if target.stored.as_ref() == Some(message) => {
                         "The NDEF area already stores this message.".to_owned()
                     }
-                    None => {
-                        ready = true;
-                        format!("Ready to write {} bytes.", bytes.len())
-                    }
+                    None => format!("Ready to write {} bytes.", bytes.len()),
                 },
                 None => "Capacity is unavailable; read the card again.".to_owned(),
             },
         }
     };
+    let fits = match (&encoded, target.capacity) {
+        (Ok((_, bytes)), Some(capacity)) => bytes.len() <= capacity,
+        _ => false,
+    };
+    let different = match &encoded {
+        Ok((message, _)) => target.stored.as_ref() != Some(message),
+        Err(_) => false,
+    };
+    let ready = !feedback_error && records > 0 && target.write.is_ok() && fits && different;
 
-    let mut lines = vec![draft.summary()];
-    match &encoded {
-        Ok((_, bytes)) => {
-            lines.push(match capacity {
-                Some(capacity) => {
-                    format!(
-                        "Message {} bytes · capacity {} bytes",
-                        bytes.len(),
-                        capacity
-                    )
-                }
-                None => format!("Message {} bytes", bytes.len()),
-            });
-            if !bytes.is_empty() {
-                lines.push(classic::hex_preview(bytes, 48));
-            }
-        }
-        Err(error) => lines.push(error.clone()),
-    }
-    view.preview.set_localized(&lines.join("\n"));
+    view.edit_state.set_localized(if editor.is_dirty() {
+        "Unsaved changes"
+    } else {
+        "No unsaved changes"
+    });
     view.feedback.set_localized(&feedback);
     if feedback_error {
         view.feedback.add_css_class("error");
     } else {
         view.feedback.remove_css_class("error");
     }
-    view.write.set_sensitive(ready);
-    view.format.set_sensitive(live && !busy && complete);
-    view.export
-        .set_sensitive(info.and_then(|info| info.ndef.message()).is_some());
-}
 
-fn record_card(index: usize, record: &NdefRecord) -> gtk::Box {
-    let card = gtk::Box::new(Orientation::Vertical, 4);
-    card.add_css_class("card");
-    let kicker = gtk::Label::new(None);
-    kicker.set_localized(&format!("RECORD {}", index + 1));
-    kicker.set_xalign(0.0);
-    kicker.add_css_class("rail-title");
-    let (kind, content) = record_summary(record);
-    let title = gtk::Label::new(None);
-    title.set_localized(&kind);
-    title.set_xalign(0.0);
-    title.add_css_class("title-4");
-    let body = gtk::Label::new(Some(&content));
-    body.set_xalign(0.0);
-    body.set_wrap(true);
-    body.set_selectable(true);
-    body.add_css_class("mono");
-    card.append(&kicker);
-    card.append(&title);
-    card.append(&body);
-    for (field, value) in wifi_fields(record) {
-        let field = i18n::translate_lines(field);
-        let text = gtk::Label::new(Some(&format!("{field}: {value}")));
-        text.set_xalign(0.0);
-        text.set_wrap(true);
-        text.set_selectable(true);
-        text.add_css_class("mono");
-        card.append(&text);
-    }
-    card
-}
-
-fn record_summary(record: &NdefRecord) -> (String, String) {
-    if record.tnf() == Tnf::WellKnown && record.record_type() == b"T" {
-        return match TextRecord::from_record(record) {
-            Ok(text) => (format!("Text · {}", text.language), text.text),
-            Err(error) => ("Text (invalid)".to_owned(), error.to_string()),
-        };
-    }
-    if record.tnf() == Tnf::WellKnown && record.record_type() == b"U" {
-        return match UriRecord::from_record(record) {
-            Ok(uri) => ("URI".to_owned(), uri.uri),
-            Err(error) => ("URI (invalid)".to_owned(), error.to_string()),
-        };
-    }
-    if record.tnf() == Tnf::Media && record.record_type() == b"application/vnd.wfa.wsc" {
-        return match WifiRecord::from_record(record) {
-            Ok(wifi) => (
-                "Wi-Fi · WSC".to_owned(),
-                format!(
-                    "{} · {}",
-                    wifi_authentication_label(wifi.authentication),
-                    wifi_encryption_label(wifi.encryption)
-                ),
-            ),
-            Err(error) => ("Wi-Fi · WSC (invalid)".to_owned(), error.to_string()),
-        };
-    }
-    let kind = match record.tnf() {
-        Tnf::Empty => "Empty".to_owned(),
-        Tnf::WellKnown => format!(
-            "Well-known · {}",
-            String::from_utf8_lossy(record.record_type())
-        ),
-        Tnf::Media => format!("Media · {}", String::from_utf8_lossy(record.record_type())),
-        Tnf::AbsoluteUri => format!(
-            "Absolute URI · {}",
-            String::from_utf8_lossy(record.record_type())
-        ),
-        Tnf::External => format!(
-            "External · {}",
-            String::from_utf8_lossy(record.record_type())
-        ),
-        Tnf::Unknown => "Unknown".to_owned(),
-        Tnf::Unchanged => "Chunk".to_owned(),
+    // A live gate failure is already reported in `feedback`; only report TLV
+    // and capacity facts here so the same error is not repeated three times.
+    let tlv = match &encoded {
+        Ok((_, bytes)) => format!("TLV valid · {} B · {} record(s)", bytes.len(), records),
+        Err(error) => error.clone(),
     };
-    let payload = record.payload();
-    let text = match std::str::from_utf8(payload) {
-        Ok(value)
-            if !value.chars().any(|character| {
-                character.is_control() && character != '\n' && character != '\t'
-            }) =>
-        {
-            let preview: String = value.chars().take(256).collect();
-            let suffix = if value.chars().count() > 256 {
-                "…"
-            } else {
-                ""
-            };
-            format!("{preview}{suffix}")
+    view.preflight_tlv.set_localized(&tlv);
+    let fit = match (used, target.capacity) {
+        (Some(used), Some(capacity)) if used <= capacity => format!(
+            "Fits user memory · {} B free of {capacity} B",
+            capacity - used
+        ),
+        (Some(used), Some(capacity)) => {
+            format!("Does not fit · needs {used} B, capacity {capacity} B")
         }
-        _ => classic::hex_preview(payload, 64),
+        (_, _) => "Capacity is unavailable; read the card again.".to_owned(),
     };
-    (kind, text)
+    view.preflight_fit.set_localized(&fit);
+    view.preflight_protected.set_localized(target.protected);
+
+    match editor.tlv_preview(96) {
+        Ok((len, preview)) => {
+            view.raw_head
+                .set_localized(&format!("Raw message · TLV 0x03 · {len} bytes"));
+            view.raw_hex.set_localized(&preview);
+        }
+        Err(error) => {
+            view.raw_head.set_localized("Raw message");
+            view.raw_hex.set_localized(&error);
+        }
+    }
+
+    let busy = ui.busy.get();
+    let selected = editor.selected();
+    view.read_only
+        .set_visible(ui.workspace.get() == Workspace::Classic);
+    if ui.workspace.get() != Workspace::Classic {
+        view.read_only.set_active(false);
+    }
+    view.write.set_sensitive(ready && !busy);
+    view.format.set_sensitive(target.format.is_ok() && !busy);
+    view.export.set_sensitive(encoded.is_ok() && !busy);
+    view.add.set_sensitive(!busy);
+    view.load.set_sensitive(!busy);
+    view.reload.set_sensitive(target.loaded && !busy);
+    view.clear
+        .set_sensitive(!editor.records().is_empty() && !busy);
+    view.validate.set_sensitive(!busy);
+    view.edit.set_sensitive(selected.is_some() && !busy);
+    view.remove.set_sensitive(selected.is_some() && !busy);
+    view.move_up
+        .set_sensitive(selected.is_some_and(|index| index > 0) && !busy);
+    view.move_down
+        .set_sensitive(selected.is_some_and(|index| index + 1 < editor.records().len()) && !busy);
 }
 
-fn wifi_fields(record: &NdefRecord) -> Vec<(&'static str, String)> {
-    if record.tnf() != Tnf::Media || record.record_type() != b"application/vnd.wfa.wsc" {
-        return Vec::new();
-    }
-    let Ok(wifi) = WifiRecord::from_record(record) else {
-        return Vec::new();
+fn populate_ndef_rows(ui: &Ui) {
+    let view = &ui.ndef_view;
+    let (rows, selected) = {
+        let editor = view.editor.borrow();
+        (editor.rows(), editor.selected())
     };
-    let mut fields = vec![("SSID", wsc_text(&wifi.ssid))];
-    if let Some(key) = &wifi.network_key {
-        fields.push(("Password", wsc_text(key)));
+    view.rebuilding.set(true);
+    view.rows.remove_all();
+    for row in rows {
+        view.rows.append(&glib::BoxedAnyObject::new(row));
     }
-    fields
+    view.selection.set_selected(
+        selected
+            .map(|index| index as u32)
+            .unwrap_or(gtk::INVALID_LIST_POSITION),
+    );
+    view.rebuilding.set(false);
 }
 
-fn wsc_text(bytes: &[u8]) -> String {
+fn update_ndef_inspector(ui: &Ui) {
+    let view = &ui.ndef_view;
+    let editor = view.editor.borrow();
+    let Some(index) = editor.selected() else {
+        view.inspector_title.set_localized("No record selected");
+        view.inspector_kind
+            .set_localized("Add or select a record to inspect it.");
+        view.inspector_fields.set_localized("");
+        view.inspector_payload.set_localized("");
+        view.inspector_valid.set_localized("");
+        view.inspector_valid.remove_css_class("error");
+        view.edit.set_sensitive(false);
+        view.remove.set_sensitive(false);
+        view.move_up.set_sensitive(false);
+        view.move_down.set_sensitive(false);
+        return;
+    };
+    let total = editor.records().len();
+    let Some(draft) = editor.records().get(index) else {
+        return;
+    };
+    view.inspector_title
+        .set_localized(&format!("Record {} of {total}", index + 1));
+    view.inspector_kind.set_localized(&draft.label());
+    let decoded = draft.to_record();
+    match decoded {
+        Ok(record) => {
+            let record_type = ndef_editor::text_or_hex(record.record_type());
+            let record_type = if record.record_type().len() == 1 {
+                format!("{record_type} (0x{:02X})", record.record_type()[0])
+            } else {
+                record_type
+            };
+            let id = if record.id().is_empty() {
+                "—".to_owned()
+            } else {
+                ndef_editor::format_hex(record.id(), " ")
+            };
+            let size = NdefMessage::single(record.clone())
+                .and_then(|message| message.encoded_len())
+                .map(|bytes| format!("{bytes} bytes"))
+                .unwrap_or_else(|error| error.to_string());
+            view.inspector_fields.set_localized(&format!(
+                "TNF   {}\nTYPE  {}\nID    {}\nSize  {size}",
+                ndef_editor::tnf_label(record.tnf()),
+                record_type,
+                id,
+            ));
+            let payload = record.payload();
+            let payload = if payload.is_empty() {
+                "—".to_owned()
+            } else {
+                ndef_editor::hex_preview(payload, 64)
+            };
+            view.inspector_payload.set_localized(&payload);
+            view.inspector_valid.set_localized("Valid NDEF record");
+            view.inspector_valid.remove_css_class("error");
+        }
+        Err(error) => {
+            view.inspector_fields.set_localized("—");
+            view.inspector_payload.set_localized(&draft.preview());
+            view.inspector_valid.set_localized(&error.to_string());
+            view.inspector_valid.add_css_class("error");
+        }
+    }
+    view.edit.set_sensitive(!ui.busy.get());
+    view.remove.set_sensitive(!ui.busy.get());
+    view.move_up.set_sensitive(index > 0 && !ui.busy.get());
+    view.move_down
+        .set_sensitive(index + 1 < total && !ui.busy.get());
+}
+
+fn after_ndef_editor_change(ui: &Ui) {
+    populate_ndef_rows(ui);
+    update_ndef_inspector(ui);
+    update_ndef_actions(ui);
+}
+
+fn remove_selected_ndef_record(ui: &Rc<Ui>) {
+    if ui.busy.get() {
+        return;
+    }
+    let selected = ui.ndef_view.editor.borrow().selected();
+    let Some(index) = selected else {
+        return;
+    };
+    if ui.ndef_view.editor.borrow_mut().remove(index) {
+        after_ndef_editor_change(ui);
+    }
+}
+
+fn move_selected_ndef_record(ui: &Rc<Ui>, up: bool) {
+    if ui.busy.get() {
+        return;
+    }
+    let selected = ui.ndef_view.editor.borrow().selected();
+    let Some(index) = selected else {
+        return;
+    };
+    let moved = {
+        let mut editor = ui.ndef_view.editor.borrow_mut();
+        if up {
+            editor.move_up(index)
+        } else {
+            editor.move_down(index)
+        }
+    };
+    if moved {
+        after_ndef_editor_change(ui);
+    }
+}
+
+fn clear_ndef_message(ui: &Rc<Ui>) {
+    if ui.busy.get() {
+        return;
+    }
+    ui.ndef_view.editor.borrow_mut().clear();
+    ui.ndef_view.editor_key.replace(Some(current_ndef_key(ui)));
+    after_ndef_editor_change(ui);
+}
+
+fn current_ndef_key(ui: &Ui) -> String {
+    if ui.workspace.get() == Workspace::Type2 {
+        type2_ndef_key(ui)
+    } else {
+        classic_ndef_key(ui)
+    }
+}
+
+fn type2_ndef_key(ui: &Ui) -> String {
+    let live = if ui.live.get() { "live" } else { "inspect" };
+    let uid = ui
+        .type2
+        .borrow()
+        .as_ref()
+        .map(|session| session.card.uid_hex())
+        .unwrap_or_default();
+    format!("type2:{live}:{uid}")
+}
+
+fn reload_ndef_from_card(ui: &Rc<Ui>) {
+    if ui.busy.get() {
+        return;
+    }
+    let message = if ui.workspace.get() == Workspace::Type2 {
+        let session = ui.type2.borrow().clone();
+        let Some(session) = session else {
+            toast_error(ui, "Read a Type 2 tag first");
+            return;
+        };
+        session.ndef().ok().and_then(Type2Ndef::message).cloned()
+    } else {
+        let info = ui.ndef.borrow().clone();
+        let Some(info) = info else {
+            toast_error(ui, "Read a card to inspect its NDEF message");
+            return;
+        };
+        info.ndef.message().cloned()
+    };
+    ui.ndef_view
+        .editor
+        .borrow_mut()
+        .load_message(message.as_ref());
+    ui.ndef_view.editor_key.replace(Some(current_ndef_key(ui)));
+    after_ndef_editor_change(ui);
+    toast_info(ui, "Reloaded the NDEF message from the card");
+}
+
+fn validate_ndef_message(ui: &Rc<Ui>) {
+    let target = ndef_target(ui);
+    let editor = ui.ndef_view.editor.borrow();
+    let result = editor.message().and_then(|message| {
+        message
+            .encode()
+            .map(|bytes| (bytes.len(), message.records().len()))
+            .map_err(|error| error.to_string())
+    });
+    drop(editor);
+    match result {
+        Err(error) => toast_error(ui, &error),
+        Ok((bytes, records)) => match target.capacity {
+            Some(capacity) if bytes > capacity => toast_error(
+                ui,
+                &format!("The message needs {bytes} bytes; capacity is {capacity} bytes."),
+            ),
+            Some(capacity) => {
+                ui.status.set_localized(&format!(
+                    "NDEF valid · {records} record(s) · {bytes}/{capacity} B"
+                ));
+                toast_info(ui, "NDEF message is valid");
+            }
+            None => toast_error(ui, "Capacity is unavailable; read the card again."),
+        },
+    }
+}
+
+/// Alias kept for call sites that only need to refresh NDEF action state.
+fn update_ndef_actions(ui: &Ui) {
+    refresh_ndef_editor(ui);
+}
+
+const WIFI_AUTH_PRESETS: [(&str, u16); 6] = [
+    ("Open", 0x0001),
+    ("WPA-Personal", 0x0002),
+    ("WPA2-Personal", 0x0020),
+    ("WPA-Enterprise", 0x0008),
+    ("WPA2-Enterprise", 0x0010),
+    ("Shared", 0x0004),
+];
+const WIFI_ENCRYPTION_PRESETS: [(&str, u16); 4] = [
+    ("None", 0x0001),
+    ("WEP", 0x0002),
+    ("TKIP", 0x0004),
+    ("AES", 0x0008),
+];
+const BLE_ROLES: [LeRole; 4] = [
+    LeRole::PeripheralOnly,
+    LeRole::CentralOnly,
+    LeRole::PeripheralPreferred,
+    LeRole::CentralPreferred,
+];
+const POSTER_ACTIONS: [SmartPosterAction; 3] = [
+    SmartPosterAction::Execute,
+    SmartPosterAction::Save,
+    SmartPosterAction::Edit,
+];
+
+struct RecordDialog {
+    content: gtk::Box,
+    save: gtk::Button,
+    kind: gtk::DropDown,
+    stack: gtk::Stack,
+    feedback: gtk::Label,
+    original: RecordDraft,
+    text_language: gtk::Entry,
+    text_encoding: gtk::DropDown,
+    text_body: gtk::TextView,
+    uri: gtk::Entry,
+    media_type: gtk::Entry,
+    media_payload: gtk::TextView,
+    media_hex: gtk::CheckButton,
+    wifi_ssid: gtk::Entry,
+    wifi_ssid_hex: gtk::CheckButton,
+    wifi_auth: gtk::DropDown,
+    wifi_auth_bits: gtk::Entry,
+    wifi_encryption: gtk::DropDown,
+    wifi_encryption_bits: gtk::Entry,
+    wifi_key: gtk::Entry,
+    wifi_key_hex: gtk::CheckButton,
+    wifi_mac: gtk::Entry,
+    vcard_name: gtk::Entry,
+    vcard_org: gtk::Entry,
+    vcard_phone: gtk::Entry,
+    vcard_email: gtk::Entry,
+    vcard_url: gtk::Entry,
+    ble_address: gtk::Entry,
+    ble_address_type: gtk::DropDown,
+    ble_role: gtk::DropDown,
+    ble_name: gtk::Entry,
+    ble_appearance: gtk::Entry,
+    ble_flags: gtk::Entry,
+    dpp_uri: gtk::Entry,
+    dpp_carrier: gtk::DropDown,
+    poster_uri: gtk::Entry,
+    poster_title: gtk::Entry,
+    poster_language: gtk::Entry,
+    poster_action: gtk::DropDown,
+    raw_tnf: gtk::DropDown,
+    raw_type: gtk::Entry,
+    raw_type_hex: gtk::CheckButton,
+    raw_id: gtk::Entry,
+    raw_payload: gtk::TextView,
+}
+
+fn form_caption(text: &str) -> gtk::Label {
+    let label = gtk::Label::new(Some(text));
+    label.set_xalign(0.0);
+    label.add_css_class("caption");
+    label.add_css_class("dim-label");
+    label
+}
+
+fn form_row(label: &str, widget: &impl IsA<gtk::Widget>) -> gtk::Box {
+    let row = gtk::Box::new(Orientation::Horizontal, 8);
+    let caption = gtk::Label::new(Some(label));
+    caption.set_xalign(0.0);
+    caption.set_width_chars(14);
+    row.append(&caption);
+    widget.set_hexpand(true);
+    row.append(widget);
+    row
+}
+
+fn form_entry(label: &str, placeholder: &str) -> (gtk::Box, gtk::Entry) {
+    let entry = gtk::Entry::builder()
+        .placeholder_text(placeholder)
+        .hexpand(true)
+        .build();
+    (form_row(label, &entry), entry)
+}
+
+fn form_dropdown(label: &str, items: &[&str]) -> (gtk::Box, gtk::DropDown) {
+    let model = gtk::StringList::new(items);
+    let dropdown = gtk::DropDown::new(Some(model), None::<gtk::Expression>);
+    (form_row(label, &dropdown), dropdown)
+}
+
+fn form_text(label: &str, height: i32) -> (gtk::Box, gtk::TextView) {
+    let container = gtk::Box::new(Orientation::Vertical, 4);
+    container.append(&form_caption(label));
+    let view = gtk::TextView::new();
+    view.set_wrap_mode(gtk::WrapMode::WordChar);
+    view.set_accepts_tab(false);
+    view.set_top_margin(6);
+    view.set_bottom_margin(6);
+    let scroll = gtk::ScrolledWindow::builder()
+        .child(&view)
+        .min_content_height(height)
+        .has_frame(true)
+        .build();
+    container.append(&scroll);
+    (container, view)
+}
+
+fn form_hex_toggle() -> gtk::CheckButton {
+    gtk::CheckButton::with_label("Hexadecimal")
+}
+
+fn text_view_set(view: &gtk::TextView, text: &str) {
+    view.buffer().set_text(text);
+}
+
+fn text_view_get(view: &gtk::TextView) -> String {
+    let buffer = view.buffer();
+    buffer
+        .text(&buffer.start_iter(), &buffer.end_iter(), false)
+        .to_string()
+}
+
+fn set_entry_bytes(entry: &gtk::Entry, check: &gtk::CheckButton, bytes: &[u8]) {
+    if bytes.is_empty() {
+        entry.set_text("");
+        check.set_active(false);
+        return;
+    }
     match std::str::from_utf8(bytes) {
-        Ok(text) => text.to_owned(),
-        Err(_) => bytes
-            .iter()
-            .map(|byte| format!("{byte:02X}"))
-            .collect::<Vec<_>>()
-            .join(" "),
+        Ok(text)
+            if !text.is_empty()
+                && !text.chars().any(|character| {
+                    character.is_control() && character != '\n' && character != '\t'
+                }) =>
+        {
+            entry.set_text(text);
+            check.set_active(false);
+        }
+        _ => {
+            entry.set_text(&ndef_editor::format_hex(bytes, " "));
+            check.set_active(true);
+        }
     }
 }
 
-fn wifi_authentication_label(value: WifiAuthentication) -> String {
-    let mut parts = Vec::new();
-    if value.contains(WifiAuthentication::OPEN) {
-        parts.push("Open");
-    }
-    if value.contains(WifiAuthentication::WPA_PERSONAL) {
-        parts.push("WPA-Personal");
-    }
-    if value.contains(WifiAuthentication::WPA2_PERSONAL) {
-        parts.push("WPA2-Personal");
-    }
-    if value.contains(WifiAuthentication::SHARED) {
-        parts.push("Shared");
-    }
-    if value.contains(WifiAuthentication::WPA_ENTERPRISE) {
-        parts.push("WPA-Enterprise");
-    }
-    if value.contains(WifiAuthentication::WPA2_ENTERPRISE) {
-        parts.push("WPA2-Enterprise");
-    }
-    if parts.is_empty() {
-        format!("0x{:04X}", value.bits())
+fn set_optional_entry(entry: &gtk::Entry, value: Option<&String>) {
+    entry.set_text(value.map(String::as_str).unwrap_or_default());
+}
+
+fn entry_bytes(entry: &gtk::Entry, hex: &gtk::CheckButton, field: &str) -> Result<Vec<u8>, String> {
+    if hex.is_active() {
+        ndef_editor::parse_hex(entry.text().as_str(), field)
     } else {
-        parts.join(" · ")
+        Ok(entry.text().as_bytes().to_vec())
     }
 }
 
-fn wifi_encryption_label(value: WifiEncryption) -> String {
-    let mut parts = Vec::new();
-    if value.contains(WifiEncryption::NONE) {
-        parts.push("None");
-    }
-    if value.contains(WifiEncryption::WEP) {
-        parts.push("WEP");
-    }
-    if value.contains(WifiEncryption::TKIP) {
-        parts.push("TKIP");
-    }
-    if value.contains(WifiEncryption::AES) {
-        parts.push("AES");
-    }
-    if parts.is_empty() {
-        format!("0x{:04X}", value.bits())
+fn optional_entry_bytes(
+    entry: &gtk::Entry,
+    hex: &gtk::CheckButton,
+    field: &str,
+) -> Result<Option<Vec<u8>>, String> {
+    if entry.text().trim().is_empty() {
+        Ok(None)
     } else {
-        parts.join(" · ")
+        entry_bytes(entry, hex, field).map(Some)
     }
+}
+
+fn optional_entry(entry: &gtk::Entry) -> Option<String> {
+    let text = entry.text().to_string();
+    (!text.trim().is_empty()).then_some(text)
+}
+
+fn preset_index(presets: &[(&str, u16)], bits: u16) -> (u32, bool) {
+    match presets.iter().position(|(_, preset)| *preset == bits) {
+        Some(index) => (index as u32, false),
+        None => (presets.len() as u32, true),
+    }
+}
+
+fn build_record_form(original: &RecordDraft) -> RecordDialog {
+    let kind_items = RecordKind::ALL
+        .iter()
+        .map(|kind| kind.label())
+        .collect::<Vec<_>>();
+    let kind_model = gtk::StringList::new(&kind_items);
+    let kind = gtk::DropDown::new(Some(kind_model), None::<gtk::Expression>);
+
+    let stack = gtk::Stack::new();
+    stack.set_transition_type(gtk::StackTransitionType::Crossfade);
+    stack.set_vexpand(true);
+
+    let text_page = gtk::Box::new(Orientation::Vertical, 8);
+    let text_meta = gtk::Box::new(Orientation::Horizontal, 8);
+    let (language_row, text_language) = form_entry("Language", "en");
+    let (encoding_row, text_encoding) = form_dropdown("Encoding", &["UTF-8", "UTF-16"]);
+    text_meta.append(&language_row);
+    text_meta.append(&encoding_row);
+    let (text_box, text_body) = form_text("Text", 150);
+    text_page.append(&text_meta);
+    text_page.append(&text_box);
+    stack.add_named(&text_page, Some(RecordKind::Text.stack_name()));
+
+    let uri_page = gtk::Box::new(Orientation::Vertical, 8);
+    let (uri_row, uri) = form_entry("URI", "https://example.com/");
+    uri_page.append(&uri_row);
+    stack.add_named(&uri_page, Some(RecordKind::Uri.stack_name()));
+
+    let media_page = gtk::Box::new(Orientation::Vertical, 8);
+    let (media_type_row, media_type) = form_entry("Media type", "application/json");
+    let (media_box, media_payload) = form_text("Payload", 150);
+    let media_hex = form_hex_toggle();
+    media_page.append(&media_type_row);
+    media_page.append(&media_box);
+    media_page.append(&media_hex);
+    stack.add_named(&media_page, Some(RecordKind::Media.stack_name()));
+
+    let wifi_page = gtk::Box::new(Orientation::Vertical, 8);
+    let (wifi_ssid_row, wifi_ssid) = form_entry("SSID", "Network name");
+    let wifi_ssid_hex = form_hex_toggle();
+    let wifi_ssid_box = gtk::Box::new(Orientation::Horizontal, 8);
+    wifi_ssid_box.append(&wifi_ssid_row);
+    wifi_ssid_box.append(&wifi_ssid_hex);
+    let mut auth_items = WIFI_AUTH_PRESETS
+        .iter()
+        .map(|(label, _)| *label)
+        .collect::<Vec<_>>();
+    auth_items.push("Custom bits");
+    let (wifi_auth_row, wifi_auth) = form_dropdown("Authentication", &auth_items);
+    let (wifi_auth_bits_row, wifi_auth_bits) = form_entry("Auth bits", "0x0020");
+    let mut encryption_items = WIFI_ENCRYPTION_PRESETS
+        .iter()
+        .map(|(label, _)| *label)
+        .collect::<Vec<_>>();
+    encryption_items.push("Custom bits");
+    let (wifi_encryption_row, wifi_encryption) = form_dropdown("Encryption", &encryption_items);
+    let (wifi_encryption_bits_row, wifi_encryption_bits) = form_entry("Encryption bits", "0x0008");
+    let (wifi_key_row, wifi_key) = form_entry("Network key", "Passphrase");
+    let wifi_key_hex = form_hex_toggle();
+    let wifi_key_box = gtk::Box::new(Orientation::Horizontal, 8);
+    wifi_key_box.append(&wifi_key_row);
+    wifi_key_box.append(&wifi_key_hex);
+    let (wifi_mac_row, wifi_mac) = form_entry("MAC address", "00:11:22:33:44:55");
+    for row in [
+        &wifi_ssid_box,
+        &wifi_auth_row,
+        &wifi_auth_bits_row,
+        &wifi_encryption_row,
+        &wifi_encryption_bits_row,
+        &wifi_key_box,
+        &wifi_mac_row,
+    ] {
+        wifi_page.append(row);
+    }
+    stack.add_named(&wifi_page, Some(RecordKind::Wifi.stack_name()));
+
+    let vcard_page = gtk::Box::new(Orientation::Vertical, 8);
+    let (vcard_name_row, vcard_name) = form_entry("Formatted name", "Ada Lovelace");
+    let (vcard_org_row, vcard_org) = form_entry("Organization", "NFC Foundry");
+    let (vcard_phone_row, vcard_phone) = form_entry("Phone", "+1 555 0100");
+    let (vcard_email_row, vcard_email) = form_entry("Email", "ada@example.com");
+    let (vcard_url_row, vcard_url) = form_entry("URL", "https://example.com");
+    for row in [
+        &vcard_name_row,
+        &vcard_org_row,
+        &vcard_phone_row,
+        &vcard_email_row,
+        &vcard_url_row,
+    ] {
+        vcard_page.append(row);
+    }
+    stack.add_named(&vcard_page, Some(RecordKind::VCard.stack_name()));
+
+    let ble_page = gtk::Box::new(Orientation::Vertical, 8);
+    let (ble_address_row, ble_address) = form_entry("Device address", "AA:BB:CC:DD:EE:FF");
+    let (ble_address_type_row, ble_address_type) =
+        form_dropdown("Address type", &["Public", "Random"]);
+    let (ble_role_row, ble_role) = form_dropdown(
+        "Role",
+        &[
+            "None",
+            "Peripheral only",
+            "Central only",
+            "Peripheral preferred",
+            "Central preferred",
+        ],
+    );
+    let (ble_name_row, ble_name) = form_entry("Name", "NFC Foundry");
+    let (ble_appearance_row, ble_appearance) = form_entry("Appearance", "0x0341");
+    let (ble_flags_row, ble_flags) = form_entry("Flags", "0x06");
+    for row in [
+        &ble_address_row,
+        &ble_address_type_row,
+        &ble_role_row,
+        &ble_name_row,
+        &ble_appearance_row,
+        &ble_flags_row,
+    ] {
+        ble_page.append(row);
+    }
+    stack.add_named(&ble_page, Some(RecordKind::BluetoothLe.stack_name()));
+
+    let dpp_page = gtk::Box::new(Orientation::Vertical, 8);
+    let (dpp_uri_row, dpp_uri) = form_entry("Bootstrapping URI", "DPP:C:81/1;M:...;;");
+    let (dpp_carrier_row, dpp_carrier) = form_dropdown(
+        "Carrier",
+        &[DppCarrier::Uri.label(), DppCarrier::Media.label()],
+    );
+    dpp_page.append(&dpp_uri_row);
+    dpp_page.append(&dpp_carrier_row);
+    stack.add_named(&dpp_page, Some(RecordKind::Dpp.stack_name()));
+
+    let poster_page = gtk::Box::new(Orientation::Vertical, 8);
+    let (poster_uri_row, poster_uri) = form_entry("URI", "https://example.com/");
+    let (poster_title_row, poster_title) = form_entry("Title", "Title");
+    let (poster_language_row, poster_language) = form_entry("Language", "en");
+    poster_language.set_text("en");
+    let (poster_action_row, poster_action) =
+        form_dropdown("Action", &["No action", "Execute", "Save", "Edit"]);
+    for row in [
+        &poster_uri_row,
+        &poster_title_row,
+        &poster_language_row,
+        &poster_action_row,
+    ] {
+        poster_page.append(row);
+    }
+    stack.add_named(&poster_page, Some(RecordKind::SmartPoster.stack_name()));
+
+    let raw_page = gtk::Box::new(Orientation::Vertical, 8);
+    let tnf_items = ndef_editor::RAW_TNFS
+        .iter()
+        .map(|tnf| ndef_editor::tnf_label(*tnf))
+        .collect::<Vec<_>>();
+    let (raw_tnf_row, raw_tnf) = form_dropdown("TNF", &tnf_items);
+    let (raw_type_row, raw_type) = form_entry("TYPE", "U");
+    let raw_type_hex = form_hex_toggle();
+    let raw_type_box = gtk::Box::new(Orientation::Horizontal, 8);
+    raw_type_box.append(&raw_type_row);
+    raw_type_box.append(&raw_type_hex);
+    let (raw_id_row, raw_id) = form_entry("ID", "hex");
+    let (raw_payload_box, raw_payload) = form_text("Payload (hexadecimal)", 150);
+    for row in [&raw_tnf_row, &raw_type_box, &raw_id_row] {
+        raw_page.append(row);
+    }
+    raw_page.append(&raw_payload_box);
+    stack.add_named(&raw_page, Some(RecordKind::Raw.stack_name()));
+
+    let feedback = gtk::Label::new(None);
+    feedback.set_xalign(0.0);
+    feedback.set_wrap(true);
+    feedback.add_css_class("caption");
+    feedback.add_css_class("dim-label");
+
+    let content = gtk::Box::new(Orientation::Vertical, 8);
+    content.set_margin_top(12);
+    content.set_margin_bottom(12);
+    content.set_margin_start(12);
+    content.set_margin_end(12);
+    content.append(&form_row("Record type", &kind));
+    let scroller = gtk::ScrolledWindow::builder()
+        .child(&stack)
+        .vexpand(true)
+        .build();
+    content.append(&scroller);
+    content.append(&feedback);
+
+    let save = gtk::Button::with_label("Save record");
+    save.add_css_class("suggested-action");
+
+    let dialog = RecordDialog {
+        content,
+        save,
+        kind,
+        stack,
+        feedback,
+        original: original.clone(),
+        text_language,
+        text_encoding,
+        text_body,
+        uri,
+        media_type,
+        media_payload,
+        media_hex,
+        wifi_ssid,
+        wifi_ssid_hex,
+        wifi_auth,
+        wifi_auth_bits,
+        wifi_encryption,
+        wifi_encryption_bits,
+        wifi_key,
+        wifi_key_hex,
+        wifi_mac,
+        vcard_name,
+        vcard_org,
+        vcard_phone,
+        vcard_email,
+        vcard_url,
+        ble_address,
+        ble_address_type,
+        ble_role,
+        ble_name,
+        ble_appearance,
+        ble_flags,
+        dpp_uri,
+        dpp_carrier,
+        poster_uri,
+        poster_title,
+        poster_language,
+        poster_action,
+        raw_tnf,
+        raw_type,
+        raw_type_hex,
+        raw_id,
+        raw_payload,
+    };
+    populate_record_form(&dialog, original);
+    dialog
+}
+
+fn populate_record_form(dialog: &RecordDialog, original: &RecordDraft) {
+    let kind = original.kind();
+    if let Some(index) = RecordKind::ALL
+        .iter()
+        .position(|candidate| *candidate == kind)
+    {
+        dialog.kind.set_selected(index as u32);
+    }
+    dialog.stack.set_visible_child_name(kind.stack_name());
+    match original {
+        RecordDraft::Text(draft) => {
+            dialog.text_language.set_text(&draft.language);
+            dialog
+                .text_encoding
+                .set_selected(if draft.encoding == TextEncoding::Utf16 {
+                    1
+                } else {
+                    0
+                });
+            text_view_set(&dialog.text_body, &draft.text);
+        }
+        RecordDraft::Uri(draft) => dialog.uri.set_text(&draft.uri),
+        RecordDraft::Media(draft) => {
+            dialog
+                .media_type
+                .set_text(&String::from_utf8_lossy(&draft.media_type));
+            match std::str::from_utf8(&draft.payload) {
+                Ok(text)
+                    if !text.chars().any(|character| {
+                        character.is_control() && character != '\n' && character != '\t'
+                    }) =>
+                {
+                    text_view_set(&dialog.media_payload, text);
+                    dialog.media_hex.set_active(false);
+                }
+                _ => {
+                    text_view_set(
+                        &dialog.media_payload,
+                        &ndef_editor::format_hex(&draft.payload, " "),
+                    );
+                    dialog.media_hex.set_active(true);
+                }
+            }
+        }
+        RecordDraft::Wifi(draft) => {
+            set_entry_bytes(&dialog.wifi_ssid, &dialog.wifi_ssid_hex, &draft.ssid);
+            let (index, custom) = preset_index(&WIFI_AUTH_PRESETS, draft.authentication);
+            dialog.wifi_auth.set_selected(index);
+            if custom {
+                dialog
+                    .wifi_auth_bits
+                    .set_text(&format!("{:04X}", draft.authentication));
+            }
+            let (index, custom) = preset_index(&WIFI_ENCRYPTION_PRESETS, draft.encryption);
+            dialog.wifi_encryption.set_selected(index);
+            if custom {
+                dialog
+                    .wifi_encryption_bits
+                    .set_text(&format!("{:04X}", draft.encryption));
+            }
+            if let Some(key) = &draft.network_key {
+                set_entry_bytes(&dialog.wifi_key, &dialog.wifi_key_hex, key);
+            }
+            if let Some(address) = draft.mac_address {
+                dialog
+                    .wifi_mac
+                    .set_text(&ndef_editor::format_hex(&address, ":"));
+            }
+        }
+        RecordDraft::VCard(draft) => {
+            dialog.vcard_name.set_text(&draft.formatted_name);
+            set_optional_entry(&dialog.vcard_org, draft.organization.as_ref());
+            set_optional_entry(&dialog.vcard_phone, draft.phone.as_ref());
+            set_optional_entry(&dialog.vcard_email, draft.email.as_ref());
+            set_optional_entry(&dialog.vcard_url, draft.url.as_ref());
+        }
+        RecordDraft::BluetoothLe(draft) => {
+            if let Some((address, address_type)) = draft.address {
+                dialog
+                    .ble_address
+                    .set_text(&ndef_editor::format_hex(&address, ":"));
+                dialog.ble_address_type.set_selected(match address_type {
+                    LeAddressType::Public => 0,
+                    LeAddressType::Random => 1,
+                });
+            }
+            dialog.ble_role.set_selected(
+                draft
+                    .role
+                    .and_then(|role| BLE_ROLES.iter().position(|candidate| *candidate == role))
+                    .map(|index| index as u32 + 1)
+                    .unwrap_or(0),
+            );
+            set_optional_entry(&dialog.ble_name, draft.name.as_ref());
+            if let Some(appearance) = draft.appearance {
+                dialog.ble_appearance.set_text(&format!("{appearance:04X}"));
+            }
+            if let Some(flags) = draft.flags {
+                dialog.ble_flags.set_text(&format!("{flags:02X}"));
+            }
+        }
+        RecordDraft::Dpp(draft) => {
+            dialog.dpp_uri.set_text(&draft.uri);
+            dialog.dpp_carrier.set_selected(match draft.carrier {
+                DppCarrier::Uri => 0,
+                DppCarrier::Media => 1,
+            });
+        }
+        RecordDraft::SmartPoster(draft) => {
+            dialog.poster_uri.set_text(&draft.uri);
+            if let Some(title) = draft.titles.first() {
+                dialog.poster_title.set_text(&title.text);
+                dialog.poster_language.set_text(&title.language);
+            }
+            dialog.poster_action.set_selected(
+                draft
+                    .action
+                    .and_then(|action| {
+                        POSTER_ACTIONS
+                            .iter()
+                            .position(|candidate| *candidate == action)
+                    })
+                    .map(|index| index as u32 + 1)
+                    .unwrap_or(0),
+            );
+        }
+        RecordDraft::Raw(draft) => {
+            dialog.raw_tnf.set_selected(
+                ndef_editor::RAW_TNFS
+                    .iter()
+                    .position(|tnf| *tnf == draft.tnf)
+                    .unwrap_or(0) as u32,
+            );
+            match std::str::from_utf8(&draft.record_type) {
+                Ok(text) if !text.is_empty() => {
+                    dialog.raw_type.set_text(text);
+                    dialog.raw_type_hex.set_active(false);
+                }
+                _ => {
+                    dialog
+                        .raw_type
+                        .set_text(&ndef_editor::format_hex(&draft.record_type, " "));
+                    dialog
+                        .raw_type_hex
+                        .set_active(!draft.record_type.is_empty());
+                }
+            }
+            dialog
+                .raw_id
+                .set_text(&ndef_editor::format_hex(&draft.id, " "));
+            text_view_set(
+                &dialog.raw_payload,
+                &ndef_editor::format_hex(&draft.payload, " "),
+            );
+        }
+    }
+}
+
+fn collect_record_form(dialog: &RecordDialog) -> Result<RecordDraft, String> {
+    let kind = RecordKind::ALL
+        .get(dialog.kind.selected() as usize)
+        .copied()
+        .ok_or_else(|| "Choose a record type.".to_owned())?;
+    let draft = match kind {
+        RecordKind::Text => {
+            let encoding = if dialog.text_encoding.selected() == 1 {
+                TextEncoding::Utf16
+            } else {
+                TextEncoding::Utf8
+            };
+            RecordDraft::Text(TextDraft {
+                text: text_view_get(&dialog.text_body),
+                language: dialog.text_language.text().to_string(),
+                encoding,
+            })
+        }
+        RecordKind::Uri => RecordDraft::Uri(UriDraft {
+            uri: dialog.uri.text().to_string(),
+        }),
+        RecordKind::Media => RecordDraft::Media(MediaDraft {
+            media_type: dialog.media_type.text().as_bytes().to_vec(),
+            payload: if dialog.media_hex.is_active() {
+                ndef_editor::parse_hex(&text_view_get(&dialog.media_payload), "Payload")?
+            } else {
+                text_view_get(&dialog.media_payload).as_bytes().to_vec()
+            },
+        }),
+        RecordKind::Wifi => {
+            let auth_index = dialog.wifi_auth.selected() as usize;
+            let authentication = match WIFI_AUTH_PRESETS.get(auth_index) {
+                Some((_, bits)) => *bits,
+                None => ndef_editor::parse_u16_hex(
+                    dialog.wifi_auth_bits.text().as_str(),
+                    "Authentication bits",
+                )?,
+            };
+            let encryption_index = dialog.wifi_encryption.selected() as usize;
+            let encryption = match WIFI_ENCRYPTION_PRESETS.get(encryption_index) {
+                Some((_, bits)) => *bits,
+                None => ndef_editor::parse_u16_hex(
+                    dialog.wifi_encryption_bits.text().as_str(),
+                    "Encryption bits",
+                )?,
+            };
+            let mac = if dialog.wifi_mac.text().trim().is_empty() {
+                None
+            } else {
+                let bytes = ndef_editor::parse_hex(dialog.wifi_mac.text().as_str(), "MAC address")?;
+                match bytes.as_slice() {
+                    [a, b, c, d, e, f] => Some([*a, *b, *c, *d, *e, *f]),
+                    _ => return Err("MAC address must be six bytes".to_owned()),
+                }
+            };
+            let (credential_attributes, outer_attributes) = match &dialog.original {
+                RecordDraft::Wifi(original) => (
+                    original.credential_attributes.clone(),
+                    original.outer_attributes.clone(),
+                ),
+                _ => (Vec::new(), Vec::new()),
+            };
+            RecordDraft::Wifi(WifiDraft {
+                ssid: entry_bytes(&dialog.wifi_ssid, &dialog.wifi_ssid_hex, "SSID")?,
+                authentication,
+                encryption,
+                network_key: optional_entry_bytes(
+                    &dialog.wifi_key,
+                    &dialog.wifi_key_hex,
+                    "Network key",
+                )?,
+                mac_address: mac,
+                credential_attributes,
+                outer_attributes,
+            })
+        }
+        RecordKind::VCard => RecordDraft::VCard(VCardDraft {
+            formatted_name: dialog.vcard_name.text().to_string(),
+            organization: optional_entry(&dialog.vcard_org),
+            phone: optional_entry(&dialog.vcard_phone),
+            email: optional_entry(&dialog.vcard_email),
+            url: optional_entry(&dialog.vcard_url),
+        }),
+        RecordKind::BluetoothLe => {
+            let address = if dialog.ble_address.text().trim().is_empty() {
+                None
+            } else {
+                let bytes =
+                    ndef_editor::parse_hex(dialog.ble_address.text().as_str(), "Device address")?;
+                match bytes.as_slice() {
+                    [a, b, c, d, e, f] => Some((
+                        [*a, *b, *c, *d, *e, *f],
+                        if dialog.ble_address_type.selected() == 1 {
+                            LeAddressType::Random
+                        } else {
+                            LeAddressType::Public
+                        },
+                    )),
+                    _ => return Err("Device address must be six bytes".to_owned()),
+                }
+            };
+            let role = BLE_ROLES
+                .get(dialog.ble_role.selected().saturating_sub(1) as usize)
+                .copied()
+                .filter(|_| dialog.ble_role.selected() > 0);
+            let extra = match &dialog.original {
+                RecordDraft::BluetoothLe(original) => original.extra.clone(),
+                _ => Vec::new(),
+            };
+            RecordDraft::BluetoothLe(BluetoothDraft {
+                address,
+                role,
+                name: optional_entry(&dialog.ble_name),
+                appearance: optional_u16(&dialog.ble_appearance, "Appearance")?,
+                flags: optional_u8(&dialog.ble_flags, "Flags")?,
+                extra,
+            })
+        }
+        RecordKind::Dpp => RecordDraft::Dpp(DppDraft {
+            uri: dialog.dpp_uri.text().to_string(),
+            carrier: if dialog.dpp_carrier.selected() == 1 {
+                DppCarrier::Media
+            } else {
+                DppCarrier::Uri
+            },
+        }),
+        RecordKind::SmartPoster => {
+            let (mut titles, additional) = match &dialog.original {
+                RecordDraft::SmartPoster(original) => {
+                    (original.titles.clone(), original.additional.clone())
+                }
+                _ => (Vec::new(), Vec::new()),
+            };
+            let title = dialog.poster_title.text().to_string();
+            if title.is_empty() {
+                titles.clear();
+            } else {
+                let language = dialog.poster_language.text().to_string();
+                let title = TextRecord::new(title, language).map_err(|error| error.to_string())?;
+                if let Some(first) = titles.first_mut() {
+                    *first = title;
+                } else {
+                    titles.push(title);
+                }
+            }
+            RecordDraft::SmartPoster(SmartPosterDraft {
+                uri: dialog.poster_uri.text().to_string(),
+                titles,
+                action: POSTER_ACTIONS
+                    .get(dialog.poster_action.selected().saturating_sub(1) as usize)
+                    .copied()
+                    .filter(|_| dialog.poster_action.selected() > 0),
+                additional,
+            })
+        }
+        RecordKind::Raw => RecordDraft::Raw(RawDraft {
+            tnf: ndef_editor::RAW_TNFS
+                .get(dialog.raw_tnf.selected() as usize)
+                .copied()
+                .ok_or_else(|| "Choose a TNF value.".to_owned())?,
+            record_type: if dialog.raw_type_hex.is_active() {
+                ndef_editor::parse_hex(dialog.raw_type.text().as_str(), "TYPE")?
+            } else {
+                dialog.raw_type.text().as_bytes().to_vec()
+            },
+            id: ndef_editor::parse_hex(dialog.raw_id.text().as_str(), "ID")?,
+            payload: ndef_editor::parse_hex(&text_view_get(&dialog.raw_payload), "Payload")?,
+        }),
+    };
+    draft.to_record().map_err(|error| error.to_string())?;
+    Ok(draft)
+}
+
+fn optional_u8(entry: &gtk::Entry, field: &str) -> Result<Option<u8>, String> {
+    if entry.text().trim().is_empty() {
+        Ok(None)
+    } else {
+        ndef_editor::parse_u8_hex(entry.text().as_str(), field).map(Some)
+    }
+}
+
+fn optional_u16(entry: &gtk::Entry, field: &str) -> Result<Option<u16>, String> {
+    if entry.text().trim().is_empty() {
+        Ok(None)
+    } else {
+        ndef_editor::parse_u16_hex(entry.text().as_str(), field).map(Some)
+    }
+}
+
+fn open_ndef_record_dialog(ui: Rc<Ui>, index: Option<usize>) {
+    if ui.busy.get() || ui.ndef_view.pending_record_dialog.borrow().is_some() {
+        return;
+    }
+    let original = index
+        .and_then(|index| ui.ndef_view.editor.borrow().records().get(index).cloned())
+        .unwrap_or_else(|| RecordKind::Text.default_draft());
+    let editing = index.is_some();
+    let dialog = Rc::new(build_record_form(&original));
+    let window = gtk::Window::builder()
+        .title(if editing {
+            "Edit NDEF record"
+        } else {
+            "Add NDEF record"
+        })
+        .modal(true)
+        .transient_for(&ui.window)
+        .default_width(680)
+        .default_height(620)
+        .build();
+    let header = gtk::HeaderBar::new();
+    let cancel = gtk::Button::with_label("Cancel");
+    header.pack_start(&cancel);
+    header.pack_end(&dialog.save);
+    window.set_titlebar(Some(&header));
+    window.set_child(Some(&dialog.content));
+    dialog.save.set_receives_default(true);
+    window.set_default_widget(Some(&dialog.save));
+
+    {
+        let stack = dialog.stack.clone();
+        dialog.kind.connect_selected_notify(move |dropdown| {
+            if let Some(kind) = RecordKind::ALL.get(dropdown.selected() as usize) {
+                stack.set_visible_child_name(kind.stack_name());
+            }
+        });
+    }
+
+    let ui2 = ui.clone();
+    let window_weak = window.downgrade();
+    cancel.connect_clicked(move |_| {
+        ui2.ndef_view.pending_record_dialog.replace(None);
+        if let Some(window) = window_weak.upgrade() {
+            window.close();
+        }
+    });
+
+    let ui2 = ui.clone();
+    let window_weak = window.downgrade();
+    let form_weak = Rc::downgrade(&dialog);
+    dialog.save.connect_clicked(move |_| {
+        let Some(form) = form_weak.upgrade() else {
+            return;
+        };
+        let draft = match collect_record_form(&form) {
+            Ok(draft) => draft,
+            Err(error) => {
+                form.feedback.set_localized(&error);
+                form.feedback.add_css_class("error");
+                return;
+            }
+        };
+        {
+            let mut editor = ui2.ndef_view.editor.borrow_mut();
+            match index {
+                Some(index) if editor.replace(index, draft.clone()) => {}
+                _ => {
+                    editor.add(draft.clone());
+                }
+            }
+        }
+        ui2.ndef_view
+            .editor_key
+            .replace(Some(current_ndef_key(&ui2)));
+        ui2.ndef_view.pending_record_dialog.replace(None);
+        after_ndef_editor_change(&ui2);
+        if let Some(window) = window_weak.upgrade() {
+            window.close();
+        }
+    });
+
+    let ui2 = ui.clone();
+    let form_keep = dialog.clone();
+    window.connect_close_request(move |_| {
+        let _ = &form_keep;
+        ui2.ndef_view.pending_record_dialog.replace(None);
+        glib::Propagation::Proceed
+    });
+
+    i18n::localize_widget_tree(&window);
+    ui.ndef_view
+        .pending_record_dialog
+        .replace(Some(window.clone()));
+    window.present();
 }
 
 fn refresh_devices(ui: &Rc<Ui>) {
@@ -4814,6 +6089,7 @@ fn finish_read(ui: &Rc<Ui>, result: NfcResult<CardReadResult>) {
             populate_rows(ui, &dump);
             switch_workspace(ui, Workspace::Classic);
             ui.classic_tabs.set_visible_child_name("blocks");
+            invalidate_ndef_editor(ui);
             update_card(ui);
             update_ndef(ui);
             update_restore_sensitivity(ui);
@@ -5689,7 +6965,7 @@ fn invalidate_live_image(ui: &Rc<Ui>) {
     update_ndef_actions(ui);
 }
 
-fn choose_ndef_raw(ui: &Rc<Ui>) {
+fn choose_ndef_file(ui: &Rc<Ui>) {
     let dialog = gtk::FileDialog::builder()
         .title(i18n::translate_lines("Load raw NDEF message"))
         .build();
@@ -5708,19 +6984,21 @@ fn choose_ndef_raw(ui: &Rc<Ui>) {
             toast_error(&ui2, "The selected location is not a local file");
             return;
         };
-        load_ndef_raw(&ui2, &path);
+        load_ndef_file(&ui2, &path);
     });
 }
 
-fn load_ndef_raw(ui: &Rc<Ui>, path: &Path) {
-    let loaded = ui.ndef_view.draft.borrow_mut().load_raw(path);
+fn load_ndef_file(ui: &Rc<Ui>, path: &Path) {
+    if ui.busy.get() {
+        return;
+    }
+    let loaded = ui.ndef_view.editor.borrow_mut().load_file(path);
     match loaded {
         Ok(()) => {
-            ui.ndef_view
-                .raw_label
-                .set_localized(&path.display().to_string());
-            ui.ndef_view.source.set_selected(NdefSource::Raw as u32);
-            update_ndef_actions(ui);
+            ui.ndef_view.editor_key.replace(Some(current_ndef_key(ui)));
+            after_ndef_editor_change(ui);
+            ui.status
+                .set_localized(&format!("Loaded {}", path.display()));
             toast_info(ui, "Raw NDEF message loaded");
         }
         Err(error) => toast_error(ui, &error),
@@ -5739,22 +7017,8 @@ fn ndef_state_summary(info: &ClassicNdefInfo) -> String {
     }
 }
 
-fn stored_ndef_message(ui: &Ui) -> Option<NdefMessage> {
-    if let Some(session) = ui.type2.borrow().as_ref() {
-        return session.ndef().ok().and_then(Type2Ndef::message).cloned();
-    }
-    ui.ndef
-        .borrow()
-        .as_ref()
-        .and_then(|info| info.ndef.message().cloned())
-}
-
 fn export_ndef_message(ui: &Rc<Ui>) {
-    let Some(message) = stored_ndef_message(ui) else {
-        toast_error(ui, "No NDEF message to export");
-        return;
-    };
-    let bytes = match message.encode() {
+    let bytes = match ui.ndef_view.editor.borrow().encoded() {
         Ok(bytes) => bytes,
         Err(error) => {
             toast_error(ui, &format!("Cannot encode the message: {error}"));
@@ -5817,20 +7081,23 @@ fn confirm_ndef_write(ui: Rc<Ui>) {
         toast_error(&ui, "NDEF writes need a live selected card");
         return;
     }
-    let draft = ui.ndef_view.draft.borrow().clone();
-    let message = match draft.message() {
-        Ok(message) => message,
-        Err(error) => {
-            toast_error(&ui, &format!("Cannot encode the message: {error}"));
-            return;
-        }
-    };
-    let bytes = match message.encode() {
-        Ok(bytes) => bytes,
-        Err(error) => {
-            toast_error(&ui, &format!("Cannot encode the message: {error}"));
-            return;
-        }
+    let (message, bytes, summary) = {
+        let editor = ui.ndef_view.editor.borrow();
+        let message = match editor.message() {
+            Ok(message) => message,
+            Err(error) => {
+                toast_error(&ui, &format!("Cannot encode the message: {error}"));
+                return;
+            }
+        };
+        let bytes = match message.encode() {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                toast_error(&ui, &format!("Cannot encode the message: {error}"));
+                return;
+            }
+        };
+        (message, bytes, editor.summary())
     };
     if !ui.dump.borrow().as_ref().is_some_and(Dump::complete) {
         toast_error(&ui, "NDEF writes need a complete card read");
@@ -5873,7 +7140,7 @@ fn confirm_ndef_write(ui: Rc<Ui>) {
 
     let body = format!(
         "{}\nMessage {} bytes · capacity {} bytes\nNew bytes  {}\n\n{}\n\nA project backup is written before the write, and the NDEF Message TLV is read back afterwards.",
-        draft.summary(),
+        summary,
         bytes.len(),
         info.ndef.capacity,
         classic::hex_preview(&bytes, 48),
@@ -5932,6 +7199,10 @@ fn finish_ndef_write(ui: &Rc<Ui>, result: NfcResult<ClassicNdefWriteResult>) {
     set_busy(ui, false);
     match result {
         Ok(result) => {
+            let written = ui.ndef_view.editor.borrow().message().ok();
+            if let Some(message) = written {
+                ui.ndef_view.editor.borrow_mut().mark_written(&message);
+            }
             apply_ndef_result(ui, &result.dump, &result.info);
             let backup = result.backup.path.display().to_string();
             ui.status.set_localized(&format!(
@@ -6055,6 +7326,7 @@ fn finish_ndef_format(ui: &Rc<Ui>, result: NfcResult<ClassicNdefFormatResult>) {
     set_busy(ui, false);
     match result {
         Ok(result) => {
+            ui.ndef_view.editor.borrow_mut().mark_formatted();
             apply_ndef_result(ui, &result.dump, &result.info);
             let backup = result.backup.path.display().to_string();
             ui.status.set_localized(&format!(
@@ -6567,6 +7839,7 @@ fn show_type2_session(ui: &Rc<Ui>, session: Type2Session, live: bool) {
     ui.live.set(live);
     ui.type2_view.tabs.set_visible_child_name("pages");
     switch_workspace(ui, Workspace::Type2);
+    invalidate_ndef_editor(ui);
     populate_type2_forms(ui);
     render_type2(ui);
     update_card(ui);
@@ -7419,18 +8692,14 @@ fn finish_type2_password(ui: &Rc<Ui>, result: NfcResult<Type2MutationResult>) {
 
 fn render_type2_ndef(ui: &Ui, session: &Type2Session) {
     let view = &ui.ndef_view;
-    while let Some(child) = view.info.first_child() {
-        view.info.remove(&child);
-    }
     view.read_only.set_visible(false);
     view.read_only.set_active(false);
     match session.ndef() {
         Err(error) => {
             view.state.set_localized("NDEF unavailable");
-            let label = ndef_note(error);
-            label.add_css_class("error");
-            view.info.append(&label);
-            update_ndef_actions(ui);
+            view.facts.set_localized(error);
+            view.facts.add_css_class("error");
+            refresh_ndef_editor(ui);
             return;
         }
         Ok(ndef) => {
@@ -7482,78 +8751,34 @@ fn render_type2_ndef(ui: &Ui, session: &Type2Session) {
                     "Password protection covers the data area from page {page}; PWD_AUTH is required before writing."
                 ));
             }
-            let facts = ndef_note(&facts.join("\n"));
-            facts.add_css_class("caption");
-            view.info.append(&facts);
             match &ndef.state {
-                NdefState::Unformatted => {
-                    view.info.append(&ndef_note(
-                        "Format the NDEF data area before writing; Format creates an empty NDEF Message TLV.",
-                    ));
-                }
-                NdefState::Empty => {
-                    view.info.append(&ndef_note(&format!(
-                        "Capacity {} bytes · message empty",
-                        ndef.capacity
-                    )));
-                }
-                NdefState::Message(message) => {
-                    let capacity = ndef_note(&format!(
-                        "Capacity {} bytes · message {} bytes",
-                        ndef.capacity, ndef.message_bytes
-                    ));
-                    capacity.add_css_class("caption");
-                    view.info.append(&capacity);
-                    for (index, record) in message.records().iter().enumerate() {
-                        view.info.append(&record_card(index, record));
-                    }
-                }
+                NdefState::Unformatted => facts.push(
+                    "Format the NDEF data area before writing; Format creates an empty NDEF Message TLV."
+                        .to_owned(),
+                ),
+                NdefState::Empty => facts.push(format!(
+                    "Capacity {} bytes · message empty",
+                    ndef.capacity
+                )),
+                NdefState::Message(message) => facts.push(format!(
+                    "Capacity {} bytes · message {} bytes · {} record(s)",
+                    ndef.capacity,
+                    ndef.message_bytes,
+                    message.records().len()
+                )),
             }
-            for warning in &session.warnings {
-                let label = ndef_note(warning);
-                label.add_css_class("caption");
-                view.info.append(&label);
-            }
+            facts.extend(session.warnings.iter().cloned());
+            view.facts.set_localized(&facts.join("\n"));
+            view.facts.remove_css_class("error");
+            let key = format!(
+                "type2:{}:{}",
+                if ui.live.get() { "live" } else { "inspect" },
+                session.card.uid_hex()
+            );
+            sync_ndef_editor(ui, ndef.message(), key);
         }
     }
-    update_ndef_actions(ui);
-}
-
-fn encoded_draft(draft: &NdefDraft) -> std::result::Result<(NdefMessage, Vec<u8>), String> {
-    let message = draft
-        .message()
-        .map_err(|error| format!("Cannot encode the message: {error}"))?;
-    let bytes = message
-        .encode()
-        .map_err(|error| format!("Cannot encode the message: {error}"))?;
-    Ok((message, bytes))
-}
-
-fn ndef_preview(
-    draft: &NdefDraft,
-    encoded: &std::result::Result<(NdefMessage, Vec<u8>), String>,
-    capacity: Option<usize>,
-) -> String {
-    let mut lines = vec![draft.summary()];
-    match encoded {
-        Ok((_, bytes)) => {
-            lines.push(match capacity {
-                Some(capacity) => {
-                    format!(
-                        "Message {} bytes · capacity {} bytes",
-                        bytes.len(),
-                        capacity
-                    )
-                }
-                None => format!("Message {} bytes", bytes.len()),
-            });
-            if !bytes.is_empty() {
-                lines.push(classic::hex_preview(bytes, 48));
-            }
-        }
-        Err(error) => lines.push(error.clone()),
-    }
-    lines.join("\n")
+    refresh_ndef_editor(ui);
 }
 
 fn type2_format_gate(
@@ -7603,67 +8828,6 @@ fn type2_ndef_gate(session: &Type2Session, auth_supplied: bool) -> std::result::
     Ok(())
 }
 
-fn update_type2_composer(ui: &Ui, session: &Type2Session) {
-    let view = &ui.ndef_view;
-    view.read_only.set_visible(false);
-    let draft = view.draft.borrow();
-    let encoded = encoded_draft(&draft);
-    let ndef = session.ndef().ok();
-    let capacity = ndef.map(|ndef| ndef.capacity);
-    let auth_ready = type2_auth_ready(ui);
-    let write_gate = type2_ndef_gate(session, auth_ready);
-    let format_ready =
-        ui.live.get() && !ui.busy.get() && type2_format_gate(session, auth_ready).is_ok();
-    let same = ndef
-        .and_then(Type2Ndef::message)
-        .zip(encoded.as_ref().ok())
-        .is_some_and(|(stored, (message, _))| stored == message);
-
-    let mut ready = false;
-    let mut feedback_error = false;
-    let feedback = if !ui.live.get() {
-        "Read a live Type 2 tag to write or format.".to_owned()
-    } else if ui.busy.get() {
-        "An operation is running.".to_owned()
-    } else if let Err(error) = &write_gate {
-        feedback_error = !error.contains("Format is required");
-        error.clone()
-    } else {
-        match &encoded {
-            Err(error) => {
-                feedback_error = true;
-                error.clone()
-            }
-            Ok((_, bytes)) => match capacity {
-                Some(capacity) => match classic::ndef_capacity_error(bytes.len(), capacity) {
-                    Some(error) => {
-                        feedback_error = true;
-                        error
-                    }
-                    None if same => "The NDEF area already stores this message.".to_owned(),
-                    None => {
-                        ready = true;
-                        format!("Ready to write {} bytes.", bytes.len())
-                    }
-                },
-                None => "Capacity is unavailable; read the tag again.".to_owned(),
-            },
-        }
-    };
-    view.preview
-        .set_localized(&ndef_preview(&draft, &encoded, capacity));
-    view.feedback.set_localized(&feedback);
-    if feedback_error {
-        view.feedback.add_css_class("error");
-    } else {
-        view.feedback.remove_css_class("error");
-    }
-    view.write.set_sensitive(ready);
-    view.format.set_sensitive(format_ready);
-    view.export
-        .set_sensitive(session.ndef().ok().and_then(Type2Ndef::message).is_some());
-}
-
 fn confirm_type2_ndef_write(ui: Rc<Ui>) {
     if ui.busy.get() || !ui.live.get() {
         toast_error(&ui, "NDEF writes need a live selected card");
@@ -7692,13 +8856,23 @@ fn confirm_type2_ndef_write(ui: Rc<Ui>) {
         toast_error(&ui, "Not NDEF formatted; format the data area first");
         return;
     }
-    let draft = ui.ndef_view.draft.borrow().clone();
-    let (message, bytes) = match encoded_draft(&draft) {
-        Ok(encoded) => encoded,
-        Err(error) => {
-            toast_error(&ui, &error);
-            return;
-        }
+    let (message, bytes, summary) = {
+        let editor = ui.ndef_view.editor.borrow();
+        let message = match editor.message() {
+            Ok(message) => message,
+            Err(error) => {
+                toast_error(&ui, &error);
+                return;
+            }
+        };
+        let bytes = match message.encode() {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                toast_error(&ui, &error.to_string());
+                return;
+            }
+        };
+        (message, bytes, editor.summary())
     };
     if let Some(error) = classic::ndef_capacity_error(bytes.len(), ndef.capacity) {
         toast_error(&ui, &error);
@@ -7712,7 +8886,7 @@ fn confirm_type2_ndef_write(ui: Rc<Ui>) {
         "{} · UID {}\n{}\nMessage {} bytes · capacity {} bytes\nNew bytes  {}\n\nA project backup is written before the write, and the NDEF Message TLV is read back afterwards.",
         session.image.layout.product.name(),
         session.card.uid_hex(),
-        draft.summary(),
+        summary,
         bytes.len(),
         ndef.capacity,
         classic::hex_preview(&bytes, 48)
@@ -7775,6 +8949,10 @@ fn finish_type2_ndef_write(ui: &Rc<Ui>, result: NfcResult<Type2MutationResult>) 
     set_busy(ui, false);
     match result {
         Ok(result) => {
+            let written = ui.ndef_view.editor.borrow().message().ok();
+            if let Some(message) = written {
+                ui.ndef_view.editor.borrow_mut().mark_written(&message);
+            }
             let backup = result.backup.path.display().to_string();
             clear_type2_auth(ui);
             apply_type2_image(ui, result.image, result.warnings);
@@ -7923,6 +9101,7 @@ fn finish_type2_ndef_format(ui: &Rc<Ui>, result: NfcResult<Type2MutationResult>)
     set_busy(ui, false);
     match result {
         Ok(result) => {
+            ui.ndef_view.editor.borrow_mut().mark_formatted();
             let backup = result.backup.path.display().to_string();
             clear_type2_auth(ui);
             apply_type2_image(ui, result.image, result.warnings);
@@ -8840,6 +10019,7 @@ fn load_dump_file(ui: &Rc<Ui>, path: &Path) -> Result<(), String> {
     populate_rows(ui, &loaded.dump);
     switch_workspace(ui, Workspace::Classic);
     ui.classic_tabs.set_visible_child_name("blocks");
+    invalidate_ndef_editor(ui);
     update_card(ui);
     update_ndef(ui);
     update_restore_sensitivity(ui);
@@ -10187,6 +11367,7 @@ mod tests {
         NFC_RO_ACCESS_BITS, NFC_RW_ACCESS_BITS, format_ndef_area,
     };
     use nfc_core::{CardInfo, CardType};
+    use nfc_ndef::{Tnf, UriRecord};
     use nfc_transport::mock::{MockHandle, MockTransport};
 
     use super::*;
@@ -10419,6 +11600,7 @@ mod tests {
         ui.dump.replace(Some(dump.clone()));
         populate_rows(ui, dump);
         ui.live.set(true);
+        invalidate_ndef_editor(ui);
         update_inspector(ui);
         update_ndef(ui);
         update_restore_sensitivity(ui);
@@ -10574,15 +11756,15 @@ mod tests {
         close_alert(&ui.pending_ndef_write_dialog);
         close_alert(&ui.pending_ndef_format_dialog);
         ui.ndef.replace(None);
-        ui.ndef_view.draft.replace(NdefDraft::default());
-        ui.ndef_view.source.set_selected(0);
-        ui.ndef_view
-            .input_stack
-            .set_visible_child_name(NdefSource::Text.stack_name());
-        ui.ndef_view.language.set_text("en");
-        ui.ndef_view.text.buffer().set_text("");
-        ui.ndef_view.uri.set_text("");
-        ui.ndef_view.raw_label.set_localized("No file chosen");
+        ui.ndef_view.editor.borrow_mut().load_message(None);
+        ui.ndef_view.editor_key.replace(None);
+        ui.ndef_view.force_editor_reset.set(false);
+        populate_ndef_rows(ui);
+        update_ndef_inspector(ui);
+        let record_dialog = ui.ndef_view.pending_record_dialog.borrow_mut().take();
+        if let Some(window) = record_dialog {
+            window.close();
+        }
         ui.ndef_view.read_only.set_active(false);
         update_ndef_actions(ui);
         ui.rows.remove_all();
@@ -10714,39 +11896,6 @@ mod tests {
     }
 
     #[test]
-    fn wifi_wsc_records_decode_and_binary_media_uses_hex() {
-        let mut payload = Vec::new();
-        payload.extend_from_slice(&[0x10, 0x0E, 0x00, 0x36, 0x10, 0x26, 0x00, 0x01, 0x01]);
-        payload.extend_from_slice(&[0x10, 0x45, 0x00, 0x07]);
-        payload.extend_from_slice(b"TESTNET");
-        payload.extend_from_slice(&[0x10, 0x03, 0x00, 0x02, 0x00, 0x20]);
-        payload.extend_from_slice(&[0x10, 0x0F, 0x00, 0x02, 0x00, 0x0C]);
-        payload.extend_from_slice(&[0x10, 0x27, 0x00, 0x0C]);
-        payload.extend_from_slice(b"testpass1234");
-        payload.extend_from_slice(&[0x10, 0x20, 0x00, 0x06, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]);
-        let record =
-            NdefRecord::media(b"application/vnd.wfa.wsc".to_vec(), payload).expect("wsc record");
-        let (kind, content) = record_summary(&record);
-        assert!(kind.contains("Wi-Fi"), "{kind}");
-        assert!(content.contains("WPA2-Personal"), "{content}");
-        assert!(content.contains("AES"), "{content}");
-        assert_eq!(
-            wifi_fields(&record),
-            vec![
-                ("SSID", "TESTNET".to_owned()),
-                ("Password", "testpass1234".to_owned())
-            ]
-        );
-
-        let binary =
-            NdefRecord::media(b"application/octet-stream".to_vec(), vec![0x00, 0xFF, 0x10])
-                .expect("binary record");
-        let (_, preview) = record_summary(&binary);
-        assert_eq!(preview, "00 FF 10");
-        assert!(!preview.contains('\u{FFFD}'));
-    }
-
-    #[test]
     fn gtk_workbench_scenarios() {
         if std::env::var_os("NFC_FOUNDRY_GUI_TESTS").is_none() {
             eprintln!("skipping GTK UI tests; set NFC_FOUNDRY_GUI_TESTS=1 under Xvfb");
@@ -10771,6 +11920,7 @@ mod tests {
         diagnostics_and_activity(&harness);
         settings_persist_and_reject(&harness);
         ndef_composer_sources(&harness);
+        ndef_record_dialog_forms(&harness);
         ndef_write_confirmation_cancel_and_success(&harness);
         ndef_write_gates(&harness);
         ndef_format_cancel_and_success(&harness);
@@ -12001,6 +13151,36 @@ mod tests {
         activity_text(ui)
     }
 
+    fn set_ndef_records(ui: &Rc<Ui>, records: Vec<RecordDraft>) {
+        {
+            let mut editor = ui.ndef_view.editor.borrow_mut();
+            editor.clear();
+            for record in records {
+                editor.add(record);
+            }
+        }
+        ui.ndef_view.editor_key.replace(Some(current_ndef_key(ui)));
+        after_ndef_editor_change(ui);
+    }
+
+    fn set_ndef_text(ui: &Rc<Ui>, text: &str) {
+        set_ndef_records(
+            ui,
+            vec![RecordDraft::Text(TextDraft {
+                text: text.to_owned(),
+                language: "en".to_owned(),
+                encoding: TextEncoding::Utf8,
+            })],
+        );
+    }
+
+    fn add_ndef_record(ui: &Rc<Ui>, record: RecordDraft) -> usize {
+        let index = ui.ndef_view.editor.borrow_mut().add(record);
+        ui.ndef_view.editor_key.replace(Some(current_ndef_key(ui)));
+        after_ndef_editor_change(ui);
+        index
+    }
+
     fn ndef_composer_sources(harness: &Harness) {
         reset(harness);
         let ui = &harness.ui;
@@ -12017,37 +13197,56 @@ mod tests {
         let blocks = formatted_image(false);
         install_image(harness, &blocks);
         show_image(ui, &dump_for(&blocks));
-        assert!(ui.ndef_view.write.is_sensitive());
-        assert!(ui.ndef_view.feedback.label().contains("Ready to write"));
+        assert!(!ui.ndef_view.write.is_sensitive());
+        assert!(ui.ndef_view.feedback.label().contains("Add at least one"));
+        assert_eq!(ui.ndef_view.rows.n_items(), 0);
 
-        ui.ndef_view.text.buffer().set_text("Hello");
+        set_ndef_text(ui, "Hello");
+        assert!(ui.ndef_view.write.is_sensitive());
+        assert_eq!(ui.ndef_view.rows.n_items(), 1);
+        assert_eq!(ui.ndef_view.inspector_title.label(), "Record 1 of 1");
+        assert!(ui.ndef_view.raw_hex.label().starts_with("03 "));
+        assert!(ui.ndef_view.raw_head.label().contains("TLV 0x03"));
+        assert_eq!(ui.ndef_view.capacity_state.label(), "Valid NDEF");
         assert!(
-            ui.ndef_view.preview.label().contains("Text · language en"),
+            ui.ndef_view.capacity_used.label().contains('/'),
             "{}",
-            ui.ndef_view.preview.label()
+            ui.ndef_view.capacity_used.label()
         );
-        assert!(ui.ndef_view.preview.label().contains("D1 01"));
+
+        add_ndef_record(
+            ui,
+            RecordDraft::Uri(UriDraft {
+                uri: "https://example.com/a".to_owned(),
+            }),
+        );
+        assert_eq!(ui.ndef_view.rows.n_items(), 2);
+        assert_eq!(ui.ndef_view.inspector_title.label(), "Record 2 of 2");
+        assert!(ui.ndef_view.move_up.is_sensitive());
+        assert!(!ui.ndef_view.move_down.is_sensitive());
+        move_selected_ndef_record(ui, true);
+        assert_eq!(ui.ndef_view.selection.selected(), 0);
+        assert!(ui.ndef_view.move_down.is_sensitive());
+        remove_selected_ndef_record(ui);
+        assert_eq!(ui.ndef_view.rows.n_items(), 1);
         assert!(ui.ndef_view.write.is_sensitive());
 
-        ui.ndef_view.source.set_selected(1);
-        ui.ndef_view.uri.set_text("https://example.com/a");
-        assert!(
-            ui.ndef_view
-                .preview
-                .label()
-                .contains("URI · https://example.com/a")
-        );
-        assert!(ui.ndef_view.write.is_sensitive());
-        ui.ndef_view.uri.set_text("");
+        set_ndef_records(ui, vec![RecordDraft::Uri(UriDraft { uri: String::new() })]);
         assert!(!ui.ndef_view.write.is_sensitive());
         assert!(ui.ndef_view.feedback.label().contains("must not be empty"));
 
-        ui.ndef_view.source.set_selected(0);
-        ui.ndef_view.language.set_text("");
+        set_ndef_records(
+            ui,
+            vec![RecordDraft::Text(TextDraft {
+                text: "Hello".to_owned(),
+                language: String::new(),
+                encoding: TextEncoding::Utf8,
+            })],
+        );
         assert!(!ui.ndef_view.write.is_sensitive());
         assert!(ui.ndef_view.feedback.label().contains("language code"));
-        ui.ndef_view.language.set_text("en");
-        ui.ndef_view.text.buffer().set_text(&"x".repeat(120));
+
+        set_ndef_text(ui, &"x".repeat(120));
         assert!(!ui.ndef_view.write.is_sensitive());
         assert!(
             ui.ndef_view.feedback.label().contains("at most 93"),
@@ -12057,38 +13256,126 @@ mod tests {
 
         let dir = tempfile::tempdir().expect("raw NDEF dir");
         let path = dir.path().join("message.ndef");
-        let message = NdefMessage::single(
+        let message = NdefMessage::new(vec![
             TextRecord::new("raw", "en")
                 .expect("text")
                 .to_record()
                 .expect("record"),
-        )
+            UriRecord::new("https://example.com/raw")
+                .expect("uri")
+                .to_record()
+                .expect("record"),
+        ])
         .expect("message");
         std::fs::write(&path, message.encode().expect("encode")).expect("raw file");
-        load_ndef_raw(ui, &path);
-        assert_eq!(ui.ndef_view.source.selected(), NdefSource::Raw as u32);
-        assert!(ui.ndef_view.raw_label.label().contains("message.ndef"));
-        assert!(
-            ui.ndef_view
-                .preview
-                .label()
-                .contains("Raw NDEF · 1 record(s)")
-        );
+        load_ndef_file(ui, &path);
+        assert_eq!(ui.ndef_view.rows.n_items(), 2);
+        assert_eq!(ui.ndef_view.capacity_state.label(), "Valid NDEF");
         assert!(ui.ndef_view.write.is_sensitive());
 
         let bad = dir.path().join("bad.ndef");
         std::fs::write(&bad, [0xD1, 0x01]).expect("bad raw file");
-        load_ndef_raw(ui, &bad);
+        load_ndef_file(ui, &bad);
         assert!(ndef_log(ui).contains("not a valid NDEF message"));
-        assert!(
-            ui.ndef_view.write.is_sensitive(),
-            "a malformed file keeps the previous composed source"
+        assert_eq!(
+            ui.ndef_view.rows.n_items(),
+            2,
+            "a malformed file keeps the previous message"
         );
+
+        open_ndef_record_dialog(ui.clone(), None);
+        let dialog = ui
+            .ndef_view
+            .pending_record_dialog
+            .borrow()
+            .clone()
+            .expect("record dialog");
+        let save = find_button(&dialog, "Save record").expect("save record button");
+        save.emit_clicked();
+        assert_eq!(ui.ndef_view.rows.n_items(), 3);
+        assert!(ui.ndef_view.pending_record_dialog.borrow().is_none());
 
         ui.live.set(false);
         update_ndef_actions(ui);
         assert!(!ui.ndef_view.write.is_sensitive());
         assert!(!ui.ndef_view.format.is_sensitive());
+    }
+
+    fn ndef_record_dialog_forms(_harness: &Harness) {
+        let text = build_record_form(&RecordDraft::Text(TextDraft {
+            text: "Hello".to_owned(),
+            language: "en".to_owned(),
+            encoding: TextEncoding::Utf8,
+        }));
+        assert!(matches!(
+            collect_record_form(&text).expect("text form"),
+            RecordDraft::Text(_)
+        ));
+
+        let uri = build_record_form(&RecordKind::Uri.default_draft());
+        uri.uri.set_text("https://example.com/a");
+        assert!(matches!(
+            collect_record_form(&uri).expect("URI form"),
+            RecordDraft::Uri(draft) if draft.uri == "https://example.com/a"
+        ));
+
+        let media = build_record_form(&RecordKind::Media.default_draft());
+        media.media_type.set_text("application/json");
+        text_view_set(&media.media_payload, "{\"ok\":true}");
+        assert!(matches!(
+            collect_record_form(&media).expect("media form"),
+            RecordDraft::Media(draft) if draft.media_type == b"application/json"
+        ));
+
+        let wifi = build_record_form(&RecordKind::Wifi.default_draft());
+        wifi.wifi_ssid.set_text("Foundry");
+        wifi.wifi_auth.set_selected(2);
+        wifi.wifi_encryption.set_selected(3);
+        wifi.wifi_key.set_text("testpass1234");
+        assert!(matches!(
+            collect_record_form(&wifi).expect("Wi-Fi form"),
+            RecordDraft::Wifi(draft) if draft.authentication == 0x0020 && draft.encryption == 0x0008
+        ));
+
+        let vcard = build_record_form(&RecordKind::VCard.default_draft());
+        vcard.vcard_name.set_text("Ada Lovelace");
+        assert!(matches!(
+            collect_record_form(&vcard).expect("vCard form"),
+            RecordDraft::VCard(draft) if draft.formatted_name == "Ada Lovelace"
+        ));
+
+        let ble = build_record_form(&RecordKind::BluetoothLe.default_draft());
+        ble.ble_address.set_text("AA:BB:CC:DD:EE:FF");
+        ble.ble_role.set_selected(1);
+        assert!(matches!(
+            collect_record_form(&ble).expect("Bluetooth form"),
+            RecordDraft::BluetoothLe(draft) if draft.address.is_some() && draft.role.is_some()
+        ));
+
+        let dpp = build_record_form(&RecordKind::Dpp.default_draft());
+        dpp.dpp_uri
+            .set_text("DPP:C:81/1;M:001122334455;K:303132333435363738393A3B3C3D3E3F;;");
+        assert!(matches!(
+            collect_record_form(&dpp).expect("DPP form"),
+            RecordDraft::Dpp(_)
+        ));
+
+        let poster = build_record_form(&RecordKind::SmartPoster.default_draft());
+        poster.poster_uri.set_text("https://example.com");
+        poster.poster_title.set_text("Example");
+        assert!(matches!(
+            collect_record_form(&poster).expect("poster form"),
+            RecordDraft::SmartPoster(draft) if draft.titles.len() == 1
+        ));
+
+        let raw = build_record_form(&RecordKind::Raw.default_draft());
+        raw.raw_tnf.set_selected(1);
+        raw.raw_type.set_text("U");
+        text_view_set(&raw.raw_payload, "00");
+        assert!(matches!(
+            collect_record_form(&raw).expect("raw form"),
+            RecordDraft::Raw(draft) if draft.tnf == Tnf::WellKnown
+        ));
     }
 
     fn ndef_write_confirmation_cancel_and_success(harness: &Harness) {
@@ -12097,7 +13384,19 @@ mod tests {
         let blocks = formatted_image(false);
         install_image(harness, &blocks);
         show_image(ui, &dump_for(&blocks));
-        ui.ndef_view.text.buffer().set_text("Hello");
+        set_ndef_records(
+            ui,
+            vec![
+                RecordDraft::Text(TextDraft {
+                    text: "Hello".to_owned(),
+                    language: "en".to_owned(),
+                    encoding: TextEncoding::Utf8,
+                }),
+                RecordDraft::Uri(UriDraft {
+                    uri: "https://example.com/a".to_owned(),
+                }),
+            ],
+        );
         assert!(ui.ndef_view.write.is_sensitive());
 
         confirm_ndef_write(ui.clone());
@@ -12127,9 +13426,11 @@ mod tests {
         let info = ui.ndef.borrow().clone().expect("NDEF info");
         match info.ndef.state {
             ClassicNdefState::Message(message) => {
-                assert_eq!(message.records().len(), 1);
+                assert_eq!(message.records().len(), 2);
                 let record = TextRecord::from_record(&message.records()[0]).expect("text record");
                 assert_eq!(record.text, "Hello");
+                let uri = UriRecord::from_record(&message.records()[1]).expect("URI record");
+                assert_eq!(uri.uri, "https://example.com/a");
             }
             other => panic!("unexpected NDEF state: {other:?}"),
         }
@@ -12160,8 +13461,14 @@ mod tests {
         );
         assert!(!ndef_log(ui).contains("Hello"));
         assert!(ui.ndef_view.export.is_sensitive());
-        let message = stored_ndef_message(ui).expect("stored NDEF message");
+        let message = ui
+            .ndef_view
+            .editor
+            .borrow()
+            .message()
+            .expect("stored NDEF message");
         assert!(!message.encode().expect("encode").is_empty());
+        assert!(ui.ndef_view.feedback.label().contains("already stores"));
     }
 
     fn ndef_write_gates(harness: &Harness) {
@@ -12171,7 +13478,7 @@ mod tests {
         show_image(ui, &fixture_dump());
         assert!(!ui.ndef_view.write.is_sensitive());
         assert!(ui.ndef_view.format.is_sensitive());
-        ui.ndef_view.text.buffer().set_text("Hello");
+        set_ndef_text(ui, "Hello");
         confirm_ndef_write(ui.clone());
         assert!(ui.pending_ndef_write_dialog.borrow().is_none());
         assert!(ui.ndef_view.feedback.label().contains("Format is required"));
@@ -12179,6 +13486,7 @@ mod tests {
         let read_only = formatted_image(true);
         install_image(harness, &read_only);
         show_image(ui, &dump_for(&read_only));
+        set_ndef_text(ui, "Hello");
         assert!(!ui.ndef_view.write.is_sensitive());
         assert!(
             ui.ndef_view.feedback.label().contains("read-only"),
@@ -12204,7 +13512,7 @@ mod tests {
         ui.live.set(true);
         update_ndef_actions(ui);
         harness.handle.set_card(Some(other_card()));
-        ui.ndef_view.text.buffer().set_text("Hello");
+        set_ndef_text(ui, "Hello");
         confirm_ndef_write(ui.clone());
         let dialog = ui
             .pending_ndef_write_dialog
@@ -12550,7 +13858,7 @@ mod tests {
         assert_eq!(harness.ntag.page(32), Some([0xAA, 0xBB, 0xCC, 0xDD]));
         assert_eq!(ui.type2_view.auth_pwd.text(), "");
 
-        ui.ndef_view.text.buffer().set_text("Protected");
+        set_ndef_text(ui, "Protected");
         update_ndef_actions(ui);
         assert!(!ui.ndef_view.write.is_sensitive());
         ui.type2_view.auth_pwd.set_text("11223344");
@@ -12598,13 +13906,10 @@ mod tests {
     fn type2_ndef_write_and_format(harness: &Harness) {
         read_type2(harness, &ntag_pages(false, false, true));
         let ui = &harness.ui;
-        ui.ndef_view.text.buffer().set_text("Hello");
+        set_ndef_text(ui, "Hello");
         assert!(ui.ndef_view.write.is_sensitive());
-        assert!(
-            ui.ndef_view.preview.label().contains("Text · language en"),
-            "{}",
-            ui.ndef_view.preview.label()
-        );
+        assert_eq!(ui.ndef_view.rows.n_items(), 1);
+        assert_eq!(ui.ndef_view.capacity_state.label(), "Valid NDEF");
 
         confirm_ndef_write(ui.clone());
         let dialog = ui
@@ -12669,7 +13974,7 @@ mod tests {
 
         read_type2(harness, &ntag_pages(true, false, true));
         let ui = &harness.ui;
-        ui.ndef_view.text.buffer().set_text("Hello");
+        set_ndef_text(ui, "Hello");
         assert!(!ui.ndef_view.write.is_sensitive());
         assert!(
             ui.ndef_view.feedback.label().contains("read-only"),
@@ -12688,7 +13993,7 @@ mod tests {
 
         read_type2(harness, &ntag_pages(false, true, true));
         let ui = &harness.ui;
-        ui.ndef_view.text.buffer().set_text("Hello");
+        set_ndef_text(ui, "Hello");
         assert!(!ui.ndef_view.write.is_sensitive());
         assert!(ui.ndef_view.feedback.label().contains("locked"));
         assert!(!ui.ndef_view.format.is_sensitive());
@@ -12696,7 +14001,7 @@ mod tests {
         read_type2(harness, &ntag_pages(false, false, true));
         let ui = &harness.ui;
         harness.ntag.set_card(Some(other_type2_card()));
-        ui.ndef_view.text.buffer().set_text("Hello");
+        set_ndef_text(ui, "Hello");
         confirm_ndef_write(ui.clone());
         let dialog = ui
             .pending_ndef_write_dialog

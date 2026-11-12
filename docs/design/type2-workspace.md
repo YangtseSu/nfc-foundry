@@ -34,6 +34,10 @@ action bar           status · detail · last backup · Read card
 - No tag: Memory and Protection show the read/load empty state.
 - Partial read: unreadable pages show `—`; warnings stay visible.
 - Read-only capability container: NDEF write and format are disabled.
+- NDEF tab: the shared workbench editor lists the decoded records, capacity,
+  preflight, raw TLV, and the selected-record inspector. A card read reloads
+  the editor; a dirty draft survives incidental refreshes. Write and format
+  use the same gates as the CLI, including locked/password-protected pages.
 - Locked page: the inspector explains that the page cannot be written.
 - PWD/PACK pages never read back; the inspector says so.
 - Advanced actions: the dialog names the card identity, pages, old/new values,

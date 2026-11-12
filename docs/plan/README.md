@@ -3,9 +3,9 @@
 Status legend: `done`, `in progress`, `pending`, `optional`, `blocked`.
 
 Phase files: phases 00-17 are planned and recorded as sections in this file,
-not as separate `docs/plan/NN-*.md` files. Phases 18, 19, 24, 25, and 26 have
-separate plan files because they are large multi-slice efforts. Notes exist
-for phases 20-23 and are linked from their sections below.
+not as separate `docs/plan/NN-*.md` files. Phases 18, 19, 24, 25, 26, and 27
+have separate plan files because they are large multi-slice efforts. Notes
+exist for phases 20-23 and are linked from their sections below.
 
 GUI note: **GTK4-rs (`gtk4` + `libadwaita`) is the selected and only GUI
 stack** as of [ADR 0006](../adr/0006-gtk4-rs.md). The GPUI Kit workspaces were
@@ -51,6 +51,7 @@ work; their current equivalents are the GTK4 workspaces.
 | 24 | Parity recovery: verified keys, workbench, UID, reader lifecycle, diagnostics | in progress (S1, S2, S3a, S3b, S4, S6 done) |
 | 25 | Owned-card support: 4K clone, Ultralight EV1, FM11RF08S recovery, DESFire EV3 NDEF, UID NTAG213 | in progress (25.1–25.4 done; 25.5 inventory, factory-key auth, temporary file round trip, read-only GUI workspace done; NDEF format not implemented) |
 | 26 | DESFire workbench: read/write, app/file/key management, secure messaging, NDEF | in progress (26.1 done; 26.2–26.13 pending) |
+| 27 | NDEF workbench: multi-record editor, RTD forms, `.ndef` load/save, Classic/Type 2 write | done |
 
 ## Rules
 

@@ -5,6 +5,7 @@ use adw::prelude::*;
 mod app;
 mod classic;
 mod i18n;
+mod ndef;
 mod settings;
 mod type2;
 

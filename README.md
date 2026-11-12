@@ -75,11 +75,11 @@ the same services. The Classic mapping has no capability-container record; the
 GPB carries the mapping version and access state. The GPUI Kit shell was
 removed on `feat/gtk4-ui`. The GTK4 workbench in `crates/gui` provides the
 shell, real reader selection, Classic read/table/inspector, verified block
-write, dump save/load, Keys, Key scan, Recovery, Diff, Restore, a Classic NDEF
-composer with verified write and format, Type 2 Memory/Protection with
-user-page and Advanced writes, locks, password configuration, project
-dump/restore, and Type 2 NDEF write/format, plus Diagnostics, Activity, and
-persisted Settings. The interface is complete in English and Simplified
+write, dump save/load, Keys, Key scan, Recovery, Diff, Restore, a shared NDEF
+message workbench with multi-record editing, RTD forms, `.ndef` load/save,
+verified write and format for Classic and Type 2, Type 2 Memory/Protection with
+user-page and Advanced writes, locks, password configuration, and project
+dump/restore, plus Diagnostics, Activity, and persisted Settings. The interface is complete in English and Simplified
 Chinese (`zh-CN`), with an immediate switch that preserves the current page,
 reader, card image, and selection; the choice persists in `ui.json` and the
 system locale is used on first run. Every shipped `nfctl` card and file
@@ -407,7 +407,9 @@ selection with live connection state and capabilities, Classic
 read/table/inspector, a Details tab with the shared card health model, verified
 block write, dump save/load
 with format selection, Keys, Key scan, Recovery, Diff, Restore, a family-aware
-NDEF composer with verified write and format, Type 2 Memory/Protection, and
+NDEF message workbench with multi-record editing for Text, URI, MIME, Wi-Fi,
+vCard, Bluetooth LE, DPP, Smart Poster, and raw records, `.ndef` load/save, and
+verified write/format, Type 2 Memory/Protection, and
 Diagnostics/Activity/Settings screens. A Type 2 read shows page roles, locks,
 CC, configuration, and NDEF state; user pages and Advanced pages use the
 service write path, and locks/password/restore/format require the destructive confirmation

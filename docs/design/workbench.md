@@ -75,7 +75,9 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
   switch, page table (`Page`, `Role`, `Lock`, `Data`), and page inspector.
 - Dumps: project save/load and restore options. The Pages tab no longer
   duplicates them.
-- NDEF: the shared NDEF view, rendering Type 2 CC/TLV facts and records.
+- NDEF: the shared message editor, rendering Type 2 CC/TLV facts and the
+  decoded record set. Locked/password-protected tags disable write with a
+  specific reason; NDEF write preserves unknown TLVs, format removes them.
 - The default page filter shows manufacturer, user, and reserved pages. CC,
   static/dynamic lock, configuration, and PWD/PACK pages appear only in Advanced
   mode. Unknown pages show `—`.
@@ -237,15 +239,39 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
 
 ## NDEF
 
-- The tab shows the active card family. A Classic card shows the MAD sectors,
-  mapping version, read/write state, capacity, message bytes, decoded Text/URI/
-  Wi-Fi WSC records, and warnings. A Type 2 card shows product/UID, CC bytes,
+The tab is one message editor shared by Classic and Type 2. It is moved into
+the active workspace and renders the active card family's NDEF facts.
+
+- Card facts: a Classic card shows MAD sectors, mapping version, read/write
+  state, capacity, and warnings; a Type 2 card shows product/UID, CC bytes,
   data-area size, capacity, NDEF state, locked pages, password protection, and
   warnings.
-- Wi-Fi WSC media records decode SSID, authentication, encryption, and network
-  key. SSID and password render as selectable monospace text, so the user can
-  select and copy a field directly. Other binary media payloads render as hex;
-  they are never passed through a lossy UTF-8 preview.
+- Capacity card: used/total bytes, record count, free bytes, a meter, and
+  `Valid NDEF` / `Over capacity` / `Invalid message` / `No records`.
+- Records table: `#`, `Type`, `Preview`, `Size`. Selection drives the record
+  inspector. `Load .ndef…`, `Reload from card`, `New message`, and
+  `Add record…` sit in the table header.
+- Record inspector: record ordinal, type, TNF, TYPE, ID, encoded size, payload
+  hex, validity, `Edit record…`, `Remove`, and move-up/move-down.
+- Preflight: `TLV valid`, `Fits user memory`, `Protected areas untouched`, and
+  `Validate`. The protected note states that an NDEF write does not change
+  Classic sector trailers/keys/access bits or Type 2 configuration/lock/
+  password pages.
+- Raw message: the `TLV 0x03` framing length and a selectable hex preview.
+- Record kinds: Text (language, UTF-8/UTF-16), URI, MIME (media type and
+  text/hex payload), Wi-Fi WSC (SSID, authentication, encryption, optional key
+  and MAC), vCard, Bluetooth LE OOB, Wi-Fi DPP, Smart Poster, and a raw record
+  form (TNF, TYPE, ID, payload). Unknown, external, empty, and malformed known
+  records decode to the raw form and keep their exact bytes.
+- The record dialog validates through the NDEF codec before changing the
+  message; malformed input leaves the dialog open with the codec error.
+  Template fields the form does not expose (WSC unknown attributes, Bluetooth
+  LE extra AD structures, extra Smart Poster titles/nested records) are
+  preserved on edit.
+- Card reads, loaded dumps, and format reset the editor from that card. A dirty
+  draft survives incidental refreshes; the header shows `Unsaved changes` /
+  `No unsaved changes`. An explicit reload, load, or clear replaces the draft.
+  `Save .ndef…` writes the editor message.
 - Unformatted cards state that Format is required before writing. A Type 2
   format is destructive, removes proprietary TLVs, and uses the confirmation
   dialog.
@@ -253,23 +279,19 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
   page, capacity overflow, or an unchanged message. A password-protected data
   page uses the masked Protected access credentials; without them the write is
   refused before mutation. The service preserves other TLVs on a write.
-- Composer sources: `Text` (text and IANA language), `URI`, or a raw NDEF file
-  decoded through `NdefMessage::decode`. Exactly one source is active.
-- The preview shows the source summary, encoded message size against capacity,
-  and the first 48 encoded bytes. Malformed raw files report the decode error
-  and keep the previous source.
 - `Write NDEF` is enabled only for a live, complete read of a formatted,
-  writable NDEF area with an encodable message that fits the capacity display
-  and differs from the stored TLV. The confirmation names the current and new
-  message, the sizes, the project backup, and the read-back.
+  writable NDEF area with a non-empty, encodable message that fits the capacity
+  and differs from the stored TLV. The confirmation names the record summary,
+  sizes, project backup, and read-back.
 - `Format NDEF area…` is destructive and names the area, the read-only choice,
   the backup, and the read-back. `Leave the NDEF area read-only` maps to the
   CLI `--read-only`.
 - A loaded dump, partial image, read-only area, capacity overflow, identity
   mismatch, or busy operation disables mutation with a specific reason.
 - Success refreshes the block table, NDEF page, card summary, and log from the
-  service result without an extra card read. Failure keeps the previous image
-  and reports the error once in the toast and log.
+  service result without an extra card read; the editor baseline becomes the
+  written message. Failure keeps the previous image and reports the error once
+  in the toast and log.
 
 ## Workspace selector
 
