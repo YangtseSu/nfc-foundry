@@ -150,16 +150,15 @@ pub fn read_dump(
             .expect("sector is within the layout");
         let mut candidates = candidate_keys(keys, &card, false, sector);
         if let Some((key_type, key, source)) = preferred {
-            if let Some(index) = candidates
-                .iter()
-                .position(|(candidate_type, candidate_key, _)| {
+            // A stored/verified key for this sector is more authoritative than
+            // the key that opened the previous sector. Use the previous key
+            // only when the sector has no stored candidates, or as a fallback.
+            if candidates.is_empty()
+                || !candidates.iter().any(|(candidate_type, candidate_key, _)| {
                     *candidate_type == key_type && *candidate_key == key
                 })
             {
-                let entry = candidates.remove(index);
-                candidates.insert(0, entry);
-            } else {
-                candidates.insert(0, (key_type, key, source));
+                candidates.push((key_type, key, source));
             }
         }
         if include_common_keys {

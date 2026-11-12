@@ -98,11 +98,18 @@ impl<'a> Operation<'a> {
     pub fn authenticate(&mut self, block: u8, key_type: KeyType, key: Key) -> Result<()> {
         self.cancel.check()?;
         // Authentication is bound to the selected UID: the reader appends the
-        // cached UID suffix to the MIFARE authentication frame. Reselecting the
-        // card before each attempt resets Crypto1 and disturbs phone
-        // emulations that expect one selection followed by a command stream.
-        // Operations check identity explicitly at their boundaries.
-        self.reader.authenticate(block, key_type, key)
+        // cached UID suffix to the MIFARE authentication frame. Do not reselect
+        // before every attempt: that resets Crypto1 and disturbs phone
+        // emulations. A failed attempt, however, can leave the target in a
+        // state that refuses the next key, so reset once after a NAK.
+        match self.reader.authenticate(block, key_type, key) {
+            Ok(()) => Ok(()),
+            Err(NfcError::AuthenticationFailed) => {
+                self.check_card()?;
+                Err(NfcError::AuthenticationFailed)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     pub fn read_block(&mut self, block: u8) -> Result<[u8; BLOCK_SIZE]> {
