@@ -10,9 +10,10 @@ archive, and hardware matrix are in place.** PN532 UART passed every operation
 in its certified scope. The ACR122U passed its certified scope: selection,
 Classic reads, Type 2 reads, raw REQA, Gen1A same-value block 0 write, and
 recovery. ACR122U Classic data writes, ACR122U Type 2 write/NDEF, ACR122U
-Classic NDEF, one-way locks, passwords, trailer writes, Classic 4K, and ACR122U
-Type 4 are not advertised because no release hardware record exists. Type 4
-read/write is validated on PN532 UART but has no CLI or GUI surface yet. See
+Classic NDEF, one-way locks, passwords, trailer writes, and ACR122U Type 4 are
+not advertised because no release hardware record exists. Classic 4K read/write
+is validated on PN532 UART; the ACR122U 4K path is not. Type 4 read/write is
+validated on PN532 UART but has no CLI or GUI surface yet. See
 [Hardware matrix](docs/hardware-matrix.md).
 Both first-release readers are implemented: PN532 UART
 and ACR122U direct USB/CCID. The ACR122U path claims the CCID interface with
@@ -110,7 +111,8 @@ read/write claim; `nfctl diag --json` and the GUI diagnostics page share a
 deterministic self-check with version, commit, build date, platform, drivers,
 selected-reader firmware and capabilities, and hardnested table status; and
 both recovery surfaces require authorization before the engine starts.
-Remaining work is the Type 4 read surface and phases 13-17.
+Remaining work is the Type 4 read surface, the rest of phase 25, and phases
+13-17.
 
 ## Product scope
 

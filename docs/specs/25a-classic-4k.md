@@ -1,6 +1,6 @@
 # Spec: phase 25.1 FM11RN32N Classic 4K validation
 
-Status: planned 2026-11-12. Plan:
+Status: implemented 2026-11-12; PN532 validated. Plan:
 [25-card-support.md](../plan/25-card-support.md).
 
 ## Problem
@@ -111,7 +111,8 @@ cargo test -p nfctl --features hardware --test hardware_classic_ndef \
 ## Safety
 
 - No block 0 write.
-- No sector-trailer write and no access-bit change.
+- No sector-trailer key or access-bit change. The NDEF round trip may rewrite
+  GPB bytes in NFC trailers and restores the original dump.
 - No UID write.
 - The temporary write uses the existing service preflight, backup, read-back,
   and identity check.

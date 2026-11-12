@@ -1,10 +1,10 @@
 # Phase 25 plan: owned-card support
 
-Status: planned 2026-11-12. Hardware: PN532 UART first; ACR122U records after
-a reader is available. This phase covers the five cards already owned for the
-project: Fudan FM11RN32N (FM11RF32N, 4K Classic-compatible), Fudan FM11RF08S,
-MIFARE Ultralight EV1, MIFARE DESFire EV3 8K, and a UID-changeable NTAG213
-clone.
+Status: in progress; 25.1 complete 2026-11-12. Hardware: PN532 UART first;
+ACR122U records after a reader is available. This phase covers the five cards
+already owned for the project: Fudan FM11RN32N (FM11RF32N, 4K
+Classic-compatible), Fudan FM11RF08S, MIFARE Ultralight EV1, MIFARE DESFire
+EV3 8K, and a UID-changeable NTAG213 clone.
 
 The goal is to make each card usable through the existing product model, not to
 add a second protocol stack. The cards map onto Classic, Type 2, Classic
@@ -80,6 +80,9 @@ The order minimizes risk: prove existing surfaces first, then add one new
 product profile, then the recovery solver, then the two destructive workflows.
 
 ### 25.1: FM11RN32N Classic 4K validation
+
+Status: complete 2026-11-12 on PN532 UART with FM11RF32N UID `59 98 C9 C5`.
+See [25a-classic-4k.md](../notes/25a-classic-4k.md).
 
 Goal: prove the existing Classic 4K path on the owned card and fix any
 assumptions that only held for 1K.

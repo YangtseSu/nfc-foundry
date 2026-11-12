@@ -10,7 +10,7 @@ Release: `0.1.0`.
 
 | Reader | Connection | Firmware | Date | Note |
 |---|---|---|---|---|
-| PN532 UART (CH340 adapter) | `pn532_uart:/dev/ttyUSB0` | PN532 firmware 1.6 | 2026-11-11 | `docs/notes/02-pn532-uart.md`, `04-classic-workflows.md`, `06-recovery-foundation.md`, `07-hardnested.md`, `09-type2-ndef.md`, `10-classic-ndef.md`, `11-type4-ndef.md`, `24c-uid-write.md` |
+| PN532 UART (CH340 adapter) | `pn532_uart:/dev/ttyUSB0` | PN532 firmware 1.6 | 2026-11-11 | `docs/notes/02-pn532-uart.md`, `04-classic-workflows.md`, `06-recovery-foundation.md`, `07-hardnested.md`, `09-type2-ndef.md`, `10-classic-ndef.md`, `11-type4-ndef.md`, `24c-uid-write.md`, `25a-classic-4k.md` |
 | ACR122U direct USB/CCID | `acr122_usb:001:002` | internal PN532 firmware 1.6 | 2026-11-11 | `docs/notes/05-acr122-usb.md`, `06-recovery-foundation.md`, `07-hardnested.md`, `09-type2-ndef.md`, `24c-uid-write.md`, `24d-restore-with-uid.md` |
 
 `pcscd` was stopped for every ACR122U run. The ACR122U was opened as the
@@ -34,10 +34,10 @@ tested, and no read, write, restore, or recovery operation is claimed for it.
 | Enumerate, open, firmware check | validated | validated | phase 02, phase 05 |
 | Classic 1K select, UID/ATQA/SAK | validated | validated | phase 02, phase 05 |
 | Classic Key A authenticate and single-block read | validated | validated | phase 02, phase 05 |
-| Classic full dump and per-sector key scan | validated | validated | PN532 phase 04: 64/64 blocks, 16/16 sectors, 37 attempts, 32 verified keys. ACR122U 2026-11-11: 64/64 blocks, 16/16 sectors; key scan 46 attempts, 15 Key A hits. |
-| Classic temporary data-block write, read-back, restore | validated | validated | PN532 phase 04: block 4. ACR122U 2026-11-11: block 4, backup and restore. |
+| Classic full dump and per-sector key scan | validated | validated | PN532 phase 04: 64/64 blocks, 16/16 sectors, 37 attempts, 32 verified keys. PN532 2026-11-12: FM11RF32N 4K, 256/256 blocks, 40/40 sectors, 40 attempts, 40 verified Key A. ACR122U 2026-11-11: 64/64 blocks, 16/16 sectors; key scan 46 attempts, 15 Key A hits. |
+| Classic temporary data-block write, read-back, restore | validated | validated | PN532 phase 04: block 4. PN532 2026-11-12: FM11RF32N 4K block 4, backup and restore, final dump diff 0 changed. ACR122U 2026-11-11: block 4, backup and restore. |
 | Classic sector-trailer write | validated | validated | 2026-11-11: PN532 block 7 and ACR122U block 15, GPB change with Key A preserved, read-back verified, original trailer restored. |
-| Classic 4K read/write | not recorded | not recorded | No 4K card was present on 2026-11-11; the two test cards are 1K (SAK 08). |
+| Classic 4K read/write | validated | not recorded | 2026-11-12: PN532 UART, FM11RF32N `59 98 C9 C5`; 256/256 blocks, 40/40 sectors, key scan 40/40; block 4 write/restore, final dump diff 0 changed, 0 trailer changes. ACR122U 4K not tested. |
 | Raw 7-bit REQA with 16-bit ATQA | validated | validated | phase 02, phase 05 |
 | Gen1A manufacturer block 0 same-value write | not recorded | validated | phase 05: magic Classic 1K, reselect and read-back |
 | Classic UID change through the guarded `nfc-app` service | validated | validated | 2026-11-11: Gen1A magic Classic 1K, UID `FA B9 CF F4` -> `FA B9 CF F5`, reselect and full block 0/BCC verified, original UID restored. PN532 used the ordinary backend; ACR122U used Gen1A. |
@@ -46,7 +46,7 @@ tested, and no read, write, restore, or recovery operation is claimed for it.
 | Type 2 / NTAG215 NDEF format, write, read, restore | validated | validated | PN532 phase 09: 135/135 pages, 33-byte Text record, restore. ACR122U 2026-11-11: NTAG215 `04 34 4C C2 83 5C 80`, 135/135 pages, 33-byte Text record written and read, original 75-byte vCard NDEF restored. |
 | Type 2 one-way lock | not recorded | not recorded | phase 09; no lock bits were set. |
 | Type 2 password configuration and authenticated access after AUTH0 | validated | not recorded | phase 24 S6, 2026-11-12: PN532 UART, NTAG216 `04 14 B5 7F DD 2A 81`; wrong PACK refused, 231/231 authenticated read, authenticated format/write/read, cleared to AUTH0=0xFF/ACCESS=0x00, original empty NDEF, CC, locks, and configuration restored; PWD/PACK reset to factory defaults after the run. |
-| Classic NDEF format, write, read, restore | validated | validated | PN532 phase 10: blank Classic 1K UID `6A 31 5E 28`, byte-for-byte restore. ACR122U 2026-11-11: 715-byte capacity, 3 blocks written, 18 blocks restored, full dump diff 0 changed. |
+| Classic NDEF format, write, read, restore | validated | validated | PN532 phase 10: blank Classic 1K UID `6A 31 5E 28`, byte-for-byte restore. PN532 2026-11-12: FM11RF32N 4K UID `59 98 C9 C5`, 3355-byte capacity, 3 blocks written, restore 47 written/208 unchanged/0 failures, final diff 0 changed. ACR122U 2026-11-11: 715-byte capacity, 3 blocks written, 18 blocks restored, full dump diff 0 changed. |
 | Crypto1 parity probe and full software authentication | validated | validated | phase 06 |
 | Nested, static-nested, and auto recovery | validated | validated | phase 06: recovered and re-verified target keys |
 | Hardnested acquisition and solver | validated | validated | phase 07: 1816 and 1840 frames, recovered and re-verified keys |
@@ -59,6 +59,7 @@ tested, and no read, write, restore, or recovery operation is claimed for it.
 |---|---|---|---|
 | MIFARE Classic 1K | `FA B9 CF F4` | PN532, ACR122U | select, read, raw REQA, recovery; ACR122U dump, data-block/trailer writes, UID, restore, Classic NDEF |
 | MIFARE Classic 1K | `6A 31 5E 28` | PN532 | selection, Classic NDEF format/write/restore |
+| FM11RN32N (FM11RF32N, 4K) | `59 98 C9 C5` | PN532 | 4K select/read, 40-sector key scan, data-block write/restore, Classic NDEF format/write/restore |
 | NTAG215 | `04 52 F5 67 D3 2A 81` | PN532 | 135-page read, NDEF write/read/restore |
 | NTAG 424 DNA | `04 86 40 42 22 17 90` | PN532 | Type 4 read, NDEF write, clear/restore |
 | Type 2 tag | `04 34 4C C2 83 5C 80` | ACR122U | page read; NDEF format/write/read/restore |
@@ -80,7 +81,8 @@ card under test.
   release claim.
 - Type 4 NDEF read/write is validated on PN532 UART and not recorded on
   ACR122U. It has no CLI or GUI surface yet, so the path is not advertised.
-- Classic 4K has no hardware record; it is not part of the release claim.
+- Classic 4K read/write is validated on PN532 UART and not recorded on
+  ACR122U. The ACR122U 4K path is not part of the release claim.
 - Classic sector-trailer writes and the guarded UID service are validated on
   both readers. The ACR122U trailer run used a default-access sector because the
   generic single-block request cannot supply a separate Key A for a B-only

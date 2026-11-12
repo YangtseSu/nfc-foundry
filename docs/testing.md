@@ -132,6 +132,18 @@ environment-gated. It passed on 2026-11-11 on PN532 UART with a Gen1A magic
 Classic 1K: UID `FA B9 CF F4` -> `FA B9 CF F5`, reselect and full block-0/BCC
 verification, then restored. The ACR122U service path is not recorded.
 
+The phase 25.1 Classic 4K record passed on 2026-11-12 on PN532 UART
+(`pn532_uart:/dev/ttyUSB0`) with a Fudan FM11RF32N, UID `59 98 C9 C5`:
+`nfctl scan` selected `MIFARE Classic 4K`; the read test reported 40/40
+sectors and a 256/256-block project dump with 40/40 verified Key A keys; block 4
+changed, read back, restored, and the final dump diff was 0 changed with 0
+trailer changes. The card was unformatted, so the Classic NDEF round trip
+reported `no MAD; state=Unformatted`, then formatted MAD2 with 3355-byte
+capacity, wrote 3 blocks, and restored 47 written/208 unchanged blocks with 0
+failures and a final diff of 0 changed. The static encrypted nonce probe
+reported `the card does not return a static encrypted nonce`. No code change
+was needed. The ACR122U 4K row remains unrecorded.
+
 The phase 10 Classic NDEF tests are hardware-free. `nfc-classic-ndef` covers
 MAD1/MAD2 and CRC vectors, NFC AIDs, contiguity, GPB mapping version and
 read-only state, TLV framing/capacity, long messages, leading proprietary TLV
