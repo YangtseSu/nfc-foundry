@@ -645,6 +645,24 @@ keys! {
     NoBlockSelected => ("No block selected", "未选择数据块"),
     Ready => ("Ready", "就绪"),
     ReadCard => ("Read card", "读取卡片"),
+    RefreshCard => ("Refresh card", "刷新卡片"),
+    DesfireInventory => ("Inventory", "清单"),
+    DesfireReadTab => ("Read", "读取"),
+    DesfireReadFile => ("Read file", "读取文件"),
+    DesfireAid => ("Application ID", "应用 ID"),
+    DesfireFileId => ("File ID", "文件 ID"),
+    DesfireKey => ("Legacy key (optional)", "传统密钥（可选）"),
+    DesfireKeyNumber => ("Key number", "密钥编号"),
+    DesfireOffset => ("Offset", "偏移"),
+    DesfireLength => ("Length (optional)", "长度（可选）"),
+    DesfireHint => (
+        "Read the card, then enter an application ID and file ID.",
+        "读取卡片，然后输入应用 ID 和文件 ID。"
+    ),
+    DesfireNoInventory => (
+        "Read the card to list DESFire applications.",
+        "读取卡片以列出 DESFire 应用。"
+    ),
     Actions => ("Actions", "操作"),
     CardPage => ("Card", "卡片"),
     Type2Page => ("Type 2", "Type 2"),

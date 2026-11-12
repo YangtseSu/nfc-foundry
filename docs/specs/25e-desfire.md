@@ -24,8 +24,9 @@ DESFire command layer and a read-only inventory.
   hardware test; no CLI or GUI surface is added.
 - `nfctl desfire info` prints the version and the application/file inventory.
 - `nfctl desfire read` authenticates with an optional legacy key and reads one
-  standard or backup file. It is a developer diagnostic; the GUI workspace is
-  still pending.
+  standard or backup file.
+- A read-only GTK `DESFire` workspace exposes inventory and the same file read;
+  it has no write controls.
 - `nfctl desfire info` is read-only. `nfctl desfire read` only reads after an
   optional authentication; neither command writes. The hardware test creates
   and removes a reserved temporary application only when both write gates are
@@ -61,4 +62,6 @@ format/delete command is exposed until:
 - The hardware test authenticates with the factory DES zero key, creates the
   reserved temporary application and a standard file, reads back the written
   payload, deletes the application, and leaves `GetApplicationIDs` empty.
+- The GTK workspace switches to `DESFire`, lists inventory, and parses AID,
+  file, key, key number, offset and length inputs.
 - No DESFire format command exists in the CLI or GUI yet.

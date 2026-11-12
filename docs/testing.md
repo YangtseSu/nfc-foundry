@@ -181,8 +181,10 @@ dictionary failed on framing, not on the key. A reserved temporary application
 `F0 0D 01` and standard file `01` were then created, a 16-byte payload was
 written and read back, and the application was deleted; `GetApplicationIDs`
 was empty afterwards. The test is idempotent and uses only the reserved AID.
-The inventory itself performed no authentication or write. The ACR122U row
-remains unrecorded.
+The inventory itself performed no authentication or write. The GTK test
+`desfire_workspace_switches_and_parses_inputs` covers workspace selection and
+the AID/key parsers; it does not touch hardware. The ACR122U row remains
+unrecorded.
 
 ```sh
 NFC_FOUNDRY_HARDWARE=1 NFC_FOUNDRY_HARDWARE_WRITE=yes \

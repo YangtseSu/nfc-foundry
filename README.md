@@ -16,8 +16,9 @@ is validated on PN532 UART; the ACR122U 4K path is not. Ultralight EV1 MF0UL11,
 FM11RF08S backdoor recovery, and a 7-byte UID-changeable NTAG213 clone are
 validated on PN532 UART. DESFire EV3 inventory, factory-key authentication, and
 a reserved temporary application/file round trip are validated; native NDEF
-formatting and user-facing writes are not implemented. Type 4 read/write is
-validated on PN532 UART but has no CLI or GUI surface yet. See
+formatting and user-facing writes are not implemented. DESFire also has a
+read-only GTK workspace for inventory and plain file reads. Type 4 read/write
+is validated on PN532 UART but has no CLI or GUI surface yet. See
 [Hardware matrix](docs/hardware-matrix.md).
 Both first-release readers are implemented: PN532 UART
 and ACR122U direct USB/CCID. The ACR122U path claims the CCID interface with

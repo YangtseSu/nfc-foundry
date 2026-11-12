@@ -97,15 +97,27 @@ ascii: NFC Foundry CLI read............
 
 Omitting `--length` reads the rest of the file. A non-parity wrong key returns
 `91AE`; a free-access file can be read without `--key`. The key is accepted
-from `--key` or `NFC_FOUNDRY_DESFIRE_KEY`, never printed. This is a developer
-diagnostic; the read-only GUI DESFire workspace is the next slice.
+from `--key` or `NFC_FOUNDRY_DESFIRE_KEY`, never printed. This started as a
+developer diagnostic; the read-only GUI workspace now exposes the same service.
+
+## GUI read-only workspace
+
+The GTK workspace selector now has a third entry, `DESFire`, with `Inventory`
+and `Read` tabs. `Inventory` lists the version and applications; `Read` takes
+an AID, file ID, optional legacy key, key number, offset and length, then shows
+the settings, hex data and ASCII. There are no write controls. The read and
+refresh buttons use the same `nfc-app` service as the CLI.
+
+The GUI test `desfire_workspace_switches_and_parses_inputs` covers workspace
+selection, the default inventory text, and the AID/key parsers. Hardware
+read/write remains covered by the `nfc-desfire` hardware test and the CLI read
+record above.
 
 ## To continue
 
-1. Expose the authenticated read path through `nfc-app`, `nfctl`, and a
-   read-only GUI DESFire workspace; keep keys session-scoped and out of logs.
-2. Decode file settings and read Standard/Backup/Value/Record contents, then
-   add MACed/enciphered read for EV1/EV2 secure messaging.
+1. Decode file settings and read Standard/Backup/Value/Record contents through
+   the GUI; keep keys session-scoped and out of logs.
+2. Add MACed/enciphered read for EV1/EV2 secure messaging.
 3. Add NDEF Type 4 read for DESFire; formatting stays Advanced.
 4. Do not add business templates (access control, wallet, transit).
 

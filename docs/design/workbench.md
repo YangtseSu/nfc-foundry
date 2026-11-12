@@ -7,8 +7,9 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
 ## Shell
 
 - One window, 1360×880 default, resizable.
-- Header: `NFC Foundry` title, workspace selector (`MIFARE Classic` / `NFC Forum Type 2`),
-  primary `Read card`, and a `☰` main menu. A `←` back button appears only
+- Header: `NFC Foundry` title, workspace selector (`MIFARE Classic` /
+  `NFC Forum Type 2` / `DESFire`), primary `Read card` (`Refresh card` on
+  DESFire), and a `☰` main menu. A `←` back button appears only
   while a system page is shown. The reader selector is not duplicated in the
   header.
 - Left rail (fixed start pane, `GtkPaned`): reader menu with refresh,
@@ -20,13 +21,17 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
   the inspected bytes stay visible.
 - Workspaces: `Classic` shows `Blocks`, `Details`, `NDEF`, `Keys`, `Recovery`,
   and `Dumps`;
-  `Type 2` shows `Pages`, `Protection`, `NDEF`, and `Dumps`. `Keys` owns
+  `Type 2` shows `Pages`, `Protection`, `NDEF`, and `Dumps`; `DESFire` is a
+  read-only `Inventory` / `Read` workspace and never moves the shared NDEF
+  view. `Keys` owns
   `Key store` / `Key scan`; Classic `Dumps` owns Save/Load plus `Diff` /
   `Restore`; Type 2 `Dumps` owns Save/Load plus Restore. The NDEF view is
   shared and moved into the active workspace; it renders Classic MAD/NDEF for
   Classic and Type 2 CC/TLV/NDEF for Type 2.
-- `Read card` detects the card family, selects the workspace, and selects the
-  card or pages tab. The header selector switches manually for file-only work.
+- `Read card` detects a Classic or Type 2 card, selects the matching workspace,
+  and selects the card or pages tab. On the DESFire workspace the same button
+  is labelled `Refresh card` and only refreshes the unauthenticated inventory.
+  The header selector switches manually for file-only work.
 - `Diagnostics`, `Activity`, and `Settings` are not workspace tabs. The `☰`
   menu opens a hidden `System` page at the requested sub-tab; `←` returns to
   the last workspace. `About NFC Foundry` opens `AdwAboutDialog`.
@@ -268,10 +273,12 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
 
 ## Workspace selector
 
-The header selector is a compact `MenuButton` labelled `MIFARE Classic` or `NFC Forum Type 2`.
-It switches the workspace stack and moves the shared NDEF view into that
-workspace. Reading a card selects the matching workspace automatically; the
-manual selector covers loading dumps and inspecting pages without a live card.
+The header selector is a compact `MenuButton` labelled `MIFARE Classic`,
+`NFC Forum Type 2`, or `DESFire`. It switches the workspace stack and moves the
+shared NDEF view into the Classic or Type 2 workspace. Reading a Classic or
+Type 2 card selects the matching workspace automatically; DESFire is selected
+manually and reads through its own application/file form. The manual selector
+also covers loading dumps and inspecting pages without a live card.
 
 ## Main menu
 

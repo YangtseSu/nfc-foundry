@@ -20,6 +20,7 @@ use nfc_app::classic::{
     KeyStore, KeyTypes, KeyscanProgress, KeyscanSink, RestoreSelection, RestoreUidState,
     WorkbenchSnapshot, common_keys, format_uid, parse_block_list, parse_uid,
 };
+use nfc_app::desfire::DesfireReadRequest;
 use nfc_app::type2::{
     Type2Auth, Type2Format, Type2Lock, Type2LockResult, Type2MutationResult, Type2NdefWrite,
     Type2PageResult, Type2PageWrite, Type2Password, Type2ReadRequest, Type2ReadResult,
@@ -236,6 +237,7 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
     let diff_view = build_diff_view();
     let restore_view = build_restore_view();
     let type2_view = build_type2_view();
+    let desfire_view = build_desfire_view();
     let diagnostics_view = build_diagnostics_view();
     let activity_view = build_activity_view();
     let settings_view = build_settings_view(&preferences);
@@ -292,6 +294,7 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
     views.set_vexpand(true);
     views.add_named(&classic_root, Some("classic"));
     views.add_named(&type2_view.root, Some("type2"));
+    views.add_named(&desfire_view.root, Some("desfire"));
     views.add_named(&system_group, Some("system"));
     views.set_visible_child_name("classic");
     let center = gtk::Box::new(Orientation::Vertical, 0);
@@ -483,6 +486,7 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
         diff_view,
         restore_view,
         type2_view,
+        desfire_view,
         diagnostics_view,
         activity_view,
         settings_view,
@@ -692,6 +696,7 @@ struct SectorKeyRow {
 enum Workspace {
     Classic,
     Type2,
+    Desfire,
 }
 
 impl Workspace {
@@ -699,6 +704,7 @@ impl Workspace {
         match self {
             Self::Classic => "classic",
             Self::Type2 => "type2",
+            Self::Desfire => "desfire",
         }
     }
 
@@ -706,6 +712,7 @@ impl Workspace {
         match self {
             Self::Classic => "MIFARE Classic",
             Self::Type2 => "NFC Forum Type 2",
+            Self::Desfire => "DESFire",
         }
     }
 }
@@ -914,6 +921,7 @@ struct Ui {
     diff_view: DiffView,
     restore_view: RestoreView,
     type2_view: Type2View,
+    desfire_view: DesfireView,
     diagnostics_view: DiagnosticsView,
     activity_view: ActivityView,
     settings_view: SettingsView,
@@ -1007,6 +1015,23 @@ struct Type2View {
     uid_target: gtk::Entry,
     uid_apply: gtk::Button,
     uid_note: gtk::Label,
+}
+
+struct DesfireView {
+    root: gtk::Box,
+    tabs: gtk::Stack,
+    switcher: gtk::StackSwitcher,
+    summary: gtk::Label,
+    refresh: gtk::Button,
+    aid: gtk::Entry,
+    file: gtk::Entry,
+    key: gtk::PasswordEntry,
+    key_number: gtk::Entry,
+    offset: gtk::Entry,
+    length: gtk::Entry,
+    read: gtk::Button,
+    output: gtk::Label,
+    status: gtk::Label,
 }
 
 struct Type2Editor {
@@ -1390,6 +1415,122 @@ fn build_ndef_view() -> NdefView {
         export,
         read_only,
         draft: RefCell::new(NdefDraft::default()),
+    }
+}
+
+fn build_desfire_view() -> DesfireView {
+    let inventory_page = page_box();
+    let refresh = gtk::Button::with_label("Refresh card");
+    refresh.add_css_class("suggested-action");
+    let summary = gtk::Label::new(Some("Read the card to list DESFire applications."));
+    summary.set_xalign(0.0);
+    summary.set_wrap(true);
+    summary.set_selectable(true);
+    let summary_scroll = gtk::ScrolledWindow::builder()
+        .child(&summary)
+        .vexpand(true)
+        .build();
+    inventory_page.append(&refresh);
+    inventory_page.append(&summary_scroll);
+
+    let read_page = page_box();
+    let form = gtk::Grid::new();
+    form.set_row_spacing(8);
+    form.set_column_spacing(12);
+
+    let mut row = 0;
+    let mut add_field = |label: &str, widget: &gtk::Widget| {
+        let caption = gtk::Label::new(Some(label));
+        caption.set_xalign(0.0);
+        caption.add_css_class("caption");
+        caption.add_css_class("dim-label");
+        form.attach(&caption, 0, row, 1, 1);
+        form.attach(widget, 1, row, 1, 1);
+        widget.set_hexpand(true);
+        row += 1;
+    };
+
+    let aid = gtk::Entry::new();
+    aid.set_placeholder_text(Some("A1B2C3"));
+    aid.set_max_width_chars(12);
+    add_field("Application ID", aid.upcast_ref());
+
+    let file = gtk::Entry::new();
+    file.set_placeholder_text(Some("01"));
+    file.set_max_width_chars(4);
+    add_field("File ID", file.upcast_ref());
+
+    let key = gtk::PasswordEntry::new();
+    key.set_show_peek_icon(true);
+    key.set_placeholder_text(Some("16 or 32 hex digits; leave empty for free access"));
+    add_field("Legacy key (optional)", key.upcast_ref());
+
+    let key_number = gtk::Entry::new();
+    key_number.set_text("0");
+    key_number.set_max_width_chars(4);
+    add_field("Key number", key_number.upcast_ref());
+
+    let offset = gtk::Entry::new();
+    offset.set_text("0");
+    offset.set_max_width_chars(10);
+    add_field("Offset", offset.upcast_ref());
+
+    let length = gtk::Entry::new();
+    length.set_placeholder_text(Some("rest of file"));
+    length.set_max_width_chars(10);
+    add_field("Length (optional)", length.upcast_ref());
+
+    let read = gtk::Button::with_label("Read file");
+    read.add_css_class("suggested-action");
+    let hint = gtk::Label::new(Some(
+        "Read the card, then enter an application ID and file ID.",
+    ));
+    hint.set_xalign(0.0);
+    hint.set_wrap(true);
+    hint.add_css_class("caption");
+    hint.add_css_class("dim-label");
+
+    let output = gtk::Label::new(None);
+    output.set_xalign(0.0);
+    output.set_wrap(true);
+    output.set_selectable(true);
+    output.add_css_class("monospace");
+    let output_scroll = gtk::ScrolledWindow::builder()
+        .child(&output)
+        .vexpand(true)
+        .build();
+    let status = gtk::Label::new(None);
+    status.set_xalign(0.0);
+    status.add_css_class("caption");
+    status.add_css_class("dim-label");
+
+    read_page.append(&form);
+    read_page.append(&hint);
+    read_page.append(&read);
+    read_page.append(&output_scroll);
+    read_page.append(&status);
+
+    let tabs = gtk::Stack::new();
+    tabs.set_transition_type(gtk::StackTransitionType::Crossfade);
+    tabs.set_vexpand(true);
+    tabs.add_titled(&inventory_page, Some("inventory"), "Inventory");
+    tabs.add_titled(&read_page, Some("read"), "Read");
+    let (root, switcher) = grouped_page(&tabs);
+    DesfireView {
+        root,
+        tabs,
+        switcher,
+        summary,
+        refresh,
+        aid,
+        file,
+        key,
+        key_number,
+        offset,
+        length,
+        read,
+        output,
+        status,
     }
 }
 
@@ -2779,6 +2920,16 @@ fn connect_signals(ui: &Rc<Ui>) {
         .connect_clicked(move |_| start_read(ui2.clone()));
 
     let ui2 = ui.clone();
+    ui.desfire_view
+        .refresh
+        .connect_clicked(move |_| start_desfire_inventory(ui2.clone()));
+    let ui2 = ui.clone();
+    ui.desfire_view
+        .read
+        .connect_clicked(move |_| start_desfire_read(ui2.clone()));
+    wire_group_focus(&ui.desfire_view.tabs, &ui.desfire_view.switcher);
+
+    let ui2 = ui.clone();
     ui.inspector
         .read
         .connect_clicked(move |_| start_read_block(ui2.clone()));
@@ -3191,13 +3342,14 @@ fn active_switcher(ui: &Ui) -> gtk::StackSwitcher {
     match ui.workspace.get() {
         Workspace::Classic => ui.classic_switcher.clone(),
         Workspace::Type2 => ui.type2_view.switcher.clone(),
+        Workspace::Desfire => ui.desfire_view.switcher.clone(),
     }
 }
 
 fn build_workspace_menu(ui: &Rc<Ui>, button: &gtk::MenuButton) {
     let popover = gtk::Popover::new();
     let menu = gtk::Box::new(Orientation::Vertical, 2);
-    for workspace in [Workspace::Classic, Workspace::Type2] {
+    for workspace in [Workspace::Classic, Workspace::Type2, Workspace::Desfire] {
         let item = menu_button(workspace.label());
         let ui = ui.clone();
         let popover = popover.clone();
@@ -3215,11 +3367,17 @@ fn switch_workspace(ui: &Rc<Ui>, workspace: Workspace) {
     ui.workspace.set(workspace);
     ui.workspace_button.set_localized(workspace.label());
     ui.views.set_visible_child_name(workspace.stack_name());
+    if workspace == Workspace::Desfire {
+        ui.read_button.set_localized("Refresh card");
+    } else {
+        ui.read_button.set_localized("Read card");
+    }
     let ndef = ui.ndef_view.root.upcast_ref::<gtk::Widget>();
     ndef.unparent();
     match workspace {
         Workspace::Classic => ui.classic_ndef_slot.append(&ui.ndef_view.root),
         Workspace::Type2 => ui.type2_view.ndef_slot.append(&ui.ndef_view.root),
+        Workspace::Desfire => {}
     }
     update_ndef(ui);
     update_ndef_actions(ui);
@@ -3439,6 +3597,13 @@ fn update_workbench_actions(ui: &Ui) {
 }
 
 fn update_card(ui: &Ui) {
+    if ui.workspace.get() == Workspace::Desfire {
+        ui.card_title.set_localized("DESFire");
+        ui.card_detail
+            .set_localized("Read the card to list applications and files.");
+        ui.detail.set_localized("DESFire");
+        return;
+    }
     let type2 = ui.type2.borrow();
     if let Some(session) = type2.as_ref() {
         let ndef = session
@@ -3645,6 +3810,10 @@ fn render_details(ui: &Ui) {
 }
 
 fn update_ndef(ui: &Ui) {
+    if ui.workspace.get() == Workspace::Desfire {
+        ui.ndef.replace(None);
+        return;
+    }
     if ui.workspace.get() == Workspace::Type2 {
         let type2 = ui.type2.borrow().clone();
         if let Some(session) = type2 {
@@ -4188,24 +4357,34 @@ fn start_reader_monitor(ui: Rc<Ui>) {
     });
 }
 
+fn clear_desfire_session(ui: &Rc<Ui>) {
+    ui.desfire_view.key.set_text("");
+    ui.desfire_view.output.set_text("");
+    ui.desfire_view.status.set_text("");
+}
+
 fn apply_reader_update(ui: &Rc<Ui>, update: ReaderUpdate) {
     ui.reader_snapshot.replace(update.snapshot);
     render_reader_panel(ui);
     for event in update.events {
         match event {
             ReaderEvent::CardRemoved(_) => {
+                clear_desfire_session(ui);
                 expire_live_image(ui, "Card removed · read the card again");
             }
             ReaderEvent::CardAppeared(card) => {
                 let changed = live_card(ui).is_some_and(|current| !current.same_identity(&card));
                 if changed {
+                    clear_desfire_session(ui);
                     expire_live_image(ui, "A different card is present · read it again");
                 }
             }
             ReaderEvent::StatusChanged(ReaderStatus::Recovering) => {
+                clear_desfire_session(ui);
                 expire_live_image(ui, "Reader unavailable · read the card again");
             }
             ReaderEvent::StatusChanged(ReaderStatus::Error) => {
+                clear_desfire_session(ui);
                 expire_live_image(ui, "Reader error · read the card again");
             }
             ReaderEvent::StatusChanged(_) => {}
@@ -4313,8 +4492,274 @@ fn capability_text(capabilities: ReaderCapabilities) -> String {
     }
 }
 
+fn parse_desfire_hex(
+    value: &str,
+    bytes: usize,
+    label: &str,
+) -> std::result::Result<Vec<u8>, String> {
+    let compact: String = value
+        .chars()
+        .filter(|character| !character.is_ascii_whitespace() && *character != ':')
+        .collect();
+    if compact.len() != bytes * 2 {
+        return Err(format!("{label} must contain {} hex digits", bytes * 2));
+    }
+    let mut output = Vec::with_capacity(bytes);
+    for index in (0..compact.len()).step_by(2) {
+        let byte = u8::from_str_radix(&compact[index..index + 2], 16)
+            .map_err(|_| format!("{label} contains a non-hexadecimal digit"))?;
+        output.push(byte);
+    }
+    Ok(output)
+}
+
+fn parse_desfire_key(value: &str) -> std::result::Result<Option<Vec<u8>>, String> {
+    let compact: String = value
+        .chars()
+        .filter(|character| !character.is_ascii_whitespace() && *character != ':')
+        .collect();
+    if compact.is_empty() {
+        return Ok(None);
+    }
+    if !compact.len().is_multiple_of(2) {
+        return Err("the legacy key must have an even number of hex digits".to_owned());
+    }
+    let mut key = Vec::with_capacity(compact.len() / 2);
+    for index in (0..compact.len()).step_by(2) {
+        key.push(
+            u8::from_str_radix(&compact[index..index + 2], 16)
+                .map_err(|_| "the legacy key contains a non-hexadecimal digit".to_owned())?,
+        );
+    }
+    if !matches!(key.len(), 8 | 16) {
+        return Err("the legacy key must be 16 or 32 hex digits (DES or 2K3DES)".to_owned());
+    }
+    Ok(Some(key))
+}
+
+fn desfire_ascii(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|byte| {
+            if byte.is_ascii_graphic() || *byte == b' ' {
+                char::from(*byte)
+            } else {
+                '.'
+            }
+        })
+        .collect()
+}
+
+fn start_desfire_inventory(ui: Rc<Ui>) {
+    if ui.busy.get() {
+        return;
+    }
+    if ui.devices.borrow().is_empty() {
+        toast_error(&ui, "No reader selected");
+        return;
+    }
+    set_busy(&ui, true);
+    ui.status.set_localized("Reading DESFire inventory…");
+    let service = ui.service.clone();
+    let (sender, receiver) = async_channel::bounded(1);
+    std::thread::spawn(move || {
+        let result = match service.lock() {
+            Ok(mut service) => service
+                .desfire_inventory(CancelToken::new())
+                .map(|inventory| {
+                    let mut text = format!(
+                        "{} · vendor {:02X} type {:02X} subtype {:02X} version {}.{} storage {:02X} protocol {:02X}\n",
+                        inventory.version.name(),
+                        inventory.version.vendor_id,
+                        inventory.version.product_type,
+                        inventory.version.product_subtype,
+                        inventory.version.major,
+                        inventory.version.minor,
+                        inventory.version.storage_size,
+                        inventory.version.protocol
+                    );
+                    if inventory.applications.is_empty() {
+                        text.push_str("applications: none\n");
+                    }
+                    for application in &inventory.applications {
+                        text.push_str(&format!(
+                            "AID {}\n",
+                            type2_ui::hex_bytes(&application.aid)
+                        ));
+                        if application.files.is_empty() {
+                            text.push_str("  files: none or directory access denied\n");
+                        }
+                        for file in &application.files {
+                            text.push_str(&format!(
+                                "  file {:02X}: {}\n",
+                                file.file_id,
+                                type2_ui::hex_bytes(&file.settings)
+                            ));
+                        }
+                    }
+                    let first_aid = inventory.applications.first().map(|application| application.aid);
+                    (text, first_aid)
+                }),
+            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
+        };
+        let _ = sender.send_blocking(result);
+    });
+    glib::spawn_future_local(async move {
+        match receiver.recv().await {
+            Ok(result) => finish_desfire_inventory(&ui, result),
+            Err(_) => {
+                finish_desfire_inventory(&ui, Err(NfcError::Io("reader worker stopped".to_owned())))
+            }
+        }
+    });
+}
+
+fn finish_desfire_inventory(ui: &Rc<Ui>, result: NfcResult<(String, Option<[u8; 3]>)>) {
+    set_busy(ui, false);
+    match result {
+        Ok((text, first_aid)) => {
+            let view = &ui.desfire_view;
+            view.summary.set_text(&text);
+            if view.aid.text().trim().is_empty()
+                && let Some(aid) = first_aid
+            {
+                view.aid.set_text(&type2_ui::hex_bytes(&aid));
+            }
+            view.tabs.set_visible_child_name("inventory");
+            view.status.set_localized("Inventory updated");
+            ui.status.set_localized("DESFire inventory updated");
+            append_log(ui, "desfire · inventory");
+        }
+        Err(error) => {
+            ui.desfire_view.status.set_localized("Inventory failed");
+            ui.status.set_localized("DESFire inventory failed");
+            toast_error(ui, &format!("DESFire inventory: {error}"));
+        }
+    }
+}
+
+fn start_desfire_read(ui: Rc<Ui>) {
+    if ui.busy.get() {
+        return;
+    }
+    let view = &ui.desfire_view;
+    let parsed = (|| -> std::result::Result<_, String> {
+        let aid = parse_desfire_hex(&view.aid.text(), 3, "application ID")?;
+        let file = parse_desfire_hex(&view.file.text(), 1, "file ID")?[0];
+        let key = parse_desfire_key(&view.key.text())?;
+        let key_number = view
+            .key_number
+            .text()
+            .trim()
+            .parse::<u8>()
+            .map_err(|_| "key number must be 0..=14".to_owned())?;
+        if key_number > 14 {
+            return Err("key number must be 0..=14".to_owned());
+        }
+        let offset = view
+            .offset
+            .text()
+            .trim()
+            .parse::<u32>()
+            .map_err(|_| "offset must be an unsigned integer".to_owned())?;
+        let length = if view.length.text().trim().is_empty() {
+            None
+        } else {
+            Some(
+                view.length
+                    .text()
+                    .trim()
+                    .parse::<u32>()
+                    .map_err(|_| "length must be an unsigned integer".to_owned())?,
+            )
+        };
+        Ok((
+            [aid[0], aid[1], aid[2]],
+            file,
+            key,
+            key_number,
+            offset,
+            length,
+        ))
+    })();
+    let (aid, file, key, key_number, offset, length) = match parsed {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            ui.desfire_view
+                .status
+                .set_localized("Read input is invalid");
+            ui.status.set_localized("DESFire read input is invalid");
+            toast_error(&ui, &error);
+            return;
+        }
+    };
+    let mut request = DesfireReadRequest::new(aid, file)
+        .key_number(key_number)
+        .offset(offset)
+        .length(length);
+    if let Some(key) = key {
+        request = request.key(key);
+    }
+    set_busy(&ui, true);
+    ui.status.set_localized("Reading DESFire file…");
+    let service = ui.service.clone();
+    let (sender, receiver) = async_channel::bounded(1);
+    std::thread::spawn(move || {
+        let result = match service.lock() {
+            Ok(mut service) => service
+                .desfire_read(CancelToken::new(), request)
+                .map(|read| {
+                    let text = format!(
+                        "settings: {}\ndata: {}\nascii: {}",
+                        type2_ui::hex_bytes(&read.settings),
+                        type2_ui::hex_bytes(&read.data),
+                        desfire_ascii(&read.data)
+                    );
+                    (text, read.data.len())
+                }),
+            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
+        };
+        let _ = sender.send_blocking(result);
+    });
+    glib::spawn_future_local(async move {
+        match receiver.recv().await {
+            Ok(result) => finish_desfire_read(&ui, result),
+            Err(_) => {
+                finish_desfire_read(&ui, Err(NfcError::Io("reader worker stopped".to_owned())))
+            }
+        }
+    });
+}
+
+fn finish_desfire_read(ui: &Rc<Ui>, result: NfcResult<(String, usize)>) {
+    set_busy(ui, false);
+    match result {
+        Ok((text, length)) => {
+            ui.desfire_view.output.set_text(&text);
+            ui.status
+                .set_localized(&format!("DESFire read · {length} bytes"));
+            append_log(ui, &format!("desfire · read · {length} bytes"));
+        }
+        Err(error) => {
+            ui.desfire_view.status.set_localized("Read failed");
+            ui.status.set_localized("DESFire read failed");
+            toast_error(ui, &format!("DESFire read: {error}"));
+        }
+    }
+}
+
+fn update_desfire_actions(ui: &Ui) {
+    let sensitive = !ui.busy.get();
+    ui.desfire_view.refresh.set_sensitive(sensitive);
+    ui.desfire_view.read.set_sensitive(sensitive);
+}
+
 fn start_read(ui: Rc<Ui>) {
     if ui.busy.get() {
+        return;
+    }
+    if ui.workspace.get() == Workspace::Desfire {
+        start_desfire_inventory(ui);
         return;
     }
     if ui.devices.borrow().is_empty() {
@@ -9661,6 +10106,7 @@ fn set_busy(ui: &Ui, busy: bool) {
     update_type2_actions(ui);
     update_keyscan_sensitivity(ui);
     update_recovery_sensitivity(ui);
+    update_desfire_actions(ui);
 }
 
 fn toast_info(ui: &Rc<Ui>, message: &str) {
@@ -12440,5 +12886,50 @@ mod tests {
         ui.type2_view.include_memory.set_active(false);
         update_type2_restore_sensitivity(ui);
         assert!(!ui.type2_view.restore.is_sensitive());
+    }
+
+    #[test]
+    fn desfire_workspace_switches_and_parses_inputs() {
+        let harness = harness();
+        let ui = &harness.ui;
+        let item = find_button(
+            &ui.workspace_button
+                .popover()
+                .expect("workspace menu popover"),
+            "DESFire",
+        )
+        .expect("DESFire workspace item");
+        item.emit_clicked();
+        let context = glib::MainContext::default();
+        for _ in 0..5 {
+            while context.iteration(false) {}
+        }
+        assert_eq!(ui.workspace.get(), Workspace::Desfire);
+        assert_eq!(ui.views.visible_child_name().as_deref(), Some("desfire"));
+        assert_eq!(ui.read_button.label().as_deref(), Some("Refresh card"));
+        assert_eq!(
+            ui.desfire_view.tabs.visible_child_name().as_deref(),
+            Some("inventory")
+        );
+        assert_eq!(
+            ui.desfire_view.summary.label(),
+            "Read the card to list DESFire applications."
+        );
+
+        assert_eq!(
+            parse_desfire_hex("A1 B2 C3", 3, "AID").expect("AID"),
+            vec![0xA1, 0xB2, 0xC3]
+        );
+        assert!(parse_desfire_hex("A1B2", 3, "AID").is_err());
+        assert!(parse_desfire_key("").expect("empty key").is_none());
+        assert_eq!(
+            parse_desfire_key("0000000000000000")
+                .expect("DES key")
+                .expect("some key")
+                .len(),
+            8
+        );
+        assert!(parse_desfire_key("00").is_err());
+        assert_eq!(desfire_ascii(b"NFC\0"), "NFC.");
     }
 }

@@ -253,9 +253,9 @@ Deliver:
   create/write/read/delete commands on the reserved test AID only.
 - Type 4 NDEF read/write/restore after formatting uses the already validated
   NTAG 424 path.
-- The exposed surfaces are the read-only `nfctl desfire info` and
-  `nfctl desfire read` developer diagnostics. No GUI path is added yet; a
-  read-only DESFire workspace is the next slice.
+- The exposed surfaces are the read-only `nfctl desfire info`,
+  `nfctl desfire read`, and the GTK `DESFire` workspace with `Inventory` and
+  `Read` tabs. There are no DESFire write controls.
 - This slice only bootstraps NDEF. A general DESFire application/file/key
   workbench is separate scope, because NDEF is only one application on the
   card.
