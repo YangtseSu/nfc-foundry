@@ -3,8 +3,7 @@
 Status: in progress. 26.1–26.8 are complete; 26.9–26.13 are pending, except
 that 26.12's ordinary NDEF provisioning and guarded delete landed in phase
 25.5. Hardware: PN532 UART first; ACR122U records after a reader is available.
-The 26.8 write records are pending because no free reader had a card on
-2026-11-13.
+26.8 passed on PN532 UART on 2026-11-13; its ACR122U record is pending.
 
 ## Goal
 

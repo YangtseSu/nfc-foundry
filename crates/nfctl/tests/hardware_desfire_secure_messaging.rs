@@ -47,6 +47,7 @@ const MACED_FILE: u8 = 0x02;
 const FULL_FILE: u8 = 0x03;
 const MACED_VALUE: u8 = 0x04;
 const FULL_VALUE: u8 = 0x05;
+const BACKUP_FILE: u8 = 0x06;
 const DATA_SIZE: u32 = 48;
 const MACED_VALUE_INIT: i32 = 21;
 const FULL_VALUE_INIT: i32 = 43;
@@ -110,6 +111,7 @@ fn create_fixture(
     desfire.create_standard_file(PLAIN_FILE, None, 0x00, 0x0000, DATA_SIZE)?;
     desfire.create_standard_file(MACED_FILE, None, 0x01, 0x0000, DATA_SIZE)?;
     desfire.create_standard_file(FULL_FILE, None, 0x03, 0x0000, DATA_SIZE)?;
+    desfire.create_backup_file(BACKUP_FILE, None, 0x00, 0x0000, DATA_SIZE)?;
     desfire.create_value_file(ValueFileSpec {
         file_id: MACED_VALUE,
         iso_file_id: None,
@@ -193,6 +195,7 @@ fn direct_reads(
         (PLAIN_FILE, CommunicationMode::Plain),
         (MACED_FILE, CommunicationMode::Maced),
         (FULL_FILE, CommunicationMode::Enciphered),
+        (BACKUP_FILE, CommunicationMode::Plain),
     ] {
         let settings = settings(desfire, file_id, mode)?;
         let data = desfire
@@ -234,10 +237,11 @@ fn service_writes(
     key: &[u8],
     key_type: AuthKeyType,
 ) -> Result<()> {
-    for (file_id, mode) in [
-        (PLAIN_FILE, CommunicationMode::Plain),
-        (MACED_FILE, CommunicationMode::Maced),
-        (FULL_FILE, CommunicationMode::Enciphered),
+    for (file_id, mode, backup) in [
+        (PLAIN_FILE, CommunicationMode::Plain, false),
+        (MACED_FILE, CommunicationMode::Maced, false),
+        (FULL_FILE, CommunicationMode::Enciphered, false),
+        (BACKUP_FILE, CommunicationMode::Plain, true),
     ] {
         let request = DesfireWriteRequest::new(aid, file_id, WRITE_PAYLOAD.to_vec())
             .offset(WRITE_OFFSET)
@@ -261,8 +265,12 @@ fn service_writes(
             ),
         )?;
         verify(
-            !write.committed,
-            "a Standard file write must not open a transaction",
+            write.committed == backup,
+            format!(
+                "{} file {file_id:02X} commit state is {}, expected {backup}",
+                key_type.name(),
+                write.committed
+            ),
         )?;
         verify(
             write.read_back == WRITE_PAYLOAD,
@@ -316,6 +324,7 @@ fn service_reads(
         (PLAIN_FILE, CommunicationMode::Plain, DATA_SIZE),
         (MACED_FILE, CommunicationMode::Maced, DATA_SIZE),
         (FULL_FILE, CommunicationMode::Enciphered, DATA_SIZE),
+        (BACKUP_FILE, CommunicationMode::Plain, DATA_SIZE),
     ] {
         let request = DesfireReadRequest::new(aid, file_id)
             .key(key.to_vec())

@@ -19,8 +19,9 @@ validated on PN532 UART. DESFire EV3 inventory, factory-key authentication, and
 plain/MACed/enciphered file reads are validated on both readers; key
 verification and authenticated UID reads are validated on ACR122U. The Type 4
 NDEF read is exposed in CLI and GUI, and NDEF provisioning and guarded delete
-are implemented. Generic Standard/Backup file writes are implemented for Plain,
-MACed, and Enciphered modes; their hardware write record is pending. Type 4 read/write is validated on
+are implemented. Generic Standard/Backup file writes are validated on PN532
+UART for Plain, MACed, and Enciphered modes; the ACR122U write row is pending.
+Type 4 read/write is validated on
 PN532 UART but has no CLI or GUI surface yet. See
 [Hardware matrix](docs/hardware-matrix.md).
 Both first-release readers are implemented: PN532 UART

@@ -722,13 +722,22 @@ impl Service {
             return Err(error);
         }
 
+        // A Backup file keeps writes pending until CommitTransaction, so its
+        // read-back happens after the commit; a Standard file is readable
+        // immediately.
+        let committed = if backup_file {
+            if let Err(error) = desfire.commit_transaction() {
+                let _ = desfire.abort_transaction();
+                return Err(error);
+            }
+            true
+        } else {
+            false
+        };
         let read_back = desfire
             .read_data(request.file_id, request.offset, length, read_communication)?
             .data;
         if read_back != request.data {
-            if backup_file {
-                let _ = desfire.abort_transaction();
-            }
             let difference = read_back
                 .iter()
                 .zip(&request.data)
@@ -738,24 +747,6 @@ impl Service {
                 "file {:02X} offset {} read back differently at byte {difference}",
                 request.file_id, request.offset
             )));
-        }
-
-        let mut committed = false;
-        if backup_file {
-            if let Err(error) = desfire.commit_transaction() {
-                let _ = desfire.abort_transaction();
-                return Err(error);
-            }
-            committed = true;
-            let persisted = desfire
-                .read_data(request.file_id, request.offset, length, read_communication)?
-                .data;
-            if persisted != request.data {
-                return Err(NfcError::VerificationFailed(format!(
-                    "file {:02X} offset {} differs after CommitTransaction",
-                    request.file_id, request.offset
-                )));
-            }
         }
         let key_type = desfire.session_key_type();
         drop(desfire);
@@ -1065,7 +1056,7 @@ pub fn write_text(result: &DesfireWriteResult) -> String {
     };
     let end = u64::from(result.offset) + result.written as u64;
     format!(
-        "settings: {}\nprotection: {}\nwritten: {}..{} ({} bytes)\nbackup: {} bytes\ncommit: {}\nread-back: {} bytes verified",
+        "settings: {}\nprotection: {}\nwritten: {}..{} ({} bytes)\nbackup: {} bytes\ncommit: {}\nread-back: {} bytes verified\n",
         result.settings.summary(),
         protection,
         result.offset,

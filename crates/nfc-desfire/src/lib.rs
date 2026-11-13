@@ -35,6 +35,7 @@ const INS_FORMAT_PICC: u8 = 0xFC;
 const INS_CREATE_APPLICATION: u8 = 0xCA;
 const INS_DELETE_APPLICATION: u8 = 0xDA;
 const INS_CREATE_STD_DATA_FILE: u8 = 0xCD;
+const INS_CREATE_BACKUP_DATA_FILE: u8 = 0xCB;
 const INS_CREATE_VALUE_FILE: u8 = 0xCC;
 const INS_CREATE_LINEAR_RECORD_FILE: u8 = 0xC1;
 const INS_CREATE_CYCLIC_RECORD_FILE: u8 = 0xC0;
@@ -1582,6 +1583,24 @@ impl<'a> Desfire<'a> {
         let payload =
             create_standard_file_payload(file_id, iso_file_id, communication, access_rights, size)?;
         self.command(INS_CREATE_STD_DATA_FILE, &payload)?;
+        Ok(())
+    }
+
+    /// Create a backup data file in the selected application.
+    ///
+    /// Backup files keep writes pending until `CommitTransaction`.
+    pub fn create_backup_file(
+        &mut self,
+        file_id: u8,
+        iso_file_id: Option<u16>,
+        communication: u8,
+        access_rights: u16,
+        size: u32,
+    ) -> Result<()> {
+        self.ensure_authenticated()?;
+        let payload =
+            create_standard_file_payload(file_id, iso_file_id, communication, access_rights, size)?;
+        self.command(INS_CREATE_BACKUP_DATA_FILE, &payload)?;
         Ok(())
     }
 

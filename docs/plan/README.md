@@ -839,6 +839,5 @@ read, authentication key families, secure-messaging read, Type 4 NDEF read,
 cryptographic verification, generic write and transactions). 26.9
 application/file management, 26.10 value/record/transaction writes, 26.11 key
 management, 26.12 NDEF provisioning/format, and 26.13 advanced write gates are
-pending. The 26.8 hardware write records are pending because no free reader
-had a card on 2026-11-13. Each slice adds a spec and a note before
-implementation.
+pending. The 26.8 writes are recorded on PN532 UART; the ACR122U row is
+pending. Each slice adds a spec and a note before implementation.

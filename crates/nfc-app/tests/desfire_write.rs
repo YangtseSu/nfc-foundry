@@ -153,7 +153,7 @@ fn write_only_file_is_refused_because_it_cannot_be_verified() {
 }
 
 #[test]
-fn backup_file_commits_before_the_final_read_back() {
+fn backup_file_commits_then_reads_back() {
     let (mut service, transport) = service(free_file(BACKUP_FREE));
     let payload = [0x5Au8; 6];
     let result = service
@@ -168,8 +168,8 @@ fn backup_file_commits_before_the_final_read_back() {
     assert_eq!(command_count(&transport, 0xC7), 1);
     assert_eq!(
         command_count(&transport, 0xBD),
-        3,
-        "backup, pre-commit, persisted"
+        2,
+        "backup and post-commit read"
     );
 }
 
@@ -187,7 +187,7 @@ fn failed_commit_is_reported_and_never_reported_as_committed() {
 }
 
 #[test]
-fn read_back_mismatch_is_reported_and_aborts_the_backup() {
+fn read_back_mismatch_after_commit_is_reported() {
     let (mut service, transport) = service(free_file(BACKUP_FREE).with_corrupt_readback());
     let error = service
         .desfire_write(
@@ -197,6 +197,10 @@ fn read_back_mismatch_is_reported_and_aborts_the_backup() {
         .expect_err("the read-back differs");
     assert!(matches!(error, NfcError::VerificationFailed(_)), "{error}");
     assert_eq!(command_count(&transport, 0x3D), 1);
-    assert_eq!(command_count(&transport, 0xA7), 1, "abort the transaction");
-    assert_eq!(command_count(&transport, 0xC7), 0);
+    assert_eq!(command_count(&transport, 0xC7), 1, "the commit ran");
+    assert_eq!(
+        command_count(&transport, 0xA7),
+        0,
+        "a committed write cannot abort"
+    );
 }
