@@ -23,7 +23,10 @@ are implemented. Generic Standard/Backup file writes are validated on PN532
 UART and ACR122U for Plain, MACed, and Enciphered modes. Application and file
 management (create/delete applications and all six file types, settings
 changes, free memory, manifest export) is validated on PN532 UART and
-ACR122U. Type 4
+ACR122U. Value credit/debit/limited-credit, record append/update/clear, and
+Transaction MAC verification are validated on PN532 UART; the ACR122U row is
+pending. Transaction Timer configuration is blocked on the non-public PDCap2.2
+encoding. Type 4
 read/write is
 validated on
 PN532 UART but has no CLI or GUI surface yet. See

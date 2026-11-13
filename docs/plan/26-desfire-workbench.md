@@ -1,9 +1,11 @@
 # Phase 26 plan: DESFire workbench
 
-Status: in progress. 26.1–26.9 are complete; 26.10–26.13 are pending, except
+Status: in progress. 26.1–26.10 are complete; 26.11–26.13 are pending, except
 that 26.12's ordinary NDEF provisioning and guarded delete landed in phase
-25.5. Hardware: PN532 UART first; ACR122U records after a reader is available.
-26.8 and 26.9 passed on PN532 UART and ACR122U on 2026-11-13.
+25.5. 26.10's Transaction Timer configuration is blocked on the non-public
+PDCap2.2 encoding. Hardware: PN532 UART first; ACR122U records after a reader
+is available. 26.8 and 26.9 passed on PN532 UART and ACR122U on 2026-11-13;
+26.10 passed on PN532 UART on 2026-11-14.
 
 ## Goal
 
@@ -248,6 +250,11 @@ Acceptance:
 
 ### 26.10 Value, record, and transaction writes
 
+Status: complete 2026-11-14 except Transaction Timer configuration, which is
+blocked on the NDA-only PDCap2.2 encoding. See
+[26j-value-record-write.md](../notes/26j-value-record-write.md) and the
+[26j spec](../specs/26j-value-record-write.md).
+
 Deliver:
 
 - Value file debit, credit, and limited-credit operations with commit/abort.
@@ -255,7 +262,9 @@ Deliver:
   checks.
 - Transaction MAC file creation and transaction MAC verification where the
   card supports it.
-- Transaction Timer configuration where supported.
+- Transaction Timer configuration where supported. Blocked: the public EV3
+  note identifies SetConfiguration option `0x05`/PDCap2.2 but not its encoding;
+  the full data sheet and features note need an NXP permission grant.
 - All operations expose the exact old/new value or record and require
   read-back.
 

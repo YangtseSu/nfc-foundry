@@ -109,9 +109,14 @@ original UID if verification fails.
 | Create file | `desfire file-create --aid --file --type …` | DESFire → Manage → Create file with the same type fields | W | ACR122U: Standard, Backup, Value, Linear Record, Cyclic Record, Transaction MAC |
 | Delete file | `desfire file-delete --aid --file [--key] --advanced --yes [--manifest]` | DESFire → Manage → Advanced mode → Delete file… → type `DELETE` | A, C, M | ACR122U: all six files removed, manifests written |
 | Change file settings | `desfire file-settings --aid --file [--communication] [rights] [--key]` | DESFire → Manage → Change file settings | W | ACR122U: Standard file changed to enciphered with new access rights |
+| Value change | `desfire value --aid --file --credit|--debit|--limited-credit N [--key] [--tmac-key]` | DESFire → Values & records → Value credit/debit/limited credit | W | PN532: credit 20→25, debit 25→22, limited credit 22→25, committed values verified |
+| Record change | `desfire record --aid --file --append|--update|--clear [--data] [--record] [--offset] [--key] [--tmac-key]` | DESFire → Values & records → Record append/update/clear | W | PN532: append, update, and clear read back record by record |
 
 Both surfaces call the same `nfc-app` service and render inventory through
-`inventory_text`. Each file shows the decoded type, communication mode,
+`inventory_text`. Value and record changes use the same preflight, commit, and
+read-back checks, and a Transaction MAC is labelled verified only after the
+supplied AppTransactionMACKey reproduces the committed value; without the key
+it is labelled UNVERIFIED. Each file shows the decoded type, communication mode,
 access rights, capacity or limits, and raw settings; a response that does not
 parse is marked `undecoded` with the raw bytes, never guessed. Reads report
 the effective communication mode, the session key family, and the response

@@ -18,11 +18,12 @@ use nfc_app::desfire::{
     DesfireAppCreateRequest, DesfireAppDeleteRequest, DesfireFileCreateRequest,
     DesfireFileDeleteRequest, DesfireFileSettingsRequest, DesfireFileSpec,
     DesfireFreeMemoryRequest, DesfireNdefDeleteRequest, DesfireNdefFormatRequest,
-    DesfireReadResult, DesfireUidRequest, DesfireVerifyKeyRequest, NDEF_APPLICATION_AID,
+    DesfireReadResult, DesfireRecordOperation, DesfireRecordRequest, DesfireUidRequest,
+    DesfireValueOperation, DesfireValueRequest, DesfireVerifyKeyRequest, NDEF_APPLICATION_AID,
     NDEF_CAPABILITY_CONTAINER, NDEF_CC_FILE, NDEF_CC_SIZE, NDEF_DATA_FILE, NDEF_DATA_SIZE,
     NDEF_DF_NAME, app_create_text, app_delete_text, card_uid_text, file_create_text,
     file_delete_text, file_settings_text, free_memory_text, key_verification_text,
-    read_protection_text,
+    read_protection_text, record_text, value_text,
 };
 use nfc_app::type2::{
     Type2Auth, Type2Format, Type2Lock, Type2NdefWrite, Type2PageWrite, Type2Password,
@@ -562,6 +563,88 @@ enum DesfireCommand {
         /// Application key number, 0..=14.
         #[arg(long, default_value_t = 0, value_name = "N")]
         key_number: u8,
+    },
+    /// Credit, debit, or limited-credit a value file and verify the new value.
+    Value {
+        /// Application ID, e.g. A1B2C3.
+        #[arg(long, value_name = "HEX")]
+        aid: String,
+        /// File ID, e.g. 01.
+        #[arg(long, value_name = "HEX")]
+        file: String,
+        /// Credit this amount.
+        #[arg(long, value_name = "N")]
+        credit: Option<u32>,
+        /// Debit this amount.
+        #[arg(long, value_name = "N")]
+        debit: Option<u32>,
+        /// Add limited credit of this amount.
+        #[arg(long, value_name = "N")]
+        limited_credit: Option<u32>,
+        /// Key for the selected family: DES 8, AES/2K3DES 16, 3K3DES 24 bytes.
+        #[arg(
+            long,
+            value_name = "HEX",
+            env = "NFC_FOUNDRY_DESFIRE_KEY",
+            hide_env_values = true
+        )]
+        key: Option<String>,
+        /// Explicit key family: des, 2k3des, 3k3des, aes, or ev2.
+        #[arg(long, value_name = "TYPE")]
+        key_type: Option<String>,
+        /// Application key number, 0..=14.
+        #[arg(long, default_value_t = 0, value_name = "N")]
+        key_number: u8,
+        /// AppTransactionMACKey used to verify the committed transaction MAC.
+        #[arg(long, value_name = "HEX")]
+        tmac_key: Option<String>,
+    },
+    /// Append, update, or clear records and verify every record.
+    Record {
+        /// Application ID, e.g. A1B2C3.
+        #[arg(long, value_name = "HEX")]
+        aid: String,
+        /// File ID, e.g. 01.
+        #[arg(long, value_name = "HEX")]
+        file: String,
+        /// Append one complete record from --data or --data-file.
+        #[arg(long)]
+        append: bool,
+        /// Update a range of an existing record.
+        #[arg(long)]
+        update: bool,
+        /// Clear every record.
+        #[arg(long)]
+        clear: bool,
+        /// Record number for --update; 0 is the newest record.
+        #[arg(long, default_value_t = 0, value_name = "N")]
+        record: u32,
+        /// Byte offset inside the record for --update.
+        #[arg(long, default_value_t = 0, value_name = "N")]
+        offset: u32,
+        /// Data as hexadecimal digits.
+        #[arg(long, value_name = "HEX")]
+        data: Option<String>,
+        /// File whose bytes are written.
+        #[arg(long, value_name = "PATH")]
+        data_file: Option<PathBuf>,
+        /// Key for the selected family: DES 8, AES/2K3DES 16, 3K3DES 24 bytes.
+        #[arg(
+            long,
+            value_name = "HEX",
+            env = "NFC_FOUNDRY_DESFIRE_KEY",
+            hide_env_values = true
+        )]
+        key: Option<String>,
+        /// Explicit key family: des, 2k3des, 3k3des, aes, or ev2.
+        #[arg(long, value_name = "TYPE")]
+        key_type: Option<String>,
+        /// Application key number, 0..=14.
+        #[arg(long, default_value_t = 0, value_name = "N")]
+        key_number: u8,
+        /// AppTransactionMACKey used to verify the committed transaction MAC.
+        #[arg(long, value_name = "HEX")]
+        tmac_key: Option<String>,
     },
     /// Read the free EEPROM bytes of the PICC or one application.
     Memory {
@@ -2496,6 +2579,126 @@ fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<
             let result = service.desfire_write(CancelToken::new(), request)?;
             println!("aid {} file {:02X}", hex_bytes(&aid), file_id);
             print!("{}", nfc_app::desfire::write_text(&result));
+            Ok(())
+        }
+        DesfireCommand::Value {
+            aid,
+            file,
+            credit,
+            debit,
+            limited_credit,
+            key,
+            key_type,
+            key_number,
+            tmac_key,
+        } => {
+            let aid = parse_hex_array::<3>(&aid, "DESFire AID")?;
+            let file_id = parse_hex_array::<1>(&file, "DESFire file ID")?[0];
+            let (operation, amount) = match (credit, debit, limited_credit) {
+                (Some(amount), None, None) => (DesfireValueOperation::Credit, amount),
+                (None, Some(amount), None) => (DesfireValueOperation::Debit, amount),
+                (None, None, Some(amount)) => (DesfireValueOperation::LimitedCredit, amount),
+                _ => {
+                    return Err(NfcError::InvalidArgument(
+                        "pass exactly one of --credit, --debit, or --limited-credit".to_owned(),
+                    ));
+                }
+            };
+            let mut request =
+                DesfireValueRequest::new(aid, file_id, operation, amount).key_number(key_number);
+            if let Some(key) = key {
+                request = request.key(parse_hex_bytes(&key, "DESFire key")?);
+            }
+            if let Some(key_type) = key_type {
+                request = request.key_type(parse_auth_key_type(&key_type)?);
+            }
+            if let Some(tmac_key) = tmac_key {
+                let tmac_key = parse_hex_bytes(&tmac_key, "Transaction MAC key")?;
+                let tmac_key: [u8; 16] = tmac_key.try_into().map_err(|_| {
+                    NfcError::InvalidArgument(
+                        "the Transaction MAC key is a 16-byte AES-128 key".to_owned(),
+                    )
+                })?;
+                request = request.tmac_key(tmac_key);
+            }
+            let result = service.desfire_value_change(request)?;
+            println!("aid {} file {:02X}", hex_bytes(&aid), file_id);
+            print!("{}", value_text(&result));
+            Ok(())
+        }
+        DesfireCommand::Record {
+            aid,
+            file,
+            append,
+            update,
+            clear,
+            record,
+            offset,
+            data,
+            data_file,
+            key,
+            key_type,
+            key_number,
+            tmac_key,
+        } => {
+            let aid = parse_hex_array::<3>(&aid, "DESFire AID")?;
+            let file_id = parse_hex_array::<1>(&file, "DESFire file ID")?[0];
+            let operation = match (append, update, clear) {
+                (true, false, false) => DesfireRecordOperation::Append,
+                (false, true, false) => DesfireRecordOperation::Update {
+                    record_number: record,
+                    offset,
+                },
+                (false, false, true) => DesfireRecordOperation::Clear,
+                _ => {
+                    return Err(NfcError::InvalidArgument(
+                        "pass exactly one of --append, --update, or --clear".to_owned(),
+                    ));
+                }
+            };
+            let data = match (data, data_file) {
+                (Some(data), None) => parse_hex_bytes(&data, "DESFire record data")?,
+                (None, Some(path)) => fs::read(&path).map_err(|error| {
+                    NfcError::Io(format!("could not read {}: {error}", path.display()))
+                })?,
+                (None, None) => Vec::new(),
+                _ => {
+                    return Err(NfcError::InvalidArgument(
+                        "pass exactly one of --data or --data-file".to_owned(),
+                    ));
+                }
+            };
+            if operation != DesfireRecordOperation::Clear && data.is_empty() {
+                return Err(NfcError::InvalidArgument(
+                    "a record append or update needs --data or --data-file".to_owned(),
+                ));
+            }
+            if operation == DesfireRecordOperation::Clear && !data.is_empty() {
+                return Err(NfcError::InvalidArgument(
+                    "--clear takes no record data".to_owned(),
+                ));
+            }
+            let mut request = DesfireRecordRequest::new(aid, file_id, operation)
+                .key_number(key_number)
+                .data(data);
+            if let Some(key) = key {
+                request = request.key(parse_hex_bytes(&key, "DESFire key")?);
+            }
+            if let Some(key_type) = key_type {
+                request = request.key_type(parse_auth_key_type(&key_type)?);
+            }
+            if let Some(tmac_key) = tmac_key {
+                let tmac_key = parse_hex_bytes(&tmac_key, "Transaction MAC key")?;
+                let tmac_key: [u8; 16] = tmac_key.try_into().map_err(|_| {
+                    NfcError::InvalidArgument(
+                        "the Transaction MAC key is a 16-byte AES-128 key".to_owned(),
+                    )
+                })?;
+                request = request.tmac_key(tmac_key);
+            }
+            let result = service.desfire_record_change(request)?;
+            println!("aid {} file {:02X}", hex_bytes(&aid), file_id);
+            print!("{}", record_text(&result));
             Ok(())
         }
         DesfireCommand::Memory {

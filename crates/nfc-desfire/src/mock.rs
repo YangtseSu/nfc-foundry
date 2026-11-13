@@ -25,12 +25,13 @@ use nfc_transport::{ApduCapabilities, ApduResponse, DeviceInfo, Reader, Transpor
 
 use crate::{
     AuthKeyType, INS_ABORT_TRANSACTION, INS_ADDITIONAL_FRAME, INS_CHANGE_FILE_SETTINGS,
-    INS_COMMIT_TRANSACTION, INS_CREATE_APPLICATION, INS_CREATE_BACKUP_DATA_FILE,
-    INS_CREATE_CYCLIC_RECORD_FILE, INS_CREATE_LINEAR_RECORD_FILE, INS_CREATE_STD_DATA_FILE,
-    INS_CREATE_TRANSACTION_MAC_FILE, INS_CREATE_VALUE_FILE, INS_DELETE_APPLICATION,
-    INS_DELETE_FILE, INS_GET_APPLICATION_IDS, INS_GET_CARD_UID, INS_GET_FILE_IDS,
-    INS_GET_FILE_SETTINGS, INS_GET_FREE_MEMORY, INS_GET_KEY_VERSION, INS_GET_VALUE,
-    INS_GET_VERSION, INS_READ_DATA, INS_SELECT_APPLICATION, INS_WRITE_DATA, aes_cbc_decrypt,
+    INS_CLEAR_RECORD_FILE, INS_COMMIT_TRANSACTION, INS_CREATE_APPLICATION,
+    INS_CREATE_BACKUP_DATA_FILE, INS_CREATE_CYCLIC_RECORD_FILE, INS_CREATE_LINEAR_RECORD_FILE,
+    INS_CREATE_STD_DATA_FILE, INS_CREATE_TRANSACTION_MAC_FILE, INS_CREATE_VALUE_FILE, INS_CREDIT,
+    INS_DEBIT, INS_DELETE_APPLICATION, INS_DELETE_FILE, INS_GET_APPLICATION_IDS, INS_GET_CARD_UID,
+    INS_GET_FILE_IDS, INS_GET_FILE_SETTINGS, INS_GET_FREE_MEMORY, INS_GET_KEY_VERSION,
+    INS_GET_VALUE, INS_GET_VERSION, INS_LIMITED_CREDIT, INS_READ_DATA, INS_READ_RECORDS,
+    INS_SELECT_APPLICATION, INS_UPDATE_RECORD, INS_WRITE_DATA, INS_WRITE_RECORD, aes_cbc_decrypt,
     aes_cbc_encrypt, cbc_decrypt_iv, cbc_encrypt_iv, derive_session_key, ev1_cmac, expand_tdes_key,
     last_block, rotate_left,
 };
@@ -64,6 +65,14 @@ struct MockFile {
     data: Vec<u8>,
     /// Current value for a Value file, returned by GetValue.
     value: i32,
+    /// Value committed by the next CommitTransaction.
+    pending_value: Option<i32>,
+    /// Records committed by the next CommitTransaction.
+    pending_data: Option<Vec<u8>>,
+    /// Settings committed by the next CommitTransaction.
+    pending_settings: Option<Vec<u8>>,
+    /// A WriteRecord created the current record and later writes target it.
+    record_open: bool,
 }
 
 #[derive(Default)]
@@ -87,6 +96,7 @@ pub struct MockDesfire {
     applications: BTreeMap<[u8; 3], MockApp>,
     selected: [u8; 3],
     free_memory: u32,
+    commit_mac: Option<(u32, [u8; 8])>,
     commands: Vec<Vec<u8>>,
 }
 
@@ -117,6 +127,7 @@ impl MockDesfire {
             applications: BTreeMap::new(),
             selected: PICC,
             free_memory: 8192,
+            commit_mac: None,
             commands: Vec::new(),
         }
     }
@@ -133,6 +144,31 @@ impl MockDesfire {
                     settings,
                     data,
                     value: 0,
+                    pending_value: None,
+                    pending_data: None,
+                    pending_settings: None,
+                    record_open: false,
+                },
+            );
+        self
+    }
+
+    /// Add a Value file with a committed current value.
+    pub fn with_value(mut self, file_id: u8, settings: Vec<u8>, value: i32) -> Self {
+        self.applications
+            .entry(DEFAULT_APP)
+            .or_default()
+            .files
+            .insert(
+                file_id,
+                MockFile {
+                    settings,
+                    data: Vec::new(),
+                    value,
+                    pending_value: None,
+                    pending_data: None,
+                    pending_settings: None,
+                    record_open: false,
                 },
             );
         self
@@ -152,6 +188,10 @@ impl MockDesfire {
                 settings,
                 data,
                 value: 0,
+                pending_value: None,
+                pending_data: None,
+                pending_settings: None,
+                record_open: false,
             },
         );
         self
@@ -166,6 +206,13 @@ impl MockDesfire {
     /// Free EEPROM bytes reported by GetFreeMemory.
     pub fn with_free_memory(mut self, free_memory: u32) -> Self {
         self.free_memory = free_memory;
+        self
+    }
+
+    /// Return this Transaction MAC from CommitTransaction when a Transaction
+    /// MAC file is present.
+    pub fn with_commit_mac(mut self, counter: u32, value: [u8; 8]) -> Self {
+        self.commit_mac = Some((counter, value));
         self
     }
 
@@ -280,16 +327,15 @@ impl MockDesfire {
             INS_CHANGE_FILE_SETTINGS => self.change_file_settings(ins, body),
             INS_GET_FILE_SETTINGS => self.reply_file_settings(ins, body),
             INS_GET_VALUE => self.reply_get_value(ins, body),
+            INS_CREDIT | INS_DEBIT | INS_LIMITED_CREDIT => self.apply_value_operation(ins, body),
             INS_READ_DATA => self.reply_read_data(ins, body),
+            INS_READ_RECORDS => self.reply_read_records(ins, body),
             INS_WRITE_DATA => self.apply_write_data(ins, body),
-            INS_COMMIT_TRANSACTION => {
-                if self.fail_commit {
-                    ApduResponse::new(Vec::new(), STATUS_PERMISSION_DENIED)
-                } else {
-                    ApduResponse::new(Vec::new(), STATUS_OK)
-                }
-            }
-            INS_ABORT_TRANSACTION => ApduResponse::new(Vec::new(), STATUS_OK),
+            INS_WRITE_RECORD => self.apply_write_record(ins, body),
+            INS_UPDATE_RECORD => self.apply_update_record(ins, body),
+            INS_CLEAR_RECORD_FILE => self.apply_clear_record_file(ins, body),
+            INS_COMMIT_TRANSACTION => self.commit_transaction(ins, body),
+            INS_ABORT_TRANSACTION => self.abort_transaction(ins),
             INS_GET_KEY_VERSION => self.reply_key_version(ins, body),
             INS_GET_CARD_UID => self.reply_card_uid(ins),
             INS_ADDITIONAL_FRAME => self.finish_authentication(body),
@@ -540,6 +586,10 @@ impl MockDesfire {
                 settings,
                 data,
                 value,
+                pending_value: None,
+                pending_data: None,
+                pending_settings: None,
+                record_open: false,
             },
         );
         Ok(())
@@ -799,6 +849,247 @@ impl MockDesfire {
 
     fn selected_files(&self) -> Option<&BTreeMap<u8, MockFile>> {
         self.applications.get(&self.selected).map(|app| &app.files)
+    }
+
+    fn apply_value_operation(&mut self, ins: u8, body: &[u8]) -> ApduResponse {
+        if body.len() != 5 {
+            return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
+        }
+        let file_id = body[0];
+        let amount = i64::from(u32::from_le_bytes(
+            body[1..5].try_into().expect("four-byte amount"),
+        ));
+        let selected = self.selected;
+        let Some(file) = self
+            .applications
+            .get_mut(&selected)
+            .and_then(|app| app.files.get_mut(&file_id))
+        else {
+            return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
+        };
+        if file.settings.first() != Some(&0x02) || file.settings.len() < 17 {
+            return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
+        }
+        let lower = i32::from_le_bytes(file.settings[4..8].try_into().expect("lower limit"));
+        let upper = i32::from_le_bytes(file.settings[8..12].try_into().expect("upper limit"));
+        let flags = file.settings[16];
+        if ins == INS_LIMITED_CREDIT && flags & 0x01 == 0 {
+            return ApduResponse::new(Vec::new(), STATUS_PERMISSION_DENIED);
+        }
+        let current = file.pending_value.unwrap_or(file.value);
+        let result = match ins {
+            INS_CREDIT | INS_LIMITED_CREDIT => i64::from(current) + amount,
+            INS_DEBIT => i64::from(current) - amount,
+            _ => return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND),
+        };
+        if result < i64::from(lower) || result > i64::from(upper) {
+            return ApduResponse::new(Vec::new(), STATUS_BOUNDARY_ERROR);
+        }
+        file.pending_value = Some(result as i32);
+        self.secure_reply(ins, body, Vec::new())
+    }
+
+    fn reply_read_records(&mut self, ins: u8, body: &[u8]) -> ApduResponse {
+        if body.len() != 7 {
+            return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
+        }
+        let Some(file) = self.selected_files().and_then(|files| files.get(&body[0])) else {
+            return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
+        };
+        if !matches!(file.settings.first(), Some(0x03 | 0x04)) || file.settings.len() < 13 {
+            return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
+        }
+        let record_size = u24(&file.settings[4..7]) as usize;
+        let current = u24(&file.settings[10..13]);
+        let record_number = u24(&body[1..4]);
+        let count = u24(&body[4..7]);
+        if count == 0 || record_number >= current || count > current - record_number {
+            return ApduResponse::new(Vec::new(), STATUS_BOUNDARY_ERROR);
+        }
+        let first = (current - record_number - count) as usize;
+        let data = file.data[first * record_size..(first + count as usize) * record_size].to_vec();
+        self.secure_reply(ins, body, data)
+    }
+
+    fn apply_write_record(&mut self, ins: u8, body: &[u8]) -> ApduResponse {
+        if body.len() < 7 {
+            return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
+        }
+        let file_id = body[0];
+        let offset = u24(&body[1..4]) as usize;
+        let length = u24(&body[4..7]) as usize;
+        if body.len() != 7 + length {
+            return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
+        }
+        let selected = self.selected;
+        let Some(file) = self
+            .applications
+            .get_mut(&selected)
+            .and_then(|app| app.files.get_mut(&file_id))
+        else {
+            return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
+        };
+        if !matches!(file.settings.first(), Some(0x03 | 0x04)) || file.settings.len() < 13 {
+            return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
+        }
+        let record_size = u24(&file.settings[4..7]) as usize;
+        let max_records = u24(&file.settings[7..10]);
+        let mut settings = file
+            .pending_settings
+            .take()
+            .unwrap_or_else(|| file.settings.clone());
+        let mut current = u24(&settings[10..13]);
+        let mut data = file
+            .pending_data
+            .take()
+            .unwrap_or_else(|| file.data.clone());
+        if offset + length > record_size {
+            return ApduResponse::new(Vec::new(), STATUS_BOUNDARY_ERROR);
+        }
+        if !file.record_open {
+            if current == max_records {
+                if settings[0] == 0x03 {
+                    return ApduResponse::new(Vec::new(), STATUS_BOUNDARY_ERROR);
+                }
+                data.drain(..record_size);
+                current -= 1;
+            }
+            data.resize(data.len() + record_size, 0);
+            current += 1;
+        }
+        let base = (current as usize - 1) * record_size + offset;
+        data[base..base + length].copy_from_slice(&body[7..]);
+        settings[10..13].copy_from_slice(&current.to_le_bytes()[..3]);
+        file.pending_data = Some(data);
+        file.pending_settings = Some(settings);
+        file.record_open = true;
+        self.secure_reply(ins, body, Vec::new())
+    }
+
+    fn apply_update_record(&mut self, ins: u8, body: &[u8]) -> ApduResponse {
+        if body.len() < 10 {
+            return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
+        }
+        let file_id = body[0];
+        let record_number = u24(&body[1..4]);
+        let offset = u24(&body[4..7]) as usize;
+        let length = u24(&body[7..10]) as usize;
+        if body.len() != 10 + length {
+            return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
+        }
+        let selected = self.selected;
+        let Some(file) = self
+            .applications
+            .get_mut(&selected)
+            .and_then(|app| app.files.get_mut(&file_id))
+        else {
+            return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
+        };
+        if !matches!(file.settings.first(), Some(0x03 | 0x04)) || file.settings.len() < 13 {
+            return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
+        }
+        let record_size = u24(&file.settings[4..7]) as usize;
+        let current = u24(&file.pending_settings.as_deref().unwrap_or(&file.settings)[10..13]);
+        if record_number >= current || offset + length > record_size {
+            return ApduResponse::new(Vec::new(), STATUS_BOUNDARY_ERROR);
+        }
+        let mut data = file
+            .pending_data
+            .take()
+            .unwrap_or_else(|| file.data.clone());
+        let index = current - 1 - record_number;
+        let base = index as usize * record_size + offset;
+        data[base..base + length].copy_from_slice(&body[10..]);
+        file.pending_data = Some(data);
+        self.secure_reply(ins, body, Vec::new())
+    }
+
+    fn apply_clear_record_file(&mut self, ins: u8, body: &[u8]) -> ApduResponse {
+        let Some(file_id) = body.first().copied() else {
+            return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
+        };
+        let selected = self.selected;
+        let Some(file) = self
+            .applications
+            .get_mut(&selected)
+            .and_then(|app| app.files.get_mut(&file_id))
+        else {
+            return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
+        };
+        if !matches!(file.settings.first(), Some(0x03 | 0x04)) || file.settings.len() < 13 {
+            return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
+        }
+        let mut settings = file
+            .pending_settings
+            .take()
+            .unwrap_or_else(|| file.settings.clone());
+        settings[10..13].copy_from_slice(&[0, 0, 0]);
+        file.pending_data = Some(Vec::new());
+        file.pending_settings = Some(settings);
+        file.record_open = false;
+        self.secure_reply(ins, body, Vec::new())
+    }
+
+    fn commit_transaction(&mut self, ins: u8, body: &[u8]) -> ApduResponse {
+        if self.fail_commit {
+            return ApduResponse::new(Vec::new(), STATUS_PERMISSION_DENIED);
+        }
+        if body.len() > 1 {
+            return ApduResponse::new(Vec::new(), STATUS_PARAMETER_ERROR);
+        }
+        let option = body.first().copied().unwrap_or(0);
+        if option & !0x01 != 0 {
+            return ApduResponse::new(Vec::new(), STATUS_PARAMETER_ERROR);
+        }
+        let selected = self.selected;
+        let tmac_id = self.applications.get(&selected).and_then(|app| {
+            app.files
+                .iter()
+                .find(|(_, file)| file.settings.first() == Some(&0x05))
+                .map(|(file_id, _)| *file_id)
+        });
+        if option & 0x01 != 0 && tmac_id.is_none() {
+            return ApduResponse::new(Vec::new(), STATUS_PERMISSION_DENIED);
+        }
+        if let Some(app) = self.applications.get_mut(&selected) {
+            for file in app.files.values_mut() {
+                if let Some(value) = file.pending_value.take() {
+                    file.value = value;
+                }
+                if let Some(data) = file.pending_data.take() {
+                    file.data = data;
+                }
+                if let Some(settings) = file.pending_settings.take() {
+                    file.settings = settings;
+                }
+                file.record_open = false;
+            }
+        }
+        let mut response = Vec::new();
+        if option & 0x01 != 0 {
+            let (counter, value) = self.commit_mac.unwrap_or((1, [0u8; 8]));
+            response.extend_from_slice(&counter.to_le_bytes());
+            response.extend_from_slice(&value);
+            if let Some(app) = self.applications.get_mut(&selected)
+                && let Some(file) = app.files.get_mut(&tmac_id.expect("TMAC file checked"))
+            {
+                file.data = response.clone();
+            }
+        }
+        self.secure_reply(ins, body, response)
+    }
+
+    fn abort_transaction(&mut self, ins: u8) -> ApduResponse {
+        let selected = self.selected;
+        if let Some(app) = self.applications.get_mut(&selected) {
+            for file in app.files.values_mut() {
+                file.pending_value = None;
+                file.pending_data = None;
+                file.pending_settings = None;
+                file.record_open = false;
+            }
+        }
+        self.secure_reply(ins, &[], Vec::new())
     }
 
     fn reply_read_data(&mut self, ins: u8, body: &[u8]) -> ApduResponse {

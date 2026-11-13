@@ -26,10 +26,11 @@ use nfc_app::desfire::{
     DesfireAppDeleteRequest, DesfireFileCreateRequest, DesfireFileDeleteRequest,
     DesfireFileSettingsRequest, DesfireFileSpec, DesfireFreeMemoryRequest,
     DesfireNdefDeleteRequest, DesfireNdefFormatRequest, DesfireReadRequest, DesfireReadResult,
-    DesfireUidRequest, DesfireVerifyKeyRequest, DesfireWriteRequest, NDEF_APPLICATION_AID,
+    DesfireRecordOperation, DesfireRecordRequest, DesfireUidRequest, DesfireValueOperation,
+    DesfireValueRequest, DesfireVerifyKeyRequest, DesfireWriteRequest, NDEF_APPLICATION_AID,
     NDEF_CC_FILE, NDEF_CC_SIZE, NDEF_DATA_FILE, NDEF_DATA_SIZE, app_create_text, app_delete_text,
     card_uid_text, file_create_text, file_delete_text, file_settings_text, free_memory_text,
-    key_verification_text, read_protection_text, write_text,
+    key_verification_text, read_protection_text, record_text, value_text, write_text,
 };
 use nfc_app::type2::{
     Type2Auth, Type2Format, Type2Lock, Type2LockResult, Type2MutationResult, Type2NdefWrite,
@@ -1104,6 +1105,20 @@ struct DesfireView {
     read_memory: gtk::Button,
     manage_output: gtk::Label,
     manage_status: gtk::Label,
+    mutation_aid: gtk::Entry,
+    mutation_file: gtk::Entry,
+    mutation_key: gtk::PasswordEntry,
+    mutation_key_type: gtk::DropDown,
+    mutation_key_number: gtk::Entry,
+    mutation_tmac_key: gtk::PasswordEntry,
+    mutation_operation: gtk::DropDown,
+    mutation_amount: gtk::Entry,
+    mutation_record: gtk::Entry,
+    mutation_offset: gtk::Entry,
+    mutation_data: gtk::Entry,
+    mutation_run: gtk::Button,
+    mutation_output: gtk::Label,
+    mutation_status: gtk::Label,
     ndef_key: gtk::PasswordEntry,
     ndef_key_type: gtk::DropDown,
     ndef_key_number: gtk::Entry,
@@ -2180,6 +2195,120 @@ fn build_desfire_view() -> DesfireView {
     ndef_page.append(&ndef_status);
     ndef_page.append(&ndef_output_scroll);
 
+    let mutation_page = page_box();
+    let mutation_form = gtk::Grid::new();
+    mutation_form.set_row_spacing(8);
+    mutation_form.set_column_spacing(12);
+    let mut mutation_row = 0;
+    let mut add_mutation_field = |label: &str, widget: &gtk::Widget| {
+        let caption = gtk::Label::new(Some(label));
+        caption.set_xalign(0.0);
+        caption.add_css_class("caption");
+        caption.add_css_class("dim-label");
+        mutation_form.attach(&caption, 0, mutation_row, 1, 1);
+        mutation_form.attach(widget, 1, mutation_row, 1, 1);
+        widget.set_hexpand(true);
+        mutation_row += 1;
+    };
+
+    let mutation_aid = gtk::Entry::new();
+    mutation_aid.set_placeholder_text(Some("A1B2C3"));
+    mutation_aid.set_max_width_chars(12);
+    add_mutation_field("Application ID", mutation_aid.upcast_ref());
+
+    let mutation_file = gtk::Entry::new();
+    mutation_file.set_placeholder_text(Some("01"));
+    mutation_file.set_max_width_chars(4);
+    add_mutation_field("File ID", mutation_file.upcast_ref());
+
+    let mutation_key = gtk::PasswordEntry::new();
+    mutation_key.set_show_peek_icon(true);
+    mutation_key.set_placeholder_text(Some("optional; required unless the file is free"));
+    add_mutation_field("Key (optional)", mutation_key.upcast_ref());
+
+    let mutation_key_type =
+        gtk::DropDown::from_strings(&["Auto", "DES", "2K3DES", "3K3DES", "AES", "AES EV2"]);
+    mutation_key_type.set_selected(0);
+    add_mutation_field("Key type", mutation_key_type.upcast_ref());
+
+    let mutation_key_number = gtk::Entry::new();
+    mutation_key_number.set_text("0");
+    mutation_key_number.set_max_width_chars(4);
+    add_mutation_field("Key number", mutation_key_number.upcast_ref());
+
+    let mutation_tmac_key = gtk::PasswordEntry::new();
+    mutation_tmac_key.set_show_peek_icon(true);
+    mutation_tmac_key.set_placeholder_text(Some("AppTransactionMACKey, 32 hex digits"));
+    add_mutation_field(
+        "Transaction MAC key (optional)",
+        mutation_tmac_key.upcast_ref(),
+    );
+
+    let mutation_operation = gtk::DropDown::from_strings(&[
+        "Value credit",
+        "Value debit",
+        "Value limited credit",
+        "Record append",
+        "Record update",
+        "Record clear",
+    ]);
+    mutation_operation.set_selected(0);
+    add_mutation_field("Operation", mutation_operation.upcast_ref());
+
+    let mutation_amount = gtk::Entry::new();
+    mutation_amount.set_placeholder_text(Some("credit/debit/limited-credit amount"));
+    mutation_amount.set_max_width_chars(12);
+    add_mutation_field("Amount", mutation_amount.upcast_ref());
+
+    let mutation_record = gtk::Entry::new();
+    mutation_record.set_text("0");
+    mutation_record.set_placeholder_text(Some("0 = newest record"));
+    mutation_record.set_max_width_chars(10);
+    add_mutation_field("Record number (update)", mutation_record.upcast_ref());
+
+    let mutation_offset = gtk::Entry::new();
+    mutation_offset.set_text("0");
+    mutation_offset.set_max_width_chars(10);
+    add_mutation_field("Record offset (update)", mutation_offset.upcast_ref());
+
+    let mutation_data = gtk::Entry::new();
+    mutation_data.set_placeholder_text(Some("record bytes as hex"));
+    add_mutation_field("Record data (append/update)", mutation_data.upcast_ref());
+
+    let mutation_run = gtk::Button::with_label("Apply value or record change");
+    mutation_run.add_css_class("suggested-action");
+    let mutation_hint = gtk::Label::new(Some(
+        "Value changes check the file limits before the command, commit the transaction,          and read the value back. Record changes read every record first, check the record          bounds, commit, and read every record back. A Transaction MAC is shown as verified          only when the supplied AppTransactionMACKey reproduces it.",
+    ));
+    mutation_hint.set_xalign(0.0);
+    mutation_hint.set_wrap(true);
+    mutation_hint.add_css_class("caption");
+    mutation_hint.add_css_class("dim-label");
+    let mutation_output = gtk::Label::new(None);
+    mutation_output.set_xalign(0.0);
+    mutation_output.set_wrap(true);
+    mutation_output.set_selectable(true);
+    mutation_output.add_css_class("monospace");
+    let mutation_output_scroll = gtk::ScrolledWindow::builder()
+        .child(&mutation_output)
+        .vexpand(true)
+        .build();
+    let mutation_status = gtk::Label::new(None);
+    mutation_status.set_xalign(0.0);
+    mutation_status.set_wrap(true);
+    mutation_status.set_selectable(true);
+    mutation_status.add_css_class("caption");
+    mutation_status.add_css_class("dim-label");
+    let mutation_form_scroll = gtk::ScrolledWindow::builder()
+        .child(&mutation_form)
+        .vexpand(true)
+        .build();
+    mutation_page.append(&mutation_hint);
+    mutation_page.append(&mutation_form_scroll);
+    mutation_page.append(&mutation_run);
+    mutation_page.append(&mutation_output_scroll);
+    mutation_page.append(&mutation_status);
+
     let tabs = gtk::Stack::new();
     tabs.set_transition_type(gtk::StackTransitionType::Crossfade);
     tabs.set_vexpand(true);
@@ -2188,6 +2317,7 @@ fn build_desfire_view() -> DesfireView {
     tabs.add_titled(&write_page, Some("write"), "Write");
     tabs.add_titled(&verify_page, Some("verify"), "Verify");
     tabs.add_titled(&manage_page, Some("manage"), "Manage");
+    tabs.add_titled(&mutation_page, Some("mutation"), "Values & records");
     tabs.add_titled(&ndef_page, Some("ndef"), "NDEF");
     let (root, switcher) = grouped_page(&tabs);
     DesfireView {
@@ -2256,6 +2386,20 @@ fn build_desfire_view() -> DesfireView {
         read_memory,
         manage_output,
         manage_status,
+        mutation_aid,
+        mutation_file,
+        mutation_key,
+        mutation_key_type,
+        mutation_key_number,
+        mutation_tmac_key,
+        mutation_operation,
+        mutation_amount,
+        mutation_record,
+        mutation_offset,
+        mutation_data,
+        mutation_run,
+        mutation_output,
+        mutation_status,
         ndef_key,
         ndef_key_type,
         ndef_key_number,
@@ -3729,6 +3873,10 @@ fn connect_signals(ui: &Rc<Ui>) {
     ui.desfire_view
         .read_memory
         .connect_clicked(move |_| start_desfire_memory(ui2.clone()));
+    let ui2 = ui.clone();
+    ui.desfire_view
+        .mutation_run
+        .connect_clicked(move |_| start_desfire_mutation(ui2.clone()));
     let ui2 = ui.clone();
     ui.desfire_view
         .advanced
@@ -6301,6 +6449,10 @@ fn clear_desfire_session(ui: &Rc<Ui>) {
     ui.desfire_view.ndef_status.set_text("");
     ui.desfire_view.ndef_output.set_text("");
     ui.desfire_view.manage_key.set_text("");
+    ui.desfire_view.mutation_key.set_text("");
+    ui.desfire_view.mutation_tmac_key.set_text("");
+    ui.desfire_view.mutation_output.set_text("");
+    ui.desfire_view.mutation_status.set_text("");
     ui.desfire_view.manage_tmackey.set_text("");
     ui.desfire_view.manage_output.set_text("");
     ui.desfire_view.manage_status.set_text("");
@@ -7681,6 +7833,209 @@ fn run_desfire_manage<F>(
             }
         }
     });
+}
+
+fn run_desfire_mutation<F>(
+    ui: Rc<Ui>,
+    busy_status: &'static str,
+    success_status: &'static str,
+    task: F,
+) where
+    F: FnOnce(&mut Service) -> NfcResult<String> + Send + 'static,
+{
+    set_busy(&ui, true);
+    ui.status.set_localized(busy_status);
+    ui.desfire_view.mutation_status.set_localized(busy_status);
+    let service = ui.service.clone();
+    let (sender, receiver) = async_channel::bounded(1);
+    std::thread::spawn(move || {
+        let result = match service.lock() {
+            Ok(mut service) => task(&mut service),
+            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
+        };
+        let _ = sender.send_blocking(result);
+    });
+    glib::spawn_future_local(async move {
+        set_busy(&ui, false);
+        match receiver.recv().await {
+            Ok(Ok(text)) => {
+                ui.desfire_view.mutation_output.set_text(&text);
+                ui.desfire_view
+                    .mutation_status
+                    .set_localized(success_status);
+                ui.status.set_localized(success_status);
+                append_log(&ui, "desfire · value/record");
+                update_desfire_actions(&ui);
+                start_desfire_inventory(ui);
+            }
+            Ok(Err(error)) => {
+                ui.desfire_view
+                    .mutation_status
+                    .set_localized("DESFire value or record change failed");
+                ui.status
+                    .set_localized("DESFire value or record change failed");
+                toast_error(&ui, &format!("DESFire value/record: {error}"));
+            }
+            Err(_) => {
+                ui.desfire_view
+                    .mutation_status
+                    .set_localized("Reader worker stopped");
+                toast_error(&ui, "Reader worker stopped");
+            }
+        }
+    });
+}
+
+fn parse_desfire_bytes(value: &str, label: &str) -> std::result::Result<Vec<u8>, String> {
+    let compact: String = value
+        .chars()
+        .filter(|character| !character.is_ascii_whitespace() && *character != ':')
+        .collect();
+    if compact.is_empty() {
+        return Err(format!("{label} must not be empty"));
+    }
+    if !compact.len().is_multiple_of(2) {
+        return Err(format!("{label} must have an even number of hex digits"));
+    }
+    let mut output = Vec::with_capacity(compact.len() / 2);
+    for index in (0..compact.len()).step_by(2) {
+        output.push(
+            u8::from_str_radix(&compact[index..index + 2], 16)
+                .map_err(|_| format!("{label} contains a non-hexadecimal digit"))?,
+        );
+    }
+    Ok(output)
+}
+
+fn start_desfire_mutation(ui: Rc<Ui>) {
+    if ui.busy.get() {
+        return;
+    }
+    if ui.devices.borrow().is_empty() {
+        toast_error(&ui, "No reader selected");
+        return;
+    }
+    let parsed = (|| -> std::result::Result<_, String> {
+        let aid = parse_desfire_hex(&ui.desfire_view.mutation_aid.text(), 3, "application ID")?;
+        let aid = [aid[0], aid[1], aid[2]];
+        let file_id = parse_desfire_hex(&ui.desfire_view.mutation_file.text(), 1, "file ID")?[0];
+        let key = parse_desfire_key(&ui.desfire_view.mutation_key.text())?;
+        let key_type = desfire_key_type(&ui.desfire_view.mutation_key_type);
+        let key_number = desfire_key_number(&ui.desfire_view.mutation_key_number.text())?;
+        let tmac_key = match ui.desfire_view.mutation_tmac_key.text().trim() {
+            "" => None,
+            _ => {
+                let bytes = parse_desfire_hex(
+                    &ui.desfire_view.mutation_tmac_key.text(),
+                    16,
+                    "Transaction MAC key",
+                )?;
+                Some(<[u8; 16]>::try_from(bytes.as_slice()).expect("16-byte key"))
+            }
+        };
+        let operation = ui.desfire_view.mutation_operation.selected();
+        let amount = match operation {
+            0..=2 => Some(desfire_manage_required_u32(
+                &ui.desfire_view.mutation_amount.text(),
+                "amount",
+            )?),
+            _ => None,
+        };
+        let record =
+            desfire_manage_required_u32(&ui.desfire_view.mutation_record.text(), "record number")?;
+        let offset =
+            desfire_manage_required_u32(&ui.desfire_view.mutation_offset.text(), "record offset")?;
+        let data = match operation {
+            3 | 4 => Some(parse_desfire_bytes(
+                &ui.desfire_view.mutation_data.text(),
+                "record data",
+            )?),
+            _ => None,
+        };
+        Ok((
+            aid, file_id, key, key_type, key_number, tmac_key, operation, amount, record, offset,
+            data,
+        ))
+    })();
+    let (
+        aid,
+        file_id,
+        key,
+        key_type,
+        key_number,
+        tmac_key,
+        operation,
+        amount,
+        record,
+        offset,
+        data,
+    ) = match parsed {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            toast_error(&ui, &error);
+            return;
+        }
+    };
+    if operation <= 2 {
+        let operation = match operation {
+            0 => DesfireValueOperation::Credit,
+            1 => DesfireValueOperation::Debit,
+            _ => DesfireValueOperation::LimitedCredit,
+        };
+        let mut request = DesfireValueRequest::new(aid, file_id, operation, amount.unwrap_or(0))
+            .key_number(key_number);
+        if let Some(key) = key {
+            request = request.key(key);
+        }
+        if let Some(key_type) = key_type {
+            request = request.key_type(key_type);
+        }
+        if let Some(tmac_key) = tmac_key {
+            request = request.tmac_key(tmac_key);
+        }
+        run_desfire_mutation(
+            ui,
+            "Changing the DESFire value…",
+            "DESFire value changed",
+            move |service| {
+                service
+                    .desfire_value_change(request)
+                    .map(|result| value_text(&result))
+            },
+        );
+    } else {
+        let operation = match operation {
+            3 => DesfireRecordOperation::Append,
+            4 => DesfireRecordOperation::Update {
+                record_number: record,
+                offset,
+            },
+            _ => DesfireRecordOperation::Clear,
+        };
+        let mut request = DesfireRecordRequest::new(aid, file_id, operation).key_number(key_number);
+        if let Some(key) = key {
+            request = request.key(key);
+        }
+        if let Some(key_type) = key_type {
+            request = request.key_type(key_type);
+        }
+        if let Some(tmac_key) = tmac_key {
+            request = request.tmac_key(tmac_key);
+        }
+        if let Some(data) = data {
+            request = request.data(data);
+        }
+        run_desfire_mutation(
+            ui,
+            "Changing the DESFire records…",
+            "DESFire records changed",
+            move |service| {
+                service
+                    .desfire_record_change(request)
+                    .map(|result| record_text(&result))
+            },
+        );
+    }
 }
 
 fn start_desfire_app_create(ui: Rc<Ui>) {
@@ -16631,6 +16986,20 @@ mod tests {
         assert_eq!(ui.desfire_view.verify_key_type.selected(), 0);
         assert_eq!(ui.desfire_view.ndef_key_type.selected(), 0);
         assert!(ui.desfire_view.tabs.child_by_name("manage").is_some());
+        assert!(ui.desfire_view.tabs.child_by_name("mutation").is_some());
+        assert_eq!(
+            ui.desfire_view.mutation_run.label().as_deref(),
+            Some("Apply value or record change")
+        );
+        assert_eq!(ui.desfire_view.mutation_operation.selected(), 0);
+        assert_eq!(ui.desfire_view.mutation_record.text(), "0");
+        assert_eq!(ui.desfire_view.mutation_offset.text(), "0");
+        assert_eq!(
+            parse_desfire_bytes("AA BB : cc", "record data").expect("hex bytes"),
+            [0xAA, 0xBB, 0xCC]
+        );
+        assert!(parse_desfire_bytes("", "record data").is_err());
+        assert!(parse_desfire_bytes("ABC", "record data").is_err());
         assert_eq!(
             ui.desfire_view.create_app.label().as_deref(),
             Some("Create application")

@@ -19,6 +19,10 @@ use crate::Service;
 use crate::fsutil;
 use crate::operation::{Operation, OperationKind};
 
+/// Largest plaintext chunk sent in one record command. Keeps header and
+/// secure-messaging overhead inside the 255-byte APDU payload.
+const MAX_RECORD_CHUNK: usize = 200;
+
 /// One standard or backup file read after selecting an application.
 ///
 /// The key is optional so a free-access file can be read without
@@ -199,6 +203,222 @@ pub struct DesfireWriteResult {
     pub committed: bool,
     /// Written range read back after the write.
     pub read_back: Vec<u8>,
+}
+
+/// A value-file change after selecting an application.
+///
+/// The key is optional so a free-access value file can be changed without
+/// authentication. `tmac_key` is the separate AppTransactionMACKey used only
+/// to verify the committed Transaction MAC; it stays out of `Debug`.
+pub struct DesfireValueRequest {
+    pub aid: [u8; 3],
+    pub file_id: u8,
+    pub operation: DesfireValueOperation,
+    pub amount: u32,
+    pub key: Option<Vec<u8>>,
+    pub key_type: Option<AuthKeyType>,
+    pub key_number: u8,
+    pub tmac_key: Option<[u8; 16]>,
+    pub cancel: CancelToken,
+}
+
+/// Credit, debit, or limited-credit a value file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DesfireValueOperation {
+    Credit,
+    Debit,
+    LimitedCredit,
+}
+
+impl DesfireValueOperation {
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Credit => "credit",
+            Self::Debit => "debit",
+            Self::LimitedCredit => "limited credit",
+        }
+    }
+
+    fn adjustment(self) -> nfc_desfire::ValueAdjustment {
+        match self {
+            Self::Credit => nfc_desfire::ValueAdjustment::Credit,
+            Self::Debit => nfc_desfire::ValueAdjustment::Debit,
+            Self::LimitedCredit => nfc_desfire::ValueAdjustment::LimitedCredit,
+        }
+    }
+}
+
+impl DesfireValueRequest {
+    pub fn new(aid: [u8; 3], file_id: u8, operation: DesfireValueOperation, amount: u32) -> Self {
+        Self {
+            aid,
+            file_id,
+            operation,
+            amount,
+            key: None,
+            key_type: None,
+            key_number: 0,
+            tmac_key: None,
+            cancel: CancelToken::new(),
+        }
+    }
+
+    pub fn key(mut self, key: Vec<u8>) -> Self {
+        self.key = Some(key);
+        self
+    }
+
+    pub fn key_type(mut self, key_type: AuthKeyType) -> Self {
+        self.key_type = Some(key_type);
+        self
+    }
+
+    pub fn key_number(mut self, key_number: u8) -> Self {
+        self.key_number = key_number;
+        self
+    }
+
+    pub fn tmac_key(mut self, key: [u8; 16]) -> Self {
+        self.tmac_key = Some(key);
+        self
+    }
+
+    pub fn cancel(mut self, cancel: CancelToken) -> Self {
+        self.cancel = cancel;
+        self
+    }
+}
+
+/// One committed value change with the old and new value.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DesfireValueResult {
+    pub settings: FileSettings,
+    pub operation: DesfireValueOperation,
+    pub amount: u32,
+    pub old_value: i32,
+    pub new_value: i32,
+    pub communication: CommunicationMode,
+    pub key_type: Option<AuthKeyType>,
+    pub integrity: IntegrityCheck,
+    pub committed: bool,
+    pub transaction_mac: Option<DesfireTransactionMacResult>,
+}
+
+/// A record-file mutation after selecting an application.
+///
+/// The key is optional so a free-access file can be changed without
+/// authentication. `tmac_key` is used only to verify the committed Transaction
+/// MAC and stays out of `Debug`.
+pub struct DesfireRecordRequest {
+    pub aid: [u8; 3],
+    pub file_id: u8,
+    pub operation: DesfireRecordOperation,
+    pub data: Vec<u8>,
+    pub key: Option<Vec<u8>>,
+    pub key_type: Option<AuthKeyType>,
+    pub key_number: u8,
+    pub tmac_key: Option<[u8; 16]>,
+    pub cancel: CancelToken,
+}
+
+/// The record mutation to run.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DesfireRecordOperation {
+    /// Write one complete record after the last one.
+    Append,
+    /// Replace a byte range of an existing record; 0 is the newest record.
+    Update { record_number: u32, offset: u32 },
+    /// Erase every record.
+    Clear,
+}
+
+impl DesfireRecordOperation {
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Append => "append",
+            Self::Update { .. } => "update",
+            Self::Clear => "clear",
+        }
+    }
+}
+
+impl DesfireRecordRequest {
+    pub fn new(aid: [u8; 3], file_id: u8, operation: DesfireRecordOperation) -> Self {
+        Self {
+            aid,
+            file_id,
+            operation,
+            data: Vec::new(),
+            key: None,
+            key_type: None,
+            key_number: 0,
+            tmac_key: None,
+            cancel: CancelToken::new(),
+        }
+    }
+
+    pub fn data(mut self, data: Vec<u8>) -> Self {
+        self.data = data;
+        self
+    }
+
+    pub fn key(mut self, key: Vec<u8>) -> Self {
+        self.key = Some(key);
+        self
+    }
+
+    pub fn key_type(mut self, key_type: AuthKeyType) -> Self {
+        self.key_type = Some(key_type);
+        self
+    }
+
+    pub fn key_number(mut self, key_number: u8) -> Self {
+        self.key_number = key_number;
+        self
+    }
+
+    pub fn tmac_key(mut self, key: [u8; 16]) -> Self {
+        self.tmac_key = Some(key);
+        self
+    }
+
+    pub fn cancel(mut self, cancel: CancelToken) -> Self {
+        self.cancel = cancel;
+        self
+    }
+}
+
+/// One committed record mutation with the verified before and after contents.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DesfireRecordResult {
+    pub settings_before: FileSettings,
+    pub settings_after: FileSettings,
+    pub operation: DesfireRecordOperation,
+    /// Data written by an append or update.
+    pub written: Vec<u8>,
+    /// Records in chronological order before the mutation.
+    pub before: Vec<Vec<u8>>,
+    /// Records in chronological order after the commit and read-back.
+    pub after: Vec<Vec<u8>>,
+    pub record_size: u32,
+    pub communication: CommunicationMode,
+    pub key_type: Option<AuthKeyType>,
+    pub integrity: IntegrityCheck,
+    pub committed: bool,
+    pub transaction_mac: Option<DesfireTransactionMacResult>,
+}
+
+/// Transaction MAC returned by CommitTransaction and cross-checked with the
+/// Transaction MAC file.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DesfireTransactionMacResult {
+    pub file_id: u8,
+    pub counter: u32,
+    pub value: [u8; 8],
+    /// True only after the value was recomputed with the supplied
+    /// AppTransactionMACKey and matched the card response and stored file.
+    pub verified: bool,
+    pub detail: String,
 }
 
 /// Verify one application key without reading file data.
@@ -1359,6 +1579,388 @@ impl Service {
         })
     }
 
+    /// Credit, debit, or limited-credit one value file, commit, and verify the
+    /// new value.
+    ///
+    /// The current value is read first, the amount is checked against the
+    /// file limits, the card change stays pending until CommitTransaction, and
+    /// the committed value must match the exact expected value. A Transaction
+    /// MAC returned by the commit is cross-checked with the card's Transaction
+    /// MAC file and, when the AppTransactionMACKey is supplied, recomputed.
+    pub fn desfire_value_change(
+        &mut self,
+        request: DesfireValueRequest,
+    ) -> Result<DesfireValueResult> {
+        if request.key_number > 14 {
+            return Err(NfcError::InvalidArgument(
+                "DESFire application key numbers are 0..=14".to_owned(),
+            ));
+        }
+        if request.operation != DesfireValueOperation::LimitedCredit && request.amount == 0 {
+            return Err(NfcError::InvalidArgument(
+                "a credit or debit amount must be positive".to_owned(),
+            ));
+        }
+        if request.amount > i32::MAX as u32 {
+            return Err(NfcError::InvalidArgument(
+                "a DESFire value amount is at most 0x7FFFFFFF".to_owned(),
+            ));
+        }
+        let mut operation = self.begin_operation(OperationKind::Write, request.cancel)?;
+        operation.check_iso_dep_card()?;
+        let mut desfire = Desfire::new(operation.reader_mut());
+        desfire.select_application(request.aid)?;
+        if let Some(key) = request.key.as_deref() {
+            authenticate_key(&mut desfire, request.key_number, key, request.key_type)?;
+        }
+        let settings = FileSettings::parse(&desfire.file_settings(request.file_id)?)?;
+        let FileContents::Value {
+            lower_limit,
+            upper_limit,
+            limited_credit,
+            free_get_value,
+            ..
+        } = &settings.contents
+        else {
+            return Err(NfcError::InvalidArgument(format!(
+                "file {:02X} is {}; value operations need a Value file",
+                request.file_id,
+                settings.file_type.name()
+            )));
+        };
+        let (lower_limit, upper_limit, limited_credit, free_get_value) =
+            (*lower_limit, *upper_limit, *limited_credit, *free_get_value);
+        if request.operation == DesfireValueOperation::LimitedCredit && !limited_credit {
+            return Err(NfcError::InvalidArgument(format!(
+                "file {:02X} does not enable LimitedCredit",
+                request.file_id
+            )));
+        }
+        let authenticated = request.key.is_some();
+        let read_communication =
+            value_read_communication(&settings, request.key_number, authenticated, free_get_value);
+        if !value_read_granted(&settings, request.key_number, authenticated) {
+            return Err(NfcError::InvalidArgument(format!(
+                "file {:02X} cannot be read with this key; the value change is refused because it cannot be verified",
+                request.file_id
+            )));
+        }
+        let tmac_file = desfire_transaction_mac_file(&mut desfire)?;
+        let uid = match request.tmac_key {
+            Some(_) => Some(desfire.card_uid()?.uid),
+            None => None,
+        };
+        let old_value = desfire
+            .get_value(request.file_id, read_communication)?
+            .value;
+        if old_value < lower_limit || old_value > upper_limit {
+            return Err(NfcError::VerificationFailed(format!(
+                "GetValue returned {old_value}, outside the declared limits {lower_limit}..{upper_limit}"
+            )));
+        }
+        let expected = match request.operation {
+            DesfireValueOperation::Credit | DesfireValueOperation::LimitedCredit => {
+                i64::from(old_value) + i64::from(request.amount)
+            }
+            DesfireValueOperation::Debit => i64::from(old_value) - i64::from(request.amount),
+        };
+        if expected < i64::from(lower_limit) || expected > i64::from(upper_limit) {
+            return Err(NfcError::InvalidArgument(format!(
+                "the {} of {} would take the value from {old_value} to {expected}, outside the limits {lower_limit}..{upper_limit}",
+                request.operation.name(),
+                request.amount
+            )));
+        }
+        let expected = i32::try_from(expected).map_err(|_| {
+            NfcError::InvalidArgument("the value result does not fit 32 bits".to_owned())
+        })?;
+        let communication = value_operation_communication(
+            &settings,
+            request.operation,
+            request.key_number,
+            authenticated,
+        )?;
+        let integrity = desfire.adjust_value(
+            request.file_id,
+            request.operation.adjustment(),
+            request.amount,
+            communication,
+        )?;
+        let tmi = desfire.transaction_mac_input().to_vec();
+        let returned = if tmac_file.is_some() {
+            desfire.commit_transaction_with_mac()?
+        } else {
+            desfire.commit_transaction()?;
+            None
+        };
+        let transaction_mac = finish_transaction_mac(
+            &mut desfire,
+            tmac_file,
+            request.tmac_key.as_ref(),
+            uid,
+            returned,
+            &tmi,
+            request.key_number,
+            authenticated,
+        )?;
+        let new_value = desfire
+            .get_value(request.file_id, read_communication)?
+            .value;
+        if new_value != expected {
+            return Err(NfcError::VerificationFailed(format!(
+                "file {:02X} value read back as {new_value}, expected {expected}",
+                request.file_id
+            )));
+        }
+        let settings_after = FileSettings::parse(&desfire.file_settings(request.file_id)?)?;
+        let key_type = desfire.session_key_type();
+        drop(desfire);
+        operation.check_iso_dep_card()?;
+        Ok(DesfireValueResult {
+            settings: settings_after,
+            operation: request.operation,
+            amount: request.amount,
+            old_value,
+            new_value,
+            communication,
+            key_type,
+            integrity,
+            committed: true,
+            transaction_mac,
+        })
+    }
+
+    /// Append, update, or clear a record file, commit, and verify every record.
+    ///
+    /// The complete record list is read before the mutation, the operation is
+    /// checked against the record bounds, and the committed list must equal
+    /// the expected chronological list exactly. A Transaction MAC returned by
+    /// the commit is cross-checked and, with the AppTransactionMACKey, verified.
+    pub fn desfire_record_change(
+        &mut self,
+        request: DesfireRecordRequest,
+    ) -> Result<DesfireRecordResult> {
+        if request.key_number > 14 {
+            return Err(NfcError::InvalidArgument(
+                "DESFire application key numbers are 0..=14".to_owned(),
+            ));
+        }
+        let mut operation = self.begin_operation(OperationKind::Write, request.cancel.clone())?;
+        operation.check_iso_dep_card()?;
+        let mut desfire = Desfire::new(operation.reader_mut());
+        desfire.select_application(request.aid)?;
+        if let Some(key) = request.key.as_deref() {
+            authenticate_key(&mut desfire, request.key_number, key, request.key_type)?;
+        }
+        let settings_before = FileSettings::parse(&desfire.file_settings(request.file_id)?)?;
+        let FileContents::Record {
+            record_size,
+            max_records,
+            current_records,
+        } = &settings_before.contents
+        else {
+            return Err(NfcError::InvalidArgument(format!(
+                "file {:02X} is {}; record operations need a Linear or Cyclic Record file",
+                request.file_id,
+                settings_before.file_type.name()
+            )));
+        };
+        let (record_size, max_records, current_records) =
+            (*record_size, *max_records, *current_records);
+        let authenticated = request.key.is_some();
+        let read_communication =
+            effective_read_communication(&settings_before, request.key_number, authenticated);
+        if !desfire_read_granted(&settings_before, request.key_number, authenticated) {
+            return Err(NfcError::InvalidArgument(format!(
+                "file {:02X} cannot be read with this key; the record change is refused because it cannot be verified",
+                request.file_id
+            )));
+        }
+        match request.operation {
+            DesfireRecordOperation::Append => {
+                if request.data.len() as u32 != record_size {
+                    return Err(NfcError::InvalidArgument(format!(
+                        "an append writes one complete {record_size}-byte record, got {} bytes",
+                        request.data.len()
+                    )));
+                }
+                if settings_before.file_type == FileType::LinearRecord
+                    && current_records >= max_records
+                {
+                    return Err(NfcError::InvalidArgument(format!(
+                        "linear record file {:02X} is full at {current_records} records",
+                        request.file_id
+                    )));
+                }
+            }
+            DesfireRecordOperation::Update {
+                record_number,
+                offset,
+            } => {
+                if record_number >= current_records {
+                    return Err(NfcError::InvalidArgument(format!(
+                        "record {record_number} is beyond the {current_records} existing records"
+                    )));
+                }
+                let end = u64::from(offset) + request.data.len() as u64;
+                if request.data.is_empty() || offset >= record_size || end > u64::from(record_size)
+                {
+                    return Err(NfcError::InvalidArgument(format!(
+                        "update range {offset}..{end} is outside the {record_size}-byte record"
+                    )));
+                }
+                if request.data.len() > MAX_RECORD_CHUNK {
+                    return Err(NfcError::InvalidArgument(format!(
+                        "one UpdateRecord writes at most {MAX_RECORD_CHUNK} bytes"
+                    )));
+                }
+            }
+            DesfireRecordOperation::Clear => {
+                if current_records == 0 {
+                    return Err(NfcError::InvalidArgument(format!(
+                        "record file {:02X} is already empty",
+                        request.file_id
+                    )));
+                }
+            }
+        }
+        let before = read_all_records(
+            &mut desfire,
+            request.file_id,
+            record_size,
+            current_records,
+            read_communication,
+        )?;
+        let communication = record_operation_communication(
+            &settings_before,
+            request.operation,
+            request.key_number,
+            authenticated,
+        )?;
+        // ClearRecordFile is MACed under EV2 and Plain under EV1, regardless of
+        // the targeted file's communication mode.
+        let effective_communication = if request.operation == DesfireRecordOperation::Clear {
+            if desfire.session_key_type() == Some(AuthKeyType::AesEv2) {
+                CommunicationMode::Maced
+            } else {
+                CommunicationMode::Plain
+            }
+        } else {
+            communication
+        };
+        let tmac_file = desfire_transaction_mac_file(&mut desfire)?;
+        let uid = match request.tmac_key {
+            Some(_) => Some(desfire.card_uid()?.uid),
+            None => None,
+        };
+        let integrity = match request.operation {
+            DesfireRecordOperation::Append => {
+                let mut integrity = IntegrityCheck::None;
+                for (index, chunk) in request.data.chunks(MAX_RECORD_CHUNK).enumerate() {
+                    integrity = desfire.write_record(
+                        request.file_id,
+                        (index * MAX_RECORD_CHUNK) as u32,
+                        chunk,
+                        communication,
+                    )?;
+                }
+                integrity
+            }
+            DesfireRecordOperation::Update {
+                record_number,
+                offset,
+            } => desfire.update_record(
+                request.file_id,
+                record_number,
+                offset,
+                &request.data,
+                communication,
+            )?,
+            DesfireRecordOperation::Clear => desfire.clear_record_file(request.file_id)?,
+        };
+        let tmi = desfire.transaction_mac_input().to_vec();
+        let returned = if tmac_file.is_some() {
+            desfire.commit_transaction_with_mac()?
+        } else {
+            desfire.commit_transaction()?;
+            None
+        };
+        let transaction_mac = finish_transaction_mac(
+            &mut desfire,
+            tmac_file,
+            request.tmac_key.as_ref(),
+            uid,
+            returned,
+            &tmi,
+            request.key_number,
+            authenticated,
+        )?;
+        let settings_after = FileSettings::parse(&desfire.file_settings(request.file_id)?)?;
+        let FileContents::Record {
+            record_size: after_size,
+            current_records: after_count,
+            ..
+        } = &settings_after.contents
+        else {
+            return Err(NfcError::VerificationFailed(format!(
+                "file {:02X} stopped being a record file",
+                request.file_id
+            )));
+        };
+        let (after_size, after_count) = (*after_size, *after_count);
+        if after_size != record_size {
+            return Err(NfcError::VerificationFailed(format!(
+                "file {:02X} record size changed from {record_size} to {after_size}",
+                request.file_id
+            )));
+        }
+        let after = read_all_records(
+            &mut desfire,
+            request.file_id,
+            record_size,
+            after_count,
+            read_communication,
+        )?;
+        let expected = expected_records(
+            &before,
+            &request,
+            record_size,
+            max_records,
+            settings_before.file_type,
+        )?;
+        if after != expected {
+            return Err(NfcError::VerificationFailed(format!(
+                "file {:02X} records read back differently after the {}",
+                request.file_id,
+                request.operation.name()
+            )));
+        }
+        if after_count as usize != after.len() {
+            return Err(NfcError::VerificationFailed(format!(
+                "file {:02X} reports {after_count} current records but read back {}",
+                request.file_id,
+                after.len()
+            )));
+        }
+        let key_type = desfire.session_key_type();
+        drop(desfire);
+        operation.check_iso_dep_card()?;
+        Ok(DesfireRecordResult {
+            settings_before,
+            settings_after,
+            operation: request.operation,
+            written: request.data,
+            before,
+            after,
+            record_size,
+            communication: effective_communication,
+            key_type,
+            integrity,
+            committed: true,
+            transaction_mac,
+        })
+    }
+
     /// Read the free EEPROM bytes of the PICC or one application.
     ///
     /// Authentication is optional; a key is needed when the card's key
@@ -2342,6 +2944,297 @@ fn desfire_read_granted(settings: &FileSettings, key_number: u8, authenticated: 
         || settings.access.read_write == AccessRight::Free
 }
 
+/// GetValue is granted by Read, Write, or Read/Write, or by the free GetValue
+/// option that also forces Plain communication.
+fn value_read_granted(settings: &FileSettings, key_number: u8, authenticated: bool) -> bool {
+    if matches!(
+        settings.contents,
+        FileContents::Value {
+            free_get_value: true,
+            ..
+        }
+    ) {
+        return true;
+    }
+    desfire_key_grant(settings.access.read, key_number, authenticated)
+        || desfire_key_grant(settings.access.write, key_number, authenticated)
+        || desfire_key_grant(settings.access.read_write, key_number, authenticated)
+        || matches!(settings.access.read, AccessRight::Free)
+        || matches!(settings.access.write, AccessRight::Free)
+        || matches!(settings.access.read_write, AccessRight::Free)
+}
+
+fn value_read_communication(
+    settings: &FileSettings,
+    key_number: u8,
+    authenticated: bool,
+    free_get_value: bool,
+) -> CommunicationMode {
+    if free_get_value {
+        return CommunicationMode::Plain;
+    }
+    if desfire_key_grant(settings.access.read, key_number, authenticated)
+        || desfire_key_grant(settings.access.write, key_number, authenticated)
+        || desfire_key_grant(settings.access.read_write, key_number, authenticated)
+    {
+        return settings.communication;
+    }
+    CommunicationMode::Plain
+}
+
+/// Communication mode for a value change.
+///
+/// Credit is granted by Read/Write only; Debit by Read, Write, or Read/Write;
+/// LimitedCredit by Write or Read/Write. A matching key right applies the
+/// file's mode, while a free right runs the command in Plain mode.
+fn value_operation_communication(
+    settings: &FileSettings,
+    operation: DesfireValueOperation,
+    key_number: u8,
+    authenticated: bool,
+) -> Result<CommunicationMode> {
+    let rights: &[AccessRight] = match operation {
+        DesfireValueOperation::Credit => &[settings.access.read_write],
+        DesfireValueOperation::Debit => &[
+            settings.access.read,
+            settings.access.write,
+            settings.access.read_write,
+        ],
+        DesfireValueOperation::LimitedCredit => {
+            &[settings.access.write, settings.access.read_write]
+        }
+    };
+    if authenticated
+        && rights
+            .iter()
+            .any(|right| matches!(right, AccessRight::Key(key) if *key == key_number))
+    {
+        return Ok(settings.communication);
+    }
+    if rights.contains(&AccessRight::Free) {
+        return Ok(CommunicationMode::Plain);
+    }
+    if !authenticated
+        && rights
+            .iter()
+            .any(|right| matches!(right, AccessRight::Key(_)))
+    {
+        return Err(NfcError::AuthenticationRequired(
+            "this value operation needs an application key".to_owned(),
+        ));
+    }
+    Err(NfcError::InvalidArgument(format!(
+        "the file access rights deny {}",
+        operation.name()
+    )))
+}
+
+/// Communication mode for a record mutation.
+///
+/// WriteRecord and UpdateRecord are granted by Write or Read/Write;
+/// ClearRecordFile is granted by Read/Write.
+fn record_operation_communication(
+    settings: &FileSettings,
+    operation: DesfireRecordOperation,
+    key_number: u8,
+    authenticated: bool,
+) -> Result<CommunicationMode> {
+    let rights: &[AccessRight] = match operation {
+        DesfireRecordOperation::Append | DesfireRecordOperation::Update { .. } => {
+            &[settings.access.write, settings.access.read_write]
+        }
+        DesfireRecordOperation::Clear => &[settings.access.read_write],
+    };
+    if authenticated
+        && rights
+            .iter()
+            .any(|right| matches!(right, AccessRight::Key(key) if *key == key_number))
+    {
+        return Ok(settings.communication);
+    }
+    if rights.contains(&AccessRight::Free) {
+        return Ok(CommunicationMode::Plain);
+    }
+    if !authenticated
+        && rights
+            .iter()
+            .any(|right| matches!(right, AccessRight::Key(_)))
+    {
+        return Err(NfcError::AuthenticationRequired(
+            "this record operation needs an application key".to_owned(),
+        ));
+    }
+    Err(NfcError::InvalidArgument(format!(
+        "the file access rights deny record {}",
+        operation.name()
+    )))
+}
+
+fn desfire_transaction_mac_file(desfire: &mut Desfire) -> Result<Option<(u8, FileSettings)>> {
+    let mut found = None;
+    for file_id in desfire.file_ids()? {
+        let settings = FileSettings::parse(&desfire.file_settings(file_id)?)?;
+        if settings.file_type == FileType::TransactionMac {
+            if found.is_some() {
+                return Err(NfcError::VerificationFailed(
+                    "the application has more than one Transaction MAC file".to_owned(),
+                ));
+            }
+            found = Some((file_id, settings));
+        }
+    }
+    Ok(found)
+}
+
+fn read_all_records(
+    desfire: &mut Desfire,
+    file_id: u8,
+    record_size: u32,
+    current_records: u32,
+    communication: CommunicationMode,
+) -> Result<Vec<Vec<u8>>> {
+    if current_records == 0 {
+        return Ok(Vec::new());
+    }
+    let read = desfire.read_records(file_id, 0, current_records, record_size, communication)?;
+    let expected = usize::try_from(u64::from(record_size) * u64::from(current_records))
+        .map_err(|_| NfcError::InvalidArgument("the record list does not fit memory".to_owned()))?;
+    if read.data.len() != expected {
+        return Err(NfcError::VerificationFailed(format!(
+            "file {file_id:02X} returned {} record bytes, expected {expected}",
+            read.data.len()
+        )));
+    }
+    Ok(read
+        .data
+        .chunks_exact(record_size as usize)
+        .map(<[u8]>::to_vec)
+        .collect())
+}
+
+fn expected_records(
+    before: &[Vec<u8>],
+    request: &DesfireRecordRequest,
+    record_size: u32,
+    max_records: u32,
+    file_type: FileType,
+) -> Result<Vec<Vec<u8>>> {
+    match request.operation {
+        DesfireRecordOperation::Append => {
+            let mut expected = before.to_vec();
+            if file_type == FileType::CyclicRecord && expected.len() as u32 >= max_records {
+                expected.remove(0);
+            }
+            expected.push(request.data.clone());
+            Ok(expected)
+        }
+        DesfireRecordOperation::Update {
+            record_number,
+            offset,
+        } => {
+            let index = before
+                .len()
+                .checked_sub(1 + record_number as usize)
+                .ok_or_else(|| {
+                    NfcError::InvalidArgument(format!(
+                        "record {record_number} is beyond the {} records read before the update",
+                        before.len()
+                    ))
+                })?;
+            if request.data.len() as u64 + u64::from(offset) > u64::from(record_size) {
+                return Err(NfcError::InvalidArgument(format!(
+                    "update range {}..{} is outside the {record_size}-byte record",
+                    offset,
+                    u64::from(offset) + request.data.len() as u64
+                )));
+            }
+            let mut expected = before.to_vec();
+            let start = offset as usize;
+            let end = start + request.data.len();
+            expected[index][start..end].copy_from_slice(&request.data);
+            Ok(expected)
+        }
+        DesfireRecordOperation::Clear => Ok(Vec::new()),
+    }
+}
+
+/// Cross-check a CommitTransaction MAC with the stored Transaction MAC file
+/// and, when the Application Transaction MAC key is supplied, recompute it.
+#[allow(clippy::too_many_arguments)]
+fn finish_transaction_mac(
+    desfire: &mut Desfire,
+    tmac_file: Option<(u8, FileSettings)>,
+    tmac_key: Option<&[u8; 16]>,
+    uid: Option<[u8; 7]>,
+    returned: Option<nfc_desfire::TransactionMac>,
+    tmi: &[u8],
+    key_number: u8,
+    authenticated: bool,
+) -> Result<Option<DesfireTransactionMacResult>> {
+    let Some((file_id, settings)) = tmac_file else {
+        return Ok(None);
+    };
+    let returned = returned.ok_or_else(|| {
+        NfcError::VerificationFailed(format!(
+            "the card committed without returning the Transaction MAC for file {file_id:02X}"
+        ))
+    })?;
+    let readable = desfire_read_granted(&settings, key_number, authenticated);
+    let stored = if readable {
+        let communication = effective_read_communication(&settings, key_number, authenticated);
+        Some(desfire.read_transaction_mac_file(file_id, communication)?.0)
+    } else {
+        None
+    };
+    if let Some(stored) = stored
+        && (stored.counter != returned.counter || stored.value != returned.value)
+    {
+        return Err(NfcError::VerificationFailed(format!(
+            "Transaction MAC file {file_id:02X} does not match the CommitTransaction response"
+        )));
+    }
+    let Some(tmac_key) = tmac_key else {
+        return Ok(Some(DesfireTransactionMacResult {
+            file_id,
+            counter: returned.counter,
+            value: returned.value,
+            verified: false,
+            detail: if readable {
+                "card response matches the stored file; no AppTransactionMACKey supplied".to_owned()
+            } else {
+                "no AppTransactionMACKey supplied and the Transaction MAC file is not readable"
+                    .to_owned()
+            },
+        }));
+    };
+    let uid = uid.ok_or_else(|| {
+        NfcError::InvalidArgument(
+            "Transaction MAC verification needs the card UID from an authenticated session"
+                .to_owned(),
+        )
+    })?;
+    let computed = nfc_desfire::transaction_mac(tmac_key, returned.counter, &uid, tmi)?;
+    if computed != returned.value {
+        return Err(NfcError::VerificationFailed(format!(
+            "the Transaction MAC for counter {} does not verify with the supplied AppTransactionMACKey",
+            returned.counter
+        )));
+    }
+    Ok(Some(DesfireTransactionMacResult {
+        file_id,
+        counter: returned.counter,
+        value: returned.value,
+        verified: true,
+        detail: if readable {
+            "verified with the AppTransactionMACKey; matches the stored Transaction MAC file"
+                .to_owned()
+        } else {
+            "verified with the AppTransactionMACKey; the Transaction MAC file is not readable"
+                .to_owned()
+        },
+    }))
+}
+
 /// One-line result used by `nfctl` and the GTK write view.
 pub fn write_text(result: &DesfireWriteResult) -> String {
     let protection = match result.key_type {
@@ -2364,6 +3257,106 @@ pub fn write_text(result: &DesfireWriteResult) -> String {
         },
         result.read_back.len()
     )
+}
+
+/// Human-readable value change result.
+pub fn value_text(result: &DesfireValueResult) -> String {
+    let protection = match result.key_type {
+        Some(key_type) => format!("{} · {}", key_type.name(), result.integrity.label()),
+        None => result.integrity.label().to_owned(),
+    };
+    format!(
+        "settings: {}\nprotection: {}\nvalue: {} → {} ({} {})\ncommit: committed\nnew value: {} verified\n{}",
+        result.settings.summary(),
+        protection,
+        result.old_value,
+        result.new_value,
+        result.operation.name(),
+        result.amount,
+        result.new_value,
+        transaction_mac_text(result.transaction_mac.as_ref())
+    )
+}
+
+/// Human-readable record mutation result.
+pub fn record_text(result: &DesfireRecordResult) -> String {
+    let protection = match result.key_type {
+        Some(key_type) => format!("{} · {}", key_type.name(), result.integrity.label()),
+        None => result.integrity.label().to_owned(),
+    };
+    let mut text = format!(
+        "settings: {}\nprotection: {}\nbefore: {} records × {} bytes\n",
+        result.settings_before.summary(),
+        protection,
+        result.before.len(),
+        result.record_size
+    );
+    for (index, record) in result.before.iter().enumerate() {
+        text.push_str(&format!(
+            "record {index}: {} | {}\n",
+            hex_bytes(record),
+            ascii(record)
+        ));
+    }
+    text.push_str(&format!("operation: {}", result.operation.name()));
+    match result.operation {
+        DesfireRecordOperation::Append => {
+            text.push_str(&format!(" · wrote {} bytes\n", result.written.len()));
+        }
+        DesfireRecordOperation::Update { .. } => {
+            text.push_str(&format!(" · wrote {} bytes\n", result.written.len()));
+        }
+        DesfireRecordOperation::Clear => text.push('\n'),
+    }
+    text.push_str(&format!(
+        "after: {} records × {} bytes\n",
+        result.after.len(),
+        result.record_size
+    ));
+    for (index, record) in result.after.iter().enumerate() {
+        text.push_str(&format!(
+            "record {index}: {} | {}\n",
+            hex_bytes(record),
+            ascii(record)
+        ));
+    }
+    text.push_str("commit: committed\n");
+    text.push_str("read-back: every record verified\n");
+    text.push_str(&transaction_mac_text(result.transaction_mac.as_ref()));
+    text
+}
+
+fn ascii(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|byte| {
+            if byte.is_ascii_graphic() || *byte == b' ' {
+                char::from(*byte)
+            } else {
+                '.'
+            }
+        })
+        .collect()
+}
+
+fn transaction_mac_text(result: Option<&DesfireTransactionMacResult>) -> String {
+    match result {
+        None => "transaction MAC: not present\n".to_owned(),
+        Some(result) => {
+            let state = if result.verified {
+                "verified"
+            } else {
+                "UNVERIFIED"
+            };
+            format!(
+                "transaction MAC: file {:02X} · counter {} · {} · {state}: {}\n",
+                result.file_id,
+                result.counter,
+                hex_bytes(&result.value),
+                result.detail
+            )
+        }
+    }
 }
 
 /// Human-readable result of reading free memory.

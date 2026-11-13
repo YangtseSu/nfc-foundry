@@ -895,6 +895,40 @@ keys! {
     ),
     DesfireFreeMemoryRead => ("DESFire free memory read", "DESFire 可用空间已读取"),
     DesfireManagementFailed => ("DESFire management failed", "DESFire 管理失败"),
+    DesfireValuesRecordsTab => ("Values & records", "值与记录"),
+    DesfireMutationHint => (
+        "Value changes check the file limits before the command, commit the transaction, and read the value back. Record changes read every record first, check the record bounds, commit, and read every record back. A Transaction MAC is shown as verified only when the supplied AppTransactionMACKey reproduces it.",
+        "值变更会在命令前检查文件限额，提交事务并回读值。记录变更会先读取全部记录，检查记录边界，提交后回读全部记录。只有在提供的 AppTransactionMACKey 能重现交易 MAC 时才显示为已验证。"
+    ),
+    DesfireMutationKey => ("Key (optional)", "密钥（可选）"),
+    DesfireMutationKeyPlaceholder => (
+        "optional; required unless the file is free",
+        "可选；文件自由访问时不需要"
+    ),
+    DesfireMutationTmacKey => (
+        "Transaction MAC key (optional)",
+        "交易 MAC 密钥（可选）"
+    ),
+    DesfireMutationTmacKeyPlaceholder => (
+        "AppTransactionMACKey, 32 hex digits",
+        "AppTransactionMACKey，32 位十六进制"
+    ),
+    DesfireMutationOperation => ("Operation", "操作"),
+    DesfireMutationAmount => ("Amount", "金额"),
+    DesfireMutationRecordNumber => ("Record number (update)", "记录号（更新）"),
+    DesfireMutationRecordPlaceholder => ("0 = newest record", "0 = 最新记录"),
+    DesfireMutationRecordOffset => ("Record offset (update)", "记录偏移（更新）"),
+    DesfireMutationData => ("Record data (append/update)", "记录数据（追加/更新）"),
+    DesfireMutationDataPlaceholder => ("record bytes as hex", "记录字节（十六进制）"),
+    DesfireMutationApply => ("Apply value or record change", "应用值或记录变更"),
+    DesfireChangingValue => ("Changing the DESFire value…", "正在更改 DESFire 值…"),
+    DesfireValueChanged => ("DESFire value changed", "DESFire 值已更改"),
+    DesfireChangingRecords => ("Changing the DESFire records…", "正在更改 DESFire 记录…"),
+    DesfireRecordsChanged => ("DESFire records changed", "DESFire 记录已更改"),
+    DesfireMutationFailed => (
+        "DESFire value or record change failed",
+        "DESFire 值或记录变更失败"
+    ),
     DesfireAdvancedDeleteApplication => (
         "Enable Advanced mode before deleting an application",
         "删除应用前请启用高级模式"

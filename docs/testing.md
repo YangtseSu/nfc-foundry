@@ -281,6 +281,26 @@ cargo test -p nfctl --features hardware-write \
   --test hardware_desfire_management -- --ignored
 ```
 
+The phase 26.10 value and record path is covered without hardware by
+`nfc-desfire` unit tests for the command payloads, TMI padding, the TMV vector,
+the commit MAC response, and the Transaction MAC file read exclusion,
+`nfc-app/tests/desfire_value_record.rs` for limits, access, append/update/clear,
+cyclic overwrite, record bounds, TMAC verification, and the unverified report,
+and the CLI/GTK tests. The gated `hardware_value_record` test in `nfc-desfire`
+creates a reserved AES application with Value, Linear Record, Cyclic Record,
+and Transaction MAC files, recomputes every commit TMV, verifies the stored
+Transaction MAC file, and deletes the application:
+
+```sh
+NFC_FOUNDRY_HARDWARE=1 NFC_FOUNDRY_HARDWARE_WRITE=yes NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 cargo test -p nfc-desfire --features hardware \
+  --test hardware_value_record -- --ignored
+```
+
+It passed on PN532 UART on 2026-11-14 under AES EV1 and AES EV2. Set
+`NFC_FOUNDRY_HARDWARE_KEY_TYPE=ev2` for the EV2 run and
+`NFC_FOUNDRY_HARDWARE_FORMAT=yes` to erase DESFire tombstones first. The ACR122U
+row is not recorded because the card was not in that reader's field.
+
 The phase 26.3 read path remains covered by unit
 tests for the `GetValue` command shape and the `ReadRecords` payload, plus the
 service check that a record response must be exactly `count * record_size`

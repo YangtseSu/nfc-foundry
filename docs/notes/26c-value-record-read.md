@@ -99,8 +99,9 @@ invalid argument: file 02: requested 3 records but only 2 remain
 
 A second write to the cyclic file with offset 0 overwrote the first record and
 left `current_records` at 1. The read path is valid for a one-record cyclic
-file and is recorded above, but cyclic write-position semantics need their own
-hardware investigation in phase 26.10. The Phase 26.3 acceptance is read-only.
+file. Phase 26.10 closed this item: the first WriteRecord after a commit opens a
+new record, and a full Cyclic Record file overwrites its oldest record. See
+[26j-value-record-write.md](26j-value-record-write.md).
 
 ## ACR122U record
 

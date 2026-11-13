@@ -45,8 +45,13 @@ const INS_CHANGE_FILE_SETTINGS: u8 = 0x5F;
 const INS_WRITE_DATA: u8 = 0x3D;
 const INS_READ_DATA: u8 = 0xBD;
 const INS_GET_VALUE: u8 = 0x6C;
+const INS_CREDIT: u8 = 0x0C;
+const INS_LIMITED_CREDIT: u8 = 0x1C;
+const INS_DEBIT: u8 = 0xDC;
 const INS_READ_RECORDS: u8 = 0xBB;
 const INS_WRITE_RECORD: u8 = 0x3B;
+const INS_UPDATE_RECORD: u8 = 0xDB;
+const INS_CLEAR_RECORD_FILE: u8 = 0xEB;
 const INS_COMMIT_TRANSACTION: u8 = 0xC7;
 const INS_ABORT_TRANSACTION: u8 = 0xA7;
 
@@ -526,6 +531,42 @@ pub struct VerifiedValue {
     pub integrity: IntegrityCheck,
 }
 
+/// Value-file operation selected by the caller.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ValueAdjustment {
+    Credit,
+    Debit,
+    LimitedCredit,
+}
+
+impl ValueAdjustment {
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Credit => "credit",
+            Self::Debit => "debit",
+            Self::LimitedCredit => "limited credit",
+        }
+    }
+
+    const fn instruction(self) -> u8 {
+        match self {
+            Self::Credit => INS_CREDIT,
+            Self::Debit => INS_DEBIT,
+            Self::LimitedCredit => INS_LIMITED_CREDIT,
+        }
+    }
+}
+
+/// Transaction MAC counter and value returned by CommitTransaction or read
+/// from a Transaction MAC file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TransactionMac {
+    /// Transaction MAC Counter used for this transaction.
+    pub counter: u32,
+    /// Truncated AES-CMAC over the Transaction MAC Input.
+    pub value: [u8; 8],
+}
+
 /// Authenticated card UID response.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CardUid {
@@ -958,6 +999,10 @@ pub struct Desfire<'a> {
     reader: &'a mut dyn Reader,
     session: Option<Session>,
     selected: [u8; 3],
+    /// Transaction MAC Input accumulated since application selection.
+    tmi: Vec<u8>,
+    /// Set while reading the Transaction MAC file, which is excluded from TMI.
+    suppress_tmi: bool,
 }
 
 impl<'a> Desfire<'a> {
@@ -966,6 +1011,44 @@ impl<'a> Desfire<'a> {
             reader,
             session: None,
             selected: [0x00; 3],
+            tmi: Vec::new(),
+            suppress_tmi: false,
+        }
+    }
+
+    /// Transaction MAC Input accumulated since the application was selected.
+    ///
+    /// Only authenticated sessions update it; commands outside the DESFire
+    /// Transaction MAC command list never touch it.
+    pub fn transaction_mac_input(&self) -> &[u8] {
+        &self.tmi
+    }
+
+    fn tmi_active(&self) -> bool {
+        self.session.is_some() && !self.suppress_tmi
+    }
+
+    /// Append one command parameter block and pad it to a 16-byte boundary.
+    fn tmi_header(&mut self, header: &[u8]) {
+        if !self.tmi_active() {
+            return;
+        }
+        self.tmi.extend_from_slice(header);
+        while !self.tmi.len().is_multiple_of(16) {
+            self.tmi.push(0);
+        }
+    }
+
+    /// Append a parameter block padded to 16 bytes, then the plain data padded
+    /// to 16 bytes.
+    fn tmi_data(&mut self, header: &[u8], data: &[u8]) {
+        if !self.tmi_active() {
+            return;
+        }
+        self.tmi_header(header);
+        self.tmi.extend_from_slice(data);
+        while !self.tmi.len().is_multiple_of(16) {
+            self.tmi.push(0);
         }
     }
 
@@ -1617,6 +1700,7 @@ impl<'a> Desfire<'a> {
         self.command(INS_FORMAT_PICC, &[])?;
         self.session = None;
         self.selected = [0x00; 3];
+        self.tmi.clear();
         Ok(())
     }
 
@@ -1653,8 +1737,10 @@ impl<'a> Desfire<'a> {
 
     pub fn select_application(&mut self, aid: [u8; 3]) -> Result<()> {
         // The card drops authentication on select, so the command itself is
-        // sent outside the old session.
+        // sent outside the old session. Application selection starts a new
+        // transaction, and with it a new Transaction MAC Input.
         self.session = None;
+        self.tmi.clear();
         self.expect_ok(INS_SELECT_APPLICATION, &aid)?;
         self.selected = aid;
         Ok(())
@@ -1723,22 +1809,85 @@ impl<'a> Desfire<'a> {
     /// `NoChanges` means the card has nothing pending to commit and the
     /// requested state is already stored; it is not an error.
     pub fn commit_transaction(&mut self) -> Result<()> {
+        self.commit_transaction_inner(false).map(|_| ())
+    }
+
+    /// Commit and ask a Transaction MAC application for the counter and value.
+    ///
+    /// The option byte is only valid when the selected application has a
+    /// Transaction MAC file; the card rejects it otherwise. A response with no
+    /// data means the card committed without returning a MAC.
+    pub fn commit_transaction_with_mac(&mut self) -> Result<Option<TransactionMac>> {
+        self.commit_transaction_inner(true)
+    }
+
+    fn commit_transaction_inner(&mut self, return_mac: bool) -> Result<Option<TransactionMac>> {
         let communication = self
             .session
             .as_ref()
             .map_or(CommunicationMode::Plain, Session::management_protection);
-        let (_, sw, _) = self.exchange(INS_COMMIT_TRANSACTION, &[], communication, None)?;
-        if sw == STATUS_OK || sw == STATUS_NO_CHANGES {
-            Ok(())
-        } else {
-            Err(status_error(INS_COMMIT_TRANSACTION, sw))
+        let data: &[u8] = if return_mac { &[0x01] } else { &[] };
+        let (body, sw, _) = self.exchange(INS_COMMIT_TRANSACTION, data, communication, None)?;
+        if sw != STATUS_OK && sw != STATUS_NO_CHANGES {
+            return Err(status_error(INS_COMMIT_TRANSACTION, sw));
+        }
+        // The commit finalizes the transaction and starts a new one.
+        self.tmi.clear();
+        if !return_mac {
+            return Ok(None);
+        }
+        match body.as_slice() {
+            [] => Ok(None),
+            bytes if bytes.len() == 12 => {
+                let mut value = [0u8; 8];
+                value.copy_from_slice(&bytes[4..]);
+                Ok(Some(TransactionMac {
+                    counter: u32::from_le_bytes(bytes[..4].try_into().expect("four-byte counter")),
+                    value,
+                }))
+            }
+            bytes => Err(NfcError::VerificationFailed(format!(
+                "CommitTransaction returned {} bytes of Transaction MAC data, expected 0 or 12",
+                bytes.len()
+            ))),
         }
     }
 
     /// Abort the open transaction and discard uncommitted writes.
     pub fn abort_transaction(&mut self) -> Result<()> {
         self.command(INS_ABORT_TRANSACTION, &[])?;
+        self.tmi.clear();
         Ok(())
+    }
+
+    /// Read the 12-byte counter and MAC stored in a Transaction MAC file.
+    ///
+    /// This read is excluded from the Transaction MAC Input by definition.
+    pub fn read_transaction_mac_file(
+        &mut self,
+        file_id: u8,
+        communication: CommunicationMode,
+    ) -> Result<(TransactionMac, IntegrityCheck)> {
+        let previous = self.suppress_tmi;
+        self.suppress_tmi = true;
+        let result = self.read_data(file_id, 0, 12, communication);
+        self.suppress_tmi = previous;
+        let read = result?;
+        if read.data.len() != 12 {
+            return Err(NfcError::VerificationFailed(format!(
+                "Transaction MAC file {file_id:02X} returned {} bytes, expected 12",
+                read.data.len()
+            )));
+        }
+        let mut value = [0u8; 8];
+        value.copy_from_slice(&read.data[4..]);
+        Ok((
+            TransactionMac {
+                counter: u32::from_le_bytes(read.data[..4].try_into().expect("four-byte counter")),
+                value,
+            },
+            read.integrity,
+        ))
     }
 
     /// Create a standard data file in the selected application.
@@ -1907,8 +2056,14 @@ impl<'a> Desfire<'a> {
         communication: CommunicationMode,
     ) -> Result<VerifiedValue> {
         let read = self.read_command(INS_GET_VALUE, &[file_id], communication, 4)?;
+        let value = i32::from_le_bytes(read.data[..4].try_into().expect("four-byte value"));
+        let mut header = Vec::with_capacity(6);
+        header.push(INS_GET_VALUE);
+        header.push(file_id);
+        header.extend_from_slice(&read.data[..4]);
+        self.tmi_header(&header);
         Ok(VerifiedValue {
-            value: i32::from_le_bytes(read.data[..4].try_into().expect("four-byte value")),
+            value,
             integrity: read.integrity,
         })
     }
@@ -1940,7 +2095,7 @@ impl<'a> Desfire<'a> {
             usize::try_from(u64::from(count) * u64::from(record_size)).map_err(|_| {
                 NfcError::InvalidArgument("the requested record bytes do not fit memory".to_owned())
             })?;
-        self.read_command(
+        let read = self.read_command(
             INS_READ_RECORDS,
             &[
                 file_id,
@@ -1953,7 +2108,14 @@ impl<'a> Desfire<'a> {
             ],
             communication,
             expected,
-        )
+        )?;
+        let mut header = Vec::with_capacity(8);
+        header.push(INS_READ_RECORDS);
+        header.push(file_id);
+        header.extend_from_slice(&start_record.to_le_bytes()[..3]);
+        header.extend_from_slice(&count.to_le_bytes()[..3]);
+        self.tmi_data(&header, &read.data);
+        Ok(read)
     }
 
     /// Write one record slot at a byte offset inside that record.
@@ -1984,7 +2146,92 @@ impl<'a> Desfire<'a> {
         header.push(file_id);
         header.extend_from_slice(&offset.to_le_bytes()[..3]);
         header.extend_from_slice(&(data.len() as u32).to_le_bytes()[..3]);
-        self.write_command(INS_WRITE_RECORD, &header, data, communication)
+        let integrity = self.write_command(INS_WRITE_RECORD, &header, data, communication)?;
+        let mut tmi_header = Vec::with_capacity(8);
+        tmi_header.push(INS_WRITE_RECORD);
+        tmi_header.extend_from_slice(&header);
+        self.tmi_data(&tmi_header, data);
+        Ok(integrity)
+    }
+
+    /// Credit, debit, or limited-credit a value file.
+    ///
+    /// The amount is an unsigned magnitude sent little-endian; the card
+    /// applies it as a signed increase or decrease. Value changes stay pending
+    /// until CommitTransaction.
+    pub fn adjust_value(
+        &mut self,
+        file_id: u8,
+        adjustment: ValueAdjustment,
+        amount: u32,
+        communication: CommunicationMode,
+    ) -> Result<IntegrityCheck> {
+        let mut header = Vec::with_capacity(5);
+        header.push(file_id);
+        header.extend_from_slice(&amount.to_le_bytes());
+        let instruction = adjustment.instruction();
+        let integrity =
+            self.write_command(instruction, &header[..1], &header[1..], communication)?;
+        let mut tmi_header = Vec::with_capacity(6);
+        tmi_header.push(instruction);
+        tmi_header.extend_from_slice(&header);
+        self.tmi_header(&tmi_header);
+        Ok(integrity)
+    }
+
+    /// Update a byte range of an existing record.
+    ///
+    /// `record_number` follows the same numbering as ReadRecords: 0 is the
+    /// most recent record, and the number is limited by the current record
+    /// count. One UpdateRecord is allowed per file and transaction.
+    pub fn update_record(
+        &mut self,
+        file_id: u8,
+        record_number: u32,
+        offset: u32,
+        data: &[u8],
+        communication: CommunicationMode,
+    ) -> Result<IntegrityCheck> {
+        if record_number > 0x00FF_FFFF || offset > 0x00FF_FFFF {
+            return Err(NfcError::InvalidArgument(
+                "DESFire record number and offset must fit 3 bytes".to_owned(),
+            ));
+        }
+        if data.is_empty() {
+            return Err(NfcError::InvalidArgument(
+                "a DESFire record update needs at least one byte".to_owned(),
+            ));
+        }
+        let mut header = Vec::with_capacity(10);
+        header.push(file_id);
+        header.extend_from_slice(&record_number.to_le_bytes()[..3]);
+        header.extend_from_slice(&offset.to_le_bytes()[..3]);
+        header.extend_from_slice(&(data.len() as u32).to_le_bytes()[..3]);
+        let integrity = self.write_command(INS_UPDATE_RECORD, &header, data, communication)?;
+        let mut tmi_header = Vec::with_capacity(11);
+        tmi_header.push(INS_UPDATE_RECORD);
+        tmi_header.extend_from_slice(&header);
+        self.tmi_data(&tmi_header, data);
+        Ok(integrity)
+    }
+
+    /// Erase every record of a record file.
+    ///
+    /// The clearance is pending until CommitTransaction. ClearRecordFile has no
+    /// command data of its own: under EV2 secure messaging it is a MACed
+    /// command, while under EV1 and legacy sessions the command is Plain and
+    /// only the response is MACed. Sending the other mode is rejected with a
+    /// length error on hardware.
+    pub fn clear_record_file(&mut self, file_id: u8) -> Result<IntegrityCheck> {
+        let communication = match self.session.as_ref().map(|session| session.key_type) {
+            Some(AuthKeyType::AesEv2) => CommunicationMode::Maced,
+            _ => CommunicationMode::Plain,
+        };
+        let integrity =
+            self.write_command(INS_CLEAR_RECORD_FILE, &[file_id], &[], communication)?;
+        let header = [INS_CLEAR_RECORD_FILE, file_id];
+        self.tmi_header(&header);
+        Ok(integrity)
     }
 
     /// Write data to a standard or backup file with the file's communication
@@ -2015,7 +2262,12 @@ impl<'a> Desfire<'a> {
         header.push(file_id);
         header.extend_from_slice(&offset.to_le_bytes()[..3]);
         header.extend_from_slice(&(data.len() as u32).to_le_bytes()[..3]);
-        self.write_command(INS_WRITE_DATA, &header, data, communication)
+        let integrity = self.write_command(INS_WRITE_DATA, &header, data, communication)?;
+        let mut tmi_header = Vec::with_capacity(8);
+        tmi_header.push(INS_WRITE_DATA);
+        tmi_header.extend_from_slice(&header);
+        self.tmi_data(&tmi_header, data);
+        Ok(integrity)
     }
 
     /// Read data from a standard or backup file.
@@ -2041,7 +2293,7 @@ impl<'a> Desfire<'a> {
             ));
         }
         let expected = length as usize;
-        self.read_command(
+        let read = self.read_command(
             INS_READ_DATA,
             &[
                 file_id,
@@ -2054,7 +2306,14 @@ impl<'a> Desfire<'a> {
             ],
             communication,
             expected,
-        )
+        )?;
+        let mut header = Vec::with_capacity(8);
+        header.push(INS_READ_DATA);
+        header.push(file_id);
+        header.extend_from_slice(&offset.to_le_bytes()[..3]);
+        header.extend_from_slice(&length.to_le_bytes()[..3]);
+        self.tmi_data(&header, &read.data);
+        Ok(read)
     }
 
     /// Total data size for a standard or backup file from its settings.
@@ -2551,6 +2810,29 @@ fn cmac_aes(key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
         ));
     }
     cmac_chained::<Aes128>(key, &[0u8; 16], data, 0x87)
+}
+
+/// Compute the 8-byte Transaction MAC Value for one transaction.
+///
+/// `counter` is the incremented Transaction MAC Counter stored by the commit.
+/// The session key is derived from the AppTransactionMACKey over
+/// `5A 00 01 00 80 || counter || UID`, then the CMAC over `tmi` is truncated to
+/// the even-numbered bytes like AES secure messaging (MF2DLHX0 10.3.2.3 and
+/// 10.3.2.4).
+pub fn transaction_mac(
+    tmac_key: &[u8; 16],
+    counter: u32,
+    uid: &[u8; 7],
+    tmi: &[u8],
+) -> Result<[u8; 8]> {
+    let mut derivation = Vec::with_capacity(16);
+    derivation.extend_from_slice(&[0x5A, 0x00, 0x01, 0x00, 0x80]);
+    derivation.extend_from_slice(&counter.to_le_bytes());
+    derivation.extend_from_slice(uid);
+    debug_assert_eq!(derivation.len(), 16);
+    let session_key = cmac_aes(tmac_key, &derivation)?;
+    let mac = cmac_aes(&session_key, tmi)?;
+    Ok(ev2_truncate(&mac))
 }
 
 fn ev1_cmac(key_type: AuthKeyType, key: &[u8], iv: &[u8], data: &[u8]) -> Result<Vec<u8>> {
@@ -4374,6 +4656,170 @@ mod tests {
             desfire.session_key().is_none(),
             "the session must be dropped"
         );
+    }
+
+    #[test]
+    fn value_adjustments_send_the_instruction_and_little_endian_amount() {
+        for (adjustment, instruction) in [
+            (ValueAdjustment::Credit, 0x0C),
+            (ValueAdjustment::Debit, 0xDC),
+            (ValueAdjustment::LimitedCredit, 0x1C),
+        ] {
+            let mut reader = ScriptedReader::new([0x91, 0x00]);
+            let mut desfire = Desfire::new(&mut reader);
+            desfire
+                .adjust_value(1, adjustment, 0x0102_0304, CommunicationMode::Plain)
+                .expect("value adjustment");
+            drop(desfire);
+            assert_eq!(
+                reader.commands,
+                [vec![
+                    0x90,
+                    instruction,
+                    0x00,
+                    0x00,
+                    0x05,
+                    0x01,
+                    0x04,
+                    0x03,
+                    0x02,
+                    0x01,
+                    0x00
+                ]]
+            );
+        }
+    }
+
+    #[test]
+    fn update_record_sends_record_number_offset_and_length() {
+        let mut reader = ScriptedReader::new([0x91, 0x00]);
+        let mut desfire = Desfire::new(&mut reader);
+        desfire
+            .update_record(
+                2,
+                0x0000_0302,
+                0x0000_0104,
+                &[0xAA, 0xBB],
+                CommunicationMode::Plain,
+            )
+            .expect("record update");
+        drop(desfire);
+        assert_eq!(
+            reader.commands,
+            [vec![
+                0x90, 0xDB, 0x00, 0x00, 0x0C, 0x02, 0x02, 0x03, 0x00, 0x04, 0x01, 0x00, 0x02, 0x00,
+                0x00, 0xAA, 0xBB, 0x00
+            ]]
+        );
+    }
+
+    #[test]
+    fn clear_record_file_sends_the_file_number() {
+        let mut reader = ScriptedReader::new([0x91, 0x00]);
+        let mut desfire = Desfire::new(&mut reader);
+        desfire.clear_record_file(0x0A).expect("record clear");
+        drop(desfire);
+        assert_eq!(
+            reader.commands,
+            [vec![0x90, 0xEB, 0x00, 0x00, 0x01, 0x0A, 0x00]]
+        );
+    }
+
+    #[test]
+    fn clear_record_file_is_maced_under_ev2() {
+        let mac_key = hex("9366FA195EB566F5BD2BAD4020B83002");
+        let enc_key = hex("FFBCFE1F41840A09C9A88D0A4B10DF05");
+        let ti = [0xE2, 0xD3, 0xAF, 0x69];
+        let header = vec![0x0A];
+        let command_mac = ev2_session(&mac_key, &enc_key, ti, 0)
+            .command_mac(INS_CLEAR_RECORD_FILE, &header)
+            .expect("command MAC");
+        let response_mac = ev2_session(&mac_key, &enc_key, ti, 1)
+            .response_mac(&[], 0x00)
+            .expect("response MAC");
+        let mut expected = header.clone();
+        expected.extend_from_slice(&ev2_truncate(&command_mac));
+
+        let mut reader = ScriptedReader::with_responses(vec![ApduResponse::new(
+            ev2_truncate(&response_mac).to_vec(),
+            [0x91, 0x00],
+        )]);
+        let mut desfire = Desfire::new(&mut reader);
+        desfire.session = Some(ev2_session(&mac_key, &enc_key, ti, 0));
+        let integrity = desfire.clear_record_file(0x0A).expect("EV2 clear");
+        assert_eq!(integrity, IntegrityCheck::Ev2Cmac);
+        drop(desfire);
+        assert_eq!(
+            reader.commands[0][5..reader.commands[0].len() - 1],
+            expected
+        );
+    }
+
+    #[test]
+    fn transaction_mac_input_pads_each_command_to_sixteen_bytes() {
+        let mut reader = ScriptedReader::with_responses(vec![
+            ApduResponse::new(7i32.to_le_bytes().to_vec(), [0x91, 0x00]),
+            ApduResponse::new(Vec::new(), [0x91, 0x00]),
+        ]);
+        let mut desfire = Desfire::new(&mut reader);
+        desfire.session = Some(ev1_session(AuthKeyType::Des, &[0u8; 8], Vec::new()));
+        desfire
+            .get_value(1, CommunicationMode::Plain)
+            .expect("read");
+        desfire
+            .adjust_value(1, ValueAdjustment::Credit, 3, CommunicationMode::Plain)
+            .expect("credit");
+        let expected = hex("6C 01 07 00 00 00 00 00 00 00 00 00 00 00 00 00 \
+             0C 01 03 00 00 00 00 00 00 00 00 00 00 00 00 00");
+        assert_eq!(desfire.transaction_mac_input(), expected.as_slice());
+    }
+
+    #[test]
+    fn transaction_mac_matches_an_independent_vector() {
+        let key = hex("00112233445566778899AABBCCDDEEFF");
+        let key: [u8; 16] = key.try_into().expect("16-byte key");
+        let uid = [0x04, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26];
+        let tmi = hex("6C 01 07 00 00 00 00 00 00 00 00 00 00 00 00 00 \
+             0C 01 03 00 00 00 00 00 00 00 00 00 00 00 00 00");
+        assert_eq!(
+            transaction_mac(&key, 5, &uid, &tmi).expect("TMV"),
+            [0x08, 0x6E, 0xD1, 0x76, 0xD1, 0x1B, 0x4A, 0x91]
+        );
+    }
+
+    #[test]
+    fn commit_with_mac_returns_the_counter_and_value() {
+        let mut reader = ScriptedReader::with_responses(vec![ApduResponse::new(
+            hex("05 00 00 00 08 6E D1 76 D1 1B 4A 91"),
+            [0x91, 0x00],
+        )]);
+        let mut desfire = Desfire::new(&mut reader);
+        let mac = desfire
+            .commit_transaction_with_mac()
+            .expect("commit")
+            .expect("returned MAC");
+        assert_eq!(mac.counter, 5);
+        assert_eq!(mac.value, [0x08, 0x6E, 0xD1, 0x76, 0xD1, 0x1B, 0x4A, 0x91]);
+        drop(desfire);
+        assert_eq!(
+            reader.commands,
+            [vec![0x90, 0xC7, 0x00, 0x00, 0x01, 0x01, 0x00]]
+        );
+    }
+
+    #[test]
+    fn transaction_mac_file_read_is_excluded_from_the_input() {
+        let mut reader = ScriptedReader::with_responses(vec![ApduResponse::new(
+            hex("01 00 00 00 08 6E D1 76 D1 1B 4A 91"),
+            [0x91, 0x00],
+        )]);
+        let mut desfire = Desfire::new(&mut reader);
+        desfire.session = Some(ev1_session(AuthKeyType::Des, &[0u8; 8], Vec::new()));
+        let (mac, _) = desfire
+            .read_transaction_mac_file(0x0F, CommunicationMode::Plain)
+            .expect("TMAC file read");
+        assert_eq!(mac.counter, 1);
+        assert!(desfire.transaction_mac_input().is_empty());
     }
 
     #[test]
