@@ -8,8 +8,8 @@
 //! 3K3DES, AES EV1, and AES EV2 authentication with session-key derivation,
 //! key verification, the authenticated card UID, EV1 and EV2 secure messaging
 //! for file reads and writes, transactions, the primitive application/file
-//! commands, and the AN11004 NDEF Tag Application layout.
-//! The general file/key workbench is not part of this layer.
+//! commands, key settings and key changes, and the AN11004 NDEF Tag
+//! Application layout. The general workbench UI is not part of this layer.
 
 use aes::Aes128;
 use des::TdesEde3;
@@ -28,6 +28,9 @@ const INS_GET_APPLICATION_IDS: u8 = 0x6A;
 const INS_SELECT_APPLICATION: u8 = 0x5A;
 const INS_GET_FILE_IDS: u8 = 0x6F;
 const INS_GET_FILE_SETTINGS: u8 = 0xF5;
+const INS_GET_KEY_SETTINGS: u8 = 0x45;
+const INS_CHANGE_KEY_SETTINGS: u8 = 0x54;
+const INS_CHANGE_KEY: u8 = 0xC4;
 const INS_GET_KEY_VERSION: u8 = 0x64;
 const INS_GET_CARD_UID: u8 = 0x51;
 const INS_GET_FREE_MEMORY: u8 = 0x6E;
@@ -174,6 +177,16 @@ impl AuthKeyType {
             )))
         }
     }
+
+    /// Key family of an application that authenticates with this key type.
+    pub const fn key_family(self) -> ApplicationKeyType {
+        KeyFamily::of(self).application_key_type()
+    }
+
+    /// Validate a new key for a ChangeKey within this session's family.
+    pub fn validate_change_key(self, key: &[u8]) -> Result<()> {
+        KeyFamily::of(self).validate_key(key)
+    }
 }
 
 /// Key family assigned to a new application by CreateApplication.
@@ -261,6 +274,8 @@ struct Session {
     enc_key: Vec<u8>,
     mac_key: Vec<u8>,
     key_type: AuthKeyType,
+    /// Key number used by the authentication that opened this session.
+    key_no: u8,
     key_version: u8,
     /// EV1 CMAC and CBC chaining value. Empty for D40 and EV2 sessions.
     iv: Vec<u8>,
@@ -994,6 +1009,291 @@ impl std::fmt::Debug for TransactionMacFileSpec {
     }
 }
 
+/// Key settings reported by GetKeySettings.
+///
+/// The second response byte carries the key count, the key family, and the
+/// ISO file ID flag. DESFire D40 cards return only the first byte; the
+/// optional fields are then `None`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct KeySettings {
+    /// The KeySettings byte: change rights for the master key and the
+    /// configuration, free directory listing, and free create/delete.
+    pub key_settings: u8,
+    pub max_keys: Option<u8>,
+    pub key_type: Option<ApplicationKeyType>,
+    pub iso_file_id: bool,
+}
+
+impl KeySettings {
+    fn parse(bytes: &[u8]) -> Result<Self> {
+        let Some(&key_settings) = bytes.first() else {
+            return Err(NfcError::VerificationFailed(
+                "GetKeySettings returned no key settings".to_owned(),
+            ));
+        };
+        if bytes.len() > 2 {
+            return Err(NfcError::VerificationFailed(format!(
+                "GetKeySettings returned {} bytes, expected 1 or 2",
+                bytes.len()
+            )));
+        }
+        let (max_keys, key_type, iso_file_id) = match bytes.get(1) {
+            Some(&second) => (
+                Some(second & 0x0F),
+                match second >> 6 {
+                    0 => Some(ApplicationKeyType::Tdes2),
+                    1 => Some(ApplicationKeyType::Tdes3),
+                    2 => Some(ApplicationKeyType::Aes),
+                    _ => None,
+                },
+                second & 0x20 != 0,
+            ),
+            None => (None, None, false),
+        };
+        Ok(Self {
+            key_settings,
+            max_keys,
+            key_type,
+            iso_file_id,
+        })
+    }
+
+    /// Whether ChangeKeySettings may change the configuration.
+    pub const fn configuration_changeable(&self) -> bool {
+        self.key_settings & 0x08 != 0
+    }
+
+    /// Whether the master key itself may be changed.
+    pub const fn master_key_changeable(&self) -> bool {
+        self.key_settings & 0x01 != 0
+    }
+
+    /// Human-readable facts for CLI and GUI output.
+    pub fn summary(&self, application: bool) -> String {
+        let mut text = format!("settings {:02X}", self.key_settings);
+        if application {
+            text.push_str(&format!(
+                " · master key changeable: {}",
+                yes_no(self.master_key_changeable())
+            ));
+            text.push_str(&format!(
+                " · configuration changeable: {}",
+                yes_no(self.configuration_changeable())
+            ));
+            text.push_str(&format!(
+                " · free file list: {} · free create/delete: {}",
+                yes_no(self.key_settings & 0x02 != 0),
+                yes_no(self.key_settings & 0x04 != 0)
+            ));
+            let change = self.key_settings >> 4;
+            let change = match change {
+                0x0F => "keys frozen".to_owned(),
+                0x0E => "same key authenticates the change".to_owned(),
+                key => format!("key {key} authenticates key changes"),
+            };
+            text.push_str(&format!(" · change rights: {change}"));
+        } else {
+            text.push_str(&format!(
+                " · master key changeable: {}",
+                yes_no(self.master_key_changeable())
+            ));
+            text.push_str(&format!(
+                " · configuration changeable: {}",
+                yes_no(self.configuration_changeable())
+            ));
+            text.push_str(&format!(
+                " · free application list: {} · free create/delete: {}",
+                yes_no(self.key_settings & 0x02 != 0),
+                yes_no(self.key_settings & 0x04 != 0)
+            ));
+        }
+        if let Some(max_keys) = self.max_keys {
+            text.push_str(&format!(" · {max_keys} keys"));
+        }
+        if let Some(key_type) = self.key_type {
+            text.push_str(&format!(" · {}", key_type.name()));
+        }
+        if self.iso_file_id {
+            text.push_str(" · ISO file ID");
+        }
+        text
+    }
+}
+
+/// One ChangeKey request against the selected application.
+///
+/// `current_key` is the stored key of `key_number`, required only when that
+/// key is not the key used to authenticate. It is used for the `NewKey XOR
+/// OldKey` construction and is never logged.
+#[derive(Clone, PartialEq, Eq)]
+pub struct KeyChange {
+    pub key_number: u8,
+    pub new_key: Vec<u8>,
+    pub new_key_version: u8,
+    pub current_key: Option<Vec<u8>>,
+}
+
+impl std::fmt::Debug for KeyChange {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("KeyChange")
+            .field("key_number", &self.key_number)
+            .field("new_key", &"<redacted>")
+            .field("new_key_version", &self.new_key_version)
+            .field(
+                "current_key",
+                &self.current_key.as_ref().map(|_| "<redacted>"),
+            )
+            .finish()
+    }
+}
+
+impl KeyChange {
+    pub fn new(key_number: u8, new_key: Vec<u8>) -> Self {
+        Self {
+            key_number,
+            new_key,
+            new_key_version: 0,
+            current_key: None,
+        }
+    }
+}
+
+fn yes_no(value: bool) -> &'static str {
+    if value { "yes" } else { "no" }
+}
+
+/// Key family of a ChangeKey operation, derived from the authentication.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum KeyFamily {
+    Tdes2,
+    Tdes3,
+    Aes,
+}
+
+impl KeyFamily {
+    const fn of(key_type: AuthKeyType) -> Self {
+        match key_type {
+            AuthKeyType::Des | AuthKeyType::Tdes2 => Self::Tdes2,
+            AuthKeyType::Tdes3 => Self::Tdes3,
+            AuthKeyType::Aes | AuthKeyType::AesEv2 => Self::Aes,
+        }
+    }
+
+    const fn application_key_type(self) -> ApplicationKeyType {
+        match self {
+            Self::Tdes2 => ApplicationKeyType::Tdes2,
+            Self::Tdes3 => ApplicationKeyType::Tdes3,
+            Self::Aes => ApplicationKeyType::Aes,
+        }
+    }
+
+    const fn embeds_version(self) -> bool {
+        matches!(self, Self::Tdes2 | Self::Tdes3)
+    }
+
+    const fn block_size(self) -> usize {
+        match self {
+            Self::Tdes2 | Self::Tdes3 => 8,
+            Self::Aes => 16,
+        }
+    }
+
+    const fn key_length(self) -> usize {
+        match self {
+            Self::Tdes2 | Self::Aes => 16,
+            Self::Tdes3 => 24,
+        }
+    }
+
+    fn validate_key(self, key: &[u8]) -> Result<()> {
+        let valid = match self {
+            Self::Tdes2 => matches!(key.len(), 8 | 16),
+            Self::Tdes3 => key.len() == 24,
+            Self::Aes => key.len() == 16,
+        };
+        if valid {
+            Ok(())
+        } else {
+            let expected = match self {
+                Self::Tdes2 => "8-byte DES or 16-byte 2K3DES",
+                Self::Tdes3 => "24-byte 3K3DES",
+                Self::Aes => "16-byte AES",
+            };
+            Err(NfcError::InvalidArgument(format!(
+                "a {} key change needs a {expected} key, got {} bytes",
+                self.application_key_type().name(),
+                key.len()
+            )))
+        }
+    }
+
+    /// Key area sent to the card: the key with its version, where AES carries
+    /// the version as a separate trailing byte.
+    fn key_area(self, key: &[u8], version: u8) -> Vec<u8> {
+        let mut area = match (self, key.len()) {
+            (Self::Tdes2, 8) => {
+                let mut expanded = key.to_vec();
+                expanded.extend_from_slice(key);
+                expanded
+            }
+            _ => key.to_vec(),
+        };
+        if self.embeds_version() {
+            set_des_key_version(&mut area, version);
+        } else {
+            area.push(version);
+        }
+        area
+    }
+
+    /// Key value covered by the second ChangeKey CRC: the new key value
+    /// alone. AES keeps its version outside the key bytes, so the version is
+    /// not part of this value.
+    fn crc_key(self, key: &[u8], version: u8) -> Vec<u8> {
+        if self.embeds_version() {
+            self.key_area(key, version)
+        } else {
+            key.to_vec()
+        }
+    }
+}
+
+/// XOR the stored old key into the new key area.
+///
+/// A DES key is repeated to fill the 2K3DES key area, matching how the card
+/// stores an 8-byte DES key internally.
+fn xor_key(plain: &mut [u8], current: Option<&[u8]>, key_length: usize) {
+    if let Some(current) = current {
+        for index in 0..key_length {
+            plain[index] ^= current[index % current.len()];
+        }
+    }
+}
+
+/// Embed a key version in the parity bits of DES/2K3DES/3K3DES key bytes.
+///
+/// The version is written least-significant bit first from the last key byte,
+/// repeating every eight bytes, as DESFire stores it.
+fn set_des_key_version(key: &mut [u8], version: u8) {
+    let mut bit = 0;
+    for index in (0..key.len()).rev() {
+        key[index] = (key[index] & 0xFE) | ((version >> bit) & 1);
+        bit = (bit + 1) % 8;
+    }
+}
+
+/// ISO/IEC 14443-3 CRC_A, used by the D40 ChangeKey frame.
+fn crc16_a(data: &[u8]) -> [u8; 2] {
+    let mut crc: u16 = 0x6363;
+    for &byte in data {
+        let mut mixed = byte ^ crc as u8;
+        mixed ^= mixed << 4;
+        crc = (crc >> 8) ^ ((mixed as u16) << 8) ^ ((mixed as u16) << 3) ^ ((mixed as u16) >> 4);
+    }
+    [crc as u8, (crc >> 8) as u8]
+}
+
 /// DESFire command context over one reader.
 pub struct Desfire<'a> {
     reader: &'a mut dyn Reader,
@@ -1565,6 +1865,7 @@ impl<'a> Desfire<'a> {
             enc_key,
             mac_key,
             key_type,
+            key_no,
             key_version,
             iv,
             ti,
@@ -1600,8 +1901,9 @@ impl<'a> Desfire<'a> {
 
     /// Read the card's key version after authentication.
     ///
-    /// `None` means the card answered `IllegalCommand` or `PermissionDenied`;
-    /// an invalid response MAC still fails closed and drops the session.
+    /// `None` means the card answered `IllegalCommand`, `NoSuchKey`, or
+    /// `PermissionDenied`; an invalid response MAC still fails closed and
+    /// drops the session.
     pub fn key_version(&mut self, key_no: u8) -> Result<Option<u8>> {
         self.ensure_authenticated()?;
         if key_no > 14 {
@@ -1617,7 +1919,7 @@ impl<'a> Desfire<'a> {
             self.exchange(INS_GET_KEY_VERSION, &[key_no], communication, Some(1))?;
         match sw {
             STATUS_OK => {}
-            0x911C | STATUS_PERMISSION_DENIED => return Ok(None),
+            0x911C | 0x9140 | STATUS_PERMISSION_DENIED => return Ok(None),
             _ => return Err(status_error(INS_GET_KEY_VERSION, sw)),
         }
         if body.len() != 1 {
@@ -1627,6 +1929,243 @@ impl<'a> Desfire<'a> {
             )));
         }
         Ok(Some(body[0]))
+    }
+
+    /// Key number used by the current session.
+    pub fn authenticated_key_number(&self) -> Option<u8> {
+        self.session.as_ref().map(|session| session.key_no)
+    }
+
+    /// Read the KeySettings and key metadata of the selected application.
+    ///
+    /// GetKeySettings is readable without authentication when the card's
+    /// key settings allow free directory access; with a session the command
+    /// follows the session's management protection and any response MAC is
+    /// verified.
+    pub fn key_settings(&mut self) -> Result<KeySettings> {
+        if self.session.is_some() {
+            let communication = self
+                .session
+                .as_ref()
+                .map_or(CommunicationMode::Plain, Session::management_protection);
+            let (body, sw, _) = self.exchange(INS_GET_KEY_SETTINGS, &[], communication, None)?;
+            if sw != STATUS_OK {
+                return Err(status_error(INS_GET_KEY_SETTINGS, sw));
+            }
+            KeySettings::parse(&body)
+        } else {
+            KeySettings::parse(&self.expect_ok(INS_GET_KEY_SETTINGS, &[])?)
+        }
+    }
+
+    /// Change the KeySettings byte of the selected application.
+    ///
+    /// The card must be authenticated, and its current KeySettings must have
+    /// the configuration-changeable bit set; the card enforces both. This
+    /// changes only the KeySettings byte; the key count, key family, and ISO
+    /// file ID flags are fixed at application creation.
+    pub fn change_key_settings(&mut self, key_settings: u8) -> Result<()> {
+        self.ensure_authenticated()?;
+        let secure = self
+            .session
+            .as_ref()
+            .is_some_and(Session::uses_secure_messaging);
+        if secure {
+            // EV1 and EV2 send ChangeKeySettings in the enciphered mode: the
+            // KeySettings byte carries its integrity CRC, or the EV2 padding
+            // and CMAC, and the card answers with a response MAC. A plain
+            // command is refused with LENGTH_ERROR on an EV3 card.
+            self.write_command(
+                INS_CHANGE_KEY_SETTINGS,
+                &[],
+                &[key_settings],
+                CommunicationMode::Enciphered,
+            )?;
+            return Ok(());
+        }
+        let body = self.command(INS_CHANGE_KEY_SETTINGS, &[key_settings])?;
+        if !body.is_empty() {
+            return Err(NfcError::VerificationFailed(format!(
+                "ChangeKeySettings returned {} unexpected data bytes",
+                body.len()
+            )));
+        }
+        Ok(())
+    }
+
+    /// Change one key of the selected application or the PICC master key.
+    ///
+    /// The wire encoding follows the authentication channel:
+    ///
+    /// - DES/2K3DES sessions use the D40 ChangeKey frame: the version is
+    ///   embedded in the key parity bits, integrity is CRC16, and the command
+    ///   data is CBC-encrypted with the session key and a zero IV.
+    /// - 3K3DES and AES EV1 sessions use the EV1 frame: the version is
+    ///   embedded (3K3DES) or a separate byte (AES), integrity is CRC32 over
+    ///   the command header and data, and the data is CBC-encrypted with the
+    ///   session IV.
+    /// - AES EV2 sessions use the EV2 frame: the same key data and CRC32 for
+    ///   a different key, ISO/IEC 9797-1 padding, the EV2 command IV, and a
+    ///   truncated CMAC. A change of the authenticated key ends the session.
+    ///
+    /// Only a change within the session's key family is supported. A change
+    /// of the authenticated key ends the session; the caller must
+    /// re-authenticate with the new key.
+    pub fn change_key(&mut self, change: KeyChange) -> Result<()> {
+        self.ensure_authenticated()?;
+        if change.key_number > 14 {
+            return Err(NfcError::InvalidArgument(
+                "DESFire application key numbers are 0..=14".to_owned(),
+            ));
+        }
+        let session = self.session.as_ref().expect("the session was checked");
+        let authenticated = session.key_no;
+        let session_type = session.key_type;
+        let family = KeyFamily::of(session_type);
+        family.validate_key(&change.new_key)?;
+        let same_key = change.key_number == authenticated;
+        let current = match (same_key, change.current_key.as_deref()) {
+            (true, _) => None,
+            (false, Some(current)) => {
+                family.validate_key(current)?;
+                Some(current.to_vec())
+            }
+            (false, None) => {
+                return Err(NfcError::InvalidArgument(format!(
+                    "changing key {} while authenticated with key {authenticated} needs that key's current value",
+                    change.key_number
+                )));
+            }
+        };
+        let mut key_number = change.key_number;
+        if self.selected == [0x00; 3] {
+            if change.key_number != 0 {
+                return Err(NfcError::InvalidArgument(
+                    "the PICC has one master key; the key number must be 0".to_owned(),
+                ));
+            }
+            // The upper KeyNo bits select the crypto of a PICC master key.
+            key_number |= family.application_key_type().bits() << 6;
+        }
+
+        let current = match current {
+            Some(mut current) => {
+                if family.embeds_version() {
+                    match self.key_version(change.key_number)? {
+                        Some(version) => set_des_key_version(&mut current, version),
+                        None => {
+                            return Err(NfcError::InvalidArgument(format!(
+                                "the card does not report the key version of key {}; changing another key needs it to reconstruct the stored key",
+                                change.key_number
+                            )));
+                        }
+                    }
+                }
+                Some(current)
+            }
+            None => None,
+        };
+        let wire = match session_type {
+            AuthKeyType::Des | AuthKeyType::Tdes2 => {
+                let mut plain = family.key_area(&change.new_key, change.new_key_version);
+                xor_key(&mut plain, current.as_deref(), family.key_length());
+                let crc = crc16_a(&plain);
+                plain.extend_from_slice(&crc);
+                if current.is_some() {
+                    let plain_crc =
+                        crc16_a(&family.key_area(&change.new_key, change.new_key_version));
+                    plain.extend_from_slice(&plain_crc);
+                }
+                let block = family.block_size();
+                while !plain.len().is_multiple_of(block) {
+                    plain.push(0);
+                }
+                let session = self.session.as_ref().expect("the session was checked");
+                // D40 "send" encrypts with the block decrypt direction.
+                d40_send(&expand_tdes_key(&session.enc_key)?, &plain)
+            }
+            AuthKeyType::Tdes3 | AuthKeyType::Aes => {
+                let mut plain = family.key_area(&change.new_key, change.new_key_version);
+                xor_key(&mut plain, current.as_deref(), family.key_length());
+                let mut crc_input = Vec::with_capacity(2 + plain.len());
+                crc_input.push(INS_CHANGE_KEY);
+                crc_input.push(key_number);
+                crc_input.extend_from_slice(&plain);
+                plain.extend_from_slice(&crc32_desfire(&crc_input));
+                if current.is_some() {
+                    plain.extend_from_slice(&crc32_desfire(
+                        &family.crc_key(&change.new_key, change.new_key_version),
+                    ));
+                }
+                let session = self.session.as_mut().expect("the session was checked");
+                let block = session.block_size();
+                while !plain.len().is_multiple_of(block) {
+                    plain.push(0);
+                }
+                let cipher = match session_type {
+                    AuthKeyType::Tdes3 => {
+                        cbc_encrypt_iv(&expand_tdes_key(&session.enc_key)?, &session.iv, &plain)?
+                    }
+                    AuthKeyType::Aes => aes_cbc_encrypt(&session.enc_key, &session.iv, &plain)?,
+                    _ => unreachable!("EV1 ChangeKey needs 3K3DES or AES"),
+                };
+                session.iv = cipher[cipher.len() - block..].to_vec();
+                cipher
+            }
+            AuthKeyType::AesEv2 => {
+                let mut plain = family.key_area(&change.new_key, change.new_key_version);
+                xor_key(&mut plain, current.as_deref(), family.key_length());
+                if current.is_some() {
+                    plain.extend_from_slice(&crc32_desfire(
+                        &family.crc_key(&change.new_key, change.new_key_version),
+                    ));
+                }
+                plain.push(0x80);
+                while !plain.len().is_multiple_of(16) {
+                    plain.push(0);
+                }
+                let session = self.session.as_ref().expect("the session was checked");
+                let iv = ev2_command_iv(&session.enc_key, &session.ti, session.counter)?;
+                aes_cbc_encrypt(&session.enc_key, &iv, &plain)?
+            }
+        };
+        let mut command = Vec::with_capacity(1 + wire.len() + 8);
+        command.push(key_number);
+        command.extend_from_slice(&wire);
+        if session_type == AuthKeyType::AesEv2 {
+            let session = self.session.as_ref().expect("the session was checked");
+            let mac = session.command_mac(INS_CHANGE_KEY, &command)?;
+            command.extend_from_slice(&ev2_truncate(&mac));
+        }
+        // Changing the authenticated key ends the session. The card answers
+        // the status without a response MAC because there is no key left to
+        // verify it with (confirmed on EV1 AES and by AN12343 for EV2 case 2),
+        // so drop the session before decoding the status-only response.
+        if same_key {
+            self.session = None;
+        }
+        let response_mode = match session_type {
+            AuthKeyType::Des | AuthKeyType::Tdes2 => CommunicationMode::Plain,
+            AuthKeyType::Tdes3 | AuthKeyType::Aes | AuthKeyType::AesEv2 => {
+                if same_key {
+                    CommunicationMode::Plain
+                } else {
+                    CommunicationMode::Maced
+                }
+            }
+        };
+        let (body, sw, _) = self.exchange_wire(INS_CHANGE_KEY, command, response_mode, Some(0))?;
+        if sw != STATUS_OK {
+            return Err(status_error(INS_CHANGE_KEY, sw));
+        }
+        if !body.is_empty() {
+            return Err(NfcError::VerificationFailed(format!(
+                "ChangeKey for key {} returned {} unexpected data bytes",
+                change.key_number,
+                body.len()
+            )));
+        }
+        Ok(())
     }
 
     /// Read the card UID after authentication.
@@ -4041,6 +4580,7 @@ mod tests {
             enc_key: key.to_vec(),
             mac_key: key.to_vec(),
             key_type,
+            key_no: 0,
             key_version: 0,
             iv,
             ti: [0u8; 4],
@@ -4053,6 +4593,7 @@ mod tests {
             enc_key: enc_key.to_vec(),
             mac_key: mac_key.to_vec(),
             key_type: AuthKeyType::AesEv2,
+            key_no: 0,
             key_version: 0,
             iv: Vec::new(),
             ti,
@@ -4820,6 +5361,199 @@ mod tests {
             .expect("TMAC file read");
         assert_eq!(mac.counter, 1);
         assert!(desfire.transaction_mac_input().is_empty());
+    }
+
+    #[test]
+    fn change_key_ev2_case_1_matches_an12343() {
+        // AN12343 9.2.1: authenticated with key 0, change key 1.
+        let mac_key = hex("605526E474B2304354D05A800F56B7A9");
+        let enc_key = hex("A664EA370E90B249FE2870772291A820");
+        let mut reader = ScriptedReader::with_responses(vec![ApduResponse::new(
+            hex("BB94CB85EBC43B9D"),
+            [0x91, 0x00],
+        )]);
+        let mut desfire = Desfire::new(&mut reader);
+        desfire.selected = [0xF0, 0x0D, 0x01];
+        desfire.session = Some(ev2_session(&mac_key, &enc_key, [0xBC, 0x35, 0x4C, 0xD5], 0));
+        desfire
+            .change_key(KeyChange {
+                key_number: 1,
+                new_key: hex("01234567890123456789012345678901"),
+                new_key_version: 0,
+                current_key: Some(vec![0u8; 16]),
+            })
+            .expect("ChangeKey case 1");
+        assert!(
+            desfire.session.is_some(),
+            "changing another key keeps the session"
+        );
+        drop(desfire);
+        assert_eq!(
+            reader.commands,
+            [hex("90 C4 00 00 29 \
+                 01 80D40DB52D5D8CA136249A0A14154DBA1BE0D67C408AB24CF0F3D3B4FE333C6A \
+                 D27EF8006B374ABB 00")]
+        );
+    }
+
+    #[test]
+    fn change_key_ev2_case_2_matches_an12343_and_ends_the_session() {
+        // AN12343 9.2.2: authenticated with key 0, change key 0.
+        let mac_key = hex("45D50C1570000D2F173DF949288E3CAD");
+        let enc_key = hex("E156C8522F7C8DC82B0C99BA847DE723");
+        let mut reader =
+            ScriptedReader::with_responses(vec![ApduResponse::new(Vec::new(), [0x91, 0x00])]);
+        let mut desfire = Desfire::new(&mut reader);
+        desfire.selected = [0xF0, 0x0D, 0x01];
+        desfire.session = Some(ev2_session(&mac_key, &enc_key, [0x94, 0x29, 0x7F, 0x4D], 0));
+        desfire
+            .change_key(KeyChange {
+                key_number: 0,
+                new_key: hex("01234567890123456789012345678901"),
+                new_key_version: 0,
+                current_key: None,
+            })
+            .expect("ChangeKey case 2");
+        assert!(
+            desfire.session.is_none(),
+            "changing the authenticated key ends the session"
+        );
+        drop(desfire);
+        assert_eq!(
+            reader.commands,
+            [hex("90 C4 00 00 29 \
+                 00 BF5400DC97A1FBD65BE870716D6F11F8161BB4CA472856DB94AB94B2EC1A13E6 \
+                 27CE07CF56C11091 00")]
+        );
+    }
+
+    #[test]
+    fn change_key_requires_the_old_key_for_another_key_number() {
+        let mut reader = ScriptedReader::new([0x91, 0x00]);
+        let mut desfire = Desfire::new(&mut reader);
+        desfire.selected = [0xF0, 0x0D, 0x01];
+        desfire.session = Some(ev1_session(AuthKeyType::Aes, &[0xA5; 16], vec![0u8; 16]));
+        let error = desfire
+            .change_key(KeyChange::new(1, vec![0x11; 16]))
+            .expect_err("key 1 needs its current value");
+        assert!(error.to_string().contains("current value"), "{error}");
+        assert!(reader.commands.is_empty(), "no command before the check");
+    }
+
+    #[test]
+    fn des_key_version_is_embedded_in_parity_bits() {
+        let mut key = [0xFFu8; 24];
+        set_des_key_version(&mut key, 0x05);
+        // Bits are written LSB first from the last byte, repeating every 8.
+        assert_eq!(key[23] & 1, 1);
+        assert_eq!(key[22] & 1, 0);
+        assert_eq!(key[21] & 1, 1);
+        assert_eq!(key[20] & 1, 0);
+        assert_eq!(key[19] & 1, 0);
+        assert_eq!(key[16] & 1, 0);
+        assert_eq!(key[15] & 1, 1);
+        assert_eq!(key[23] & 0xFE, 0xFE);
+    }
+
+    #[test]
+    fn change_key_ev1_aes_uses_header_crc_iv_and_a_maced_response() {
+        let session_key = [0x11u8; 16];
+        let iv = [0x22u8; 16];
+        let new_key = [0x33u8; 16];
+        let current = [0x44u8; 16];
+        let expected_plain = {
+            let mut plain = new_key.to_vec();
+            plain.push(0x05);
+            xor_key(&mut plain, Some(&current), 16);
+            let mut crc_input = vec![INS_CHANGE_KEY, 0x01];
+            crc_input.extend_from_slice(&plain);
+            let crc = crc32_desfire(&crc_input);
+            plain.extend_from_slice(&crc);
+            let crc = crc32_desfire(&new_key);
+            plain.extend_from_slice(&crc);
+            while !plain.len().is_multiple_of(16) {
+                plain.push(0);
+            }
+            plain
+        };
+        let expected_cipher =
+            aes_cbc_encrypt(&session_key, &iv, &expected_plain).expect("CBC encryption");
+        let response_mac = {
+            let next_iv = &expected_cipher[expected_cipher.len() - 16..];
+            ev1_cmac(AuthKeyType::Aes, &session_key, next_iv, &[0x00]).expect("response MAC")[..8]
+                .to_vec()
+        };
+        let mut reader =
+            ScriptedReader::with_responses(vec![ApduResponse::new(response_mac, [0x91, 0x00])]);
+        let mut desfire = Desfire::new(&mut reader);
+        desfire.selected = [0xF0, 0x0D, 0x01];
+        desfire.session = Some(ev1_session(AuthKeyType::Aes, &session_key, iv.to_vec()));
+        let result = desfire.change_key(KeyChange {
+            key_number: 1,
+            new_key: new_key.to_vec(),
+            new_key_version: 0x05,
+            current_key: Some(current.to_vec()),
+        });
+        let dump = |bytes: &[u8]| {
+            bytes
+                .iter()
+                .map(|byte| format!("{byte:02X}"))
+                .collect::<String>()
+        };
+        drop(desfire);
+        eprintln!("expected cipher: {}", dump(&expected_cipher));
+        eprintln!(
+            "commands: {:?}",
+            reader.commands.iter().map(|c| dump(c)).collect::<Vec<_>>()
+        );
+        result.expect("EV1 AES ChangeKey");
+        assert_eq!(reader.commands.len(), 1);
+        let data = &reader.commands[0][5..reader.commands[0].len() - 1];
+        assert_eq!(data[0], 0x01, "KeyNo header");
+        assert_eq!(&data[1..], expected_cipher.as_slice());
+    }
+
+    #[test]
+    fn change_key_d40_encodes_crc16_and_zero_iv() {
+        let session_key = [0x11u8; 8];
+        let new_key = [0x33u8; 8];
+        let current = [0x44u8; 8];
+        let expected_plain = {
+            let mut plain = KeyFamily::Tdes2.key_area(&new_key, 0x02);
+            xor_key(&mut plain, Some(&current), 16);
+            let crc = crc16_a(&plain);
+            plain.extend_from_slice(&crc);
+            let crc = crc16_a(&KeyFamily::Tdes2.key_area(&new_key, 0x02));
+            plain.extend_from_slice(&crc);
+            while !plain.len().is_multiple_of(8) {
+                plain.push(0);
+            }
+            plain
+        };
+        let expected_cipher = d40_send(
+            &expand_tdes_key(&session_key).expect("key"),
+            &expected_plain,
+        );
+        let mut reader = ScriptedReader::with_responses(vec![
+            ApduResponse::new(vec![0x00], [0x91, 0x00]),
+            ApduResponse::new(Vec::new(), [0x91, 0x00]),
+        ]);
+        let mut desfire = Desfire::new(&mut reader);
+        desfire.selected = [0xF0, 0x0D, 0x01];
+        desfire.session = Some(ev1_session(AuthKeyType::Des, &session_key, Vec::new()));
+        desfire
+            .change_key(KeyChange {
+                key_number: 1,
+                new_key: new_key.to_vec(),
+                new_key_version: 0x02,
+                current_key: Some(current.to_vec()),
+            })
+            .expect("D40 ChangeKey");
+        drop(desfire);
+        assert_eq!(reader.commands.len(), 2, "GetKeyVersion, then ChangeKey");
+        let data = &reader.commands[1][5..reader.commands[1].len() - 1];
+        assert_eq!(data[0], 0x01);
+        assert_eq!(&data[1..], expected_cipher.as_slice());
     }
 
     #[test]

@@ -17,13 +17,14 @@ use nfc_app::desfire::{
     AccessRight, AccessRights, ApplicationKeyType, AuthKeyType, CommunicationMode,
     DesfireAppCreateRequest, DesfireAppDeleteRequest, DesfireFileCreateRequest,
     DesfireFileDeleteRequest, DesfireFileSettingsRequest, DesfireFileSpec,
-    DesfireFreeMemoryRequest, DesfireNdefDeleteRequest, DesfireNdefFormatRequest,
-    DesfireReadResult, DesfireRecordOperation, DesfireRecordRequest, DesfireUidRequest,
-    DesfireValueOperation, DesfireValueRequest, DesfireVerifyKeyRequest, NDEF_APPLICATION_AID,
-    NDEF_CAPABILITY_CONTAINER, NDEF_CC_FILE, NDEF_CC_SIZE, NDEF_DATA_FILE, NDEF_DATA_SIZE,
-    NDEF_DF_NAME, app_create_text, app_delete_text, card_uid_text, file_create_text,
-    file_delete_text, file_settings_text, free_memory_text, key_verification_text,
-    read_protection_text, record_text, value_text,
+    DesfireFreeMemoryRequest, DesfireKeyChangeRequest, DesfireKeySettingsRequest,
+    DesfireNdefDeleteRequest, DesfireNdefFormatRequest, DesfireReadResult, DesfireRecordOperation,
+    DesfireRecordRequest, DesfireUidRequest, DesfireValueOperation, DesfireValueRequest,
+    DesfireVerifyKeyRequest, NDEF_APPLICATION_AID, NDEF_CAPABILITY_CONTAINER, NDEF_CC_FILE,
+    NDEF_CC_SIZE, NDEF_DATA_FILE, NDEF_DATA_SIZE, NDEF_DF_NAME, app_create_text, app_delete_text,
+    card_uid_text, file_create_text, file_delete_text, file_settings_text, free_memory_text,
+    key_change_text, key_settings_text, key_verification_text, read_protection_text, record_text,
+    value_text,
 };
 use nfc_app::type2::{
     Type2Auth, Type2Format, Type2Lock, Type2NdefWrite, Type2PageWrite, Type2Password,
@@ -866,6 +867,84 @@ enum DesfireCommand {
         /// Application key number, 0..=14.
         #[arg(long, default_value_t = 0, value_name = "N")]
         key_number: u8,
+    },
+    /// Read the key settings and key versions, or change the KeySettings byte.
+    KeySettings {
+        /// Application ID, e.g. A1B2C3. Defaults to the PICC.
+        #[arg(long, value_name = "HEX")]
+        aid: Option<String>,
+        /// Key for the selected family: DES 8, AES/2K3DES 16, 3K3DES 24 bytes.
+        #[arg(
+            long,
+            value_name = "HEX",
+            env = "NFC_FOUNDRY_DESFIRE_KEY",
+            hide_env_values = true
+        )]
+        key: Option<String>,
+        /// Explicit key family: des, 2k3des, 3k3des, aes, or ev2.
+        #[arg(long, value_name = "TYPE")]
+        key_type: Option<String>,
+        /// Application key number, 0..=14.
+        #[arg(long, default_value_t = 0, value_name = "N")]
+        key_number: u8,
+        /// New KeySettings byte, e.g. 0F. Ommitted reads only.
+        #[arg(long, value_name = "HEX")]
+        new_settings: Option<String>,
+        /// Required with --new-settings.
+        #[arg(long)]
+        advanced: bool,
+    },
+    /// Change one application key or the PICC master key.
+    ChangeKey {
+        /// Application ID, e.g. A1B2C3. Defaults to the PICC master key.
+        #[arg(long, value_name = "HEX")]
+        aid: Option<String>,
+        /// Key used for the current session: DES 8, AES/2K3DES 16, 3K3DES 24.
+        #[arg(
+            long,
+            value_name = "HEX",
+            env = "NFC_FOUNDRY_DESFIRE_KEY",
+            hide_env_values = true
+        )]
+        key: String,
+        /// Explicit key family: des, 2k3des, 3k3des, aes, or ev2.
+        #[arg(long, value_name = "TYPE")]
+        key_type: Option<String>,
+        /// Key number used for the session, 0..=14.
+        #[arg(long, default_value_t = 0, value_name = "N")]
+        auth_key_number: u8,
+        /// Key number to change, 0..=14.
+        #[arg(long, value_name = "N")]
+        key_number: u8,
+        /// New key value: DES 8, AES/2K3DES 16, 3K3DES 24 bytes.
+        #[arg(
+            long,
+            value_name = "HEX",
+            env = "NFC_FOUNDRY_DESFIRE_NEW_KEY",
+            hide_env_values = true
+        )]
+        new_key: String,
+        /// New key version, 0..=255; embedded for DES/3K3DES.
+        #[arg(long, default_value_t = 0, value_name = "N")]
+        new_key_version: u8,
+        /// Current value of the target key when it differs from --key.
+        #[arg(
+            long,
+            value_name = "HEX",
+            env = "NFC_FOUNDRY_DESFIRE_CURRENT_KEY",
+            hide_env_values = true
+        )]
+        current_key: Option<String>,
+        /// Write the new key to this file (mode 0600) before the change.
+        #[arg(long, value_name = "PATH")]
+        export: Option<PathBuf>,
+        /// Confirm the new key is recorded outside this session when it is
+        /// not exported.
+        #[arg(long)]
+        acknowledge_unrecorded: bool,
+        /// Required: changing a key changes how the card authenticates.
+        #[arg(long)]
+        advanced: bool,
     },
 }
 
@@ -2960,6 +3039,114 @@ fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<
             }
             let result = service.desfire_change_file_settings(request)?;
             print!("{}", file_settings_text(&result));
+            Ok(())
+        }
+        DesfireCommand::KeySettings {
+            aid,
+            key,
+            key_type,
+            key_number,
+            new_settings,
+            advanced,
+        } => {
+            let aid = parse_hex_array::<3>(aid.as_deref().unwrap_or("000000"), "DESFire AID")?;
+            let mut request = DesfireKeySettingsRequest::new(aid).key_number(key_number);
+            if let Some(key) = key {
+                request = request.key(parse_hex_bytes(&key, "DESFire key")?);
+            }
+            if let Some(key_type) = key_type {
+                request = request.key_type(parse_auth_key_type(&key_type)?);
+            }
+            if let Some(new_settings) = new_settings {
+                if !advanced {
+                    return Err(NfcError::InvalidArgument(
+                        "changing DESFire key settings requires --advanced".to_owned(),
+                    ));
+                }
+                require_confirmation(
+                    cli.yes,
+                    &format!(
+                        "changing the KeySettings of DESFire application {}",
+                        hex_bytes(&aid)
+                    ),
+                )?;
+                let new_settings = parse_hex_array::<1>(&new_settings, "DESFire KeySettings")?[0];
+                request = request
+                    .new_key_settings(new_settings)
+                    .advanced(true)
+                    .confirm(true);
+            }
+            let result = service.desfire_key_settings(request)?;
+            print!("{}", key_settings_text(&result));
+            Ok(())
+        }
+        DesfireCommand::ChangeKey {
+            aid,
+            key,
+            key_type,
+            auth_key_number,
+            key_number,
+            new_key,
+            new_key_version,
+            current_key,
+            export,
+            acknowledge_unrecorded,
+            advanced,
+        } => {
+            let aid = parse_hex_array::<3>(aid.as_deref().unwrap_or("000000"), "DESFire AID")?;
+            if auth_key_number > 14 || key_number > 14 {
+                return Err(NfcError::InvalidArgument(
+                    "DESFire key numbers are 0..=14".to_owned(),
+                ));
+            }
+            if !advanced {
+                return Err(NfcError::InvalidArgument(
+                    "changing a DESFire key requires --advanced".to_owned(),
+                ));
+            }
+            if export.is_none() && !acknowledge_unrecorded {
+                return Err(NfcError::InvalidArgument(
+                    "pass --export PATH or --acknowledge-unrecorded: a lost DESFire key cannot be recovered"
+                        .to_owned(),
+                ));
+            }
+            let action = format!(
+                "changing DESFire key {key_number} on application {} to version {new_key_version}",
+                hex_bytes(&aid)
+            );
+            println!("{action}");
+            if let Some(path) = &export {
+                println!(
+                    "the new key is written to {} before the change",
+                    path.display()
+                );
+            } else {
+                println!("the new key is not exported; it must be recorded outside this session");
+            }
+            require_confirmation(cli.yes, &action)?;
+            let mut request = DesfireKeyChangeRequest::new(
+                aid,
+                key_number,
+                parse_hex_bytes(&new_key, "new DESFire key")?,
+            )
+            .key(parse_hex_bytes(&key, "DESFire key")?)
+            .auth_key_number(auth_key_number)
+            .new_key_version(new_key_version)
+            .acknowledge_unrecorded(acknowledge_unrecorded)
+            .advanced(true)
+            .confirm(true);
+            if let Some(key_type) = key_type {
+                request = request.key_type(parse_auth_key_type(&key_type)?);
+            }
+            if let Some(current_key) = current_key {
+                request =
+                    request.current_key(parse_hex_bytes(&current_key, "current DESFire key")?);
+            }
+            if let Some(export) = export {
+                request = request.export_path(export);
+            }
+            let result = service.desfire_change_key(request)?;
+            print!("{}", key_change_text(&result));
             Ok(())
         }
         DesfireCommand::Info => {

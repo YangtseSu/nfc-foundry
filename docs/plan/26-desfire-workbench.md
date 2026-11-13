@@ -1,11 +1,11 @@
 # Phase 26 plan: DESFire workbench
 
-Status: in progress. 26.1–26.10 are complete; 26.11–26.13 are pending, except
+Status: in progress. 26.1–26.11 are complete; 26.12–26.13 are pending, except
 that 26.12's ordinary NDEF provisioning and guarded delete landed in phase
-25.5. 26.10's Transaction Timer configuration is blocked on the non-public
-PDCap2.2 encoding. Hardware: PN532 UART first; ACR122U records after a reader
-is available. 26.8 and 26.9 passed on PN532 UART and ACR122U on 2026-11-13;
-26.10 passed on PN532 UART on 2026-11-14.
+25.5. 26.10's Transaction Timer configuration and 26.11's multiple key sets are
+blocked on non-public encodings. Hardware: PN532 UART first; ACR122U records
+after a reader is available. 26.8 and 26.9 passed on PN532 UART and ACR122U on
+2026-11-13; 26.10 and 26.11 passed on PN532 UART on 2026-11-14.
 
 ## Goal
 
@@ -277,16 +277,25 @@ Acceptance:
 
 ### 26.11 Key management
 
+Status: complete 2026-11-14 except multiple key sets and key rolling, which are
+blocked on the non-public EV2/EV3 key set command encoding. See
+[26k-key-management.md](../notes/26k-key-management.md) and the
+[26k spec](../specs/26k-key-management.md).
+
 Deliver:
 
 - Change PICC master key and application keys: key type, key number, key
-  version, current key, and new key.
-- Change application key settings and access rights.
-- Multiple key sets and key rolling where the card supports it, with explicit
-  set selection and version display.
+  version, current key, and new key. Same-family changes only; a cross-family
+  PICC master key change is refused.
+- Change application key settings.
+- Multiple key sets and key rolling: blocked. AN12752 confirms the feature and
+  the commands, but the parameter and key set settings encoding require the
+  NDA-only functional specification.
 - Key export only when the user explicitly asks; otherwise keys remain
-  session-scoped.
-- Optional local key store with file-permission protection and no key logging.
+  session-scoped. The export file is written with mode 0600 before the change,
+  and no key is logged or printed.
+- Optional local key store: implemented as the explicit private export file;
+  no implicit store is added.
 - Re-authenticate with the new key immediately after the change and read back
   the key version.
 
@@ -294,7 +303,8 @@ Acceptance:
 
 - Key changes are tested on a reserved test application first; PICC master key
   changes require a dedicated test card or explicit user confirmation and a
-  recorded new key.
+  recorded new key. The AES and DES reserved applications passed on PN532 UART
+  under EV1 and EV2; the owned PICC master key was not changed.
 - A lost/unrecorded new key is reported as unrecoverable before the change, not
   after.
 - No key recovery, dictionary, or brute-force path is added.

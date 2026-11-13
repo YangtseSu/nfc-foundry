@@ -25,7 +25,11 @@ management (create/delete applications and all six file types, settings
 changes, free memory, manifest export) is validated on PN532 UART and
 ACR122U. Value credit/debit/limited-credit, record append/update/clear, and
 Transaction MAC verification are validated on PN532 UART; the ACR122U row is
-pending. Transaction Timer configuration is blocked on the non-public PDCap2.2
+pending. Key settings reads and changes, application key and PICC master key
+changes, re-authentication, and key-version read-back are validated on PN532
+UART under DES, AES EV1, and AES EV2; the ACR122U row is pending. Multiple key
+sets and key rolling are blocked on the non-public EV2/EV3 key set encoding.
+Transaction Timer configuration is blocked on the non-public PDCap2.2
 encoding. Type 4
 read/write is
 validated on

@@ -24,12 +24,13 @@ use nfc_app::classic::{
 use nfc_app::desfire::{
     ApplicationKeyType, AuthKeyType, CommunicationMode, DesfireAppCreateRequest,
     DesfireAppDeleteRequest, DesfireFileCreateRequest, DesfireFileDeleteRequest,
-    DesfireFileSettingsRequest, DesfireFileSpec, DesfireFreeMemoryRequest,
-    DesfireNdefDeleteRequest, DesfireNdefFormatRequest, DesfireReadRequest, DesfireReadResult,
-    DesfireRecordOperation, DesfireRecordRequest, DesfireUidRequest, DesfireValueOperation,
-    DesfireValueRequest, DesfireVerifyKeyRequest, DesfireWriteRequest, NDEF_APPLICATION_AID,
-    NDEF_CC_FILE, NDEF_CC_SIZE, NDEF_DATA_FILE, NDEF_DATA_SIZE, app_create_text, app_delete_text,
-    card_uid_text, file_create_text, file_delete_text, file_settings_text, free_memory_text,
+    DesfireFileSettingsRequest, DesfireFileSpec, DesfireFreeMemoryRequest, DesfireKeyChangeRequest,
+    DesfireKeySettingsRequest, DesfireNdefDeleteRequest, DesfireNdefFormatRequest,
+    DesfireReadRequest, DesfireReadResult, DesfireRecordOperation, DesfireRecordRequest,
+    DesfireUidRequest, DesfireValueOperation, DesfireValueRequest, DesfireVerifyKeyRequest,
+    DesfireWriteRequest, NDEF_APPLICATION_AID, NDEF_CC_FILE, NDEF_CC_SIZE, NDEF_DATA_FILE,
+    NDEF_DATA_SIZE, app_create_text, app_delete_text, card_uid_text, file_create_text,
+    file_delete_text, file_settings_text, free_memory_text, key_change_text, key_settings_text,
     key_verification_text, read_protection_text, record_text, value_text, write_text,
 };
 use nfc_app::type2::{
@@ -1119,6 +1120,22 @@ struct DesfireView {
     mutation_run: gtk::Button,
     mutation_output: gtk::Label,
     mutation_status: gtk::Label,
+    keys_aid: gtk::Entry,
+    keys_key: gtk::PasswordEntry,
+    keys_key_type: gtk::DropDown,
+    keys_key_number: gtk::Entry,
+    keys_current: gtk::PasswordEntry,
+    keys_target: gtk::Entry,
+    keys_new_key: gtk::PasswordEntry,
+    keys_new_version: gtk::Entry,
+    keys_new_settings: gtk::Entry,
+    keys_export: gtk::Entry,
+    keys_recorded: gtk::CheckButton,
+    read_key_settings: gtk::Button,
+    change_key_settings: gtk::Button,
+    change_key: gtk::Button,
+    keys_output: gtk::Label,
+    keys_status: gtk::Label,
     ndef_key: gtk::PasswordEntry,
     ndef_key_type: gtk::DropDown,
     ndef_key_number: gtk::Entry,
@@ -2309,6 +2326,125 @@ fn build_desfire_view() -> DesfireView {
     mutation_page.append(&mutation_output_scroll);
     mutation_page.append(&mutation_status);
 
+    let keys_page = page_box();
+    let keys_hint = gtk::Label::new(Some(
+        "Read the key settings and per-key versions. Changing KeySettings or a key needs \
+         Advanced mode on the Manage tab and typed confirmation. A key change writes the new \
+         key to the export file (mode 0600) before the card command, re-authenticates with the \
+         new key, and reads its version back. A lost key cannot be recovered.",
+    ));
+    keys_hint.set_xalign(0.0);
+    keys_hint.set_wrap(true);
+    keys_hint.add_css_class("caption");
+    keys_hint.add_css_class("dim-label");
+    let keys_form = gtk::Grid::new();
+    keys_form.set_row_spacing(8);
+    keys_form.set_column_spacing(12);
+    let mut keys_row = 0;
+    let mut add_keys_field = |label: &str, widget: &gtk::Widget| {
+        let caption = gtk::Label::new(Some(label));
+        caption.set_xalign(0.0);
+        caption.add_css_class("caption");
+        caption.add_css_class("dim-label");
+        keys_form.attach(&caption, 0, keys_row, 1, 1);
+        keys_form.attach(widget, 1, keys_row, 1, 1);
+        widget.set_hexpand(true);
+        keys_row += 1;
+    };
+
+    let keys_aid = gtk::Entry::new();
+    keys_aid.set_placeholder_text(Some("A1B2C3; empty for the PICC"));
+    keys_aid.set_max_width_chars(12);
+    add_keys_field("Application ID", keys_aid.upcast_ref());
+
+    let keys_key = gtk::PasswordEntry::new();
+    keys_key.set_show_peek_icon(true);
+    keys_key.set_placeholder_text(Some("session key; optional for a free read"));
+    add_keys_field("Current session key", keys_key.upcast_ref());
+
+    let keys_key_type =
+        gtk::DropDown::from_strings(&["Auto", "DES", "2K3DES", "3K3DES", "AES", "AES EV2"]);
+    keys_key_type.set_selected(0);
+    add_keys_field("Session key type", keys_key_type.upcast_ref());
+
+    let keys_key_number = gtk::Entry::new();
+    keys_key_number.set_text("0");
+    keys_key_number.set_max_width_chars(4);
+    add_keys_field("Session key number", keys_key_number.upcast_ref());
+
+    let keys_target = gtk::Entry::new();
+    keys_target.set_text("0");
+    keys_target.set_max_width_chars(4);
+    add_keys_field("Key number to change", keys_target.upcast_ref());
+
+    let keys_current = gtk::PasswordEntry::new();
+    keys_current.set_show_peek_icon(true);
+    keys_current.set_placeholder_text(Some(
+        "current value of the target key; required when it differs from the session key",
+    ));
+    add_keys_field("Target key current value", keys_current.upcast_ref());
+
+    let keys_new_key = gtk::PasswordEntry::new();
+    keys_new_key.set_show_peek_icon(true);
+    keys_new_key.set_placeholder_text(Some("DES 16 hex digits; AES/2K3DES 32; 3K3DES 48"));
+    add_keys_field("New key", keys_new_key.upcast_ref());
+
+    let keys_new_version = gtk::Entry::new();
+    keys_new_version.set_text("0");
+    keys_new_version.set_max_width_chars(4);
+    add_keys_field("New key version", keys_new_version.upcast_ref());
+
+    let keys_new_settings = gtk::Entry::new();
+    keys_new_settings.set_placeholder_text(Some("new KeySettings byte, e.g. 0F"));
+    keys_new_settings.set_max_width_chars(4);
+    add_keys_field("New KeySettings (optional)", keys_new_settings.upcast_ref());
+
+    let keys_export = gtk::Entry::new();
+    keys_export.set_placeholder_text(Some("file that receives the new key before the change"));
+    add_keys_field("Export path", keys_export.upcast_ref());
+
+    let keys_recorded =
+        gtk::CheckButton::with_label("The new key is recorded outside this session");
+    keys_recorded.set_active(false);
+    keys_recorded.set_hexpand(true);
+    add_keys_field("Without an export", keys_recorded.upcast_ref());
+
+    let keys_buttons = gtk::Box::new(Orientation::Horizontal, 8);
+    let read_key_settings = gtk::Button::with_label("Read key settings");
+    read_key_settings.add_css_class("suggested-action");
+    let change_key_settings = gtk::Button::with_label("Change KeySettings");
+    change_key_settings.add_css_class("destructive-action");
+    let change_key = gtk::Button::with_label("Change key");
+    change_key.add_css_class("destructive-action");
+    keys_buttons.append(&read_key_settings);
+    keys_buttons.append(&change_key_settings);
+    keys_buttons.append(&change_key);
+
+    let keys_output = gtk::Label::new(None);
+    keys_output.set_xalign(0.0);
+    keys_output.set_wrap(true);
+    keys_output.set_selectable(true);
+    keys_output.add_css_class("monospace");
+    let keys_output_scroll = gtk::ScrolledWindow::builder()
+        .child(&keys_output)
+        .vexpand(true)
+        .build();
+    let keys_status = gtk::Label::new(None);
+    keys_status.set_xalign(0.0);
+    keys_status.set_wrap(true);
+    keys_status.set_selectable(true);
+    keys_status.add_css_class("caption");
+    keys_status.add_css_class("dim-label");
+    let keys_form_scroll = gtk::ScrolledWindow::builder()
+        .child(&keys_form)
+        .vexpand(true)
+        .build();
+    keys_page.append(&keys_hint);
+    keys_page.append(&keys_form_scroll);
+    keys_page.append(&keys_buttons);
+    keys_page.append(&keys_output_scroll);
+    keys_page.append(&keys_status);
+
     let tabs = gtk::Stack::new();
     tabs.set_transition_type(gtk::StackTransitionType::Crossfade);
     tabs.set_vexpand(true);
@@ -2318,6 +2454,7 @@ fn build_desfire_view() -> DesfireView {
     tabs.add_titled(&verify_page, Some("verify"), "Verify");
     tabs.add_titled(&manage_page, Some("manage"), "Manage");
     tabs.add_titled(&mutation_page, Some("mutation"), "Values & records");
+    tabs.add_titled(&keys_page, Some("keys"), "Keys");
     tabs.add_titled(&ndef_page, Some("ndef"), "NDEF");
     let (root, switcher) = grouped_page(&tabs);
     DesfireView {
@@ -2400,6 +2537,22 @@ fn build_desfire_view() -> DesfireView {
         mutation_run,
         mutation_output,
         mutation_status,
+        keys_aid,
+        keys_key,
+        keys_key_type,
+        keys_key_number,
+        keys_current,
+        keys_target,
+        keys_new_key,
+        keys_new_version,
+        keys_new_settings,
+        keys_export,
+        keys_recorded,
+        read_key_settings,
+        change_key_settings,
+        change_key,
+        keys_output,
+        keys_status,
         ndef_key,
         ndef_key_type,
         ndef_key_number,
@@ -3877,6 +4030,18 @@ fn connect_signals(ui: &Rc<Ui>) {
     ui.desfire_view
         .mutation_run
         .connect_clicked(move |_| start_desfire_mutation(ui2.clone()));
+    let ui2 = ui.clone();
+    ui.desfire_view
+        .read_key_settings
+        .connect_clicked(move |_| start_desfire_key_settings(ui2.clone(), false));
+    let ui2 = ui.clone();
+    ui.desfire_view
+        .change_key_settings
+        .connect_clicked(move |_| start_desfire_key_settings(ui2.clone(), true));
+    let ui2 = ui.clone();
+    ui.desfire_view
+        .change_key
+        .connect_clicked(move |_| start_desfire_change_key(ui2.clone()));
     let ui2 = ui.clone();
     ui.desfire_view
         .advanced
@@ -6447,6 +6612,11 @@ fn clear_desfire_session(ui: &Rc<Ui>) {
     ui.desfire_view.write_status.set_text("");
     ui.desfire_view.ndef_key.set_text("");
     ui.desfire_view.ndef_status.set_text("");
+    ui.desfire_view.keys_key.set_text("");
+    ui.desfire_view.keys_current.set_text("");
+    ui.desfire_view.keys_new_key.set_text("");
+    ui.desfire_view.keys_output.set_text("");
+    ui.desfire_view.keys_status.set_text("");
     ui.desfire_view.ndef_output.set_text("");
     ui.desfire_view.manage_key.set_text("");
     ui.desfire_view.mutation_key.set_text("");
@@ -7835,6 +8005,49 @@ fn run_desfire_manage<F>(
     });
 }
 
+fn run_desfire_keys<F>(ui: Rc<Ui>, busy_status: &'static str, success_status: &'static str, task: F)
+where
+    F: FnOnce(&mut Service) -> NfcResult<String> + Send + 'static,
+{
+    set_busy(&ui, true);
+    ui.status.set_localized(busy_status);
+    ui.desfire_view.keys_status.set_localized(busy_status);
+    let service = ui.service.clone();
+    let (sender, receiver) = async_channel::bounded(1);
+    std::thread::spawn(move || {
+        let result = match service.lock() {
+            Ok(mut service) => task(&mut service),
+            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
+        };
+        let _ = sender.send_blocking(result);
+    });
+    glib::spawn_future_local(async move {
+        set_busy(&ui, false);
+        match receiver.recv().await {
+            Ok(Ok(text)) => {
+                ui.desfire_view.keys_output.set_text(&text);
+                ui.desfire_view.keys_status.set_localized(success_status);
+                ui.status.set_localized(success_status);
+                append_log(&ui, "desfire · keys");
+                update_desfire_actions(&ui);
+            }
+            Ok(Err(error)) => {
+                ui.desfire_view
+                    .keys_status
+                    .set_localized("DESFire key operation failed");
+                ui.status.set_localized("DESFire key operation failed");
+                toast_error(&ui, &format!("DESFire key: {error}"));
+            }
+            Err(_) => {
+                ui.desfire_view
+                    .keys_status
+                    .set_localized("Reader worker stopped");
+                toast_error(&ui, "Reader worker stopped");
+            }
+        }
+    });
+}
+
 fn run_desfire_mutation<F>(
     ui: Rc<Ui>,
     busy_status: &'static str,
@@ -8151,6 +8364,276 @@ fn start_desfire_app_delete(ui: Rc<Ui>) {
     present_alert(&dialog, &ui.window);
 }
 
+fn desfire_keys_aid(view: &DesfireView) -> std::result::Result<[u8; 3], String> {
+    let text = view.keys_aid.text();
+    if text.trim().is_empty() {
+        return Ok([0x00; 3]);
+    }
+    let aid = parse_desfire_hex(&text, 3, "application ID")?;
+    Ok([aid[0], aid[1], aid[2]])
+}
+
+fn start_desfire_key_settings(ui: Rc<Ui>, changing: bool) {
+    if ui.busy.get() {
+        return;
+    }
+    if ui.devices.borrow().is_empty() {
+        toast_error(&ui, "No reader selected");
+        return;
+    }
+    if changing && !ui.desfire_view.advanced.is_active() {
+        toast_error(&ui, "Enable Advanced mode before changing key settings");
+        return;
+    }
+    let parsed = (|| -> std::result::Result<_, String> {
+        let aid = desfire_keys_aid(&ui.desfire_view)?;
+        let key = parse_desfire_key(&ui.desfire_view.keys_key.text())?;
+        let key_type = desfire_key_type(&ui.desfire_view.keys_key_type);
+        let key_number = desfire_key_number(&ui.desfire_view.keys_key_number.text())?;
+        let new_settings = if changing {
+            Some(parse_desfire_hex(&ui.desfire_view.keys_new_settings.text(), 1, "KeySettings")?[0])
+        } else {
+            None
+        };
+        Ok((aid, key, key_type, key_number, new_settings))
+    })();
+    let (aid, key, key_type, key_number, new_settings) = match parsed {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            toast_error(&ui, &error);
+            return;
+        }
+    };
+    if !changing {
+        run_desfire_keys(
+            ui,
+            "Reading DESFire key settings…",
+            "Key settings read",
+            move |service| {
+                let mut request = DesfireKeySettingsRequest::new(aid).key_number(key_number);
+                if let Some(key) = key {
+                    request = request.key(key);
+                }
+                if let Some(key_type) = key_type {
+                    request = request.key_type(key_type);
+                }
+                service
+                    .desfire_key_settings(request)
+                    .map(|result| key_settings_text(&result))
+            },
+        );
+        return;
+    }
+    let Some(new_settings) = new_settings else {
+        return;
+    };
+    let label = if aid == [0x00; 3] {
+        "the PICC".to_owned()
+    } else {
+        format!("application {}", type2_ui::hex_bytes(&aid))
+    };
+    let body = format!(
+        "Change the KeySettings byte of {label} to {new_settings:02X}.
+         This controls who may change keys and the application configuration.
+         The card reads the new byte back after the command.
+
+         Type CHANGE to confirm"
+    );
+    let dialog = typed_confirmation_dialog(
+        "Change DESFire KeySettings?",
+        &body,
+        "Change KeySettings",
+        "CHANGE",
+    );
+    ui.pending_desfire_dialog.replace(Some(dialog.clone()));
+    let ui2 = ui.clone();
+    let parsed = RefCell::new(Some((aid, key, key_type, key_number, new_settings)));
+    dialog.connect_response(None, move |_, response| {
+        ui2.pending_desfire_dialog.replace(None);
+        if response != "confirm" {
+            return;
+        }
+        let Some((aid, key, key_type, key_number, new_settings)) = parsed.borrow_mut().take()
+        else {
+            return;
+        };
+        run_desfire_keys(
+            ui2.clone(),
+            "Changing DESFire KeySettings…",
+            "KeySettings changed",
+            move |service| {
+                let mut request = DesfireKeySettingsRequest::new(aid)
+                    .key_number(key_number)
+                    .new_key_settings(new_settings)
+                    .advanced(true)
+                    .confirm(true);
+                if let Some(key) = key {
+                    request = request.key(key);
+                }
+                if let Some(key_type) = key_type {
+                    request = request.key_type(key_type);
+                }
+                service
+                    .desfire_key_settings(request)
+                    .map(|result| key_settings_text(&result))
+            },
+        );
+    });
+    present_alert(&dialog, &ui.window);
+}
+
+fn start_desfire_change_key(ui: Rc<Ui>) {
+    if ui.busy.get() {
+        return;
+    }
+    if ui.devices.borrow().is_empty() {
+        toast_error(&ui, "No reader selected");
+        return;
+    }
+    if !ui.desfire_view.advanced.is_active() {
+        toast_error(&ui, "Enable Advanced mode before changing a key");
+        return;
+    }
+    let parsed = (|| -> std::result::Result<_, String> {
+        let aid = desfire_keys_aid(&ui.desfire_view)?;
+        let key = desfire_required_application_key(&ui.desfire_view.keys_key.text())?;
+        let key_type = desfire_key_type(&ui.desfire_view.keys_key_type);
+        let auth_key_number = desfire_key_number(&ui.desfire_view.keys_key_number.text())?;
+        let key_number = desfire_key_number(&ui.desfire_view.keys_target.text())?;
+        let current_key = parse_desfire_key(&ui.desfire_view.keys_current.text())?;
+        let new_key = desfire_required_application_key(&ui.desfire_view.keys_new_key.text())?;
+        let new_key_version = ui
+            .desfire_view
+            .keys_new_version
+            .text()
+            .trim()
+            .parse::<u8>()
+            .map_err(|_| "key version must be 0..=255".to_owned())?;
+        let export_path = {
+            let text = ui.desfire_view.keys_export.text();
+            let trimmed = text.trim();
+            (!trimmed.is_empty()).then(|| std::path::PathBuf::from(trimmed))
+        };
+        let recorded = ui.desfire_view.keys_recorded.is_active();
+        if export_path.is_none() && !recorded {
+            return Err(
+                "give an export path or confirm the new key is recorded elsewhere; a lost key cannot be recovered"
+                    .to_owned(),
+            );
+        }
+        Ok((
+            aid,
+            key,
+            key_type,
+            auth_key_number,
+            key_number,
+            current_key,
+            new_key,
+            new_key_version,
+            export_path,
+        ))
+    })();
+    let (
+        aid,
+        key,
+        key_type,
+        auth_key_number,
+        key_number,
+        current_key,
+        new_key,
+        new_key_version,
+        export_path,
+    ) = match parsed {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            toast_error(&ui, &error);
+            return;
+        }
+    };
+    let label = if aid == [0x00; 3] {
+        "the PICC master key".to_owned()
+    } else {
+        format!("application {}", type2_ui::hex_bytes(&aid))
+    };
+    let export_line = match &export_path {
+        Some(path) => format!(
+            "The new key is written to {} (mode 0600) before the change.",
+            path.display()
+        ),
+        None => "The new key is not exported; it must be recorded outside this session.".to_owned(),
+    };
+    let body = format!(
+        "Change key {key_number} of {label} to version {new_key_version}.
+         Session key number: {auth_key_number}.
+         {export_line}
+         The card is re-authenticated with the new key and its version is read back.
+         A lost key cannot be recovered.
+
+         Type CHANGE to confirm"
+    );
+    let dialog = typed_confirmation_dialog("Change a DESFire key?", &body, "Change key", "CHANGE");
+    ui.pending_desfire_dialog.replace(Some(dialog.clone()));
+    let ui2 = ui.clone();
+    let parsed = RefCell::new(Some((
+        aid,
+        key,
+        key_type,
+        auth_key_number,
+        key_number,
+        current_key,
+        new_key,
+        new_key_version,
+        export_path,
+    )));
+    dialog.connect_response(None, move |_, response| {
+        ui2.pending_desfire_dialog.replace(None);
+        if response != "confirm" {
+            return;
+        }
+        let Some((
+            aid,
+            key,
+            key_type,
+            auth_key_number,
+            key_number,
+            current_key,
+            new_key,
+            new_key_version,
+            export_path,
+        )) = parsed.borrow_mut().take()
+        else {
+            return;
+        };
+        run_desfire_keys(
+            ui2.clone(),
+            "Changing the DESFire key…",
+            "DESFire key changed",
+            move |service| {
+                let mut request = DesfireKeyChangeRequest::new(aid, key_number, new_key)
+                    .key(key)
+                    .auth_key_number(auth_key_number)
+                    .new_key_version(new_key_version)
+                    .advanced(true)
+                    .confirm(true);
+                if let Some(key_type) = key_type {
+                    request = request.key_type(key_type);
+                }
+                if let Some(current_key) = current_key {
+                    request = request.current_key(current_key);
+                }
+                match export_path {
+                    Some(path) => request = request.export_path(path),
+                    None => request = request.acknowledge_unrecorded(true),
+                }
+                service
+                    .desfire_change_key(request)
+                    .map(|result| key_change_text(&result))
+            },
+        );
+    });
+    present_alert(&dialog, &ui.window);
+}
+
 fn start_desfire_file_create(ui: Rc<Ui>) {
     if ui.busy.get() {
         return;
@@ -8402,6 +8885,9 @@ fn update_desfire_actions(ui: &Ui) {
         .set_sensitive(sensitive);
     ui.desfire_view.delete_file.set_sensitive(advanced);
     ui.desfire_view.read_memory.set_sensitive(sensitive);
+    ui.desfire_view.read_key_settings.set_sensitive(sensitive);
+    ui.desfire_view.change_key_settings.set_sensitive(advanced);
+    ui.desfire_view.change_key.set_sensitive(advanced);
 }
 
 fn start_read(ui: Rc<Ui>) {
@@ -16987,6 +17473,26 @@ mod tests {
         assert_eq!(ui.desfire_view.ndef_key_type.selected(), 0);
         assert!(ui.desfire_view.tabs.child_by_name("manage").is_some());
         assert!(ui.desfire_view.tabs.child_by_name("mutation").is_some());
+        assert!(ui.desfire_view.tabs.child_by_name("keys").is_some());
+        assert_eq!(
+            ui.desfire_view.read_key_settings.label().as_deref(),
+            Some("Read key settings")
+        );
+        assert_eq!(
+            ui.desfire_view.change_key_settings.label().as_deref(),
+            Some("Change KeySettings")
+        );
+        assert_eq!(
+            ui.desfire_view.change_key.label().as_deref(),
+            Some("Change key")
+        );
+        assert!(ui.desfire_view.read_key_settings.is_sensitive());
+        assert!(!ui.desfire_view.change_key.is_sensitive());
+        assert!(!ui.desfire_view.change_key_settings.is_sensitive());
+        assert_eq!(desfire_keys_aid(&ui.desfire_view), Ok([0x00; 3]));
+        ui.desfire_view.keys_aid.set_text("F00D01");
+        assert_eq!(desfire_keys_aid(&ui.desfire_view), Ok([0xF0, 0x0D, 0x01]));
+        ui.desfire_view.keys_aid.set_text("");
         assert_eq!(
             ui.desfire_view.mutation_run.label().as_deref(),
             Some("Apply value or record change")
@@ -17023,6 +17529,8 @@ mod tests {
         assert!(ui.desfire_view.delete_ndef.is_sensitive());
         assert!(ui.desfire_view.delete_app.is_sensitive());
         assert!(ui.desfire_view.delete_file.is_sensitive());
+        assert!(ui.desfire_view.change_key.is_sensitive());
+        assert!(ui.desfire_view.change_key_settings.is_sensitive());
         ui.desfire_view.advanced.set_active(false);
         assert!(!ui.desfire_view.format_ndef.is_sensitive());
         assert!(!ui.desfire_view.delete_app.is_sensitive());

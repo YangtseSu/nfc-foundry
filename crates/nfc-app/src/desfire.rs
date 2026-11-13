@@ -6,7 +6,7 @@ use nfc_desfire::Desfire;
 pub use nfc_desfire::{
     AccessRight, AccessRights, Application, ApplicationKeyType, ApplicationSpec, AuthKeyType,
     CommunicationMode, FileContents, FileInfo, FileSettings, FileType, IntegrityCheck, Inventory,
-    NDEF_APPLICATION_AID, NDEF_APPLICATION_ISO_FILE, NDEF_APPLICATION_KEY,
+    KeySettings, NDEF_APPLICATION_AID, NDEF_APPLICATION_ISO_FILE, NDEF_APPLICATION_KEY,
     NDEF_APPLICATION_KEY_SETTINGS, NDEF_CAPABILITY_CONTAINER, NDEF_CC_ACCESS_RIGHTS, NDEF_CC_FILE,
     NDEF_CC_ISO_FILE, NDEF_CC_SIZE, NDEF_DATA_ACCESS_RIGHTS, NDEF_DATA_FILE, NDEF_DATA_ISO_FILE,
     NDEF_DATA_SIZE, NDEF_DF_NAME, RecordFileSpec, TransactionMacFileSpec, ValueFileSpec, Version,
@@ -1169,6 +1169,206 @@ pub struct DesfireFileSettingsResult {
     pub after: FileSettings,
     /// False when the requested values already matched the card.
     pub changed: bool,
+}
+
+/// Read the key settings of one application or the PICC, and optionally
+/// change the KeySettings byte.
+///
+/// A change needs the authenticating key, Advanced mode, and confirmation.
+/// The key stays out of `Debug`.
+pub struct DesfireKeySettingsRequest {
+    pub aid: [u8; 3],
+    key: Option<Vec<u8>>,
+    pub key_type: Option<AuthKeyType>,
+    pub key_number: u8,
+    /// New KeySettings byte; `None` reads only.
+    pub new_key_settings: Option<u8>,
+    pub advanced: bool,
+    pub confirm: bool,
+    pub cancel: CancelToken,
+}
+
+impl DesfireKeySettingsRequest {
+    pub fn new(aid: [u8; 3]) -> Self {
+        Self {
+            aid,
+            key: None,
+            key_type: None,
+            key_number: 0,
+            new_key_settings: None,
+            advanced: false,
+            confirm: false,
+            cancel: CancelToken::new(),
+        }
+    }
+
+    pub fn key(mut self, key: Vec<u8>) -> Self {
+        self.key = Some(key);
+        self
+    }
+
+    pub fn key_type(mut self, key_type: AuthKeyType) -> Self {
+        self.key_type = Some(key_type);
+        self
+    }
+
+    pub fn key_number(mut self, key_number: u8) -> Self {
+        self.key_number = key_number;
+        self
+    }
+
+    pub fn new_key_settings(mut self, key_settings: u8) -> Self {
+        self.new_key_settings = Some(key_settings);
+        self
+    }
+
+    pub fn advanced(mut self, advanced: bool) -> Self {
+        self.advanced = advanced;
+        self
+    }
+
+    pub fn confirm(mut self, confirm: bool) -> Self {
+        self.confirm = confirm;
+        self
+    }
+
+    pub fn cancel(mut self, cancel: CancelToken) -> Self {
+        self.cancel = cancel;
+        self
+    }
+}
+
+/// Key settings before and after a read or change, with per-key versions.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DesfireKeySettingsResult {
+    pub aid: [u8; 3],
+    pub before: KeySettings,
+    pub after: KeySettings,
+    pub changed: bool,
+    /// Key version per key number, indexed from key 0. Empty when the card
+    /// was read without authentication.
+    pub key_versions: Vec<Option<u8>>,
+}
+
+/// Change one key of an application or the PICC master key.
+///
+/// The authenticating key and the new key stay out of `Debug`. `current_key`
+/// is the target key's stored value, required only when the target is not the
+/// authenticated key.
+pub struct DesfireKeyChangeRequest {
+    pub aid: [u8; 3],
+    pub key_number: u8,
+    new_key: Vec<u8>,
+    pub new_key_version: u8,
+    key: Option<Vec<u8>>,
+    pub key_type: Option<AuthKeyType>,
+    pub auth_key_number: u8,
+    current_key: Option<Vec<u8>>,
+    /// Write the new key to this file (mode 0600) before the card command.
+    pub export_path: Option<std::path::PathBuf>,
+    /// Explicit acknowledgement that the new key is stored outside this
+    /// session when no export path is given.
+    pub acknowledge_unrecorded: bool,
+    pub advanced: bool,
+    pub confirm: bool,
+    pub cancel: CancelToken,
+}
+
+impl DesfireKeyChangeRequest {
+    pub fn new(aid: [u8; 3], key_number: u8, new_key: Vec<u8>) -> Self {
+        Self {
+            aid,
+            key_number,
+            new_key,
+            new_key_version: 0,
+            key: None,
+            key_type: None,
+            auth_key_number: 0,
+            current_key: None,
+            export_path: None,
+            acknowledge_unrecorded: false,
+            advanced: false,
+            confirm: false,
+            cancel: CancelToken::new(),
+        }
+    }
+
+    pub fn key(mut self, key: Vec<u8>) -> Self {
+        self.key = Some(key);
+        self
+    }
+
+    pub fn key_type(mut self, key_type: AuthKeyType) -> Self {
+        self.key_type = Some(key_type);
+        self
+    }
+
+    pub fn auth_key_number(mut self, auth_key_number: u8) -> Self {
+        self.auth_key_number = auth_key_number;
+        self
+    }
+
+    pub fn new_key_version(mut self, new_key_version: u8) -> Self {
+        self.new_key_version = new_key_version;
+        self
+    }
+
+    pub fn current_key(mut self, current_key: Vec<u8>) -> Self {
+        self.current_key = Some(current_key);
+        self
+    }
+
+    pub fn export_path(mut self, path: impl Into<std::path::PathBuf>) -> Self {
+        self.export_path = Some(path.into());
+        self
+    }
+
+    pub fn acknowledge_unrecorded(mut self, acknowledge: bool) -> Self {
+        self.acknowledge_unrecorded = acknowledge;
+        self
+    }
+
+    pub fn advanced(mut self, advanced: bool) -> Self {
+        self.advanced = advanced;
+        self
+    }
+
+    pub fn confirm(mut self, confirm: bool) -> Self {
+        self.confirm = confirm;
+        self
+    }
+
+    pub fn cancel(mut self, cancel: CancelToken) -> Self {
+        self.cancel = cancel;
+        self
+    }
+}
+
+/// Result of a verified key change. No key material is present.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DesfireKeyChangeResult {
+    pub aid: [u8; 3],
+    pub key_number: u8,
+    pub key_type: ApplicationKeyType,
+    pub new_key_version: u8,
+    /// Version read before the change, when the card reports it.
+    pub key_version_before: Option<u8>,
+    /// Version read back through the new session, when the card reports it.
+    pub verified_key_version: Option<u8>,
+    pub card: String,
+    pub export_path: Option<std::path::PathBuf>,
+}
+
+#[derive(Serialize)]
+struct DesfireKeyExport {
+    schema: &'static str,
+    generated_unix: u64,
+    application: String,
+    key_number: u8,
+    key_type: String,
+    key_version: u8,
+    key: String,
+    note: &'static str,
 }
 
 #[derive(Serialize)]
@@ -2471,6 +2671,236 @@ impl Service {
         })
     }
 
+    /// Read one application's key settings and key versions, optionally
+    /// changing the KeySettings byte.
+    ///
+    /// Reading needs no authentication and changes nothing. A change reads
+    /// the settings first, refuses a frozen configuration, sends
+    /// ChangeKeySettings, and requires the read-back to match. The key count,
+    /// key family, and ISO file ID flag are fixed at application creation and
+    /// are reported, not changed.
+    pub fn desfire_key_settings(
+        &mut self,
+        request: DesfireKeySettingsRequest,
+    ) -> Result<DesfireKeySettingsResult> {
+        if request.key_number > 14 {
+            return Err(NfcError::InvalidArgument(
+                "DESFire application key numbers are 0..=14".to_owned(),
+            ));
+        }
+        let writing = request.new_key_settings.is_some();
+        if writing {
+            if !request.advanced {
+                return Err(NfcError::InvalidArgument(
+                    "changing DESFire key settings requires Advanced mode".to_owned(),
+                ));
+            }
+            if !request.confirm {
+                return Err(NfcError::InvalidArgument(
+                    "changing DESFire key settings needs explicit confirmation".to_owned(),
+                ));
+            }
+            if request.key.is_none() {
+                return Err(NfcError::AuthenticationRequired(
+                    "changing DESFire key settings needs the authenticating key".to_owned(),
+                ));
+            }
+        }
+        let cancel = request.cancel.clone();
+        let mut operation = self.begin_operation(
+            if writing {
+                OperationKind::Write
+            } else {
+                OperationKind::Read
+            },
+            cancel.clone(),
+        )?;
+        if writing {
+            ensure_iso_dep(&operation)?;
+            operation.check_iso_dep_card()?;
+        }
+        let mut desfire = Desfire::new(operation.reader_mut());
+        desfire.select_application(request.aid)?;
+        let authenticated = if let Some(key) = request.key.as_deref() {
+            authenticate_key(&mut desfire, request.key_number, key, request.key_type)?;
+            true
+        } else {
+            false
+        };
+        let before = desfire.key_settings()?;
+        let mut after = before;
+        let mut changed = false;
+        if let Some(new_settings) = request.new_key_settings {
+            cancel.check()?;
+            if !before.configuration_changeable() {
+                return Err(NfcError::InvalidArgument(format!(
+                    "KeySettings {:02X} has the configuration changeable bit clear; ChangeKeySettings is refused",
+                    before.key_settings
+                )));
+            }
+            if new_settings != before.key_settings {
+                desfire.change_key_settings(new_settings)?;
+                changed = true;
+            }
+            after = desfire.key_settings()?;
+            if after.key_settings != new_settings {
+                return Err(NfcError::VerificationFailed(format!(
+                    "KeySettings read back as {:02X}, expected {new_settings:02X}",
+                    after.key_settings
+                )));
+            }
+        }
+        let mut key_versions = Vec::new();
+        if authenticated {
+            for key_no in 0..after.max_keys.unwrap_or(0) {
+                key_versions.push(desfire.key_version(key_no)?);
+            }
+        }
+        drop(desfire);
+        if writing {
+            operation.check_iso_dep_card()?;
+        }
+        Ok(DesfireKeySettingsResult {
+            aid: request.aid,
+            before,
+            after,
+            changed,
+            key_versions,
+        })
+    }
+
+    /// Change one application key or the PICC master key.
+    ///
+    /// Every gate runs before the first card command that can change a key:
+    /// Advanced mode, confirmation, key-number and key-family checks, the
+    /// current key of another target, the application's key settings, and the
+    /// recording of the new key. The new key is written to the export path
+    /// (mode 0600) before ChangeKey. The service re-authenticates with the new
+    /// key and reads its version back; a version mismatch fails closed.
+    pub fn desfire_change_key(
+        &mut self,
+        request: DesfireKeyChangeRequest,
+    ) -> Result<DesfireKeyChangeResult> {
+        if !request.advanced {
+            return Err(NfcError::InvalidArgument(
+                "changing a DESFire key requires Advanced mode".to_owned(),
+            ));
+        }
+        if !request.confirm {
+            return Err(NfcError::InvalidArgument(
+                "changing a DESFire key needs explicit confirmation".to_owned(),
+            ));
+        }
+        if request.key_number > 14 || request.auth_key_number > 14 {
+            return Err(NfcError::InvalidArgument(
+                "DESFire application key numbers are 0..=14".to_owned(),
+            ));
+        }
+        let Some(auth_key) = request.key.as_deref() else {
+            return Err(NfcError::AuthenticationRequired(
+                "changing a DESFire key needs the authenticating key".to_owned(),
+            ));
+        };
+        let session_type = match request.key_type {
+            Some(key_type) => key_type,
+            None => AuthKeyType::from_key(auth_key)?,
+        };
+        session_type.validate_key(auth_key)?;
+        session_type.validate_change_key(&request.new_key)?;
+        let family = session_type.key_family();
+        if request.auth_key_number != request.key_number {
+            let Some(current) = request.current_key.as_deref() else {
+                return Err(NfcError::InvalidArgument(format!(
+                    "changing key {} while authenticated with key {} needs the target key's current value",
+                    request.key_number, request.auth_key_number
+                )));
+            };
+            session_type.validate_change_key(current)?;
+        }
+        let picc = request.aid == [0x00; 3];
+        if picc && (request.key_number != 0 || request.auth_key_number != 0) {
+            return Err(NfcError::InvalidArgument(
+                "the PICC has one master key; the key number must be 0".to_owned(),
+            ));
+        }
+        if request.export_path.is_none() && !request.acknowledge_unrecorded {
+            return Err(NfcError::InvalidArgument(
+                "the new key would exist only in this request; export it or acknowledge that it is recorded elsewhere first, because a lost DESFire key cannot be recovered"
+                    .to_owned(),
+            ));
+        }
+        let cancel = request.cancel.clone();
+        let mut operation = self.begin_operation(OperationKind::Write, cancel.clone())?;
+        ensure_iso_dep(&operation)?;
+        operation.check_iso_dep_card()?;
+        let mut desfire = Desfire::new(operation.reader_mut());
+        desfire.select_application(request.aid)?;
+        let version = desfire.get_version()?;
+        desfire.authenticate(request.auth_key_number, auth_key, session_type)?;
+        let settings = desfire.key_settings()?;
+        if let Some(max_keys) = settings.max_keys
+            && request.key_number >= max_keys
+        {
+            return Err(NfcError::InvalidArgument(format!(
+                "the application reports {max_keys} keys; key {} does not exist",
+                request.key_number
+            )));
+        }
+        if let Some(app_type) = settings.key_type
+            && app_type != family
+        {
+            return Err(NfcError::InvalidArgument(format!(
+                "the application uses {} keys; the authenticated {} session cannot change one to {}",
+                app_type.name(),
+                session_type.name(),
+                family.name()
+            )));
+        }
+        let key_version_before = desfire.key_version(request.key_number)?;
+        cancel.check()?;
+        let export_path = match &request.export_path {
+            Some(path) => {
+                let export = desfire_key_export(&version, &request, family)?;
+                fsutil::write_atomic(path, export.as_bytes())?;
+                Some(path.clone())
+            }
+            None => None,
+        };
+        cancel.check()?;
+        desfire.change_key(nfc_desfire::KeyChange {
+            key_number: request.key_number,
+            new_key: request.new_key.clone(),
+            new_key_version: request.new_key_version,
+            current_key: request.current_key.clone(),
+        })?;
+        let reauth_type = match session_type {
+            AuthKeyType::Aes | AuthKeyType::AesEv2 => session_type,
+            _ => AuthKeyType::from_key(&request.new_key)?,
+        };
+        desfire.authenticate(request.key_number, &request.new_key, reauth_type)?;
+        let verified_key_version = desfire.key_version(request.key_number)?;
+        if let Some(verified) = verified_key_version
+            && verified != request.new_key_version
+        {
+            return Err(NfcError::VerificationFailed(format!(
+                "key {} reads back version {verified}, expected {}",
+                request.key_number, request.new_key_version
+            )));
+        }
+        drop(desfire);
+        operation.check_iso_dep_card()?;
+        Ok(DesfireKeyChangeResult {
+            aid: request.aid,
+            key_number: request.key_number,
+            key_type: family,
+            new_key_version: request.new_key_version,
+            key_version_before,
+            verified_key_version,
+            card: version.name().to_owned(),
+            export_path,
+        })
+    }
+
     /// Create the AN11004 NDEF Tag Application and its CC/NDEF files.
     ///
     /// This is a full-card-scope mutation: no byte-for-byte backup exists.
@@ -2849,6 +3279,30 @@ fn desfire_manifest(
     };
     serde_json::to_string_pretty(&manifest)
         .map_err(|error| NfcError::Io(format!("could not encode the DESFire manifest: {error}")))
+}
+
+fn desfire_key_export(
+    version: &Version,
+    request: &DesfireKeyChangeRequest,
+    family: ApplicationKeyType,
+) -> Result<String> {
+    let export = DesfireKeyExport {
+        schema: "nfc-foundry/desfire-key/1",
+        generated_unix: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |duration| duration.as_secs()),
+        application: hex_compact(&request.aid),
+        key_number: request.key_number,
+        key_type: family.name().to_owned(),
+        key_version: request.new_key_version,
+        key: hex_compact(&request.new_key),
+        note: "This file contains a DESFire key written by NFC Foundry. Keep it private; a lost key cannot be recovered.",
+    };
+    let mut text = serde_json::to_string_pretty(&export)
+        .map_err(|error| NfcError::Io(format!("could not encode the DESFire key: {error}")))?;
+    text.push('\n');
+    text.push_str(&format!("card: {}\n", version.name()));
+    Ok(text)
 }
 
 fn write_manifest(
@@ -3614,6 +4068,77 @@ fn remove_ndef_application(
 ///
 /// A file whose settings cannot be decoded is reported as `undecoded` with the
 /// parse error; its raw settings are always printed.
+/// Render key settings and per-key versions without key material.
+pub fn key_settings_text(result: &DesfireKeySettingsResult) -> String {
+    let application = result.aid != [0x00; 3];
+    let label = if application {
+        format!("application {}", hex_compact(&result.aid))
+    } else {
+        "PICC".to_owned()
+    };
+    let mut text = format!("{label} · {}\n", result.after.summary(application));
+    if result.changed {
+        text.push_str(&format!(
+            "settings changed: {:02X} -> {:02X}\n",
+            result.before.key_settings, result.after.key_settings
+        ));
+    }
+    if !result.key_versions.is_empty() {
+        let versions = result
+            .key_versions
+            .iter()
+            .enumerate()
+            .map(|(key, version)| match version {
+                Some(version) => format!("{key}={version}"),
+                None => format!("{key}=unavailable"),
+            })
+            .collect::<Vec<_>>()
+            .join(" · ");
+        text.push_str(&format!("key versions: {versions}\n"));
+    }
+    text
+}
+
+/// Render a key change result without the key value.
+pub fn key_change_text(result: &DesfireKeyChangeResult) -> String {
+    let application = result.aid != [0x00; 3];
+    let label = if application {
+        format!("application {}", hex_compact(&result.aid))
+    } else {
+        "PICC".to_owned()
+    };
+    let before = result
+        .key_version_before
+        .map_or_else(|| "unavailable".to_owned(), |version| version.to_string());
+    let mut text = format!(
+        "{label} · key {} · {} · key version {before} -> {}\n",
+        result.key_number,
+        result.key_type.name(),
+        result.new_key_version
+    );
+    match result.verified_key_version {
+        Some(version) => {
+            text.push_str(&format!(
+                "re-authenticated with the new key · version read back {version}\n"
+            ));
+        }
+        None => {
+            text.push_str(
+                "re-authenticated with the new key · the card did not report the new version\n",
+            );
+        }
+    }
+    match &result.export_path {
+        Some(path) => text.push_str(&format!(
+            "new key exported: {} (mode 0600)\n",
+            path.display()
+        )),
+        None => text.push_str("new key not exported; it exists only where you recorded it\n"),
+    }
+    text.push_str(&format!("card: {}\n", result.card));
+    text
+}
+
 pub fn inventory_text(inventory: &Inventory) -> String {
     let mut text = format!(
         "{} · vendor {:02X} type {:02X} subtype {:02X} version {}.{} storage {:02X} protocol {:02X}\n",

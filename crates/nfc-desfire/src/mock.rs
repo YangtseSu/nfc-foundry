@@ -25,14 +25,15 @@ use nfc_transport::{ApduCapabilities, ApduResponse, DeviceInfo, Reader, Transpor
 
 use crate::{
     AuthKeyType, INS_ABORT_TRANSACTION, INS_ADDITIONAL_FRAME, INS_CHANGE_FILE_SETTINGS,
-    INS_CLEAR_RECORD_FILE, INS_COMMIT_TRANSACTION, INS_CREATE_APPLICATION,
-    INS_CREATE_BACKUP_DATA_FILE, INS_CREATE_CYCLIC_RECORD_FILE, INS_CREATE_LINEAR_RECORD_FILE,
-    INS_CREATE_STD_DATA_FILE, INS_CREATE_TRANSACTION_MAC_FILE, INS_CREATE_VALUE_FILE, INS_CREDIT,
-    INS_DEBIT, INS_DELETE_APPLICATION, INS_DELETE_FILE, INS_GET_APPLICATION_IDS, INS_GET_CARD_UID,
-    INS_GET_FILE_IDS, INS_GET_FILE_SETTINGS, INS_GET_FREE_MEMORY, INS_GET_KEY_VERSION,
-    INS_GET_VALUE, INS_GET_VERSION, INS_LIMITED_CREDIT, INS_READ_DATA, INS_READ_RECORDS,
-    INS_SELECT_APPLICATION, INS_UPDATE_RECORD, INS_WRITE_DATA, INS_WRITE_RECORD, aes_cbc_decrypt,
-    aes_cbc_encrypt, cbc_decrypt_iv, cbc_encrypt_iv, derive_session_key, ev1_cmac, expand_tdes_key,
+    INS_CHANGE_KEY, INS_CHANGE_KEY_SETTINGS, INS_CLEAR_RECORD_FILE, INS_COMMIT_TRANSACTION,
+    INS_CREATE_APPLICATION, INS_CREATE_BACKUP_DATA_FILE, INS_CREATE_CYCLIC_RECORD_FILE,
+    INS_CREATE_LINEAR_RECORD_FILE, INS_CREATE_STD_DATA_FILE, INS_CREATE_TRANSACTION_MAC_FILE,
+    INS_CREATE_VALUE_FILE, INS_CREDIT, INS_DEBIT, INS_DELETE_APPLICATION, INS_DELETE_FILE,
+    INS_GET_APPLICATION_IDS, INS_GET_CARD_UID, INS_GET_FILE_IDS, INS_GET_FILE_SETTINGS,
+    INS_GET_FREE_MEMORY, INS_GET_KEY_SETTINGS, INS_GET_KEY_VERSION, INS_GET_VALUE, INS_GET_VERSION,
+    INS_LIMITED_CREDIT, INS_READ_DATA, INS_READ_RECORDS, INS_SELECT_APPLICATION, INS_UPDATE_RECORD,
+    INS_WRITE_DATA, INS_WRITE_RECORD, aes_cbc_decrypt, aes_cbc_encrypt, cbc_decrypt_iv,
+    cbc_encrypt_iv, crc16_a, crc32_desfire, derive_session_key, ev1_cmac, expand_tdes_key,
     last_block, rotate_left,
 };
 
@@ -43,8 +44,11 @@ const STATUS_APPLICATION_NOT_FOUND: [u8; 2] = [0x91, 0xA0];
 const STATUS_AUTHENTICATION_ERROR: [u8; 2] = [0x91, 0xAE];
 const STATUS_ILLEGAL_COMMAND: [u8; 2] = [0x91, 0x1C];
 const STATUS_PARAMETER_ERROR: [u8; 2] = [0x91, 0x9E];
+const STATUS_NO_SUCH_KEY: [u8; 2] = [0x91, 0x40];
 const STATUS_PERMISSION_DENIED: [u8; 2] = [0x91, 0x9D];
 const STATUS_BOUNDARY_ERROR: [u8; 2] = [0x91, 0xBE];
+const STATUS_LENGTH_ERROR: [u8; 2] = [0x91, 0x7E];
+const STATUS_INTEGRITY_ERROR: [u8; 2] = [0x91, 0x1E];
 const STATUS_FILE_NOT_FOUND: [u8; 2] = [0x91, 0xDE];
 const STATUS_FILE_EXISTS: [u8; 2] = [0x91, 0xF0];
 const STATUS_DUPLICATE: [u8; 2] = [0x91, 0xEE];
@@ -56,8 +60,22 @@ const DEFAULT_UID: [u8; 7] = [0x04, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26];
 
 enum AuthState {
     Idle,
-    Challenge { rnd_b: Vec<u8>, challenge: Vec<u8> },
-    Session { session_key: Vec<u8>, iv: Vec<u8> },
+    Challenge {
+        key_no: u8,
+        key: Vec<u8>,
+        rnd_b: Vec<u8>,
+        challenge: Vec<u8>,
+    },
+    Session {
+        key_no: u8,
+        session_key: Vec<u8>,
+        iv: Vec<u8>,
+    },
+}
+
+struct MockKey {
+    value: Vec<u8>,
+    version: u8,
 }
 
 struct MockFile {
@@ -82,10 +100,10 @@ struct MockApp {
 
 /// A card-side DESFire simulator.
 pub struct MockDesfire {
-    key: Vec<u8>,
     key_type: AuthKeyType,
-    key_no: u8,
-    key_version: u8,
+    keys: BTreeMap<u8, MockKey>,
+    key_settings: u8,
+    max_keys: u8,
     uid: [u8; 7],
     corrupt_mac: bool,
     corrupt_uid: bool,
@@ -112,11 +130,19 @@ impl MockDesfire {
         key_type
             .validate_key(&key)
             .expect("the mock key matches its family");
+        let mut keys = BTreeMap::new();
+        keys.insert(
+            0,
+            MockKey {
+                value: key,
+                version: 0,
+            },
+        );
         Self {
-            key,
             key_type,
-            key_no: 0,
-            key_version: 0,
+            keys,
+            key_settings: 0x0F,
+            max_keys: 1,
             uid: DEFAULT_UID,
             corrupt_mac: false,
             corrupt_uid: false,
@@ -268,13 +294,63 @@ impl MockDesfire {
     }
 
     pub fn with_key_number(mut self, key_no: u8) -> Self {
-        self.key_no = key_no;
+        if key_no != 0
+            && let Some(key) = self.keys.remove(&0)
+        {
+            self.keys.insert(key_no, key);
+        }
         self
     }
 
     pub fn with_key_version(mut self, key_version: u8) -> Self {
-        self.key_version = key_version;
+        for key in self.keys.values_mut() {
+            key.version = key_version;
+        }
         self
+    }
+
+    /// Store one key value and version at a key number.
+    pub fn with_key(mut self, key_no: u8, key: impl Into<Vec<u8>>, version: u8) -> Self {
+        self.keys.insert(
+            key_no,
+            MockKey {
+                value: key.into(),
+                version,
+            },
+        );
+        self
+    }
+
+    /// KeySettings byte returned by GetKeySettings.
+    pub fn with_key_settings(mut self, key_settings: u8) -> Self {
+        self.key_settings = key_settings;
+        self
+    }
+
+    /// Key count reported by GetKeySettings.
+    pub fn with_max_keys(mut self, max_keys: u8) -> Self {
+        self.max_keys = max_keys;
+        self
+    }
+
+    /// Stored key value, for asserting a successful ChangeKey.
+    pub fn key_value(&self, key_no: u8) -> Option<&[u8]> {
+        self.keys.get(&key_no).map(|key| key.value.as_slice())
+    }
+
+    /// Stored key version, for asserting a successful ChangeKey.
+    pub fn key_version_of(&self, key_no: u8) -> Option<u8> {
+        self.keys.get(&key_no).map(|key| key.version)
+    }
+
+    /// Current KeySettings byte.
+    pub fn key_settings(&self) -> u8 {
+        self.key_settings
+    }
+
+    /// Current key count reported by GetKeySettings.
+    pub fn max_keys(&self) -> u8 {
+        self.max_keys
     }
 
     pub fn with_uid(mut self, uid: [u8; 7]) -> Self {
@@ -337,6 +413,9 @@ impl MockDesfire {
             INS_COMMIT_TRANSACTION => self.commit_transaction(ins, body),
             INS_ABORT_TRANSACTION => self.abort_transaction(ins),
             INS_GET_KEY_VERSION => self.reply_key_version(ins, body),
+            INS_GET_KEY_SETTINGS => self.reply_key_settings(ins),
+            INS_CHANGE_KEY_SETTINGS => self.change_key_settings(ins, body),
+            INS_CHANGE_KEY => self.change_key(ins, body),
             INS_GET_CARD_UID => self.reply_card_uid(ins),
             INS_ADDITIONAL_FRAME => self.finish_authentication(body),
             command if command == self.key_type.command() => self.begin_authentication(body),
@@ -458,7 +537,10 @@ impl MockDesfire {
         header_len: usize,
         data_len: usize,
     ) -> Option<Vec<u8>> {
-        let AuthState::Session { session_key, iv } = &mut self.state else {
+        let AuthState::Session {
+            session_key, iv, ..
+        } = &mut self.state
+        else {
             return None;
         };
         if !matches!(self.key_type, AuthKeyType::Tdes3 | AuthKeyType::Aes)
@@ -596,7 +678,10 @@ impl MockDesfire {
     }
 
     fn secure_reply_enciphered(&mut self, body: Vec<u8>) -> ApduResponse {
-        let AuthState::Session { session_key, iv } = &mut self.state else {
+        let AuthState::Session {
+            session_key, iv, ..
+        } = &mut self.state
+        else {
             return ApduResponse::new(body, STATUS_OK);
         };
         if !matches!(self.key_type, AuthKeyType::Tdes3 | AuthKeyType::Aes) {
@@ -670,16 +755,19 @@ impl MockDesfire {
     }
 
     fn begin_authentication(&mut self, body: &[u8]) -> ApduResponse {
-        let expected = match self.key_type {
-            AuthKeyType::AesEv2 => vec![self.key_no, 0x00],
-            _ => vec![self.key_no],
-        };
-        if body != expected {
-            return ApduResponse::new(Vec::new(), STATUS_AUTHENTICATION_ERROR);
-        }
         if matches!(self.key_type, AuthKeyType::AesEv2) {
             return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
         }
+        let Some((&key_no, rest)) = body.split_first() else {
+            return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
+        };
+        if !rest.is_empty() {
+            return ApduResponse::new(Vec::new(), STATUS_AUTHENTICATION_ERROR);
+        }
+        let Some(key) = self.keys.get(&key_no) else {
+            return ApduResponse::new(Vec::new(), STATUS_NO_SUCH_KEY);
+        };
+        let key_value = key.value.clone();
         let length = match self.key_type {
             AuthKeyType::Des | AuthKeyType::Tdes2 => 8,
             AuthKeyType::Tdes3 | AuthKeyType::Aes => 16,
@@ -690,19 +778,21 @@ impl MockDesfire {
             .collect::<Vec<_>>();
         let challenge = match self.key_type {
             AuthKeyType::Des | AuthKeyType::Tdes2 => {
-                let key = expand_tdes_key(&self.key).expect("valid legacy key");
+                let key = expand_tdes_key(&key_value).expect("valid legacy key");
                 cbc_encrypt_iv(&key, &[0u8; 8], &rnd_b).expect("challenge encryption")
             }
             AuthKeyType::Tdes3 => {
-                let key = expand_tdes_key(&self.key).expect("valid 3K3DES key");
+                let key = expand_tdes_key(&key_value).expect("valid 3K3DES key");
                 cbc_encrypt_iv(&key, &[0u8; 8], &rnd_b).expect("challenge encryption")
             }
             AuthKeyType::Aes => {
-                aes_cbc_encrypt(&self.key, &[0u8; 16], &rnd_b).expect("challenge encryption")
+                aes_cbc_encrypt(&key_value, &[0u8; 16], &rnd_b).expect("challenge encryption")
             }
             AuthKeyType::AesEv2 => unreachable!("EV2 is refused above"),
         };
         self.state = AuthState::Challenge {
+            key_no,
+            key: key_value,
             rnd_b: rnd_b.clone(),
             challenge: challenge.clone(),
         };
@@ -710,8 +800,12 @@ impl MockDesfire {
     }
 
     fn finish_authentication(&mut self, body: &[u8]) -> ApduResponse {
-        let AuthState::Challenge { rnd_b, challenge } =
-            std::mem::replace(&mut self.state, AuthState::Idle)
+        let AuthState::Challenge {
+            key_no,
+            key,
+            rnd_b,
+            challenge,
+        } = std::mem::replace(&mut self.state, AuthState::Idle)
         else {
             return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
         };
@@ -721,11 +815,11 @@ impl MockDesfire {
         }
         let plain = match self.key_type {
             AuthKeyType::Des | AuthKeyType::Tdes2 => {
-                let key = expand_tdes_key(&self.key).expect("valid legacy key");
+                let key = expand_tdes_key(&key).expect("valid legacy key");
                 d40_receive(&key, body).expect("legacy receive")
             }
             AuthKeyType::Tdes3 => {
-                let key = expand_tdes_key(&self.key).expect("valid 3K3DES key");
+                let key = expand_tdes_key(&key).expect("valid 3K3DES key");
                 cbc_decrypt_iv(
                     &key,
                     last_block(&challenge, 8).expect("challenge block"),
@@ -733,7 +827,7 @@ impl MockDesfire {
                 )
                 .expect("3K3DES receive")
             }
-            AuthKeyType::Aes => aes_cbc_decrypt(&self.key, &challenge, body).expect("AES receive"),
+            AuthKeyType::Aes => aes_cbc_decrypt(&key, &challenge, body).expect("AES receive"),
             AuthKeyType::AesEv2 => unreachable!("EV2 is refused before this step"),
         };
         if plain[length..] != rotate_left(&rnd_b) {
@@ -743,20 +837,18 @@ impl MockDesfire {
         let rotated = rotate_left(rnd_a);
         let response = match self.key_type {
             AuthKeyType::Des | AuthKeyType::Tdes2 => {
-                let key = expand_tdes_key(&self.key).expect("valid legacy key");
+                let key = expand_tdes_key(&key).expect("valid legacy key");
                 cbc_encrypt_iv(&key, &[0u8; 8], &rotated).expect("response encryption")
             }
             AuthKeyType::Tdes3 => {
-                let key = expand_tdes_key(&self.key).expect("valid 3K3DES key");
+                let key = expand_tdes_key(&key).expect("valid 3K3DES key");
                 cbc_encrypt_iv(&key, last_block(body, 8).expect("request block"), &rotated)
                     .expect("response encryption")
             }
-            AuthKeyType::Aes => aes_cbc_encrypt(
-                &self.key,
-                last_block(body, 16).expect("request block"),
-                &rotated,
-            )
-            .expect("response encryption"),
+            AuthKeyType::Aes => {
+                aes_cbc_encrypt(&key, last_block(body, 16).expect("request block"), &rotated)
+                    .expect("response encryption")
+            }
             AuthKeyType::AesEv2 => unreachable!("EV2 is refused before this step"),
         };
         let session_key = derive_session_key(self.key_type, rnd_a, &rnd_b);
@@ -765,7 +857,11 @@ impl MockDesfire {
             AuthKeyType::Aes => vec![0u8; 16],
             _ => Vec::new(),
         };
-        self.state = AuthState::Session { session_key, iv };
+        self.state = AuthState::Session {
+            key_no,
+            session_key,
+            iv,
+        };
         ApduResponse::new(response, STATUS_OK)
     }
 
@@ -773,10 +869,204 @@ impl MockDesfire {
         if !matches!(self.state, AuthState::Session { .. }) {
             return ApduResponse::new(Vec::new(), STATUS_PERMISSION_DENIED);
         }
-        if body != [self.key_no] {
+        let Some(&key_no) = body.first() else {
             return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
+        };
+        let Some(version) = self.keys.get(&key_no).map(|key| key.version) else {
+            return ApduResponse::new(Vec::new(), STATUS_NO_SUCH_KEY);
+        };
+        self.secure_reply(ins, body, vec![version])
+    }
+
+    fn reply_key_settings(&mut self, ins: u8) -> ApduResponse {
+        let family = match self.key_type {
+            AuthKeyType::Des | AuthKeyType::Tdes2 => 0,
+            AuthKeyType::Tdes3 => 1,
+            AuthKeyType::Aes | AuthKeyType::AesEv2 => 2,
+        };
+        let second = (family << 6) | (self.max_keys & 0x0F);
+        self.secure_reply(ins, &[], vec![self.key_settings, second])
+    }
+
+    fn change_key_settings(&mut self, ins: u8, body: &[u8]) -> ApduResponse {
+        if !matches!(self.state, AuthState::Session { .. }) {
+            return ApduResponse::new(Vec::new(), STATUS_PERMISSION_DENIED);
         }
-        self.secure_reply(ins, body, vec![self.key_version])
+        if self.key_settings & 0x08 == 0 {
+            return ApduResponse::new(Vec::new(), STATUS_PERMISSION_DENIED);
+        }
+        match self.key_type {
+            AuthKeyType::Tdes3 | AuthKeyType::Aes => {
+                let Some(plain) = self.decrypt_ev1_command(ins, body, 0, 1) else {
+                    return ApduResponse::new(Vec::new(), STATUS_INTEGRITY_ERROR);
+                };
+                self.key_settings = plain[0];
+                self.secure_reply_enciphered(Vec::new())
+            }
+            AuthKeyType::Des | AuthKeyType::Tdes2 => {
+                if body.len() != 1 {
+                    return ApduResponse::new(Vec::new(), STATUS_LENGTH_ERROR);
+                }
+                self.key_settings = body[0];
+                ApduResponse::new(Vec::new(), STATUS_OK)
+            }
+            AuthKeyType::AesEv2 => ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND),
+        }
+    }
+
+    fn change_key(&mut self, _ins: u8, body: &[u8]) -> ApduResponse {
+        let Some((&command_key_no, cipher)) = body.split_first() else {
+            return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
+        };
+        let target = command_key_no & 0x0F;
+        let AuthState::Session {
+            key_no: auth_key_no,
+            session_key,
+            iv,
+        } = &mut self.state
+        else {
+            return ApduResponse::new(Vec::new(), STATUS_PERMISSION_DENIED);
+        };
+        let same_key = target == *auth_key_no;
+        let key_type = self.key_type;
+        match key_type {
+            AuthKeyType::Des | AuthKeyType::Tdes2 => {
+                if cipher.len() != 24 {
+                    return ApduResponse::new(Vec::new(), STATUS_LENGTH_ERROR);
+                }
+                let key = expand_tdes_key(session_key).expect("valid session key");
+                let Ok(plain) = d40_receive(&key, cipher) else {
+                    return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
+                };
+                let key_area = &plain[..16];
+                if crc16_a(key_area) != plain[16..18] {
+                    return ApduResponse::new(Vec::new(), STATUS_INTEGRITY_ERROR);
+                }
+                let (new_area, tail) = if same_key {
+                    (key_area.to_vec(), &plain[18..])
+                } else {
+                    let Some(old) = self.keys.get(&target) else {
+                        return ApduResponse::new(Vec::new(), STATUS_NO_SUCH_KEY);
+                    };
+                    let mut new_area = key_area.to_vec();
+                    for (index, byte) in new_area.iter_mut().enumerate() {
+                        *byte ^= old.value[index % old.value.len()];
+                    }
+                    let Some(crc) = plain.get(18..20) else {
+                        return ApduResponse::new(Vec::new(), STATUS_INTEGRITY_ERROR);
+                    };
+                    if crc16_a(&new_area) != crc {
+                        return ApduResponse::new(Vec::new(), STATUS_INTEGRITY_ERROR);
+                    }
+                    (new_area, &plain[20..])
+                };
+                if tail.iter().any(|byte| *byte != 0) {
+                    return ApduResponse::new(Vec::new(), STATUS_INTEGRITY_ERROR);
+                }
+                let version = des_key_version(&new_area);
+                self.keys.insert(
+                    target,
+                    MockKey {
+                        value: new_area,
+                        version,
+                    },
+                );
+                let ended = same_key;
+                if ended {
+                    self.state = AuthState::Idle;
+                }
+                ApduResponse::new(Vec::new(), STATUS_OK)
+            }
+            AuthKeyType::Tdes3 | AuthKeyType::Aes => {
+                let block = if key_type == AuthKeyType::Tdes3 {
+                    8
+                } else {
+                    16
+                };
+                if cipher.len() < block * 2 || !cipher.len().is_multiple_of(block) {
+                    return ApduResponse::new(Vec::new(), STATUS_LENGTH_ERROR);
+                }
+                let Ok(plain) = (if key_type == AuthKeyType::Tdes3 {
+                    cbc_decrypt_iv(
+                        &expand_tdes_key(session_key).expect("session key"),
+                        iv,
+                        cipher,
+                    )
+                } else {
+                    aes_cbc_decrypt(session_key, iv, cipher)
+                }) else {
+                    return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
+                };
+                *iv = cipher[cipher.len() - block..].to_vec();
+                let key_area_len = if key_type == AuthKeyType::Tdes3 {
+                    24
+                } else {
+                    17
+                };
+                if plain.len() < key_area_len + 4 {
+                    return ApduResponse::new(Vec::new(), STATUS_INTEGRITY_ERROR);
+                }
+                let mut crc_input = vec![INS_CHANGE_KEY, command_key_no];
+                crc_input.extend_from_slice(&plain[..key_area_len]);
+                let crc = crc32_desfire(&crc_input);
+                if plain[key_area_len..key_area_len + 4] != crc {
+                    return ApduResponse::new(Vec::new(), STATUS_INTEGRITY_ERROR);
+                }
+                let mut pos = key_area_len + 4;
+                let (new_area, tail) = if same_key {
+                    (plain[..key_area_len].to_vec(), &plain[pos..])
+                } else {
+                    let Some(old) = self.keys.get(&target) else {
+                        return ApduResponse::new(Vec::new(), STATUS_NO_SUCH_KEY);
+                    };
+                    let mut new_area = plain[..key_area_len].to_vec();
+                    // AES carries the version in the byte after the key and
+                    // does not XOR it.
+                    let xor_len = if key_type == AuthKeyType::Tdes3 {
+                        24
+                    } else {
+                        16
+                    };
+                    for (index, byte) in new_area.iter_mut().enumerate().take(xor_len) {
+                        *byte ^= old.value[index % old.value.len()];
+                    }
+                    let Some(crc) = plain.get(pos..pos + 4) else {
+                        return ApduResponse::new(Vec::new(), STATUS_INTEGRITY_ERROR);
+                    };
+                    let crc_key = if key_type == AuthKeyType::Tdes3 {
+                        new_area.as_slice()
+                    } else {
+                        &new_area[..16]
+                    };
+                    if crc32_desfire(crc_key) != crc {
+                        return ApduResponse::new(Vec::new(), STATUS_INTEGRITY_ERROR);
+                    }
+                    pos += 4;
+                    (new_area, &plain[pos..])
+                };
+                if tail.iter().any(|byte| *byte != 0) {
+                    return ApduResponse::new(Vec::new(), STATUS_INTEGRITY_ERROR);
+                }
+                let (value, version) = if key_type == AuthKeyType::Tdes3 {
+                    let version = des_key_version(&new_area);
+                    (new_area, version)
+                } else {
+                    let version = new_area[16];
+                    (new_area[..16].to_vec(), version)
+                };
+                self.keys.insert(target, MockKey { value, version });
+                if same_key {
+                    // ChangeKey of the authenticated key ends the session and
+                    // the card returns the status without a response MAC.
+                    self.state = AuthState::Idle;
+                    return ApduResponse::new(Vec::new(), STATUS_OK);
+                }
+                let mac = ev1_cmac(key_type, session_key, iv, &[0x00]).expect("response MAC");
+                *iv = mac.clone();
+                ApduResponse::new(mac[..8].to_vec(), STATUS_OK)
+            }
+            AuthKeyType::AesEv2 => ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND),
+        }
     }
 
     fn reply_card_uid(&mut self, ins: u8) -> ApduResponse {
@@ -784,7 +1074,10 @@ impl MockDesfire {
             return ApduResponse::new(Vec::new(), STATUS_PERMISSION_DENIED);
         }
         let uid = self.uid.to_vec();
-        let AuthState::Session { session_key, iv } = &mut self.state else {
+        let AuthState::Session {
+            session_key, iv, ..
+        } = &mut self.state
+        else {
             return ApduResponse::new(uid, STATUS_OK);
         };
         if !matches!(self.key_type, AuthKeyType::Tdes3 | AuthKeyType::Aes) {
@@ -1151,7 +1444,10 @@ impl MockDesfire {
     }
 
     fn secure_reply(&mut self, ins: u8, request: &[u8], body: Vec<u8>) -> ApduResponse {
-        let AuthState::Session { session_key, iv } = &mut self.state else {
+        let AuthState::Session {
+            session_key, iv, ..
+        } = &mut self.state
+        else {
             return ApduResponse::new(body, STATUS_OK);
         };
         if !matches!(self.key_type, AuthKeyType::Tdes3 | AuthKeyType::Aes) {
@@ -1198,6 +1494,16 @@ fn d40_receive(key: &[u8; 24], data: &[u8]) -> Result<Vec<u8>> {
         previous.copy_from_slice(block);
     }
     Ok(output)
+}
+
+fn des_key_version(key: &[u8]) -> u8 {
+    let mut version = 0u8;
+    let mut bit = 0;
+    for index in (0..key.len()).rev() {
+        version |= (key[index] & 1) << bit;
+        bit = (bit + 1) % 8;
+    }
+    version
 }
 
 fn u24(bytes: &[u8]) -> u32 {
