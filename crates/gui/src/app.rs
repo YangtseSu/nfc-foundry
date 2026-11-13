@@ -22,10 +22,14 @@ use nfc_app::classic::{
     ev1_signature_keys, format_uid, parse_block_list, parse_uid,
 };
 use nfc_app::desfire::{
-    AuthKeyType, DesfireNdefDeleteRequest, DesfireNdefFormatRequest, DesfireReadRequest,
-    DesfireReadResult, DesfireUidRequest, DesfireVerifyKeyRequest, DesfireWriteRequest,
-    NDEF_APPLICATION_AID, NDEF_CC_FILE, NDEF_CC_SIZE, NDEF_DATA_FILE, NDEF_DATA_SIZE,
-    card_uid_text, key_verification_text, read_protection_text, write_text,
+    ApplicationKeyType, AuthKeyType, CommunicationMode, DesfireAppCreateRequest,
+    DesfireAppDeleteRequest, DesfireFileCreateRequest, DesfireFileDeleteRequest,
+    DesfireFileSettingsRequest, DesfireFileSpec, DesfireFreeMemoryRequest,
+    DesfireNdefDeleteRequest, DesfireNdefFormatRequest, DesfireReadRequest, DesfireReadResult,
+    DesfireUidRequest, DesfireVerifyKeyRequest, DesfireWriteRequest, NDEF_APPLICATION_AID,
+    NDEF_CC_FILE, NDEF_CC_SIZE, NDEF_DATA_FILE, NDEF_DATA_SIZE, app_create_text, app_delete_text,
+    card_uid_text, file_create_text, file_delete_text, file_settings_text, free_memory_text,
+    key_verification_text, read_protection_text, write_text,
 };
 use nfc_app::type2::{
     Type2Auth, Type2Format, Type2Lock, Type2LockResult, Type2MutationResult, Type2NdefWrite,
@@ -1072,6 +1076,34 @@ struct DesfireView {
     verify_output: gtk::Label,
     verify_status: gtk::Label,
     advanced: gtk::Switch,
+    manage_aid: gtk::Entry,
+    manage_key: gtk::PasswordEntry,
+    manage_key_type: gtk::DropDown,
+    manage_key_number: gtk::Entry,
+    manage_app_keys: gtk::Entry,
+    manage_app_key_type: gtk::DropDown,
+    create_app: gtk::Button,
+    delete_app: gtk::Button,
+    manage_file: gtk::Entry,
+    manage_iso_file: gtk::Entry,
+    manage_file_type: gtk::DropDown,
+    manage_communication: gtk::DropDown,
+    manage_access_rights: gtk::Entry,
+    manage_size: gtk::Entry,
+    manage_lower_limit: gtk::Entry,
+    manage_upper_limit: gtk::Entry,
+    manage_value: gtk::Entry,
+    manage_flags: gtk::Entry,
+    manage_record_size: gtk::Entry,
+    manage_max_records: gtk::Entry,
+    manage_tmackey: gtk::PasswordEntry,
+    manage_tmackey_version: gtk::Entry,
+    create_file: gtk::Button,
+    delete_file: gtk::Button,
+    change_file_settings: gtk::Button,
+    read_memory: gtk::Button,
+    manage_output: gtk::Label,
+    manage_status: gtk::Label,
     ndef_key: gtk::PasswordEntry,
     ndef_key_type: gtk::DropDown,
     ndef_key_number: gtk::Entry,
@@ -1883,7 +1915,7 @@ fn build_desfire_view() -> DesfireView {
     verify_page.append(&verify_output_scroll);
     verify_page.append(&verify_status);
 
-    let ndef_page = page_box();
+    let manage_page = page_box();
     let advanced_row = gtk::Box::new(Orientation::Horizontal, 8);
     let advanced_label = gtk::Label::new(Some("Advanced mode"));
     advanced_label.set_xalign(0.0);
@@ -1892,10 +1924,192 @@ fn build_desfire_view() -> DesfireView {
     advanced_row.append(&advanced_label);
     advanced_row.append(&advanced);
 
+    let manage_hint = gtk::Label::new(Some(
+        "Create and delete applications and all six file types, change file settings, \
+         and read free EEPROM bytes. Creation checks the free space and reads the new \
+         settings back. Deletion requires Advanced mode, writes a manifest first, and is \
+         not a byte-for-byte restore.",
+    ));
+    manage_hint.set_xalign(0.0);
+    manage_hint.set_wrap(true);
+    manage_hint.add_css_class("caption");
+    manage_hint.add_css_class("dim-label");
+
+    let manage_form = gtk::Grid::new();
+    manage_form.set_row_spacing(8);
+    manage_form.set_column_spacing(12);
+    let mut manage_row = 0;
+    let mut add_manage_field = |label: &str, widget: &gtk::Widget| {
+        let caption = gtk::Label::new(Some(label));
+        caption.set_xalign(0.0);
+        caption.add_css_class("caption");
+        caption.add_css_class("dim-label");
+        manage_form.attach(&caption, 0, manage_row, 1, 1);
+        manage_form.attach(widget, 1, manage_row, 1, 1);
+        widget.set_hexpand(true);
+        manage_row += 1;
+    };
+
+    let manage_aid = gtk::Entry::new();
+    manage_aid.set_placeholder_text(Some("A1B2C3"));
+    manage_aid.set_max_width_chars(12);
+    add_manage_field("Application ID", manage_aid.upcast_ref());
+
+    let manage_key = gtk::PasswordEntry::new();
+    manage_key.set_show_peek_icon(true);
+    manage_key.set_placeholder_text(Some("PICC or application key; required by the card"));
+    add_manage_field("Key (optional)", manage_key.upcast_ref());
+
+    let manage_key_type =
+        gtk::DropDown::from_strings(&["Auto", "DES", "2K3DES", "3K3DES", "AES", "AES EV2"]);
+    manage_key_type.set_selected(0);
+    add_manage_field("Key type", manage_key_type.upcast_ref());
+
+    let manage_key_number = gtk::Entry::new();
+    manage_key_number.set_text("0");
+    manage_key_number.set_max_width_chars(4);
+    add_manage_field("Key number", manage_key_number.upcast_ref());
+
+    let manage_app_keys = gtk::Entry::new();
+    manage_app_keys.set_text("1");
+    manage_app_keys.set_max_width_chars(4);
+    add_manage_field("Application key count", manage_app_keys.upcast_ref());
+
+    let manage_app_key_type = gtk::DropDown::from_strings(&["2K3DES", "3K3DES", "AES"]);
+    manage_app_key_type.set_selected(0);
+    add_manage_field("Application key type", manage_app_key_type.upcast_ref());
+
+    let manage_file = gtk::Entry::new();
+    manage_file.set_placeholder_text(Some("01"));
+    manage_file.set_max_width_chars(4);
+    add_manage_field("File ID", manage_file.upcast_ref());
+
+    let manage_iso_file = gtk::Entry::new();
+    manage_iso_file.set_placeholder_text(Some("ISO file ID, optional"));
+    manage_iso_file.set_max_width_chars(6);
+    add_manage_field("ISO file ID (optional)", manage_iso_file.upcast_ref());
+
+    let manage_file_type = gtk::DropDown::from_strings(&[
+        "Standard",
+        "Backup",
+        "Value",
+        "Linear record",
+        "Cyclic record",
+        "Transaction MAC",
+    ]);
+    manage_file_type.set_selected(0);
+    add_manage_field("File type", manage_file_type.upcast_ref());
+
+    let manage_communication = gtk::DropDown::from_strings(&["Plain", "MACed", "Enciphered"]);
+    manage_communication.set_selected(0);
+    add_manage_field("Communication", manage_communication.upcast_ref());
+
+    let manage_access_rights = gtk::Entry::new();
+    manage_access_rights.set_text("0000");
+    manage_access_rights.set_max_width_chars(6);
+    manage_access_rights.set_placeholder_text(Some("EEEE free, 0000 key 0"));
+    add_manage_field("Access rights (hex)", manage_access_rights.upcast_ref());
+
+    let manage_size = gtk::Entry::new();
+    manage_size.set_placeholder_text(Some("standard/backup bytes"));
+    manage_size.set_max_width_chars(8);
+    add_manage_field("Size", manage_size.upcast_ref());
+
+    let manage_lower_limit = gtk::Entry::new();
+    manage_lower_limit.set_placeholder_text(Some("value lower limit"));
+    add_manage_field("Lower limit", manage_lower_limit.upcast_ref());
+
+    let manage_upper_limit = gtk::Entry::new();
+    manage_upper_limit.set_placeholder_text(Some("value upper limit"));
+    add_manage_field("Upper limit", manage_upper_limit.upcast_ref());
+
+    let manage_value = gtk::Entry::new();
+    manage_value.set_placeholder_text(Some("initial value"));
+    add_manage_field("Value", manage_value.upcast_ref());
+
+    let manage_flags = gtk::Entry::new();
+    manage_flags.set_text("00");
+    manage_flags.set_max_width_chars(4);
+    manage_flags.set_placeholder_text(Some("01 limited credit, 02 free GetValue"));
+    add_manage_field("Value flags", manage_flags.upcast_ref());
+
+    let manage_record_size = gtk::Entry::new();
+    manage_record_size.set_placeholder_text(Some("record bytes"));
+    manage_record_size.set_max_width_chars(8);
+    add_manage_field("Record size", manage_record_size.upcast_ref());
+
+    let manage_max_records = gtk::Entry::new();
+    manage_max_records.set_placeholder_text(Some("maximum records"));
+    manage_max_records.set_max_width_chars(8);
+    add_manage_field("Max records", manage_max_records.upcast_ref());
+
+    let manage_tmackey = gtk::PasswordEntry::new();
+    manage_tmackey.set_show_peek_icon(true);
+    manage_tmackey.set_placeholder_text(Some("Transaction MAC AES key, 32 hex digits"));
+    add_manage_field("Transaction MAC key", manage_tmackey.upcast_ref());
+
+    let manage_tmackey_version = gtk::Entry::new();
+    manage_tmackey_version.set_text("0");
+    manage_tmackey_version.set_max_width_chars(4);
+    add_manage_field(
+        "Transaction MAC key version",
+        manage_tmackey_version.upcast_ref(),
+    );
+
+    let app_buttons = gtk::Box::new(Orientation::Horizontal, 8);
+    let create_app = gtk::Button::with_label("Create application");
+    create_app.add_css_class("suggested-action");
+    let delete_app = gtk::Button::with_label("Delete application");
+    delete_app.add_css_class("destructive-action");
+    let read_memory = gtk::Button::with_label("Read free memory");
+    app_buttons.append(&create_app);
+    app_buttons.append(&read_memory);
+    app_buttons.append(&delete_app);
+
+    let file_buttons = gtk::Box::new(Orientation::Horizontal, 8);
+    let create_file = gtk::Button::with_label("Create file");
+    create_file.add_css_class("suggested-action");
+    let change_file_settings = gtk::Button::with_label("Change file settings");
+    let delete_file = gtk::Button::with_label("Delete file");
+    delete_file.add_css_class("destructive-action");
+    file_buttons.append(&create_file);
+    file_buttons.append(&change_file_settings);
+    file_buttons.append(&delete_file);
+
+    let manage_output = gtk::Label::new(None);
+    manage_output.set_xalign(0.0);
+    manage_output.set_wrap(true);
+    manage_output.set_selectable(true);
+    manage_output.add_css_class("monospace");
+    let manage_output_scroll = gtk::ScrolledWindow::builder()
+        .child(&manage_output)
+        .vexpand(true)
+        .build();
+    let manage_status = gtk::Label::new(None);
+    manage_status.set_xalign(0.0);
+    manage_status.set_wrap(true);
+    manage_status.set_selectable(true);
+    manage_status.add_css_class("caption");
+    manage_status.add_css_class("dim-label");
+    let manage_form_scroll = gtk::ScrolledWindow::builder()
+        .child(&manage_form)
+        .vexpand(true)
+        .build();
+    manage_page.append(&advanced_row);
+    manage_page.append(&manage_hint);
+    manage_page.append(&manage_form_scroll);
+    manage_page.append(&app_buttons);
+    manage_page.append(&file_buttons);
+    manage_page.append(&manage_output_scroll);
+    manage_page.append(&manage_status);
+
+    let ndef_page = page_box();
+
     let ndef_hint = gtk::Label::new(Some(
         "Read the NDEF Tag Application without authenticating. Formatting creates the \
          application D27600 with the CC and NDEF files; no full-card backup exists, and \
-         deleting the application is the undo path.",
+         deleting the application is the undo path. Both actions need Advanced mode, \
+         which is on the Manage tab.",
     ));
     ndef_hint.set_xalign(0.0);
     ndef_hint.set_wrap(true);
@@ -1959,7 +2173,6 @@ fn build_desfire_view() -> DesfireView {
     ndef_status.set_selectable(true);
     ndef_status.add_css_class("caption");
     ndef_status.add_css_class("dim-label");
-    ndef_page.append(&advanced_row);
     ndef_page.append(&ndef_hint);
     ndef_page.append(&ndef_form);
     ndef_page.append(&read_ndef);
@@ -1974,6 +2187,7 @@ fn build_desfire_view() -> DesfireView {
     tabs.add_titled(&read_page, Some("read"), "Read");
     tabs.add_titled(&write_page, Some("write"), "Write");
     tabs.add_titled(&verify_page, Some("verify"), "Verify");
+    tabs.add_titled(&manage_page, Some("manage"), "Manage");
     tabs.add_titled(&ndef_page, Some("ndef"), "NDEF");
     let (root, switcher) = grouped_page(&tabs);
     DesfireView {
@@ -2014,6 +2228,34 @@ fn build_desfire_view() -> DesfireView {
         verify_output,
         verify_status,
         advanced,
+        manage_aid,
+        manage_key,
+        manage_key_type,
+        manage_key_number,
+        manage_app_keys,
+        manage_app_key_type,
+        create_app,
+        delete_app,
+        manage_file,
+        manage_iso_file,
+        manage_file_type,
+        manage_communication,
+        manage_access_rights,
+        manage_size,
+        manage_lower_limit,
+        manage_upper_limit,
+        manage_value,
+        manage_flags,
+        manage_record_size,
+        manage_max_records,
+        manage_tmackey,
+        manage_tmackey_version,
+        create_file,
+        delete_file,
+        change_file_settings,
+        read_memory,
+        manage_output,
+        manage_status,
         ndef_key,
         ndef_key_type,
         ndef_key_number,
@@ -3463,6 +3705,30 @@ fn connect_signals(ui: &Rc<Ui>) {
     ui.desfire_view
         .delete_ndef
         .connect_clicked(move |_| start_desfire_ndef_delete(ui2.clone()));
+    let ui2 = ui.clone();
+    ui.desfire_view
+        .create_app
+        .connect_clicked(move |_| start_desfire_app_create(ui2.clone()));
+    let ui2 = ui.clone();
+    ui.desfire_view
+        .delete_app
+        .connect_clicked(move |_| start_desfire_app_delete(ui2.clone()));
+    let ui2 = ui.clone();
+    ui.desfire_view
+        .create_file
+        .connect_clicked(move |_| start_desfire_file_create(ui2.clone()));
+    let ui2 = ui.clone();
+    ui.desfire_view
+        .delete_file
+        .connect_clicked(move |_| start_desfire_file_delete(ui2.clone()));
+    let ui2 = ui.clone();
+    ui.desfire_view
+        .change_file_settings
+        .connect_clicked(move |_| start_desfire_file_settings(ui2.clone()));
+    let ui2 = ui.clone();
+    ui.desfire_view
+        .read_memory
+        .connect_clicked(move |_| start_desfire_memory(ui2.clone()));
     let ui2 = ui.clone();
     ui.desfire_view
         .advanced
@@ -6034,6 +6300,10 @@ fn clear_desfire_session(ui: &Rc<Ui>) {
     ui.desfire_view.ndef_key.set_text("");
     ui.desfire_view.ndef_status.set_text("");
     ui.desfire_view.ndef_output.set_text("");
+    ui.desfire_view.manage_key.set_text("");
+    ui.desfire_view.manage_tmackey.set_text("");
+    ui.desfire_view.manage_output.set_text("");
+    ui.desfire_view.manage_status.set_text("");
     ui.desfire_view.start_record.set_text("0");
     ui.desfire_view.record_count.set_text("");
     ui.desfire_view.read_key_type.set_selected(0);
@@ -6041,6 +6311,10 @@ fn clear_desfire_session(ui: &Rc<Ui>) {
     ui.desfire_view.write_encoding.set_selected(0);
     ui.desfire_view.verify_key_type.set_selected(0);
     ui.desfire_view.ndef_key_type.set_selected(0);
+    ui.desfire_view.manage_key_type.set_selected(0);
+    ui.desfire_view.manage_app_key_type.set_selected(0);
+    ui.desfire_view.manage_file_type.set_selected(0);
+    ui.desfire_view.manage_communication.set_selected(0);
     ui.desfire_view.advanced.set_active(false);
     if let Some(dialog) = ui.pending_desfire_dialog.borrow_mut().take() {
         dialog.force_close();
@@ -7203,6 +7477,529 @@ fn execute_desfire_ndef_delete(
     });
 }
 
+struct DesfireManageKey {
+    aid: [u8; 3],
+    key: Option<Vec<u8>>,
+    key_type: Option<AuthKeyType>,
+    key_number: u8,
+}
+
+fn desfire_manage_key(view: &DesfireView) -> std::result::Result<DesfireManageKey, String> {
+    let aid = parse_desfire_hex(&view.manage_aid.text(), 3, "application ID")?;
+    let key = parse_desfire_key(&view.manage_key.text())?;
+    let key_type = desfire_key_type(&view.manage_key_type);
+    let key_number = desfire_key_number(&view.manage_key_number.text())?;
+    Ok(DesfireManageKey {
+        aid: [aid[0], aid[1], aid[2]],
+        key,
+        key_type,
+        key_number,
+    })
+}
+
+fn desfire_manage_app_key_type(dropdown: &gtk::DropDown) -> ApplicationKeyType {
+    match dropdown.selected() {
+        1 => ApplicationKeyType::Tdes3,
+        2 => ApplicationKeyType::Aes,
+        _ => ApplicationKeyType::Tdes2,
+    }
+}
+
+fn desfire_manage_communication(dropdown: &gtk::DropDown) -> CommunicationMode {
+    match dropdown.selected() {
+        1 => CommunicationMode::Maced,
+        2 => CommunicationMode::Enciphered,
+        _ => CommunicationMode::Plain,
+    }
+}
+
+fn desfire_manage_required_u32(text: &str, label: &str) -> std::result::Result<u32, String> {
+    text.trim()
+        .parse::<u32>()
+        .map_err(|_| format!("{label} must be an unsigned integer"))
+}
+
+fn desfire_manage_required_i32(text: &str, label: &str) -> std::result::Result<i32, String> {
+    text.trim()
+        .parse::<i32>()
+        .map_err(|_| format!("{label} must be an integer"))
+}
+
+fn desfire_manage_access_rights(view: &DesfireView) -> std::result::Result<u16, String> {
+    let raw = parse_desfire_hex(&view.manage_access_rights.text(), 2, "access rights")?;
+    Ok(u16::from_le_bytes([raw[0], raw[1]]))
+}
+
+fn desfire_manage_file_id(view: &DesfireView) -> std::result::Result<u8, String> {
+    Ok(parse_desfire_hex(&view.manage_file.text(), 1, "file ID")?[0])
+}
+
+fn desfire_manage_file_spec(view: &DesfireView) -> std::result::Result<DesfireFileSpec, String> {
+    let file_id = desfire_manage_file_id(view)?;
+    let iso_file_id = match view.manage_iso_file.text().trim() {
+        "" => None,
+        _ => {
+            let raw = parse_desfire_hex(&view.manage_iso_file.text(), 2, "ISO file ID")?;
+            Some(u16::from_le_bytes([raw[0], raw[1]]))
+        }
+    };
+    let communication = desfire_manage_communication(&view.manage_communication).raw();
+    let access_rights = desfire_manage_access_rights(view)?;
+    match view.manage_file_type.selected() {
+        1 => Ok(DesfireFileSpec::Backup {
+            file_id,
+            iso_file_id: None,
+            communication,
+            access_rights,
+            size: desfire_manage_required_u32(&view.manage_size.text(), "size")?,
+        }),
+        2 => Ok(DesfireFileSpec::Value {
+            file_id,
+            iso_file_id: None,
+            communication,
+            access_rights,
+            lower_limit: desfire_manage_required_i32(
+                &view.manage_lower_limit.text(),
+                "lower limit",
+            )?,
+            upper_limit: desfire_manage_required_i32(
+                &view.manage_upper_limit.text(),
+                "upper limit",
+            )?,
+            value: match view.manage_value.text().trim() {
+                "" => 0,
+                text => text
+                    .parse::<i32>()
+                    .map_err(|_| "value must be an integer".to_owned())?,
+            },
+            flags: parse_desfire_hex(&view.manage_flags.text(), 1, "value flags")?[0],
+        }),
+        3 => Ok(DesfireFileSpec::LinearRecord {
+            file_id,
+            iso_file_id: None,
+            communication,
+            access_rights,
+            record_size: desfire_manage_required_u32(
+                &view.manage_record_size.text(),
+                "record size",
+            )?,
+            max_records: desfire_manage_required_u32(
+                &view.manage_max_records.text(),
+                "maximum records",
+            )?,
+        }),
+        4 => Ok(DesfireFileSpec::CyclicRecord {
+            file_id,
+            iso_file_id: None,
+            communication,
+            access_rights,
+            record_size: desfire_manage_required_u32(
+                &view.manage_record_size.text(),
+                "record size",
+            )?,
+            max_records: desfire_manage_required_u32(
+                &view.manage_max_records.text(),
+                "maximum records",
+            )?,
+        }),
+        5 => {
+            let key = parse_desfire_hex(&view.manage_tmackey.text(), 16, "Transaction MAC key")?;
+            let key: [u8; 16] = key
+                .try_into()
+                .map_err(|_| "Transaction MAC key must be 16 bytes".to_owned())?;
+            let key_version = view
+                .manage_tmackey_version
+                .text()
+                .trim()
+                .parse::<u8>()
+                .map_err(|_| "Transaction MAC key version must be 0..=255".to_owned())?;
+            Ok(DesfireFileSpec::TransactionMac {
+                file_id,
+                iso_file_id,
+                communication,
+                access_rights,
+                key,
+                key_version,
+            })
+        }
+        _ => Ok(DesfireFileSpec::Standard {
+            file_id,
+            iso_file_id,
+            communication,
+            access_rights,
+            size: desfire_manage_required_u32(&view.manage_size.text(), "size")?,
+        }),
+    }
+}
+
+fn run_desfire_manage<F>(
+    ui: Rc<Ui>,
+    busy_status: &'static str,
+    success_status: &'static str,
+    refresh: bool,
+    task: F,
+) where
+    F: FnOnce(&mut Service) -> NfcResult<String> + Send + 'static,
+{
+    set_busy(&ui, true);
+    ui.status.set_localized(busy_status);
+    ui.desfire_view.manage_status.set_localized(busy_status);
+    let service = ui.service.clone();
+    let (sender, receiver) = async_channel::bounded(1);
+    std::thread::spawn(move || {
+        let result = match service.lock() {
+            Ok(mut service) => task(&mut service),
+            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
+        };
+        let _ = sender.send_blocking(result);
+    });
+    glib::spawn_future_local(async move {
+        set_busy(&ui, false);
+        match receiver.recv().await {
+            Ok(Ok(text)) => {
+                ui.desfire_view.manage_output.set_text(&text);
+                ui.desfire_view.manage_status.set_localized(success_status);
+                ui.status.set_localized(success_status);
+                append_log(&ui, "desfire · manage");
+                update_desfire_actions(&ui);
+                if refresh {
+                    start_desfire_inventory(ui);
+                }
+            }
+            Ok(Err(error)) => {
+                ui.desfire_view
+                    .manage_status
+                    .set_localized("DESFire management failed");
+                ui.status.set_localized("DESFire management failed");
+                toast_error(&ui, &format!("DESFire management: {error}"));
+            }
+            Err(_) => {
+                ui.desfire_view
+                    .manage_status
+                    .set_localized("Reader worker stopped");
+                toast_error(&ui, "Reader worker stopped");
+            }
+        }
+    });
+}
+
+fn start_desfire_app_create(ui: Rc<Ui>) {
+    if ui.busy.get() {
+        return;
+    }
+    if ui.devices.borrow().is_empty() {
+        toast_error(&ui, "No reader selected");
+        return;
+    }
+    let parsed = (|| -> std::result::Result<_, String> {
+        let input = desfire_manage_key(&ui.desfire_view)?;
+        let keys = desfire_manage_required_u32(&ui.desfire_view.manage_app_keys.text(), "keys")?;
+        let keys = u8::try_from(keys).map_err(|_| "keys must be 1..=14".to_owned())?;
+        let app_key_type = desfire_manage_app_key_type(&ui.desfire_view.manage_app_key_type);
+        Ok((input, keys, app_key_type))
+    })();
+    let (input, keys, app_key_type) = match parsed {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            toast_error(&ui, &error);
+            return;
+        }
+    };
+    run_desfire_manage(
+        ui,
+        "Creating the DESFire application…",
+        "DESFire application created",
+        true,
+        move |service| {
+            let mut request = DesfireAppCreateRequest::new(input.aid)
+                .keys(keys)
+                .app_key_type(app_key_type)
+                .key_number(input.key_number);
+            if let Some(key) = input.key {
+                request = request.key(key);
+            }
+            if let Some(key_type) = input.key_type {
+                request = request.key_type(key_type);
+            }
+            service
+                .desfire_create_application(request)
+                .map(|result| app_create_text(&result))
+        },
+    );
+}
+
+fn start_desfire_app_delete(ui: Rc<Ui>) {
+    if ui.busy.get() {
+        return;
+    }
+    if ui.devices.borrow().is_empty() {
+        toast_error(&ui, "No reader selected");
+        return;
+    }
+    if !ui.desfire_view.advanced.is_active() {
+        toast_error(&ui, "Enable Advanced mode before deleting an application");
+        return;
+    }
+    let input = match desfire_manage_key(&ui.desfire_view) {
+        Ok(input) => input,
+        Err(error) => {
+            toast_error(&ui, &error);
+            return;
+        }
+    };
+    let body = format!(
+        "Delete application {} and every file it contains.\n\
+         A manifest with the file settings is written before the command.\n\
+         No byte-for-byte restore exists.\n\n\
+         Type DELETE to confirm",
+        type2_ui::hex_bytes(&input.aid)
+    );
+    let dialog = typed_confirmation_dialog(
+        "Delete the DESFire application?",
+        &body,
+        "Delete application",
+        "DELETE",
+    );
+    ui.pending_desfire_dialog.replace(Some(dialog.clone()));
+    let ui2 = ui.clone();
+    let input = RefCell::new(Some(input));
+    dialog.connect_response(None, move |_, response| {
+        ui2.pending_desfire_dialog.replace(None);
+        if response != "confirm" {
+            return;
+        }
+        let Some(input) = input.borrow_mut().take() else {
+            return;
+        };
+        run_desfire_manage(
+            ui2.clone(),
+            "Deleting the DESFire application…",
+            "DESFire application deleted",
+            true,
+            move |service| {
+                let mut request = DesfireAppDeleteRequest::new(input.aid)
+                    .key_number(input.key_number)
+                    .advanced(true)
+                    .confirm(true);
+                if let Some(key) = input.key {
+                    request = request.key(key);
+                }
+                if let Some(key_type) = input.key_type {
+                    request = request.key_type(key_type);
+                }
+                service
+                    .desfire_delete_application(request)
+                    .map(|result| app_delete_text(&result))
+            },
+        );
+    });
+    present_alert(&dialog, &ui.window);
+}
+
+fn start_desfire_file_create(ui: Rc<Ui>) {
+    if ui.busy.get() {
+        return;
+    }
+    if ui.devices.borrow().is_empty() {
+        toast_error(&ui, "No reader selected");
+        return;
+    }
+    let parsed = (|| -> std::result::Result<_, String> {
+        let input = desfire_manage_key(&ui.desfire_view)?;
+        let spec = desfire_manage_file_spec(&ui.desfire_view)?;
+        Ok((input, spec))
+    })();
+    let (input, spec) = match parsed {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            toast_error(&ui, &error);
+            return;
+        }
+    };
+    run_desfire_manage(
+        ui,
+        "Creating the DESFire file…",
+        "DESFire file created",
+        true,
+        move |service| {
+            let mut request =
+                DesfireFileCreateRequest::new(input.aid, spec).key_number(input.key_number);
+            if let Some(key) = input.key {
+                request = request.key(key);
+            }
+            if let Some(key_type) = input.key_type {
+                request = request.key_type(key_type);
+            }
+            service
+                .desfire_create_file(request)
+                .map(|result| file_create_text(&result))
+        },
+    );
+}
+
+fn start_desfire_file_delete(ui: Rc<Ui>) {
+    if ui.busy.get() {
+        return;
+    }
+    if ui.devices.borrow().is_empty() {
+        toast_error(&ui, "No reader selected");
+        return;
+    }
+    if !ui.desfire_view.advanced.is_active() {
+        toast_error(&ui, "Enable Advanced mode before deleting a file");
+        return;
+    }
+    let parsed = (|| -> std::result::Result<_, String> {
+        let input = desfire_manage_key(&ui.desfire_view)?;
+        let file_id = desfire_manage_file_id(&ui.desfire_view)?;
+        Ok((input, file_id))
+    })();
+    let (input, file_id) = match parsed {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            toast_error(&ui, &error);
+            return;
+        }
+    };
+    let body = format!(
+        "Delete file {file_id:02X} from application {}.\n\
+         A manifest with the file settings is written before the command.\n\
+         No byte-for-byte restore exists.\n\n\
+         Type DELETE to confirm",
+        type2_ui::hex_bytes(&input.aid)
+    );
+    let dialog =
+        typed_confirmation_dialog("Delete the DESFire file?", &body, "Delete file", "DELETE");
+    ui.pending_desfire_dialog.replace(Some(dialog.clone()));
+    let ui2 = ui.clone();
+    let state = RefCell::new(Some((input, file_id)));
+    dialog.connect_response(None, move |_, response| {
+        ui2.pending_desfire_dialog.replace(None);
+        if response != "confirm" {
+            return;
+        }
+        let Some((input, file_id)) = state.borrow_mut().take() else {
+            return;
+        };
+        run_desfire_manage(
+            ui2.clone(),
+            "Deleting the DESFire file…",
+            "DESFire file deleted",
+            true,
+            move |service| {
+                let mut request = DesfireFileDeleteRequest::new(input.aid, file_id)
+                    .key_number(input.key_number)
+                    .advanced(true)
+                    .confirm(true);
+                if let Some(key) = input.key {
+                    request = request.key(key);
+                }
+                if let Some(key_type) = input.key_type {
+                    request = request.key_type(key_type);
+                }
+                service
+                    .desfire_delete_file(request)
+                    .map(|result| file_delete_text(&result))
+            },
+        );
+    });
+    present_alert(&dialog, &ui.window);
+}
+
+fn start_desfire_file_settings(ui: Rc<Ui>) {
+    if ui.busy.get() {
+        return;
+    }
+    if ui.devices.borrow().is_empty() {
+        toast_error(&ui, "No reader selected");
+        return;
+    }
+    let parsed = (|| -> std::result::Result<_, String> {
+        let input = desfire_manage_key(&ui.desfire_view)?;
+        let file_id = desfire_manage_file_id(&ui.desfire_view)?;
+        let communication = desfire_manage_communication(&ui.desfire_view.manage_communication);
+        let access_rights = desfire_manage_access_rights(&ui.desfire_view)?;
+        Ok((input, file_id, communication, access_rights))
+    })();
+    let (input, file_id, communication, access_rights) = match parsed {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            toast_error(&ui, &error);
+            return;
+        }
+    };
+    run_desfire_manage(
+        ui,
+        "Changing the DESFire file settings…",
+        "DESFire file settings changed",
+        true,
+        move |service| {
+            let mut request = DesfireFileSettingsRequest::new(input.aid, file_id)
+                .key_number(input.key_number)
+                .communication(communication)
+                .access_rights(access_rights);
+            if let Some(key) = input.key {
+                request = request.key(key);
+            }
+            if let Some(key_type) = input.key_type {
+                request = request.key_type(key_type);
+            }
+            service
+                .desfire_change_file_settings(request)
+                .map(|result| file_settings_text(&result))
+        },
+    );
+}
+
+fn start_desfire_memory(ui: Rc<Ui>) {
+    if ui.busy.get() {
+        return;
+    }
+    if ui.devices.borrow().is_empty() {
+        toast_error(&ui, "No reader selected");
+        return;
+    }
+    let parsed = (|| -> std::result::Result<_, String> {
+        let aid = match ui.desfire_view.manage_aid.text().trim() {
+            "" => None,
+            _ => {
+                let aid =
+                    parse_desfire_hex(&ui.desfire_view.manage_aid.text(), 3, "application ID")?;
+                Some([aid[0], aid[1], aid[2]])
+            }
+        };
+        let key = parse_desfire_key(&ui.desfire_view.manage_key.text())?;
+        let key_type = desfire_key_type(&ui.desfire_view.manage_key_type);
+        let key_number = desfire_key_number(&ui.desfire_view.manage_key_number.text())?;
+        Ok((aid, key, key_type, key_number))
+    })();
+    let (aid, key, key_type, key_number) = match parsed {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            toast_error(&ui, &error);
+            return;
+        }
+    };
+    run_desfire_manage(
+        ui,
+        "Reading the DESFire free memory…",
+        "DESFire free memory read",
+        false,
+        move |service| {
+            let mut request = DesfireFreeMemoryRequest::new(aid).key_number(key_number);
+            if let Some(key) = key {
+                request = request.key(key);
+            }
+            if let Some(key_type) = key_type {
+                request = request.key_type(key_type);
+            }
+            service
+                .desfire_free_memory(CancelToken::new(), request)
+                .map(|free| free_memory_text(aid, free))
+        },
+    );
+}
+
 fn typed_confirmation_dialog(
     heading: &str,
     body: &str,
@@ -7242,6 +8039,14 @@ fn update_desfire_actions(ui: &Ui) {
     ui.desfire_view.delete_ndef.set_sensitive(advanced);
     ui.desfire_view.ndef_key.set_sensitive(sensitive);
     ui.desfire_view.ndef_key_number.set_sensitive(sensitive);
+    ui.desfire_view.create_app.set_sensitive(sensitive);
+    ui.desfire_view.delete_app.set_sensitive(advanced);
+    ui.desfire_view.create_file.set_sensitive(sensitive);
+    ui.desfire_view
+        .change_file_settings
+        .set_sensitive(sensitive);
+    ui.desfire_view.delete_file.set_sensitive(advanced);
+    ui.desfire_view.read_memory.set_sensitive(sensitive);
 }
 
 fn start_read(ui: Rc<Ui>) {
@@ -15825,11 +16630,84 @@ mod tests {
         assert_eq!(ui.desfire_view.read_key_type.selected(), 0);
         assert_eq!(ui.desfire_view.verify_key_type.selected(), 0);
         assert_eq!(ui.desfire_view.ndef_key_type.selected(), 0);
+        assert!(ui.desfire_view.tabs.child_by_name("manage").is_some());
+        assert_eq!(
+            ui.desfire_view.create_app.label().as_deref(),
+            Some("Create application")
+        );
+        assert_eq!(
+            ui.desfire_view.delete_app.label().as_deref(),
+            Some("Delete application")
+        );
+        assert_eq!(
+            ui.desfire_view.change_file_settings.label().as_deref(),
+            Some("Change file settings")
+        );
+        assert!(ui.desfire_view.create_app.is_sensitive());
+        assert!(ui.desfire_view.create_file.is_sensitive());
+        assert!(ui.desfire_view.read_memory.is_sensitive());
+        assert!(!ui.desfire_view.delete_app.is_sensitive());
+        assert!(!ui.desfire_view.delete_file.is_sensitive());
+        assert_eq!(ui.desfire_view.manage_access_rights.text(), "0000");
         ui.desfire_view.advanced.set_active(true);
         assert!(ui.desfire_view.format_ndef.is_sensitive());
         assert!(ui.desfire_view.delete_ndef.is_sensitive());
+        assert!(ui.desfire_view.delete_app.is_sensitive());
+        assert!(ui.desfire_view.delete_file.is_sensitive());
         ui.desfire_view.advanced.set_active(false);
         assert!(!ui.desfire_view.format_ndef.is_sensitive());
+        assert!(!ui.desfire_view.delete_app.is_sensitive());
+
+        ui.desfire_view.manage_aid.set_text("F00D01");
+        ui.desfire_view.manage_file.set_text("02");
+        ui.desfire_view.manage_size.set_text("16");
+        let manage = desfire_manage_key(&ui.desfire_view).expect("manage input");
+        assert_eq!(manage.aid, [0xF0, 0x0D, 0x01]);
+        assert_eq!(manage.key_number, 0);
+        let spec = desfire_manage_file_spec(&ui.desfire_view).expect("standard file spec");
+        assert_eq!(spec.file_type(), nfc_app::desfire::FileType::Standard);
+        assert_eq!(spec.required_bytes(), 16);
+        assert_eq!(spec.access_rights(), 0);
+        ui.desfire_view.manage_iso_file.set_text("E103");
+        let spec = desfire_manage_file_spec(&ui.desfire_view).expect("ISO file spec");
+        assert_eq!(spec.file_type(), nfc_app::desfire::FileType::Standard);
+        ui.desfire_view.manage_iso_file.set_text("");
+        ui.desfire_view.manage_file_type.set_selected(2);
+        ui.desfire_view.manage_lower_limit.set_text("-50");
+        ui.desfire_view.manage_upper_limit.set_text("50");
+        ui.desfire_view.manage_value.set_text("7");
+        ui.desfire_view.manage_flags.set_text("03");
+        let spec = desfire_manage_file_spec(&ui.desfire_view).expect("value file spec");
+        assert_eq!(spec.file_type(), nfc_app::desfire::FileType::Value);
+        assert_eq!(spec.required_bytes(), 13);
+        ui.desfire_view.manage_file_type.set_selected(5);
+        ui.desfire_view.manage_tmackey.set_text(&"11".repeat(16));
+        let spec = desfire_manage_file_spec(&ui.desfire_view).expect("TMAC file spec");
+        assert_eq!(spec.file_type(), nfc_app::desfire::FileType::TransactionMac);
+        ui.desfire_view.manage_file_type.set_selected(0);
+        assert_eq!(
+            desfire_manage_app_key_type(&ui.desfire_view.manage_app_key_type),
+            ApplicationKeyType::Tdes2
+        );
+        ui.desfire_view.manage_app_key_type.set_selected(2);
+        assert_eq!(
+            desfire_manage_app_key_type(&ui.desfire_view.manage_app_key_type),
+            ApplicationKeyType::Aes
+        );
+        assert_eq!(
+            desfire_manage_communication(&ui.desfire_view.manage_communication),
+            CommunicationMode::Plain
+        );
+        ui.desfire_view.manage_communication.set_selected(2);
+        assert_eq!(
+            desfire_manage_communication(&ui.desfire_view.manage_communication),
+            CommunicationMode::Enciphered
+        );
+        ui.desfire_view.manage_access_rights.set_text("F1E2");
+        assert_eq!(
+            desfire_manage_access_rights(&ui.desfire_view).expect("access rights"),
+            0xE2F1
+        );
 
         assert_eq!(desfire_key_number("0").expect("key number"), 0);
         assert!(desfire_key_number("15").is_err());

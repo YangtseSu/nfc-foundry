@@ -44,10 +44,10 @@ records are chronological. The service computes `first_record` as
 `current_records - offset - count` so the CLI and GUI can print absolute
 indices.
 
-The `GetFileSettings` value field is not the current value: a value file
-created with 7 reported `settings value 0`, while `GetValue` returned 7. The
-inventory summary labels the field `settings value`; the current value comes
-only from `GetValue`.
+The `GetFileSettings` third value field is not the current value: a value file
+created with 7 reported `0`, while `GetValue` returned 7. Corrected
+2026-11-13: the field is the LimitedCredit amount and is labelled `limited
+credit value`; the current value comes only from `GetValue`.
 
 ## Unit tests
 

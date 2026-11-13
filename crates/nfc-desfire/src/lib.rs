@@ -39,6 +39,9 @@ const INS_CREATE_BACKUP_DATA_FILE: u8 = 0xCB;
 const INS_CREATE_VALUE_FILE: u8 = 0xCC;
 const INS_CREATE_LINEAR_RECORD_FILE: u8 = 0xC1;
 const INS_CREATE_CYCLIC_RECORD_FILE: u8 = 0xC0;
+const INS_CREATE_TRANSACTION_MAC_FILE: u8 = 0xCE;
+const INS_DELETE_FILE: u8 = 0xDF;
+const INS_CHANGE_FILE_SETTINGS: u8 = 0x5F;
 const INS_WRITE_DATA: u8 = 0x3D;
 const INS_READ_DATA: u8 = 0xBD;
 const INS_GET_VALUE: u8 = 0x6C;
@@ -165,6 +168,87 @@ impl AuthKeyType {
                 key.len()
             )))
         }
+    }
+}
+
+/// Key family assigned to a new application by CreateApplication.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ApplicationKeyType {
+    /// DES / 2K3DES application keys (KeySettings2 bits 6-7 = 00).
+    Tdes2,
+    /// 3K3DES application keys (bits 6-7 = 01).
+    Tdes3,
+    /// AES-128 application keys (bits 6-7 = 10).
+    Aes,
+}
+
+impl ApplicationKeyType {
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Tdes2 => "2K3DES",
+            Self::Tdes3 => "3K3DES",
+            Self::Aes => "AES",
+        }
+    }
+
+    pub const fn bits(self) -> u8 {
+        match self {
+            Self::Tdes2 => 0,
+            Self::Tdes3 => 1,
+            Self::Aes => 2,
+        }
+    }
+
+    pub fn parse(text: &str) -> Result<Self> {
+        match text.trim().to_ascii_lowercase().as_str() {
+            "des" | "2k3des" => Ok(Self::Tdes2),
+            "3k3des" => Ok(Self::Tdes3),
+            "aes" => Ok(Self::Aes),
+            other => Err(NfcError::InvalidArgument(format!(
+                "application key type {other:?} is not des, 3k3des, or aes"
+            ))),
+        }
+    }
+
+    pub const fn key_length(self) -> usize {
+        match self {
+            Self::Tdes2 => 16,
+            Self::Tdes3 => 24,
+            Self::Aes => 16,
+        }
+    }
+}
+
+/// Parameters for creating a DESFire application at the PICC level.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ApplicationSpec {
+    pub aid: [u8; 3],
+    /// Key settings byte 1: application master key rights. `0x0F` is the
+    /// factory default: configuration changeable, AMK changeable.
+    pub key_settings: u8,
+    /// Number of keys, 1..=14.
+    pub keys: u8,
+    pub key_type: ApplicationKeyType,
+    /// ISO 7816-4 file ID and DF name, present together or not at all.
+    pub iso_file_id: Option<u16>,
+    pub df_name: Vec<u8>,
+}
+
+impl ApplicationSpec {
+    pub fn new(aid: [u8; 3], keys: u8, key_type: ApplicationKeyType) -> Self {
+        Self {
+            aid,
+            key_settings: 0x0F,
+            keys,
+            key_type,
+            iso_file_id: None,
+            df_name: Vec::new(),
+        }
+    }
+
+    /// Encode KeySettings2 from the key count and family.
+    pub fn key_settings2(&self) -> u8 {
+        (self.key_type.bits() << 6) | (self.keys & 0x0F)
     }
 }
 
@@ -381,7 +465,8 @@ impl CommunicationMode {
         }
     }
 
-    fn parse(value: u8) -> Result<Self> {
+    /// Decode the two-bit communication field; 2 is reserved.
+    pub fn from_raw(value: u8) -> Result<Self> {
         match value {
             0x00 => Ok(Self::Plain),
             0x01 => Ok(Self::Maced),
@@ -390,6 +475,15 @@ impl CommunicationMode {
                 "DESFire file communication mode 2 is reserved".to_owned(),
             )),
             _ => unreachable!("communication mode is a two-bit field"),
+        }
+    }
+
+    /// Raw two-bit value stored in file settings and create payloads.
+    pub const fn raw(self) -> u8 {
+        match self {
+            Self::Plain => 0,
+            Self::Maced => 1,
+            Self::Enciphered => 3,
         }
     }
 }
@@ -468,6 +562,34 @@ impl AccessRight {
         }
     }
 
+    pub const fn nibble(self) -> u8 {
+        match self {
+            Self::Key(key) => key,
+            Self::Free => 0x0E,
+            Self::Denied => 0x0F,
+        }
+    }
+
+    /// Parse `key0`..`key13`, `free`, or `denied`.
+    pub fn parse(text: &str) -> Result<Self> {
+        let text = text.trim().to_ascii_lowercase();
+        match text.as_str() {
+            "free" => Ok(Self::Free),
+            "denied" | "deny" => Ok(Self::Denied),
+            _ => match text.strip_prefix("key") {
+                Some(number) => match number.trim().parse::<u8>() {
+                    Ok(key) if key <= 13 => Ok(Self::Key(key)),
+                    _ => Err(NfcError::InvalidArgument(format!(
+                        "DESFire access right {text:?} is not key0..key13, free, or denied"
+                    ))),
+                },
+                None => Err(NfcError::InvalidArgument(format!(
+                    "DESFire access right {text:?} is not key0..key13, free, or denied"
+                ))),
+            },
+        }
+    }
+
     pub fn name(self) -> String {
         match self {
             Self::Key(key) => format!("key {key}"),
@@ -498,6 +620,23 @@ impl AccessRights {
         }
     }
 
+    /// Build the raw little-endian access word from its four conditions.
+    pub fn from_parts(
+        read: AccessRight,
+        write: AccessRight,
+        read_write: AccessRight,
+        change: AccessRight,
+    ) -> Self {
+        let low = (read_write.nibble() << 4) | change.nibble();
+        let high = (read.nibble() << 4) | write.nibble();
+        Self::parse([low, high])
+    }
+
+    /// Decode a raw access word for display and validation.
+    pub fn from_raw(raw: u16) -> Self {
+        Self::parse(raw.to_le_bytes())
+    }
+
     pub fn summary(self) -> String {
         format!(
             "read {}, write {}, rw {}, change {}",
@@ -518,7 +657,9 @@ pub enum FileContents {
     Value {
         lower_limit: i32,
         upper_limit: i32,
-        value: i32,
+        /// Value added by a LimitedCredit operation. The current value is
+        /// only available through GetValue; this field is not it.
+        limited_credit_value: i32,
         limited_credit: bool,
         free_get_value: bool,
     },
@@ -558,7 +699,7 @@ impl FileSettings {
         }
         let file_type = FileType::parse(bytes[0])?;
         let option = bytes[1];
-        let communication = CommunicationMode::parse(option & 0x03)?;
+        let communication = CommunicationMode::from_raw(option & 0x03)?;
         let access = AccessRights::parse([bytes[2], bytes[3]]);
         if file_type != FileType::TransactionMac && option & 0x20 != 0 {
             return Err(NfcError::InvalidArgument(
@@ -583,7 +724,8 @@ impl FileSettings {
                     i32::from_le_bytes(raw[0..4].try_into().expect("four-byte lower limit"));
                 let upper_limit =
                     i32::from_le_bytes(raw[4..8].try_into().expect("four-byte upper limit"));
-                let value = i32::from_le_bytes(raw[8..12].try_into().expect("four-byte value"));
+                let limited_credit_value =
+                    i32::from_le_bytes(raw[8..12].try_into().expect("four-byte credit value"));
                 let flags = raw[12];
                 if flags & !0x03 != 0 {
                     return Err(NfcError::InvalidArgument(format!(
@@ -595,15 +737,10 @@ impl FileSettings {
                         "DESFire value limits {lower_limit}..{upper_limit} are not increasing"
                     )));
                 }
-                if value < lower_limit || value > upper_limit {
-                    return Err(NfcError::InvalidArgument(format!(
-                        "DESFire value {value} is outside limits {lower_limit}..{upper_limit}"
-                    )));
-                }
                 FileContents::Value {
                     lower_limit,
                     upper_limit,
-                    value,
+                    limited_credit_value,
                     limited_credit: flags & 0x01 != 0,
                     free_get_value: flags & 0x02 != 0,
                 }
@@ -706,12 +843,12 @@ impl FileSettings {
             FileContents::Value {
                 lower_limit,
                 upper_limit,
-                value,
+                limited_credit_value,
                 limited_credit,
                 free_get_value,
             } => {
                 text.push_str(&format!(
-                    " · limits {lower_limit}..{upper_limit} · settings value {value} · limited credit {} · get value {}",
+                    " · limits {lower_limit}..{upper_limit} · limited credit value {limited_credit_value} · limited credit {} · get value {}",
                     if *limited_credit { "enabled" } else { "disabled" },
                     if *free_get_value { "free" } else { "restricted" }
                 ));
@@ -786,6 +923,34 @@ pub struct RecordFileSpec {
     pub record_size: u32,
     pub max_records: u32,
     pub cyclic: bool,
+}
+
+/// Parameters for creating a DESFire Transaction MAC file.
+///
+/// The Transaction MAC key is a separate AES-128 key stored by the card and
+/// used only for transaction MAC generation; it is not an application key.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct TransactionMacFileSpec {
+    pub file_id: u8,
+    pub iso_file_id: Option<u16>,
+    pub communication: u8,
+    pub access_rights: u16,
+    pub key: [u8; 16],
+    pub key_version: u8,
+}
+
+impl std::fmt::Debug for TransactionMacFileSpec {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("TransactionMacFileSpec")
+            .field("file_id", &self.file_id)
+            .field("iso_file_id", &self.iso_file_id)
+            .field("communication", &self.communication)
+            .field("access_rights", &self.access_rights)
+            .field("key", &"<redacted>")
+            .field("key_version", &self.key_version)
+            .finish()
+    }
 }
 
 /// DESFire command context over one reader.
@@ -1525,6 +1690,17 @@ impl<'a> Desfire<'a> {
         Ok(())
     }
 
+    /// Create an application from a typed key count and key family.
+    pub fn create_application_from(&mut self, spec: &ApplicationSpec) -> Result<()> {
+        self.create_application(
+            spec.aid,
+            spec.key_settings,
+            spec.key_settings2(),
+            spec.iso_file_id,
+            &spec.df_name,
+        )
+    }
+
     /// Delete an application while authenticated to the PICC master
     /// application.
     pub fn delete_application(&mut self, aid: [u8; 3]) -> Result<()> {
@@ -1626,6 +1802,99 @@ impl<'a> Desfire<'a> {
             INS_CREATE_LINEAR_RECORD_FILE
         };
         self.command(instruction, &payload)?;
+        Ok(())
+    }
+
+    /// Create a Transaction MAC file in the selected application.
+    ///
+    /// The card updates the separate AppTransactionMACKey with this command,
+    /// so the key and version are sent in an enciphered secure-messaging
+    /// command. A legacy DES/2K3DES session cannot protect them and is
+    /// refused.
+    pub fn create_transaction_mac_file(&mut self, spec: &TransactionMacFileSpec) -> Result<()> {
+        self.ensure_authenticated()?;
+        if !self
+            .session
+            .as_ref()
+            .is_some_and(Session::uses_secure_messaging)
+        {
+            return Err(NfcError::Unsupported(
+                "a Transaction MAC file needs an AES or 3K3DES secure-messaging session",
+            ));
+        }
+        let (header, data) = transaction_mac_file_parts(spec)?;
+        self.write_command(
+            INS_CREATE_TRANSACTION_MAC_FILE,
+            &header,
+            &data,
+            CommunicationMode::Enciphered,
+        )?;
+        Ok(())
+    }
+
+    /// Delete one file from the selected application.
+    pub fn delete_file(&mut self, file_id: u8) -> Result<()> {
+        self.ensure_authenticated()?;
+        validate_file_id(file_id)?;
+        self.command(INS_DELETE_FILE, &[file_id])?;
+        Ok(())
+    }
+
+    /// Change a file's communication mode and primary access rights.
+    ///
+    /// `protection` is chosen from the file's change access right: a key
+    /// right needs an authenticated enciphered command, while free access
+    /// needs a plain command without authentication. Standard and Backup
+    /// files accept a new communication mode. Value, record, and Transaction
+    /// MAC files accept only access-right changes and must keep their current
+    /// mode.
+    pub fn change_file_settings(
+        &mut self,
+        file_id: u8,
+        communication: u8,
+        access_rights: u16,
+        protection: CommunicationMode,
+    ) -> Result<()> {
+        let payload = change_file_settings_payload(file_id, communication, access_rights)?;
+        let (header, data) = payload.split_at(1);
+        match protection {
+            CommunicationMode::Plain => {
+                if self.session.is_some() {
+                    return Err(NfcError::InvalidArgument(
+                        "a free ChangeFileSettings right needs no authentication".to_owned(),
+                    ));
+                }
+                self.write_command(
+                    INS_CHANGE_FILE_SETTINGS,
+                    header,
+                    data,
+                    CommunicationMode::Plain,
+                )?;
+            }
+            CommunicationMode::Enciphered => {
+                self.ensure_authenticated()?;
+                if !self
+                    .session
+                    .as_ref()
+                    .is_some_and(Session::uses_secure_messaging)
+                {
+                    return Err(NfcError::Unsupported(
+                        "ChangeFileSettings with a key right needs an AES or 3K3DES session",
+                    ));
+                }
+                self.write_command(
+                    INS_CHANGE_FILE_SETTINGS,
+                    header,
+                    data,
+                    CommunicationMode::Enciphered,
+                )?;
+            }
+            CommunicationMode::Maced => {
+                return Err(NfcError::InvalidArgument(
+                    "ChangeFileSettings uses plain or enciphered communication".to_owned(),
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -1881,13 +2150,23 @@ fn create_application_payload(
     Ok(payload)
 }
 
+fn validate_file_id(file_id: u8) -> Result<()> {
+    if file_id > 0x1F {
+        return Err(NfcError::InvalidArgument(format!(
+            "DESFire file numbers are 0..=31, got {file_id}"
+        )));
+    }
+    Ok(())
+}
+
 fn create_file_prefix(
     file_id: u8,
     iso_file_id: Option<u16>,
     communication: u8,
     access_rights: u16,
 ) -> Result<Vec<u8>> {
-    if communication > 3 {
+    validate_file_id(file_id)?;
+    if !matches!(communication, 0 | 1 | 3) {
         return Err(NfcError::InvalidArgument(
             "DESFire communication mode must be 0, 1 or 3".to_owned(),
         ));
@@ -1972,6 +2251,56 @@ fn create_record_file_payload(spec: &RecordFileSpec) -> Result<Vec<u8>> {
     )?;
     payload.extend_from_slice(&spec.record_size.to_le_bytes()[..3]);
     payload.extend_from_slice(&spec.max_records.to_le_bytes()[..3]);
+    Ok(payload)
+}
+
+fn transaction_mac_file_parts(spec: &TransactionMacFileSpec) -> Result<(Vec<u8>, Vec<u8>)> {
+    let rights = AccessRights::from_raw(spec.access_rights);
+    if rights.write != AccessRight::Denied {
+        return Err(NfcError::InvalidArgument(
+            "a Transaction MAC file refuses direct writes; set the write right to denied"
+                .to_owned(),
+        ));
+    }
+    if !matches!(
+        rights.read_write,
+        AccessRight::Free | AccessRight::Denied | AccessRight::Key(0..=4)
+    ) {
+        return Err(NfcError::InvalidArgument(
+            "a Transaction MAC file read/write right is a key 0..=4, free, or denied".to_owned(),
+        ));
+    }
+    let mut header = create_file_prefix(
+        spec.file_id,
+        spec.iso_file_id,
+        spec.communication,
+        spec.access_rights,
+    )?;
+    // TMACKeyOption 0x02: separate AES-128 Transaction MAC key, no counter
+    // limit. Counter-limit creation is not offered because no reference
+    // implementation writes that optional field consistently.
+    header.push(0x02);
+    let mut data = Vec::with_capacity(17);
+    data.extend_from_slice(&spec.key);
+    data.push(spec.key_version);
+    Ok((header, data))
+}
+
+fn change_file_settings_payload(
+    file_id: u8,
+    communication: u8,
+    access_rights: u16,
+) -> Result<Vec<u8>> {
+    validate_file_id(file_id)?;
+    if !matches!(communication, 0 | 1 | 3) {
+        return Err(NfcError::InvalidArgument(
+            "DESFire communication mode must be 0, 1 or 3".to_owned(),
+        ));
+    }
+    let mut payload = Vec::with_capacity(4);
+    payload.push(file_id);
+    payload.push(communication);
+    payload.extend_from_slice(&access_rights.to_le_bytes());
     Ok(payload)
 }
 
@@ -2567,8 +2896,31 @@ fn rotate_left(block: &[u8]) -> Vec<u8> {
 }
 
 fn status_error(ins: u8, sw: u16) -> NfcError {
+    let label = match sw {
+        0x910C => "no changes",
+        0x910E => "out of EEPROM memory",
+        0x911C => "illegal command",
+        0x911E => "integrity error",
+        0x9140 => "no such key",
+        0x917E => "length error",
+        0x919D => "permission denied",
+        0x919E => "parameter error",
+        0x91A0 => "application not found",
+        0x91A1 => "application integrity error",
+        0x91AE => "authentication error",
+        0x91BE => "boundary error",
+        0x91C1 => "card integrity error",
+        0x91CA => "command aborted",
+        0x91CD => "card disabled",
+        0x91CE => "count error",
+        0x91DE => "file not found",
+        0x91DF => "file integrity error",
+        0x91EE => "duplicate file or application",
+        0x91F0 => "file already exists",
+        _ => "error",
+    };
     NfcError::VerificationFailed(format!(
-        "DESFire command {ins:#04X} returned status {sw:#06X}"
+        "DESFire command {ins:#04X} returned {label} (status {sw:#06X})"
     ))
 }
 
@@ -2578,7 +2930,7 @@ mod tests {
     use std::collections::VecDeque;
 
     use nfc_core::{CardInfo, Key, KeyType};
-    use nfc_transport::{ApduResponse, DeviceInfo};
+    use nfc_transport::{ApduResponse, DeviceInfo, Transport};
 
     struct ScriptedReader {
         responses: VecDeque<ApduResponse>,
@@ -2686,9 +3038,25 @@ mod tests {
             FileContents::Value {
                 lower_limit: -100,
                 upper_limit: 100,
-                value: 42,
+                limited_credit_value: 42,
                 limited_credit: true,
                 free_get_value: true,
+            }
+        );
+        // The third field is the LimitedCredit amount, not the current value;
+        // it may be outside the value limits (here 0 with limits 5..10).
+        let zero_credit = valid(&[
+            0x02, 0x00, 0x00, 0xE0, 0x05, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x01,
+        ]);
+        assert_eq!(
+            zero_credit.contents,
+            FileContents::Value {
+                lower_limit: 5,
+                upper_limit: 10,
+                limited_credit_value: 0,
+                limited_credit: true,
+                free_get_value: false,
             }
         );
     }
@@ -2776,11 +3144,13 @@ mod tests {
         ];
         assert!(FileSettings::parse(&equal_limits).is_err());
 
-        let outside = [
+        let credit_outside_limits = [
             0x02, 0x00, 0x00, 0xE0, 0x00, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x0B, 0x00,
             0x00, 0x00, 0x00,
         ];
-        assert!(FileSettings::parse(&outside).is_err());
+        // The third field is the LimitedCredit amount and is not bounded by
+        // the value limits.
+        assert!(FileSettings::parse(&credit_outside_limits).is_ok());
 
         let reserved_flags = [
             0x02, 0x00, 0x00, 0xE0, 0x00, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x05, 0x00,
@@ -3079,6 +3449,175 @@ mod tests {
         record.record_size = 8;
         record.max_records = 0;
         assert!(create_record_file_payload(&record).is_err());
+    }
+
+    #[test]
+    fn access_rights_encode_and_parse_the_access_word() {
+        let rights = AccessRights::from_parts(
+            AccessRight::Free,
+            AccessRight::Key(2),
+            AccessRight::Denied,
+            AccessRight::Key(1),
+        );
+        assert_eq!(rights.raw, 0xE2F1);
+        assert_eq!(
+            rights.summary(),
+            "read free, write key 2, rw denied, change key 1"
+        );
+        assert_eq!(
+            AccessRight::parse("key0").expect("key 0"),
+            AccessRight::Key(0)
+        );
+        assert_eq!(
+            AccessRight::parse(" KEY13 ").expect("key 13"),
+            AccessRight::Key(13)
+        );
+        assert_eq!(AccessRight::parse("free").expect("free"), AccessRight::Free);
+        assert_eq!(
+            AccessRight::parse("deny").expect("denied"),
+            AccessRight::Denied
+        );
+        assert!(AccessRight::parse("key14").is_err());
+        assert!(AccessRight::parse("open").is_err());
+        let decoded = AccessRights::from_raw(0xE2F1);
+        assert_eq!(decoded, rights);
+    }
+
+    #[test]
+    fn management_payloads_carry_the_expected_fields() {
+        let (header, data) = transaction_mac_file_parts(&TransactionMacFileSpec {
+            file_id: 7,
+            iso_file_id: None,
+            communication: 1,
+            access_rights: 0xEF21,
+            key: [0xA5; 16],
+            key_version: 0x05,
+        })
+        .expect("Transaction MAC payload");
+        assert_eq!(header, [0x07, 0x01, 0x21, 0xEF, 0x02]);
+        assert_eq!(data.len(), 17);
+        assert_eq!(&data[..16], &[0xA5; 16]);
+        assert_eq!(data[16], 0x05);
+        assert!(
+            transaction_mac_file_parts(&TransactionMacFileSpec {
+                file_id: 7,
+                iso_file_id: None,
+                communication: 1,
+                access_rights: 0x0000,
+                key: [0xA5; 16],
+                key_version: 0x05,
+            })
+            .is_err(),
+            "a Transaction MAC file refuses direct writes"
+        );
+
+        assert_eq!(
+            change_file_settings_payload(7, 1, 0xE2F1).expect("settings payload"),
+            [0x07, 0x01, 0xF1, 0xE2]
+        );
+        assert!(change_file_settings_payload(32, 0, 0).is_err());
+        assert!(change_file_settings_payload(1, 2, 0).is_err());
+        assert!(create_standard_file_payload(32, None, 0, 0, 1).is_err());
+        assert!(create_standard_file_payload(1, None, 2, 0, 1).is_err());
+
+        let application = ApplicationSpec::new([0xF0, 0x0D, 0x22], 4, ApplicationKeyType::Aes);
+        assert_eq!(application.key_settings2(), 0x84);
+        assert_eq!(application.key_settings, 0x0F);
+    }
+
+    #[test]
+    fn management_commands_create_change_and_delete_files() {
+        let transport = crate::mock::MockDesfireTransport::with_tag(crate::mock::MockDesfire::new(
+            [0u8; 16],
+            AuthKeyType::Aes,
+        ));
+        let mut reader = transport.open("mock:desfire").expect("open mock card");
+        let mut desfire = Desfire::new(reader.as_mut());
+        desfire.select_application([0x00; 3]).expect("select PICC");
+        desfire
+            .authenticate(0, &[0u8; 16], AuthKeyType::Aes)
+            .expect("authenticate PICC");
+        let application = ApplicationSpec::new([0xF0, 0x0D, 0x22], 1, ApplicationKeyType::Aes);
+        desfire
+            .create_application_from(&application)
+            .expect("create application");
+        assert!(
+            desfire
+                .application_ids()
+                .expect("application ids")
+                .contains(&application.aid)
+        );
+
+        desfire
+            .select_application(application.aid)
+            .expect("select application");
+        desfire
+            .authenticate(0, &[0u8; 16], AuthKeyType::Aes)
+            .expect("authenticate application");
+        desfire
+            .create_standard_file(1, None, 0, 0x0000, 16)
+            .expect("create standard file");
+        desfire
+            .create_value_file(ValueFileSpec {
+                file_id: 2,
+                iso_file_id: None,
+                communication: 0,
+                access_rights: 0,
+                lower_limit: 0,
+                upper_limit: 100,
+                value: 5,
+                flags: 0,
+            })
+            .expect("create value file");
+        desfire
+            .create_record_file(RecordFileSpec {
+                file_id: 3,
+                iso_file_id: None,
+                communication: 0,
+                access_rights: 0,
+                record_size: 4,
+                max_records: 2,
+                cyclic: false,
+            })
+            .expect("create record file");
+        desfire
+            .create_transaction_mac_file(&TransactionMacFileSpec {
+                file_id: 4,
+                iso_file_id: None,
+                communication: 0,
+                access_rights: 0xEFF0,
+                key: [0x11; 16],
+                key_version: 1,
+            })
+            .expect("create Transaction MAC file");
+        assert_eq!(desfire.file_ids().expect("file ids"), [1, 2, 3, 4]);
+
+        desfire
+            .change_file_settings(1, 3, 0x0000, CommunicationMode::Enciphered)
+            .expect("change settings");
+        let settings =
+            FileSettings::parse(&desfire.file_settings(1).expect("settings")).expect("decode");
+        assert_eq!(settings.communication, CommunicationMode::Enciphered);
+        let tmac =
+            FileSettings::parse(&desfire.file_settings(4).expect("settings")).expect("decode");
+        assert_eq!(tmac.file_type, FileType::TransactionMac);
+
+        desfire.delete_file(3).expect("delete record file");
+        assert_eq!(desfire.file_ids().expect("file ids"), [1, 2, 4]);
+
+        desfire.select_application([0x00; 3]).expect("select PICC");
+        desfire
+            .authenticate(0, &[0u8; 16], AuthKeyType::Aes)
+            .expect("authenticate PICC");
+        desfire
+            .delete_application(application.aid)
+            .expect("delete application");
+        assert!(
+            !desfire
+                .application_ids()
+                .expect("application ids")
+                .contains(&application.aid)
+        );
     }
 
     #[test]

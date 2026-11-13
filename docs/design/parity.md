@@ -5,7 +5,8 @@ is complete only when the GUI path has the same semantics and confirmation
 gate as `nfctl`.
 
 Legend: `R` read-only, `C` confirmation dialog (CLI `--yes`), `A` Advanced
-mode required, `B` backup plus read-back.
+mode required, `B` backup plus read-back, `M` manifest export, `W` write plus
+read-back.
 Hardware status is the release claim from
 [hardware-matrix.md](../hardware-matrix.md); `n/r` means not recorded.
 
@@ -102,6 +103,12 @@ original UID if verification fails.
 | Read NDEF | `desfire ndef-read [--output]` | DESFire → NDEF → Read NDEF | R | PN532 and ACR122U: CC, file facts, records, extra TLVs |
 | Format NDEF | `desfire format-ndef --key --advanced [--dry-run]` | DESFire → NDEF → Advanced mode → Format NDEF application… → type `FORMAT` | A, C | PN532 and ACR122U |
 | Delete NDEF application | `desfire delete-ndef --key --advanced` | DESFire → NDEF → Advanced mode → Delete NDEF application… → type `DELETE` | A, C | PN532 and ACR122U |
+| Free memory | `desfire memory [--aid] [--key]` | DESFire → Manage → Read free memory | R | ACR122U: 8192 bytes before setup, 7648 after deletes |
+| Create application | `desfire app-create --aid [--key] --keys --app-key-type` | DESFire → Manage → Create application | W | ACR122U: AES `F0 0D 08`, two keys |
+| Delete application | `desfire app-delete --aid [--key] --advanced --yes [--manifest]` | DESFire → Manage → Advanced mode → Delete application… → type `DELETE` | A, C, M | ACR122U: reserved application removed, manifest written |
+| Create file | `desfire file-create --aid --file --type …` | DESFire → Manage → Create file with the same type fields | W | ACR122U: Standard, Backup, Value, Linear Record, Cyclic Record, Transaction MAC |
+| Delete file | `desfire file-delete --aid --file [--key] --advanced --yes [--manifest]` | DESFire → Manage → Advanced mode → Delete file… → type `DELETE` | A, C, M | ACR122U: all six files removed, manifests written |
+| Change file settings | `desfire file-settings --aid --file [--communication] [rights] [--key]` | DESFire → Manage → Change file settings | W | ACR122U: Standard file changed to enciphered with new access rights |
 
 Both surfaces call the same `nfc-app` service and render inventory through
 `inventory_text`. Each file shows the decoded type, communication mode,

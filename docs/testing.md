@@ -265,6 +265,22 @@ read-back gates, and the `nfctl` and GTK tests for the two surfaces. The
 same test also supports `NFC_FOUNDRY_HARDWARE_KEEP_APP=1` for manual
 `nfctl desfire write` checks.
 
+The phase 26.9 management path is covered without hardware by
+`nfc-desfire` payload and scripted-card tests, `nfc-app/tests/desfire_management.rs`
+for capacity, read-back, manifest, and gate checks, and the CLI/GTK tests. The
+gated `hardware_desfire_management` test creates a reserved AES application,
+creates all six file types, changes a Standard file's settings, deletes every
+file and the application with manifests, and confirms the application list is
+empty. It passed on PN532 UART and ACR122U on 2026-11-13; set
+`NFC_FOUNDRY_HARDWARE_FORMAT=yes` to clear DESFire tombstones first:
+
+```sh
+NFC_FOUNDRY_HARDWARE=1 NFC_FOUNDRY_HARDWARE_WRITE=yes \
+NFC_FOUNDRY_DEVICE=acr122_usb:<bus>:<address> \
+cargo test -p nfctl --features hardware-write \
+  --test hardware_desfire_management -- --ignored
+```
+
 The phase 26.3 read path remains covered by unit
 tests for the `GetValue` command shape and the `ReadRecords` payload, plus the
 service check that a record response must be exactly `count * record_size`

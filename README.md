@@ -20,7 +20,11 @@ plain/MACed/enciphered file reads are validated on both readers; key
 verification and authenticated UID reads are validated on ACR122U. The Type 4
 NDEF read is exposed in CLI and GUI, and NDEF provisioning and guarded delete
 are implemented. Generic Standard/Backup file writes are validated on PN532
-UART and ACR122U for Plain, MACed, and Enciphered modes. Type 4 read/write is
+UART and ACR122U for Plain, MACed, and Enciphered modes. Application and file
+management (create/delete applications and all six file types, settings
+changes, free memory, manifest export) is validated on PN532 UART and
+ACR122U. Type 4
+read/write is
 validated on
 PN532 UART but has no CLI or GUI surface yet. See
 [Hardware matrix](docs/hardware-matrix.md).

@@ -711,8 +711,8 @@ keys! {
         "读取卡片以列出 DESFire 应用。"
     ),
     DesfireNdefHint => (
-        "Read the NDEF Tag Application without authenticating. Formatting creates the application D27600 with the CC and NDEF files; no full-card backup exists, and deleting the application is the undo path.",
-        "无需认证即可读取 NDEF 标签应用。格式化会创建应用 D27600 以及 CC 和 NDEF 文件；不存在整卡备份，删除该应用是撤销路径。"
+        "Read the NDEF Tag Application without authenticating. Formatting creates the application D27600 with the CC and NDEF files; no full-card backup exists, and deleting the application is the undo path. Both actions need Advanced mode, which is on the Manage tab.",
+        "无需认证即可读取 NDEF 标签应用。格式化会创建应用 D27600 以及 CC 和 NDEF 文件；不存在整卡备份，删除该应用是撤销路径。这两个操作都需要管理页中的高级模式。"
     ),
     DesfirePiccKey => ("PICC master key", "PICC 主密钥"),
     DesfirePiccKeyNumber => ("PICC key number", "PICC 密钥编号"),
@@ -818,6 +818,105 @@ keys! {
     DesfireInventoryLine => ("DESFire inventory: {}", "DESFire 清单：{}"),
     DesfireNdefFormatLine => ("DESFire NDEF format: {}", "DESFire NDEF 格式化：{}"),
     DesfireNdefDeleteLine => ("DESFire NDEF delete: {}", "DESFire NDEF 删除：{}"),
+    DesfireManageTab => ("Manage", "管理"),
+    DesfireManageHint => (
+        "Create and delete applications and all six file types, change file settings, and read free EEPROM bytes. Creation checks the free space and reads the new settings back. Deletion requires Advanced mode, writes a manifest first, and is not a byte-for-byte restore.",
+        "创建和删除应用及全部六种文件类型、更改文件设置并读取可用 EEPROM 字节。创建会检查可用空间并回读新设置。删除需要高级模式，先写入清单，且不是逐字节恢复。"
+    ),
+    DesfireManageKey => ("Key (optional)", "密钥（可选）"),
+    DesfireAppKeyCount => ("Application key count", "应用密钥数量"),
+    DesfireAppKeyType => ("Application key type", "应用密钥类型"),
+    DesfireFileType => ("File type", "文件类型"),
+    DesfireIsoFileId => ("ISO file ID (optional)", "ISO 文件 ID（可选）"),
+    DesfireIsoFileIdPlaceholder => ("ISO file ID, optional", "ISO 文件 ID，可选"),
+    DesfireCommunication => ("Communication", "通信模式"),
+    DesfireAccessRights => ("Access rights (hex)", "访问权限（十六进制）"),
+    DesfireAccessRightsPlaceholder => ("EEEE free, 0000 key 0", "EEEE 自由，0000 密钥 0"),
+    DesfireSize => ("Size", "大小"),
+    DesfireLowerLimit => ("Lower limit", "下限"),
+    DesfireUpperLimit => ("Upper limit", "上限"),
+    DesfireValue => ("Value", "值"),
+    DesfireValueFlags => ("Value flags", "值标志"),
+    DesfireValueFlagsPlaceholder => (
+        "01 limited credit, 02 free GetValue",
+        "01 受限信用，02 自由 GetValue"
+    ),
+    DesfireRecordSize => ("Record size", "记录大小"),
+    DesfireMaxRecords => ("Max records", "最大记录数"),
+    DesfireTmacKey => ("Transaction MAC key", "交易 MAC 密钥"),
+    DesfireTmacKeyPlaceholder => (
+        "Transaction MAC AES key, 32 hex digits",
+        "交易 MAC AES 密钥，32 位十六进制"
+    ),
+    DesfireTmacKeyVersion => ("Transaction MAC key version", "交易 MAC 密钥版本"),
+    DesfireCreateApplication => ("Create application", "创建应用"),
+    DesfireDeleteApplication => ("Delete application", "删除应用"),
+    DesfireReadFreeMemory => ("Read free memory", "读取可用空间"),
+    DesfireCreateFile => ("Create file", "创建文件"),
+    DesfireChangeFileSettings => ("Change file settings", "更改文件设置"),
+    DesfireDeleteFile => ("Delete file", "删除文件"),
+    DesfirePlaceholderSize => ("standard/backup bytes", "标准/备份文件字节数"),
+    DesfirePlaceholderLowerLimit => ("value lower limit", "值文件下限"),
+    DesfirePlaceholderUpperLimit => ("value upper limit", "值文件上限"),
+    DesfirePlaceholderValue => ("initial value", "初始值"),
+    DesfirePlaceholderRecordSize => ("record bytes", "记录字节数"),
+    DesfirePlaceholderMaxRecords => ("maximum records", "最大记录数"),
+    DesfireFileTypeStandard => ("Standard", "标准"),
+    DesfireFileTypeBackup => ("Backup", "备份"),
+    DesfireFileTypeValue => ("Value", "值"),
+    DesfireFileTypeLinear => ("Linear record", "线性记录"),
+    DesfireFileTypeCyclic => ("Cyclic record", "循环记录"),
+    DesfireFileTypeTmac => ("Transaction MAC", "交易 MAC"),
+    DesfireCommunicationPlain => ("Plain", "明文"),
+    DesfireCommunicationMaced => ("MACed", "MAC"),
+    DesfireCommunicationEnciphered => ("Enciphered", "加密"),
+    DesfireCreatingApplication => (
+        "Creating the DESFire application…",
+        "正在创建 DESFire 应用…"
+    ),
+    DesfireApplicationCreated => ("DESFire application created", "DESFire 应用已创建"),
+    DesfireDeletingApplication => (
+        "Deleting the DESFire application…",
+        "正在删除 DESFire 应用…"
+    ),
+    DesfireApplicationDeleted => ("DESFire application deleted", "DESFire 应用已删除"),
+    DesfireCreatingFile => ("Creating the DESFire file…", "正在创建 DESFire 文件…"),
+    DesfireFileCreated => ("DESFire file created", "DESFire 文件已创建"),
+    DesfireDeletingFile => ("Deleting the DESFire file…", "正在删除 DESFire 文件…"),
+    DesfireFileDeleted => ("DESFire file deleted", "DESFire 文件已删除"),
+    DesfireChangingFileSettings => (
+        "Changing the DESFire file settings…",
+        "正在更改 DESFire 文件设置…"
+    ),
+    DesfireFileSettingsChanged => ("DESFire file settings changed", "DESFire 文件设置已更改"),
+    DesfireReadingFreeMemory => (
+        "Reading the DESFire free memory…",
+        "正在读取 DESFire 可用空间…"
+    ),
+    DesfireFreeMemoryRead => ("DESFire free memory read", "DESFire 可用空间已读取"),
+    DesfireManagementFailed => ("DESFire management failed", "DESFire 管理失败"),
+    DesfireAdvancedDeleteApplication => (
+        "Enable Advanced mode before deleting an application",
+        "删除应用前请启用高级模式"
+    ),
+    DesfireAdvancedDeleteFile => (
+        "Enable Advanced mode before deleting a file",
+        "删除文件前请启用高级模式"
+    ),
+    DesfireAppDeleteHeading => (
+        "Delete the DESFire application?",
+        "删除 DESFire 应用？"
+    ),
+    DesfireFileDeleteHeading => ("Delete the DESFire file?", "删除 DESFire 文件？"),
+    DesfireAppDeleteBody => (
+        "Delete application {} and every file it contains.\nA manifest with the file settings is written before the command.\nNo byte-for-byte restore exists.\n\nType DELETE to confirm",
+        "删除应用 {} 及其包含的所有文件。\n命令执行前会写入包含文件设置的清单。\n不存在逐字节恢复。\n\n输入 DELETE 以确认"
+    ),
+    DesfireFileDeleteBody => (
+        "Delete file {file_id} from application {}.\nA manifest with the file settings is written before the command.\nNo byte-for-byte restore exists.\n\nType DELETE to confirm",
+        "从应用 {} 删除文件 {file_id}。\n命令执行前会写入包含文件设置的清单。\n不存在逐字节恢复。\n\n输入 DELETE 以确认"
+    ),
+    DesfireManagementLine => ("DESFire management: {}", "DESFire 管理：{}"),
     ReaderWorkerStopped => ("Reader worker stopped", "读卡器工作线程已停止"),
     Actions => ("Actions", "操作"),
     CardPage => ("Card", "卡片"),

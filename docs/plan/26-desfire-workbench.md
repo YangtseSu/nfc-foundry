@@ -1,9 +1,9 @@
 # Phase 26 plan: DESFire workbench
 
-Status: in progress. 26.1–26.8 are complete; 26.9–26.13 are pending, except
+Status: in progress. 26.1–26.9 are complete; 26.10–26.13 are pending, except
 that 26.12's ordinary NDEF provisioning and guarded delete landed in phase
 25.5. Hardware: PN532 UART first; ACR122U records after a reader is available.
-26.8 passed on PN532 UART and ACR122U on 2026-11-13.
+26.8 and 26.9 passed on PN532 UART and ACR122U on 2026-11-13.
 
 ## Goal
 
@@ -222,6 +222,10 @@ Acceptance:
 - A failed commit leaves no uncommitted data reported as committed.
 
 ### 26.9 Application and file management
+
+Status: complete 2026-11-13. See
+[26i-management.md](../notes/26i-management.md) and the
+[26i spec](../specs/26i-management.md).
 
 Deliver:
 

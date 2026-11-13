@@ -19,12 +19,12 @@ The GUI must never label a file type it cannot decode.
 - `CommunicationMode`: Plain, Maced, Enciphered. Mode 2 is rejected.
 - `AccessRight` (`Key(n)`, `Free`, `Denied`) and `AccessRights` with read,
   write, read/write, change, and the raw 16-bit word.
-- `FileContents`: `Data { size }`, `Value { lower_limit, upper_limit, value,
-  limited_credit, free_get_value }`, `Record { record_size, max_records,
-  current_records }`, `TransactionMac { key_option, key_version,
-  counter_limit }`. The value field here is the GetFileSettings value field,
-  not the current value; `GetValue` is the authoritative current value
-  (phase 26.3).
+- `FileContents`: `Data { size }`, `Value { lower_limit, upper_limit,
+  limited_credit_value, limited_credit, free_get_value }`, `Record {
+  record_size, max_records, current_records }`, `TransactionMac { key_option,
+  key_version, counter_limit }`. The third value field is the LimitedCredit
+  amount, not the current value; `GetValue` is the authoritative current value
+  (phase 26.3). The amount is not bounded by the value limits.
 - `FileSettings::{parse, raw, summary}`; `FileInfo::decoded`.
 - `nfc-app::desfire::inventory_text`, shared by `nfctl` and the GTK inventory.
   It prints the decoded summary and the raw settings for every file; a parse
@@ -57,8 +57,7 @@ The parser rejects:
 - the counter-limit bit on a non-Transaction-MAC file;
 - a zero data-file size, zero record size, zero maximum record count, or a
   current record count above the maximum;
-- value limits that are not increasing, a value outside the limits, or
-  reserved value flags;
+- value limits that are not increasing or reserved value flags;
 - a Transaction MAC counter limit whose declared size is missing;
 - an additional-rights count outside 1..=13 or a length that does not match
   the count.
@@ -71,8 +70,9 @@ After the access word: key option, key version, then an optional counter limit.
 The header's `0x20` bit selects whether the counter limit is present. The key
 option's `0x02` bit selects a four-byte counter limit; otherwise two bytes are
 used. The counter limit is read big-endian, matching the EV3 settings layout.
-This layout is covered by unit vectors; no owned card has a Transaction MAC
-file yet.
+This layout is covered by unit vectors. A Transaction MAC file created on the
+owned EV3 8K on 2026-11-13 reported key option `0x02`, key version 1, and no
+counter limit through GetFileSettings.
 
 ## Surfaces
 

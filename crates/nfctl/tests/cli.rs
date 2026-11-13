@@ -222,6 +222,217 @@ fn desfire_uid_reports_the_authenticated_uid() {
 }
 
 #[test]
+fn desfire_management_creates_an_application_and_reports_free_memory() {
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:desfire",
+        "desfire",
+        "app-create",
+        "--aid",
+        "F00D22",
+        "--key",
+        "0000000000000000",
+        "--keys",
+        "2",
+        "--app-key-type",
+        "aes",
+    ]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("application F0 0D 22 created"), "{text}");
+    assert!(text.contains("keys: 2 · AES"), "{text}");
+    assert!(text.contains("free: 8192 → 8182 bytes"), "{text}");
+
+    let output = nfctl(&["--mock", "--device", "mock:desfire", "desfire", "memory"]);
+    assert_success(&output);
+    assert_eq!(stdout(&output), "PICC · free 8192 bytes\n");
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:desfire",
+        "desfire",
+        "app-create",
+        "--aid",
+        "F00D22",
+        "--key",
+        "0000000000000000",
+        "--keys",
+        "0",
+    ]);
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("1..=14 keys"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn desfire_management_creates_changes_and_deletes_a_file() {
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:desfire",
+        "desfire",
+        "file-create",
+        "--aid",
+        "F00D01",
+        "--file",
+        "02",
+        "--type",
+        "standard",
+        "--communication",
+        "maced",
+        "--access-rights",
+        "EEEE",
+        "--size",
+        "16",
+        "--key",
+        "0000000000000000",
+    ]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("file 02 created"), "{text}");
+    assert!(text.contains("MACed"), "{text}");
+    assert!(text.contains("content bytes: 16"), "{text}");
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:desfire",
+        "desfire",
+        "file-create",
+        "--aid",
+        "F00D01",
+        "--file",
+        "02",
+        "--type",
+        "standard",
+        "--size",
+        "9000",
+        "--key",
+        "0000000000000000",
+    ]);
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("needs 9000 content bytes"),
+        "{}",
+        stderr(&output)
+    );
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:desfire",
+        "desfire",
+        "file-settings",
+        "--aid",
+        "F00D01",
+        "--file",
+        "01",
+        "--communication",
+        "enciphered",
+        "--read-access",
+        "free",
+        "--change-access",
+        "key1",
+    ]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("before: standard data · plain"), "{text}");
+    assert!(text.contains("after: standard data · enciphered"), "{text}");
+    assert!(text.contains("read free"), "{text}");
+    assert!(text.contains("change key 1"), "{text}");
+    assert!(text.contains("change: applied"), "{text}");
+}
+
+#[test]
+fn desfire_management_delete_requires_advanced_and_writes_a_manifest() {
+    let data = tempfile::tempdir().expect("data dir");
+    let manifest = data.path().join("manifest.json");
+    let manifest_text = manifest.to_string_lossy().into_owned();
+    let output = nfctl_with_data(
+        &[
+            "--mock",
+            "--device",
+            "mock:desfire",
+            "desfire",
+            "file-delete",
+            "--aid",
+            "F00D01",
+            "--file",
+            "01",
+            "--key",
+            "0000000000000000",
+            "--advanced",
+            "--yes",
+            "--manifest",
+            &manifest_text,
+        ],
+        data.path(),
+    );
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("file 01 deleted"), "{text}");
+    assert!(text.contains("manifest:"), "{text}");
+    let written = std::fs::read_to_string(&manifest).expect("manifest file");
+    assert!(written.contains("\"schema\": \"nfc-foundry/desfire-manifest/1\""));
+    assert!(written.contains("\"file_id\": \"01\""));
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:desfire",
+        "desfire",
+        "app-delete",
+        "--aid",
+        "F00D01",
+        "--key",
+        "0000000000000000",
+        "--yes",
+    ]);
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("requires --advanced"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn desfire_management_deletes_an_application_after_the_manifest() {
+    let data = tempfile::tempdir().expect("data dir");
+    let manifest = data.path().join("manifest.json");
+    let manifest_text = manifest.to_string_lossy().into_owned();
+    let output = nfctl_with_data(
+        &[
+            "--mock",
+            "--device",
+            "mock:desfire",
+            "desfire",
+            "app-delete",
+            "--aid",
+            "F00D01",
+            "--key",
+            "0000000000000000",
+            "--advanced",
+            "--yes",
+            "--manifest",
+            &manifest_text,
+        ],
+        data.path(),
+    );
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("application F0 0D 01 deleted"), "{text}");
+    assert!(text.contains("not a byte-for-byte restore"), "{text}");
+    let written = std::fs::read_to_string(&manifest).expect("manifest file");
+    assert!(written.contains("\"aid\": \"F00D01\""));
+}
+
+#[test]
 fn desfire_ndef_read_writes_the_raw_message() {
     let directory = tempfile::tempdir().expect("temp dir");
     let path = directory.path().join("message.ndef");

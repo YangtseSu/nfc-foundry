@@ -22,11 +22,12 @@ Status: complete 2026-11-12. Plan:
 The decode follows the documented `GetFileSettings` response:
 
 - Standard/Backup: 3-byte little-endian size.
-- Value: signed 32-bit little-endian lower limit, upper limit, value, then a
-  flags byte (bit 0 limited credit, bit 1 free GetValue). The value field is
-  not the current value; phase 26.3 reads the current value with `GetValue`.
-  A card created with value 7 reported settings value 0 while `GetValue`
-  returned 7.
+- Value: signed 32-bit little-endian lower limit, upper limit, limited-credit
+  value, then a flags byte (bit 0 limited credit, bit 1 free GetValue). The
+  third field is not the current value; phase 26.3 reads the current value
+  with `GetValue`. A card created with value 7 reported a limited-credit value
+  of 0 while `GetValue` returned 7. Corrected 2026-11-13: the field is named
+  `limited_credit_value` and is not bounded by the value limits.
 - Linear/Cyclic Record: 3-byte little-endian record size, maximum count, and
   current count.
 - Transaction MAC: key option, key version, then an optional counter limit.

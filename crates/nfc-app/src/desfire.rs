@@ -4,17 +4,19 @@
 use nfc_core::{CancelToken, CardType, NfcError, Result};
 use nfc_desfire::Desfire;
 pub use nfc_desfire::{
-    AccessRight, AccessRights, Application, AuthKeyType, CommunicationMode, FileContents, FileInfo,
-    FileSettings, FileType, IntegrityCheck, Inventory, NDEF_APPLICATION_AID,
-    NDEF_APPLICATION_ISO_FILE, NDEF_APPLICATION_KEY, NDEF_APPLICATION_KEY_SETTINGS,
-    NDEF_CAPABILITY_CONTAINER, NDEF_CC_ACCESS_RIGHTS, NDEF_CC_FILE, NDEF_CC_ISO_FILE, NDEF_CC_SIZE,
-    NDEF_DATA_ACCESS_RIGHTS, NDEF_DATA_FILE, NDEF_DATA_ISO_FILE, NDEF_DATA_SIZE, NDEF_DF_NAME,
-    Version,
+    AccessRight, AccessRights, Application, ApplicationKeyType, ApplicationSpec, AuthKeyType,
+    CommunicationMode, FileContents, FileInfo, FileSettings, FileType, IntegrityCheck, Inventory,
+    NDEF_APPLICATION_AID, NDEF_APPLICATION_ISO_FILE, NDEF_APPLICATION_KEY,
+    NDEF_APPLICATION_KEY_SETTINGS, NDEF_CAPABILITY_CONTAINER, NDEF_CC_ACCESS_RIGHTS, NDEF_CC_FILE,
+    NDEF_CC_ISO_FILE, NDEF_CC_SIZE, NDEF_DATA_ACCESS_RIGHTS, NDEF_DATA_FILE, NDEF_DATA_ISO_FILE,
+    NDEF_DATA_SIZE, NDEF_DF_NAME, RecordFileSpec, TransactionMacFileSpec, ValueFileSpec, Version,
 };
 use nfc_type4::apdu;
 use nfc_type4::{NdefState, Type4CapabilityContainer, Type4Ndef};
+use serde::Serialize;
 
 use crate::Service;
+use crate::fsutil;
 use crate::operation::{Operation, OperationKind};
 
 /// One standard or backup file read after selecting an application.
@@ -395,6 +397,599 @@ pub struct DesfireNdefDeleteResult {
     pub applications: Vec<[u8; 3]>,
 }
 
+/// One file creation request for a selected application.
+///
+/// The variant selects the file type; `communication` is the raw DESFire
+/// mode (0 plain, 1 MACed, 3 enciphered). Transaction MAC key material is
+/// redacted from `Debug`.
+pub enum DesfireFileSpec {
+    Standard {
+        file_id: u8,
+        iso_file_id: Option<u16>,
+        communication: u8,
+        access_rights: u16,
+        size: u32,
+    },
+    Backup {
+        file_id: u8,
+        iso_file_id: Option<u16>,
+        communication: u8,
+        access_rights: u16,
+        size: u32,
+    },
+    Value {
+        file_id: u8,
+        iso_file_id: Option<u16>,
+        communication: u8,
+        access_rights: u16,
+        lower_limit: i32,
+        upper_limit: i32,
+        value: i32,
+        flags: u8,
+    },
+    LinearRecord {
+        file_id: u8,
+        iso_file_id: Option<u16>,
+        communication: u8,
+        access_rights: u16,
+        record_size: u32,
+        max_records: u32,
+    },
+    CyclicRecord {
+        file_id: u8,
+        iso_file_id: Option<u16>,
+        communication: u8,
+        access_rights: u16,
+        record_size: u32,
+        max_records: u32,
+    },
+    TransactionMac {
+        file_id: u8,
+        iso_file_id: Option<u16>,
+        communication: u8,
+        access_rights: u16,
+        key: [u8; 16],
+        key_version: u8,
+    },
+}
+
+impl std::fmt::Debug for DesfireFileSpec {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut debug = formatter.debug_struct("DesfireFileSpec");
+        debug
+            .field("file_id", &self.file_id())
+            .field("file_type", &self.file_type().name())
+            .field("communication", &self.communication())
+            .field(
+                "access_rights",
+                &format_args!("{:04X}", self.access_rights()),
+            );
+        if let Self::TransactionMac { key_version, .. } = self {
+            debug.field("key", &"<redacted>");
+            debug.field("key_version", key_version);
+        }
+        debug.finish()
+    }
+}
+
+impl DesfireFileSpec {
+    pub const fn file_id(&self) -> u8 {
+        match self {
+            Self::Standard { file_id, .. }
+            | Self::Backup { file_id, .. }
+            | Self::Value { file_id, .. }
+            | Self::LinearRecord { file_id, .. }
+            | Self::CyclicRecord { file_id, .. }
+            | Self::TransactionMac { file_id, .. } => *file_id,
+        }
+    }
+
+    pub const fn file_type(&self) -> FileType {
+        match self {
+            Self::Standard { .. } => FileType::Standard,
+            Self::Backup { .. } => FileType::Backup,
+            Self::Value { .. } => FileType::Value,
+            Self::LinearRecord { .. } => FileType::LinearRecord,
+            Self::CyclicRecord { .. } => FileType::CyclicRecord,
+            Self::TransactionMac { .. } => FileType::TransactionMac,
+        }
+    }
+
+    pub const fn communication(&self) -> u8 {
+        match self {
+            Self::Standard { communication, .. }
+            | Self::Backup { communication, .. }
+            | Self::Value { communication, .. }
+            | Self::LinearRecord { communication, .. }
+            | Self::CyclicRecord { communication, .. }
+            | Self::TransactionMac { communication, .. } => *communication,
+        }
+    }
+
+    pub const fn access_rights(&self) -> u16 {
+        match self {
+            Self::Standard { access_rights, .. }
+            | Self::Backup { access_rights, .. }
+            | Self::Value { access_rights, .. }
+            | Self::LinearRecord { access_rights, .. }
+            | Self::CyclicRecord { access_rights, .. }
+            | Self::TransactionMac { access_rights, .. } => *access_rights,
+        }
+    }
+
+    /// Bytes of file content the card must have free before creation.
+    ///
+    /// This is a lower bound: the card's own per-file overhead is not
+    /// modelled, so a value at or below the free count may still be refused
+    /// by the card.
+    pub fn required_bytes(&self) -> u64 {
+        match self {
+            Self::Standard { size, .. } | Self::Backup { size, .. } => u64::from(*size),
+            Self::Value { .. } => 13,
+            Self::LinearRecord {
+                record_size,
+                max_records,
+                ..
+            }
+            | Self::CyclicRecord {
+                record_size,
+                max_records,
+                ..
+            } => u64::from(*record_size) * u64::from(*max_records),
+            Self::TransactionMac { .. } => 18,
+        }
+    }
+
+    fn transaction_mac_spec(&self) -> Option<TransactionMacFileSpec> {
+        match self {
+            Self::TransactionMac {
+                file_id,
+                iso_file_id,
+                communication,
+                access_rights,
+                key,
+                key_version,
+            } => Some(TransactionMacFileSpec {
+                file_id: *file_id,
+                iso_file_id: *iso_file_id,
+                communication: *communication,
+                access_rights: *access_rights,
+                key: *key,
+                key_version: *key_version,
+            }),
+            _ => None,
+        }
+    }
+}
+
+/// Read the free EEPROM bytes of the PICC or one application.
+///
+/// The key is session-scoped and deliberately not part of `Debug`.
+#[derive(Default)]
+pub struct DesfireFreeMemoryRequest {
+    pub aid: Option<[u8; 3]>,
+    key: Option<Vec<u8>>,
+    pub key_type: Option<AuthKeyType>,
+    pub key_number: u8,
+}
+
+impl DesfireFreeMemoryRequest {
+    pub fn new(aid: Option<[u8; 3]>) -> Self {
+        Self {
+            aid,
+            ..Self::default()
+        }
+    }
+
+    pub fn key(mut self, key: Vec<u8>) -> Self {
+        self.key = Some(key);
+        self
+    }
+
+    pub fn key_type(mut self, key_type: AuthKeyType) -> Self {
+        self.key_type = Some(key_type);
+        self
+    }
+
+    pub fn key_number(mut self, key_number: u8) -> Self {
+        self.key_number = key_number;
+        self
+    }
+}
+
+/// Create an application at the PICC level.
+///
+/// The key is the PICC master key and deliberately stays out of `Debug`.
+pub struct DesfireAppCreateRequest {
+    pub aid: [u8; 3],
+    key: Option<Vec<u8>>,
+    pub key_type: Option<AuthKeyType>,
+    pub key_number: u8,
+    pub keys: u8,
+    pub app_key_type: ApplicationKeyType,
+    pub cancel: CancelToken,
+}
+
+impl DesfireAppCreateRequest {
+    pub fn new(aid: [u8; 3]) -> Self {
+        Self {
+            aid,
+            key: None,
+            key_type: None,
+            key_number: 0,
+            keys: 1,
+            app_key_type: ApplicationKeyType::Tdes2,
+            cancel: CancelToken::new(),
+        }
+    }
+
+    pub fn key(mut self, key: Vec<u8>) -> Self {
+        self.key = Some(key);
+        self
+    }
+
+    pub fn key_type(mut self, key_type: AuthKeyType) -> Self {
+        self.key_type = Some(key_type);
+        self
+    }
+
+    pub fn key_number(mut self, key_number: u8) -> Self {
+        self.key_number = key_number;
+        self
+    }
+
+    pub fn keys(mut self, keys: u8) -> Self {
+        self.keys = keys;
+        self
+    }
+
+    pub fn app_key_type(mut self, key_type: ApplicationKeyType) -> Self {
+        self.app_key_type = key_type;
+        self
+    }
+
+    pub fn cancel(mut self, cancel: CancelToken) -> Self {
+        self.cancel = cancel;
+        self
+    }
+}
+
+/// Result of creating an application.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DesfireAppCreateResult {
+    pub aid: [u8; 3],
+    pub keys: u8,
+    pub app_key_type: ApplicationKeyType,
+    pub free_memory_before: u32,
+    pub free_memory_after: u32,
+    pub applications: Vec<[u8; 3]>,
+}
+
+/// Delete an application after exporting its manifest.
+///
+/// The key is the PICC master key and deliberately stays out of `Debug`.
+pub struct DesfireAppDeleteRequest {
+    pub aid: [u8; 3],
+    key: Option<Vec<u8>>,
+    pub key_type: Option<AuthKeyType>,
+    pub key_number: u8,
+    pub advanced: bool,
+    pub confirm: bool,
+    /// Explicit manifest destination; the default backups directory is used
+    /// when absent.
+    pub manifest_path: Option<std::path::PathBuf>,
+    pub cancel: CancelToken,
+}
+
+impl DesfireAppDeleteRequest {
+    pub fn new(aid: [u8; 3]) -> Self {
+        Self {
+            aid,
+            key: None,
+            key_type: None,
+            key_number: 0,
+            advanced: false,
+            confirm: false,
+            manifest_path: None,
+            cancel: CancelToken::new(),
+        }
+    }
+
+    pub fn key(mut self, key: Vec<u8>) -> Self {
+        self.key = Some(key);
+        self
+    }
+
+    pub fn key_type(mut self, key_type: AuthKeyType) -> Self {
+        self.key_type = Some(key_type);
+        self
+    }
+
+    pub fn key_number(mut self, key_number: u8) -> Self {
+        self.key_number = key_number;
+        self
+    }
+
+    pub fn advanced(mut self, advanced: bool) -> Self {
+        self.advanced = advanced;
+        self
+    }
+
+    pub fn confirm(mut self, confirm: bool) -> Self {
+        self.confirm = confirm;
+        self
+    }
+
+    pub fn manifest_path(mut self, path: impl Into<std::path::PathBuf>) -> Self {
+        self.manifest_path = Some(path.into());
+        self
+    }
+
+    pub fn cancel(mut self, cancel: CancelToken) -> Self {
+        self.cancel = cancel;
+        self
+    }
+}
+
+/// Result of deleting an application.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DesfireAppDeleteResult {
+    pub aid: [u8; 3],
+    pub manifest_path: std::path::PathBuf,
+    pub manifest: String,
+    pub free_memory_before: Option<u32>,
+    pub free_memory_after: Option<u32>,
+    pub applications: Vec<[u8; 3]>,
+}
+
+/// Create one file in an application.
+///
+/// The key authenticates the application and deliberately stays out of
+/// `Debug`.
+pub struct DesfireFileCreateRequest {
+    pub aid: [u8; 3],
+    pub spec: DesfireFileSpec,
+    key: Option<Vec<u8>>,
+    pub key_type: Option<AuthKeyType>,
+    pub key_number: u8,
+    pub cancel: CancelToken,
+}
+
+impl DesfireFileCreateRequest {
+    pub fn new(aid: [u8; 3], spec: DesfireFileSpec) -> Self {
+        Self {
+            aid,
+            spec,
+            key: None,
+            key_type: None,
+            key_number: 0,
+            cancel: CancelToken::new(),
+        }
+    }
+
+    pub fn key(mut self, key: Vec<u8>) -> Self {
+        self.key = Some(key);
+        self
+    }
+
+    pub fn key_type(mut self, key_type: AuthKeyType) -> Self {
+        self.key_type = Some(key_type);
+        self
+    }
+
+    pub fn key_number(mut self, key_number: u8) -> Self {
+        self.key_number = key_number;
+        self
+    }
+
+    pub fn cancel(mut self, cancel: CancelToken) -> Self {
+        self.cancel = cancel;
+        self
+    }
+}
+
+/// Result of creating a file.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DesfireFileCreateResult {
+    pub aid: [u8; 3],
+    pub file_id: u8,
+    pub settings: FileSettings,
+    pub free_memory_before: u32,
+    pub free_memory_after: u32,
+    pub required: u64,
+}
+
+/// Delete one file after exporting its manifest.
+///
+/// The key authenticates the application and deliberately stays out of
+/// `Debug`.
+pub struct DesfireFileDeleteRequest {
+    pub aid: [u8; 3],
+    pub file_id: u8,
+    key: Option<Vec<u8>>,
+    pub key_type: Option<AuthKeyType>,
+    pub key_number: u8,
+    pub advanced: bool,
+    pub confirm: bool,
+    pub manifest_path: Option<std::path::PathBuf>,
+    pub cancel: CancelToken,
+}
+
+impl DesfireFileDeleteRequest {
+    pub fn new(aid: [u8; 3], file_id: u8) -> Self {
+        Self {
+            aid,
+            file_id,
+            key: None,
+            key_type: None,
+            key_number: 0,
+            advanced: false,
+            confirm: false,
+            manifest_path: None,
+            cancel: CancelToken::new(),
+        }
+    }
+
+    pub fn key(mut self, key: Vec<u8>) -> Self {
+        self.key = Some(key);
+        self
+    }
+
+    pub fn key_type(mut self, key_type: AuthKeyType) -> Self {
+        self.key_type = Some(key_type);
+        self
+    }
+
+    pub fn key_number(mut self, key_number: u8) -> Self {
+        self.key_number = key_number;
+        self
+    }
+
+    pub fn advanced(mut self, advanced: bool) -> Self {
+        self.advanced = advanced;
+        self
+    }
+
+    pub fn confirm(mut self, confirm: bool) -> Self {
+        self.confirm = confirm;
+        self
+    }
+
+    pub fn manifest_path(mut self, path: impl Into<std::path::PathBuf>) -> Self {
+        self.manifest_path = Some(path.into());
+        self
+    }
+
+    pub fn cancel(mut self, cancel: CancelToken) -> Self {
+        self.cancel = cancel;
+        self
+    }
+}
+
+/// Result of deleting a file.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DesfireFileDeleteResult {
+    pub aid: [u8; 3],
+    pub file_id: u8,
+    pub manifest_path: std::path::PathBuf,
+    pub manifest: String,
+    pub free_memory_before: Option<u32>,
+    pub free_memory_after: Option<u32>,
+    pub files: Vec<u8>,
+}
+
+/// Change a file's communication mode and access rights.
+///
+/// The key authenticates the application and deliberately stays out of
+/// `Debug`.
+pub struct DesfireFileSettingsRequest {
+    pub aid: [u8; 3],
+    pub file_id: u8,
+    /// New mode; `None` keeps the current mode.
+    pub communication: Option<CommunicationMode>,
+    /// New primary access word; `None` keeps the current rights.
+    pub access_rights: Option<u16>,
+    key: Option<Vec<u8>>,
+    pub key_type: Option<AuthKeyType>,
+    pub key_number: u8,
+    pub cancel: CancelToken,
+}
+
+impl DesfireFileSettingsRequest {
+    pub fn new(aid: [u8; 3], file_id: u8) -> Self {
+        Self {
+            aid,
+            file_id,
+            communication: None,
+            access_rights: None,
+            key: None,
+            key_type: None,
+            key_number: 0,
+            cancel: CancelToken::new(),
+        }
+    }
+
+    pub fn communication(mut self, communication: CommunicationMode) -> Self {
+        self.communication = Some(communication);
+        self
+    }
+
+    pub fn access_rights(mut self, access_rights: u16) -> Self {
+        self.access_rights = Some(access_rights);
+        self
+    }
+
+    pub fn key(mut self, key: Vec<u8>) -> Self {
+        self.key = Some(key);
+        self
+    }
+
+    pub fn key_type(mut self, key_type: AuthKeyType) -> Self {
+        self.key_type = Some(key_type);
+        self
+    }
+
+    pub fn key_number(mut self, key_number: u8) -> Self {
+        self.key_number = key_number;
+        self
+    }
+
+    pub fn cancel(mut self, cancel: CancelToken) -> Self {
+        self.cancel = cancel;
+        self
+    }
+}
+
+/// Result of changing file settings and reading them back.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DesfireFileSettingsResult {
+    pub aid: [u8; 3],
+    pub file_id: u8,
+    pub before: FileSettings,
+    pub after: FileSettings,
+    /// False when the requested values already matched the card.
+    pub changed: bool,
+}
+
+#[derive(Serialize)]
+struct DesfireManifest {
+    schema: &'static str,
+    generated_unix: u64,
+    card: ManifestCard,
+    free_memory: Option<u32>,
+    application: ManifestApplication,
+    note: &'static str,
+}
+
+#[derive(Serialize)]
+struct ManifestCard {
+    name: String,
+    vendor_id: String,
+    product_type: String,
+    product_subtype: String,
+    major: u8,
+    minor: u8,
+    storage_size: String,
+    protocol: String,
+}
+
+#[derive(Serialize)]
+struct ManifestApplication {
+    aid: String,
+    files_available: bool,
+    files_error: Option<String>,
+    files: Vec<ManifestFile>,
+}
+
+#[derive(Serialize)]
+struct ManifestFile {
+    file_id: String,
+    file_type: Option<&'static str>,
+    summary: Option<String>,
+    raw_settings: String,
+    error: Option<String>,
+}
+
 impl Service {
     /// Read the DESFire version and application/file inventory without
     /// authentication.
@@ -764,6 +1359,516 @@ impl Service {
         })
     }
 
+    /// Read the free EEPROM bytes of the PICC or one application.
+    ///
+    /// Authentication is optional; a key is needed when the card's key
+    /// settings protect the PICC commands.
+    pub fn desfire_free_memory(
+        &mut self,
+        cancel: CancelToken,
+        request: DesfireFreeMemoryRequest,
+    ) -> Result<u32> {
+        if request.key_number > 14 {
+            return Err(NfcError::InvalidArgument(
+                "DESFire application key numbers are 0..=14".to_owned(),
+            ));
+        }
+        let mut operation = self.begin_operation(OperationKind::Read, cancel)?;
+        ensure_iso_dep(&operation)?;
+        let mut desfire = Desfire::new(operation.reader_mut());
+        desfire.select_application(request.aid.unwrap_or([0x00; 3]))?;
+        if let Some(key) = request.key.as_deref() {
+            authenticate_key(&mut desfire, request.key_number, key, request.key_type)?;
+        }
+        desfire.free_memory()
+    }
+
+    /// Create an application after checking the free memory.
+    ///
+    /// The new application is read back through the application ID list. The
+    /// card owns the application key settings; this product creates no
+    /// template application and writes no default file set.
+    pub fn desfire_create_application(
+        &mut self,
+        request: DesfireAppCreateRequest,
+    ) -> Result<DesfireAppCreateResult> {
+        validate_application_aid(request.aid)?;
+        if !(1..=14).contains(&request.keys) {
+            return Err(NfcError::InvalidArgument(
+                "a DESFire application has 1..=14 keys".to_owned(),
+            ));
+        }
+        if request.key_number > 14 {
+            return Err(NfcError::InvalidArgument(
+                "DESFire application key numbers are 0..=14".to_owned(),
+            ));
+        }
+        let mut operation = self.begin_operation(OperationKind::Write, request.cancel)?;
+        ensure_iso_dep(&operation)?;
+        operation.check_iso_dep_card()?;
+        let mut desfire = Desfire::new(operation.reader_mut());
+        desfire.select_application([0x00; 3])?;
+        if let Some(key) = request.key.as_deref() {
+            authenticate_key(&mut desfire, request.key_number, key, request.key_type)?;
+        }
+        let free_memory_before = desfire.free_memory()?;
+        if free_memory_before == 0 {
+            return Err(NfcError::InvalidArgument(
+                "the card reports no free EEPROM bytes; deleted applications keep their space until FormatPICC"
+                    .to_owned(),
+            ));
+        }
+        let applications = desfire.application_ids()?;
+        if applications.contains(&request.aid) {
+            return Err(NfcError::InvalidArgument(format!(
+                "application {} already exists",
+                hex_compact(&request.aid)
+            )));
+        }
+        let spec = ApplicationSpec::new(request.aid, request.keys, request.app_key_type);
+        desfire.create_application_from(&spec)?;
+        let applications = desfire.application_ids()?;
+        if !applications.contains(&request.aid) {
+            return Err(NfcError::VerificationFailed(format!(
+                "application {} is missing after creation",
+                hex_compact(&request.aid)
+            )));
+        }
+        let free_memory_after = desfire.free_memory()?;
+        drop(desfire);
+        operation.check_iso_dep_card()?;
+        Ok(DesfireAppCreateResult {
+            aid: request.aid,
+            keys: request.keys,
+            app_key_type: request.app_key_type,
+            free_memory_before,
+            free_memory_after,
+            applications,
+        })
+    }
+
+    /// Delete an application after exporting its manifest.
+    ///
+    /// The manifest is written before the first destructive command. A
+    /// deletion is reported successful only when the application ID list no
+    /// longer contains the application. This is not a byte-for-byte restore.
+    pub fn desfire_delete_application(
+        &mut self,
+        request: DesfireAppDeleteRequest,
+    ) -> Result<DesfireAppDeleteResult> {
+        if !request.advanced {
+            return Err(NfcError::InvalidArgument(
+                "deleting a DESFire application requires Advanced mode".to_owned(),
+            ));
+        }
+        if !request.confirm {
+            return Err(NfcError::InvalidArgument(
+                "deleting a DESFire application needs explicit confirmation".to_owned(),
+            ));
+        }
+        validate_application_aid(request.aid)?;
+        if request.key_number > 14 {
+            return Err(NfcError::InvalidArgument(
+                "DESFire application key numbers are 0..=14".to_owned(),
+            ));
+        }
+        let cancel = request.cancel.clone();
+        let mut operation = self.begin_operation(OperationKind::Write, cancel.clone())?;
+        ensure_iso_dep(&operation)?;
+        operation.check_iso_dep_card()?;
+        let free_memory_before = {
+            let mut desfire = Desfire::new(operation.reader_mut());
+            desfire.select_application([0x00; 3])?;
+            if let Some(key) = request.key.as_deref() {
+                authenticate_key(&mut desfire, request.key_number, key, request.key_type)?;
+            }
+            desfire.free_memory().ok()
+        };
+        cancel.check()?;
+        let inventory = {
+            let mut desfire = Desfire::new(operation.reader_mut());
+            desfire.inventory()?
+        };
+        let Some(application) = inventory
+            .applications
+            .iter()
+            .find(|application| application.aid == request.aid)
+        else {
+            return Err(NfcError::InvalidArgument(format!(
+                "application {} is not present",
+                hex_compact(&request.aid)
+            )));
+        };
+        let manifest = desfire_manifest(
+            &inventory.version,
+            manifest_application(application),
+            free_memory_before,
+        )?;
+        let manifest_path = write_manifest(
+            request.manifest_path.as_deref(),
+            &format!("desfire-manifest-{}", hex_compact(&request.aid)),
+            &manifest,
+        )?;
+        cancel.check()?;
+
+        let mut desfire = Desfire::new(operation.reader_mut());
+        desfire.select_application([0x00; 3])?;
+        if let Some(key) = request.key.as_deref() {
+            authenticate_key(&mut desfire, request.key_number, key, request.key_type)?;
+        }
+        desfire.delete_application(request.aid)?;
+        let applications = desfire.application_ids()?;
+        if applications.contains(&request.aid) {
+            return Err(NfcError::VerificationFailed(format!(
+                "application {} is still present after deletion",
+                hex_compact(&request.aid)
+            )));
+        }
+        let free_memory_after = desfire.free_memory().ok();
+        drop(desfire);
+        operation.check_iso_dep_card()?;
+        Ok(DesfireAppDeleteResult {
+            aid: request.aid,
+            manifest_path,
+            manifest,
+            free_memory_before,
+            free_memory_after,
+            applications,
+        })
+    }
+
+    /// Create one file after the capacity preflight and read its settings back.
+    ///
+    /// The free-space check is a lower bound on the file content; the card's
+    /// per-file overhead can still refuse a creation at the limit.
+    pub fn desfire_create_file(
+        &mut self,
+        request: DesfireFileCreateRequest,
+    ) -> Result<DesfireFileCreateResult> {
+        if request.key_number > 14 {
+            return Err(NfcError::InvalidArgument(
+                "DESFire application key numbers are 0..=14".to_owned(),
+            ));
+        }
+        let file_id = request.spec.file_id();
+        let required = request.spec.required_bytes();
+        if required == 0 {
+            return Err(NfcError::InvalidArgument(
+                "a new DESFire file needs at least one byte of content".to_owned(),
+            ));
+        }
+        let mut operation = self.begin_operation(OperationKind::Write, request.cancel)?;
+        ensure_iso_dep(&operation)?;
+        operation.check_iso_dep_card()?;
+        let mut desfire = Desfire::new(operation.reader_mut());
+        desfire.select_application(request.aid)?;
+        if let Some(key) = request.key.as_deref() {
+            authenticate_key(&mut desfire, request.key_number, key, request.key_type)?;
+        }
+        let files = desfire.file_ids()?;
+        if files.contains(&file_id) {
+            return Err(NfcError::InvalidArgument(format!(
+                "file {file_id:02X} already exists in application {}",
+                hex_compact(&request.aid)
+            )));
+        }
+        let free_memory_before = desfire.free_memory()?;
+        if required > u64::from(free_memory_before) {
+            return Err(NfcError::InvalidArgument(format!(
+                "file {file_id:02X} needs {required} content bytes but the card reports {free_memory_before} free"
+            )));
+        }
+        match &request.spec {
+            DesfireFileSpec::Standard {
+                file_id,
+                iso_file_id,
+                communication,
+                access_rights,
+                size,
+            } => desfire.create_standard_file(
+                *file_id,
+                *iso_file_id,
+                *communication,
+                *access_rights,
+                *size,
+            )?,
+            DesfireFileSpec::Backup {
+                file_id,
+                iso_file_id,
+                communication,
+                access_rights,
+                size,
+            } => desfire.create_backup_file(
+                *file_id,
+                *iso_file_id,
+                *communication,
+                *access_rights,
+                *size,
+            )?,
+            DesfireFileSpec::Value {
+                file_id,
+                iso_file_id,
+                communication,
+                access_rights,
+                lower_limit,
+                upper_limit,
+                value,
+                flags,
+            } => desfire.create_value_file(ValueFileSpec {
+                file_id: *file_id,
+                iso_file_id: *iso_file_id,
+                communication: *communication,
+                access_rights: *access_rights,
+                lower_limit: *lower_limit,
+                upper_limit: *upper_limit,
+                value: *value,
+                flags: *flags,
+            })?,
+            DesfireFileSpec::LinearRecord {
+                file_id,
+                iso_file_id,
+                communication,
+                access_rights,
+                record_size,
+                max_records,
+            }
+            | DesfireFileSpec::CyclicRecord {
+                file_id,
+                iso_file_id,
+                communication,
+                access_rights,
+                record_size,
+                max_records,
+            } => desfire.create_record_file(RecordFileSpec {
+                file_id: *file_id,
+                iso_file_id: *iso_file_id,
+                communication: *communication,
+                access_rights: *access_rights,
+                record_size: *record_size,
+                max_records: *max_records,
+                cyclic: matches!(request.spec, DesfireFileSpec::CyclicRecord { .. }),
+            })?,
+            DesfireFileSpec::TransactionMac { .. } => desfire.create_transaction_mac_file(
+                &request
+                    .spec
+                    .transaction_mac_spec()
+                    .expect("the Transaction MAC variant has a spec"),
+            )?,
+        }
+        let settings = FileSettings::parse(&desfire.file_settings(file_id)?)?;
+        verify_created_settings(&request.spec, &settings)?;
+        if let DesfireFileSpec::Value { value, .. } = request.spec {
+            let authenticated = request.key.is_some();
+            let communication =
+                effective_read_communication(&settings, request.key_number, authenticated);
+            let read = desfire.get_value(file_id, communication)?;
+            if read.value != value {
+                return Err(NfcError::VerificationFailed(format!(
+                    "file {file_id:02X} GetValue returned {}, expected the initial value {value}",
+                    read.value
+                )));
+            }
+        }
+        let free_memory_after = desfire.free_memory()?;
+        drop(desfire);
+        operation.check_iso_dep_card()?;
+        Ok(DesfireFileCreateResult {
+            aid: request.aid,
+            file_id,
+            settings,
+            free_memory_before,
+            free_memory_after,
+            required,
+        })
+    }
+
+    /// Delete one file after exporting its manifest.
+    ///
+    /// The file must be absent from the file list afterwards; a refused or
+    /// partially applied command is an error.
+    pub fn desfire_delete_file(
+        &mut self,
+        request: DesfireFileDeleteRequest,
+    ) -> Result<DesfireFileDeleteResult> {
+        if !request.advanced {
+            return Err(NfcError::InvalidArgument(
+                "deleting a DESFire file requires Advanced mode".to_owned(),
+            ));
+        }
+        if !request.confirm {
+            return Err(NfcError::InvalidArgument(
+                "deleting a DESFire file needs explicit confirmation".to_owned(),
+            ));
+        }
+        if request.key_number > 14 {
+            return Err(NfcError::InvalidArgument(
+                "DESFire application key numbers are 0..=14".to_owned(),
+            ));
+        }
+        let cancel = request.cancel.clone();
+        let mut operation = self.begin_operation(OperationKind::Write, cancel.clone())?;
+        ensure_iso_dep(&operation)?;
+        operation.check_iso_dep_card()?;
+        let mut desfire = Desfire::new(operation.reader_mut());
+        desfire.select_application(request.aid)?;
+        if let Some(key) = request.key.as_deref() {
+            authenticate_key(&mut desfire, request.key_number, key, request.key_type)?;
+        }
+        let files = desfire.file_ids()?;
+        if !files.contains(&request.file_id) {
+            return Err(NfcError::InvalidArgument(format!(
+                "file {:02X} is not present in application {}",
+                request.file_id,
+                hex_compact(&request.aid)
+            )));
+        }
+        let free_memory_before = desfire.free_memory().ok();
+        let raw = desfire.file_settings(request.file_id)?;
+        let file = manifest_file(request.file_id, &raw);
+        let version = desfire.get_version()?;
+        let manifest = desfire_manifest(
+            &version,
+            ManifestApplication {
+                aid: hex_compact(&request.aid),
+                files_available: true,
+                files_error: None,
+                files: vec![file],
+            },
+            free_memory_before,
+        )?;
+        let manifest_path = write_manifest(
+            request.manifest_path.as_deref(),
+            &format!(
+                "desfire-manifest-{}-{:02X}",
+                hex_compact(&request.aid),
+                request.file_id
+            ),
+            &manifest,
+        )?;
+        cancel.check()?;
+        desfire.delete_file(request.file_id)?;
+        let files = desfire.file_ids()?;
+        if files.contains(&request.file_id) {
+            return Err(NfcError::VerificationFailed(format!(
+                "file {:02X} is still present after deletion",
+                request.file_id
+            )));
+        }
+        let free_memory_after = desfire.free_memory().ok();
+        drop(desfire);
+        operation.check_iso_dep_card()?;
+        Ok(DesfireFileDeleteResult {
+            aid: request.aid,
+            file_id: request.file_id,
+            manifest_path,
+            manifest,
+            free_memory_before,
+            free_memory_after,
+            files,
+        })
+    }
+
+    /// Change a file's communication mode and access rights, then read them
+    /// back.
+    ///
+    /// Value, record, and Transaction MAC files accept only access-right
+    /// changes; their mode is the one set at creation.
+    pub fn desfire_change_file_settings(
+        &mut self,
+        request: DesfireFileSettingsRequest,
+    ) -> Result<DesfireFileSettingsResult> {
+        if request.key_number > 14 {
+            return Err(NfcError::InvalidArgument(
+                "DESFire application key numbers are 0..=14".to_owned(),
+            ));
+        }
+        if request.communication.is_none() && request.access_rights.is_none() {
+            return Err(NfcError::InvalidArgument(
+                "give a new communication mode, new access rights, or both".to_owned(),
+            ));
+        }
+        let mut operation = self.begin_operation(OperationKind::Write, request.cancel)?;
+        ensure_iso_dep(&operation)?;
+        operation.check_iso_dep_card()?;
+        let mut desfire = Desfire::new(operation.reader_mut());
+        desfire.select_application(request.aid)?;
+        if let Some(key) = request.key.as_deref() {
+            authenticate_key(&mut desfire, request.key_number, key, request.key_type)?;
+        }
+        let before = FileSettings::parse(&desfire.file_settings(request.file_id)?)?;
+        let communication = request.communication.unwrap_or(before.communication);
+        if communication != before.communication
+            && !matches!(before.file_type, FileType::Standard | FileType::Backup)
+        {
+            return Err(NfcError::InvalidArgument(format!(
+                "file {:02X} is {}; only Standard and Backup files can change communication mode",
+                request.file_id,
+                before.file_type.name()
+            )));
+        }
+        let access_rights = request.access_rights.unwrap_or(before.access.raw);
+        let changed = communication != before.communication || access_rights != before.access.raw;
+        if changed {
+            let protection = match before.access.change {
+                AccessRight::Denied => {
+                    return Err(NfcError::InvalidArgument(format!(
+                        "file {:02X} denies ChangeFileSettings",
+                        request.file_id
+                    )));
+                }
+                AccessRight::Free => {
+                    if request.key.is_some() {
+                        return Err(NfcError::InvalidArgument(format!(
+                            "file {:02X} allows free ChangeFileSettings; authenticate with no key",
+                            request.file_id
+                        )));
+                    }
+                    CommunicationMode::Plain
+                }
+                AccessRight::Key(key) => {
+                    if request.key.is_none() {
+                        return Err(NfcError::AuthenticationRequired(format!(
+                            "file {:02X} needs key {key} for ChangeFileSettings",
+                            request.file_id
+                        )));
+                    }
+                    if request.key_number != key {
+                        return Err(NfcError::InvalidArgument(format!(
+                            "file {:02X} needs key {key} for ChangeFileSettings, not key {}",
+                            request.file_id, request.key_number
+                        )));
+                    }
+                    CommunicationMode::Enciphered
+                }
+            };
+            desfire.change_file_settings(
+                request.file_id,
+                communication.raw(),
+                access_rights,
+                protection,
+            )?;
+        }
+        let after = FileSettings::parse(&desfire.file_settings(request.file_id)?)?;
+        if after.communication != communication
+            || after.access.raw != access_rights
+            || after.file_type != before.file_type
+        {
+            return Err(NfcError::VerificationFailed(format!(
+                "file {:02X} settings did not read back as requested",
+                request.file_id
+            )));
+        }
+        drop(desfire);
+        operation.check_iso_dep_card()?;
+        Ok(DesfireFileSettingsResult {
+            aid: request.aid,
+            file_id: request.file_id,
+            before,
+            after,
+            changed,
+        })
+    }
+
     /// Create the AN11004 NDEF Tag Application and its CC/NDEF files.
     ///
     /// This is a full-card-scope mutation: no byte-for-byte backup exists.
@@ -972,6 +2077,195 @@ fn delete_ndef(
     Ok(DesfireNdefDeleteResult { applications })
 }
 
+fn validate_application_aid(aid: [u8; 3]) -> Result<()> {
+    if aid == [0x00; 3] {
+        return Err(NfcError::InvalidArgument(
+            "the PICC master application cannot be created or deleted".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+/// Uppercase compact hexadecimal, used for application IDs and manifest names.
+fn hex_compact(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|byte| format!("{byte:02X}"))
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+fn verify_created_settings(spec: &DesfireFileSpec, settings: &FileSettings) -> Result<()> {
+    let communication = CommunicationMode::from_raw(spec.communication())?;
+    if settings.file_type != spec.file_type() {
+        return Err(NfcError::VerificationFailed(format!(
+            "file {:02X} read back as {}, expected {}",
+            spec.file_id(),
+            settings.file_type.name(),
+            spec.file_type().name()
+        )));
+    }
+    if settings.communication != communication {
+        return Err(NfcError::VerificationFailed(format!(
+            "file {:02X} read back as {}, expected {}",
+            spec.file_id(),
+            settings.communication.name(),
+            communication.name()
+        )));
+    }
+    if settings.access.raw != spec.access_rights() {
+        return Err(NfcError::VerificationFailed(format!(
+            "file {:02X} access rights read back as {:04X}, expected {:04X}",
+            spec.file_id(),
+            settings.access.raw,
+            spec.access_rights()
+        )));
+    }
+    let matches = match (spec, &settings.contents) {
+        (
+            DesfireFileSpec::Standard { size, .. } | DesfireFileSpec::Backup { size, .. },
+            FileContents::Data { size: actual },
+        ) => size == actual,
+        (
+            DesfireFileSpec::Value {
+                lower_limit,
+                upper_limit,
+                flags,
+                ..
+            },
+            FileContents::Value {
+                lower_limit: actual_lower,
+                upper_limit: actual_upper,
+                limited_credit,
+                free_get_value,
+                ..
+            },
+        ) => {
+            lower_limit == actual_lower
+                && upper_limit == actual_upper
+                && (*flags & 0x01 != 0) == *limited_credit
+                && (*flags & 0x02 != 0) == *free_get_value
+        }
+        (
+            DesfireFileSpec::LinearRecord {
+                record_size,
+                max_records,
+                ..
+            }
+            | DesfireFileSpec::CyclicRecord {
+                record_size,
+                max_records,
+                ..
+            },
+            FileContents::Record {
+                record_size: actual_size,
+                max_records: actual_max,
+                current_records,
+            },
+        ) => record_size == actual_size && max_records == actual_max && *current_records == 0,
+        (
+            DesfireFileSpec::TransactionMac { key_version, .. },
+            FileContents::TransactionMac {
+                key_option,
+                key_version: actual_version,
+                counter_limit: None,
+            },
+        ) => key_option & 0x02 != 0 && key_version == actual_version,
+        _ => false,
+    };
+    if !matches {
+        return Err(NfcError::VerificationFailed(format!(
+            "file {:02X} contents read back differently from the create request",
+            spec.file_id()
+        )));
+    }
+    Ok(())
+}
+
+fn manifest_file(file_id: u8, raw: &[u8]) -> ManifestFile {
+    match FileSettings::parse(raw) {
+        Ok(settings) => ManifestFile {
+            file_id: format!("{file_id:02X}"),
+            file_type: Some(settings.file_type.name()),
+            summary: Some(settings.summary()),
+            raw_settings: hex_bytes(raw),
+            error: None,
+        },
+        Err(error) => ManifestFile {
+            file_id: format!("{file_id:02X}"),
+            file_type: None,
+            summary: None,
+            raw_settings: hex_bytes(raw),
+            error: Some(error.to_string()),
+        },
+    }
+}
+
+fn manifest_application(application: &Application) -> ManifestApplication {
+    ManifestApplication {
+        aid: hex_compact(&application.aid),
+        files_available: !application.files.is_empty(),
+        files_error: if application.files.is_empty() {
+            Some(
+                "the file list is empty: the application has no files or directory access is denied"
+                    .to_owned(),
+            )
+        } else {
+            None
+        },
+        files: application
+            .files
+            .iter()
+            .map(|file| manifest_file(file.file_id, &file.settings))
+            .collect(),
+    }
+}
+
+fn desfire_manifest(
+    version: &Version,
+    application: ManifestApplication,
+    free_memory: Option<u32>,
+) -> Result<String> {
+    let manifest = DesfireManifest {
+        schema: "nfc-foundry/desfire-manifest/1",
+        generated_unix: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |duration| duration.as_secs()),
+        card: ManifestCard {
+            name: version.name().to_owned(),
+            vendor_id: format!("{:02X}", version.vendor_id),
+            product_type: format!("{:02X}", version.product_type),
+            product_subtype: format!("{:02X}", version.product_subtype),
+            major: version.major,
+            minor: version.minor,
+            storage_size: format!("{:02X}", version.storage_size),
+            protocol: format!("{:02X}", version.protocol),
+        },
+        free_memory,
+        application,
+        note: "Logical application/file manifest. It records settings and raw settings bytes, not file contents, and cannot restore a deleted application or file.",
+    };
+    serde_json::to_string_pretty(&manifest)
+        .map_err(|error| NfcError::Io(format!("could not encode the DESFire manifest: {error}")))
+}
+
+fn write_manifest(
+    path: Option<&std::path::Path>,
+    label: &str,
+    manifest: &str,
+) -> Result<std::path::PathBuf> {
+    match path {
+        Some(path) => {
+            fsutil::write_atomic(path, manifest.as_bytes())?;
+            Ok(path.to_owned())
+        }
+        None => {
+            let store = crate::classic::BackupStore::default();
+            Ok(store.save_bytes(label, manifest.as_bytes())?.path)
+        }
+    }
+}
+
 /// Effective protection for a read operation.
 ///
 /// When the operation is granted by a free access right, the PICC runs it in
@@ -1069,6 +2363,115 @@ pub fn write_text(result: &DesfireWriteResult) -> String {
             "not needed"
         },
         result.read_back.len()
+    )
+}
+
+/// Human-readable result of reading free memory.
+pub fn free_memory_text(aid: Option<[u8; 3]>, free_memory: u32) -> String {
+    let scope = match aid {
+        Some(aid) => format!("application {}", hex_bytes(&aid)),
+        None => "PICC".to_owned(),
+    };
+    format!("{scope} · free {free_memory} bytes\n")
+}
+
+/// Human-readable application creation result.
+pub fn app_create_text(result: &DesfireAppCreateResult) -> String {
+    let applications = if result.applications.is_empty() {
+        "none".to_owned()
+    } else {
+        result
+            .applications
+            .iter()
+            .map(|aid| hex_bytes(aid))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    format!(
+        "application {} created\nkeys: {} · {}\nfree: {} → {} bytes\napplications: {applications}\n",
+        hex_bytes(&result.aid),
+        result.keys,
+        result.app_key_type.name(),
+        result.free_memory_before,
+        result.free_memory_after
+    )
+}
+
+/// Human-readable application deletion result.
+pub fn app_delete_text(result: &DesfireAppDeleteResult) -> String {
+    let applications = if result.applications.is_empty() {
+        "none".to_owned()
+    } else {
+        result
+            .applications
+            .iter()
+            .map(|aid| hex_bytes(aid))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let free = match (result.free_memory_before, result.free_memory_after) {
+        (Some(before), Some(after)) => format!("free: {before} → {after} bytes\n"),
+        (Some(before), None) => format!("free: {before} bytes → unavailable after deletion\n"),
+        _ => String::new(),
+    };
+    format!(
+        "application {} deleted\nmanifest: {}\n{free}applications: {applications}\nnot a byte-for-byte restore\n",
+        hex_bytes(&result.aid),
+        result.manifest_path.display()
+    )
+}
+
+/// Human-readable file creation result.
+pub fn file_create_text(result: &DesfireFileCreateResult) -> String {
+    format!(
+        "aid {} file {:02X} created\ntype: {}\ncontent bytes: {} · free: {} → {} bytes\n",
+        hex_bytes(&result.aid),
+        result.file_id,
+        result.settings.summary(),
+        result.required,
+        result.free_memory_before,
+        result.free_memory_after
+    )
+}
+
+/// Human-readable file deletion result.
+pub fn file_delete_text(result: &DesfireFileDeleteResult) -> String {
+    let files = if result.files.is_empty() {
+        "none".to_owned()
+    } else {
+        result
+            .files
+            .iter()
+            .map(|file| format!("{file:02X}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let free = match (result.free_memory_before, result.free_memory_after) {
+        (Some(before), Some(after)) => format!("free: {before} → {after} bytes\n"),
+        (Some(before), None) => format!("free: {before} bytes → unavailable after deletion\n"),
+        _ => String::new(),
+    };
+    format!(
+        "aid {} file {:02X} deleted\nmanifest: {}\n{free}files: {files}\n",
+        hex_bytes(&result.aid),
+        result.file_id,
+        result.manifest_path.display()
+    )
+}
+
+/// Human-readable file-settings change result.
+pub fn file_settings_text(result: &DesfireFileSettingsResult) -> String {
+    format!(
+        "aid {} file {:02X}\nbefore: {}\nafter: {}\nchange: {}\n",
+        hex_bytes(&result.aid),
+        result.file_id,
+        result.before.summary(),
+        result.after.summary(),
+        if result.changed {
+            "applied"
+        } else {
+            "not needed"
+        }
     )
 }
 
