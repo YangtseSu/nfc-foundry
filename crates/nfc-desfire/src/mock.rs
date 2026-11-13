@@ -4,12 +4,15 @@
 //! Scripted DESFire card for service and workflow tests.
 //!
 //! The card answers native DESFire APDUs for legacy DES/2K3DES, 3K3DES, and
-//! AES EV1 authentication, GetKeyVersion, and GetCardUID. EV2, file, and
-//! write commands are not simulated; they return `IllegalCommand`.
+//! AES EV1 authentication, GetKeyVersion, GetCardUID, GetFileSettings,
+//! ReadData, WriteData, CommitTransaction, and AbortTransaction. EV2 and
+//! secure-messaging file writes are not simulated; they return
+//! `IllegalCommand`.
 //!
 //! This module is compiled for tests and for callers that enable the
 //! `mock-card` feature. It is not part of the production command path.
 
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use des::TdesEde3;
@@ -21,9 +24,10 @@ use nfc_core::{
 use nfc_transport::{ApduCapabilities, ApduResponse, DeviceInfo, Reader, Transport};
 
 use crate::{
-    AuthKeyType, INS_ADDITIONAL_FRAME, INS_GET_CARD_UID, INS_GET_KEY_VERSION,
-    INS_SELECT_APPLICATION, aes_cbc_decrypt, aes_cbc_encrypt, cbc_decrypt_iv, cbc_encrypt_iv,
-    derive_session_key, ev1_cmac, expand_tdes_key, last_block, rotate_left,
+    AuthKeyType, INS_ABORT_TRANSACTION, INS_ADDITIONAL_FRAME, INS_COMMIT_TRANSACTION,
+    INS_GET_CARD_UID, INS_GET_FILE_SETTINGS, INS_GET_KEY_VERSION, INS_READ_DATA,
+    INS_SELECT_APPLICATION, INS_WRITE_DATA, aes_cbc_decrypt, aes_cbc_encrypt, cbc_decrypt_iv,
+    cbc_encrypt_iv, derive_session_key, ev1_cmac, expand_tdes_key, last_block, rotate_left,
 };
 
 const STATUS_OK: [u8; 2] = [0x91, 0x00];
@@ -31,6 +35,7 @@ const STATUS_ADDITIONAL: [u8; 2] = [0x91, 0xAF];
 const STATUS_AUTHENTICATION_ERROR: [u8; 2] = [0x91, 0xAE];
 const STATUS_ILLEGAL_COMMAND: [u8; 2] = [0x91, 0x1C];
 const STATUS_PERMISSION_DENIED: [u8; 2] = [0x91, 0x9D];
+const STATUS_BOUNDARY_ERROR: [u8; 2] = [0x91, 0xBE];
 
 const DEFAULT_UID: [u8; 7] = [0x04, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26];
 
@@ -38,6 +43,11 @@ enum AuthState {
     Idle,
     Challenge { rnd_b: Vec<u8>, challenge: Vec<u8> },
     Session { session_key: Vec<u8>, iv: Vec<u8> },
+}
+
+struct MockFile {
+    settings: Vec<u8>,
+    data: Vec<u8>,
 }
 
 /// A card-side DESFire simulator.
@@ -49,7 +59,11 @@ pub struct MockDesfire {
     uid: [u8; 7],
     corrupt_mac: bool,
     corrupt_uid: bool,
+    fail_commit: bool,
+    corrupt_readback: bool,
+    wrote: bool,
     state: AuthState,
+    files: BTreeMap<u8, MockFile>,
     commands: Vec<Vec<u8>>,
 }
 
@@ -73,9 +87,36 @@ impl MockDesfire {
             uid: DEFAULT_UID,
             corrupt_mac: false,
             corrupt_uid: false,
+            fail_commit: false,
+            corrupt_readback: false,
+            wrote: false,
             state: AuthState::Idle,
+            files: BTreeMap::new(),
             commands: Vec::new(),
         }
+    }
+
+    /// Add a Standard or Backup file with its raw GetFileSettings response.
+    pub fn with_file(mut self, file_id: u8, settings: Vec<u8>, data: Vec<u8>) -> Self {
+        self.files.insert(file_id, MockFile { settings, data });
+        self
+    }
+
+    /// Refuse CommitTransaction, for the failed-commit path.
+    pub fn with_commit_failure(mut self) -> Self {
+        self.fail_commit = true;
+        self
+    }
+
+    /// Corrupt the first read after a write, for the failed read-back path.
+    pub fn with_corrupt_readback(mut self) -> Self {
+        self.corrupt_readback = true;
+        self
+    }
+
+    /// Current file content, for assertions.
+    pub fn file_data(&self, file_id: u8) -> Option<&[u8]> {
+        self.files.get(&file_id).map(|file| file.data.as_slice())
     }
 
     pub fn with_key_number(mut self, key_no: u8) -> Self {
@@ -125,6 +166,17 @@ impl MockDesfire {
                 self.state = AuthState::Idle;
                 ApduResponse::new(Vec::new(), STATUS_OK)
             }
+            INS_GET_FILE_SETTINGS => self.reply_file_settings(ins, body),
+            INS_READ_DATA => self.reply_read_data(ins, body),
+            INS_WRITE_DATA => self.apply_write_data(ins, body),
+            INS_COMMIT_TRANSACTION => {
+                if self.fail_commit {
+                    ApduResponse::new(Vec::new(), STATUS_PERMISSION_DENIED)
+                } else {
+                    ApduResponse::new(Vec::new(), STATUS_OK)
+                }
+            }
+            INS_ABORT_TRANSACTION => ApduResponse::new(Vec::new(), STATUS_OK),
             INS_GET_KEY_VERSION => self.reply_key_version(ins, body),
             INS_GET_CARD_UID => self.reply_card_uid(ins),
             INS_ADDITIONAL_FRAME => self.finish_authentication(body),
@@ -286,6 +338,70 @@ impl MockDesfire {
         ApduResponse::new(raw, STATUS_OK)
     }
 
+    fn reply_file_settings(&mut self, ins: u8, body: &[u8]) -> ApduResponse {
+        let Some(file_id) = body.first().copied() else {
+            return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
+        };
+        let Some(file) = self.files.get(&file_id) else {
+            return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
+        };
+        let settings = file.settings.clone();
+        self.secure_reply(ins, body, settings)
+    }
+
+    fn reply_read_data(&mut self, ins: u8, body: &[u8]) -> ApduResponse {
+        if body.len() != 7 {
+            return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
+        }
+        let Some(file) = self.files.get(&body[0]) else {
+            return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
+        };
+        let offset = u24(&body[1..4]);
+        let length = u24(&body[4..7]);
+        let start = offset as usize;
+        let end = start.saturating_add(length as usize);
+        if end > file.data.len() {
+            return ApduResponse::new(Vec::new(), STATUS_BOUNDARY_ERROR);
+        }
+        let mut data = file.data[start..end].to_vec();
+        if self.corrupt_readback && self.wrote {
+            if let Some(first) = data.first_mut() {
+                *first ^= 0x01;
+            }
+            self.corrupt_readback = false;
+        }
+        self.secure_reply(ins, body, data)
+    }
+
+    fn apply_write_data(&mut self, ins: u8, body: &[u8]) -> ApduResponse {
+        if body.len() < 7 {
+            return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
+        }
+        let length = u24(&body[4..7]) as usize;
+        if body.len() != 7 + length {
+            return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
+        }
+        if matches!(
+            self.key_type,
+            AuthKeyType::Tdes3 | AuthKeyType::Aes | AuthKeyType::AesEv2
+        ) && matches!(self.state, AuthState::Session { .. })
+        {
+            return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
+        }
+        let file_id = body[0];
+        let offset = u24(&body[1..4]) as usize;
+        let Some(file) = self.files.get_mut(&file_id) else {
+            return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
+        };
+        let end = offset.saturating_add(length);
+        if end > file.data.len() {
+            return ApduResponse::new(Vec::new(), STATUS_BOUNDARY_ERROR);
+        }
+        file.data[offset..end].copy_from_slice(&body[7..]);
+        self.wrote = true;
+        self.secure_reply(ins, body, Vec::new())
+    }
+
     fn secure_reply(&mut self, ins: u8, request: &[u8], body: Vec<u8>) -> ApduResponse {
         let AuthState::Session { session_key, iv } = &mut self.state else {
             return ApduResponse::new(body, STATUS_OK);
@@ -336,6 +452,10 @@ fn d40_receive(key: &[u8; 24], data: &[u8]) -> Result<Vec<u8>> {
     Ok(output)
 }
 
+fn u24(bytes: &[u8]) -> u32 {
+    u32::from(bytes[0]) | (u32::from(bytes[1]) << 8) | (u32::from(bytes[2]) << 16)
+}
+
 fn command_body(apdu: &[u8]) -> &[u8] {
     if apdu.len() <= 5 {
         return &[];
@@ -366,6 +486,11 @@ impl MockDesfireTransport {
 
     pub fn tag(&self) -> MutexGuard<'_, MockDesfire> {
         self.tag.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Shared card handle for tests that move the transport into a service.
+    pub fn card(&self) -> Arc<Mutex<MockDesfire>> {
+        self.tag.clone()
     }
 
     pub fn commands(&self) -> Vec<Vec<u8>> {

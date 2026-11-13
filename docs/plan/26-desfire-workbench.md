@@ -1,8 +1,10 @@
 # Phase 26 plan: DESFire workbench
 
-Status: in progress. 26.1–26.7 are complete; 26.8–26.13 are pending, except
+Status: in progress. 26.1–26.8 are complete; 26.9–26.13 are pending, except
 that 26.12's ordinary NDEF provisioning and guarded delete landed in phase
 25.5. Hardware: PN532 UART first; ACR122U records after a reader is available.
+The 26.8 write records are pending because no free reader had a card on
+2026-11-13.
 
 ## Goal
 
@@ -193,7 +195,11 @@ Acceptance:
   protocol-level cryptographic check.
 - Wrong keys and invalid MACs fail once and are not retried.
 
-### 26.8 Generic data write and transactions
+### 26.8 Generic data write and transactions (done)
+
+Status: complete 2026-11-13. See
+[26h-generic-write.md](../notes/26h-generic-write.md) and the
+[26h spec](../specs/26h-generic-write.md).
 
 Deliver:
 

@@ -129,11 +129,26 @@ fn setup(desfire: &mut Desfire<'_>) -> Result<()> {
         max_records: 2,
         cyclic: true,
     })?;
-    desfire.write_record(RECORD_FILE, 0, &RECORDS[0])?;
+    desfire.write_record(
+        RECORD_FILE,
+        0,
+        &RECORDS[0],
+        nfc_desfire::CommunicationMode::Plain,
+    )?;
     desfire.commit_transaction()?;
-    desfire.write_record(RECORD_FILE, 0, &RECORDS[1])?;
+    desfire.write_record(
+        RECORD_FILE,
+        0,
+        &RECORDS[1],
+        nfc_desfire::CommunicationMode::Plain,
+    )?;
     desfire.commit_transaction()?;
-    desfire.write_record(CYCLIC_FILE, 0, &CYCLIC_RECORDS[0])?;
+    desfire.write_record(
+        CYCLIC_FILE,
+        0,
+        &CYCLIC_RECORDS[0],
+        nfc_desfire::CommunicationMode::Plain,
+    )?;
     desfire.commit_transaction()?;
 
     let settings = desfire.file_settings(RECORD_FILE)?;

@@ -240,9 +240,12 @@ cargo test -p nfctl --features hardware-write \
 cover the CMAC and CRC primitives, AN12343 EV2 MAC/IV vectors, chained
 responses, EV2 counter advancement, and tampered responses. The
 `hardware_desfire_secure_messaging` test creates reserved 3K3DES and AES
-applications with plain, MACed, and enciphered files and reads them through the
-direct layer and `nfc-app`. It passed on PN532 UART and ACR122U on
-2026-11-12; the same `NFC_FOUNDRY_HARDWARE_FORMAT=yes` rule applies:
+applications with plain, MACed, and enciphered files, reads them through the
+direct layer and `nfc-app`, then writes a known range to each file through
+`Service::desfire_write` and reads it back. The read record passed on PN532
+UART and ACR122U on 2026-11-12; the write record is pending because no free
+reader had a card on 2026-11-13. The same `NFC_FOUNDRY_HARDWARE_FORMAT=yes`
+rule applies:
 
 ```sh
 NFC_FOUNDRY_HARDWARE=1 NFC_FOUNDRY_HARDWARE_WRITE=yes \
@@ -253,6 +256,14 @@ cargo test -p nfctl --features hardware-write \
 
 For ACR122U use `NFC_FOUNDRY_DEVICE=acr122_usb:<bus>:<address>` and stop
 `pcscd` first.
+
+The phase 26.8 write path is covered without hardware by `nfc-desfire` unit
+tests for the EV1/EV2 plain, MACed, and enciphered wire bytes and response
+checks, `nfc-app/tests/desfire_write.rs` for access, range, backup, commit, and
+read-back gates, and the `nfctl` and GTK tests for the two surfaces. The
+`hardware_desfire_secure_messaging` write pass above is the hardware gate. The
+same test also supports `NFC_FOUNDRY_HARDWARE_KEEP_APP=1` for manual
+`nfctl desfire write` checks.
 
 The phase 26.3 read path remains covered by unit
 tests for the `GetValue` command shape and the `ReadRecords` payload, plus the

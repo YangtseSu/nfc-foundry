@@ -75,6 +75,49 @@ fn stderr(output: &Output) -> String {
 }
 
 #[test]
+fn desfire_write_updates_and_reads_back_the_mock_file() {
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:desfire",
+        "desfire",
+        "write",
+        "--aid",
+        "F00D01",
+        "--file",
+        "01",
+        "--offset",
+        "4",
+        "--data",
+        "11223344",
+    ]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("written: 4..8 (4 bytes)"), "{text}");
+    assert!(text.contains("backup: 32 bytes"), "{text}");
+    assert!(text.contains("read-back: 4 bytes verified"), "{text}");
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:desfire",
+        "desfire",
+        "write",
+        "--aid",
+        "F00D01",
+        "--file",
+        "01",
+        "--offset",
+        "30",
+        "--data",
+        "11223344",
+    ]);
+    assert!(!output.status.success());
+    let text = stderr(&output);
+    assert!(text.contains("outside the 32-byte file"), "{text}");
+}
+
+#[test]
 fn list_and_scan_keep_the_mock_contract() {
     let output = nfctl(&["--mock", "list"]);
     assert_success(&output);

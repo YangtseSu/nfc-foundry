@@ -130,6 +130,75 @@ pub struct DesfireRecordRead {
     pub protection: DesfireReadProtection,
 }
 
+/// One Standard or Backup file write after selecting an application.
+///
+/// The key is optional so a free-access file can be written without
+/// authentication. The request deliberately does not implement `Debug`:
+/// key material must not be logged.
+pub struct DesfireWriteRequest {
+    pub aid: [u8; 3],
+    pub file_id: u8,
+    pub offset: u32,
+    pub data: Vec<u8>,
+    pub key: Option<Vec<u8>>,
+    pub key_type: Option<AuthKeyType>,
+    pub key_number: u8,
+}
+
+impl DesfireWriteRequest {
+    pub fn new(aid: [u8; 3], file_id: u8, data: Vec<u8>) -> Self {
+        Self {
+            aid,
+            file_id,
+            offset: 0,
+            data,
+            key: None,
+            key_type: None,
+            key_number: 0,
+        }
+    }
+
+    pub fn key(mut self, key: Vec<u8>) -> Self {
+        self.key = Some(key);
+        self
+    }
+
+    pub fn key_type(mut self, key_type: AuthKeyType) -> Self {
+        self.key_type = Some(key_type);
+        self
+    }
+
+    pub fn key_number(mut self, key_number: u8) -> Self {
+        self.key_number = key_number;
+        self
+    }
+
+    pub fn offset(mut self, offset: u32) -> Self {
+        self.offset = offset;
+        self
+    }
+}
+
+/// Verified result of one DESFire file write.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DesfireWriteResult {
+    pub settings: FileSettings,
+    /// Communication mode used for the file data.
+    pub communication: CommunicationMode,
+    /// Key family of the session that protected the write, when any.
+    pub key_type: Option<AuthKeyType>,
+    /// Response check of the last write command.
+    pub integrity: IntegrityCheck,
+    pub offset: u32,
+    pub written: usize,
+    /// Complete file content exported before the first write.
+    pub backup: Vec<u8>,
+    /// Backup files commit their transaction; Standard files do not need it.
+    pub committed: bool,
+    /// Written range read back after the write.
+    pub read_back: Vec<u8>,
+}
+
 /// Verify one application key without reading file data.
 ///
 /// The key is session-scoped and deliberately not part of `Debug`.
@@ -551,6 +620,159 @@ impl Service {
         }
     }
 
+    /// Write one Standard or Backup file and verify it.
+    ///
+    /// The current file content is exported before the first write, the write
+    /// uses the file's communication mode, and the written range is read back.
+    /// A file the same session cannot read back is refused: the product does
+    /// not report an unverified write as complete.
+    pub fn desfire_write(
+        &mut self,
+        cancel: CancelToken,
+        request: DesfireWriteRequest,
+    ) -> Result<DesfireWriteResult> {
+        if request.data.is_empty() {
+            return Err(NfcError::InvalidArgument(
+                "DESFire write data must not be empty".to_owned(),
+            ));
+        }
+        let length = u32::try_from(request.data.len()).map_err(|_| {
+            NfcError::InvalidArgument("the DESFire write does not fit a 32-bit length".to_owned())
+        })?;
+        let mut operation = self.begin_operation(OperationKind::Write, cancel)?;
+        operation.check_iso_dep_card()?;
+        let cancel = operation.cancel().clone();
+        let mut desfire = Desfire::new(operation.reader_mut());
+        desfire.select_application(request.aid)?;
+        if let Some(key) = request.key.as_deref() {
+            match request.key_type {
+                Some(key_type) => desfire.authenticate(request.key_number, key, key_type)?,
+                None => desfire.authenticate_legacy(request.key_number, key)?,
+            }
+        }
+        let raw = desfire.file_settings(request.file_id)?;
+        let settings = FileSettings::parse(&raw)?;
+        let size = match settings.contents {
+            FileContents::Data { size } => size,
+            _ => {
+                return Err(NfcError::InvalidArgument(format!(
+                    "file {:02X} is {}; WriteData needs a Standard or Backup file",
+                    request.file_id,
+                    settings.file_type.name()
+                )));
+            }
+        };
+        if request.offset > size || length > size - request.offset {
+            return Err(NfcError::InvalidArgument(format!(
+                "write range {}..{} is outside the {size}-byte file {:02X}",
+                request.offset,
+                u64::from(request.offset) + u64::from(length),
+                request.file_id
+            )));
+        }
+        let authenticated = request.key.is_some();
+        let communication = desfire_write_communication(
+            &settings,
+            request.key_number,
+            authenticated,
+            request.file_id,
+        )?;
+        if !desfire_read_granted(&settings, request.key_number, authenticated) {
+            return Err(NfcError::InvalidArgument(format!(
+                "file {:02X} cannot be read back with this key; the write is refused because it cannot be verified",
+                request.file_id
+            )));
+        }
+        let read_communication =
+            effective_read_communication(&settings, request.key_number, authenticated);
+        let backup = desfire
+            .read_data(request.file_id, 0, size, read_communication)?
+            .data;
+        if backup.len() != size as usize {
+            return Err(NfcError::VerificationFailed(format!(
+                "the pre-write backup of file {:02X} returned {} bytes, expected {size}",
+                request.file_id,
+                backup.len()
+            )));
+        }
+
+        const MAX_WRITE_CHUNK: usize = 200;
+        let backup_file = settings.file_type == FileType::Backup;
+        let mut written = 0usize;
+        let mut integrity = IntegrityCheck::None;
+        let write_result = (|| -> Result<()> {
+            while written < request.data.len() {
+                cancel.check()?;
+                let end = (written + MAX_WRITE_CHUNK).min(request.data.len());
+                let offset = request.offset + written as u32;
+                integrity = desfire.write_data(
+                    request.file_id,
+                    offset,
+                    &request.data[written..end],
+                    communication,
+                )?;
+                written = end;
+            }
+            Ok(())
+        })();
+        if let Err(error) = write_result {
+            if backup_file {
+                let _ = desfire.abort_transaction();
+            }
+            return Err(error);
+        }
+
+        let read_back = desfire
+            .read_data(request.file_id, request.offset, length, read_communication)?
+            .data;
+        if read_back != request.data {
+            if backup_file {
+                let _ = desfire.abort_transaction();
+            }
+            let difference = read_back
+                .iter()
+                .zip(&request.data)
+                .position(|(left, right)| left != right)
+                .unwrap_or_else(|| read_back.len().min(request.data.len()));
+            return Err(NfcError::VerificationFailed(format!(
+                "file {:02X} offset {} read back differently at byte {difference}",
+                request.file_id, request.offset
+            )));
+        }
+
+        let mut committed = false;
+        if backup_file {
+            if let Err(error) = desfire.commit_transaction() {
+                let _ = desfire.abort_transaction();
+                return Err(error);
+            }
+            committed = true;
+            let persisted = desfire
+                .read_data(request.file_id, request.offset, length, read_communication)?
+                .data;
+            if persisted != request.data {
+                return Err(NfcError::VerificationFailed(format!(
+                    "file {:02X} offset {} differs after CommitTransaction",
+                    request.file_id, request.offset
+                )));
+            }
+        }
+        let key_type = desfire.session_key_type();
+        drop(desfire);
+        operation.check_iso_dep_card()?;
+        Ok(DesfireWriteResult {
+            settings,
+            communication,
+            key_type,
+            integrity,
+            offset: request.offset,
+            written,
+            backup,
+            committed,
+            read_back,
+        })
+    }
+
     /// Create the AN11004 NDEF Tag Application and its CC/NDEF files.
     ///
     /// This is a full-card-scope mutation: no byte-for-byte backup exists.
@@ -671,8 +893,13 @@ fn format_ndef(
             NDEF_DATA_ACCESS_RIGHTS,
             NDEF_DATA_SIZE,
         )?;
-        desfire.write_data(NDEF_CC_FILE, 0, &NDEF_CAPABILITY_CONTAINER)?;
-        desfire.write_data(NDEF_DATA_FILE, 0, &[0x00, 0x00])?;
+        desfire.write_data(
+            NDEF_CC_FILE,
+            0,
+            &NDEF_CAPABILITY_CONTAINER,
+            CommunicationMode::Plain,
+        )?;
+        desfire.write_data(NDEF_DATA_FILE, 0, &[0x00, 0x00], CommunicationMode::Plain)?;
         cancel.check()?;
         desfire.commit_transaction()?;
         drop(desfire);
@@ -783,6 +1010,75 @@ fn effective_read_communication(
         return CommunicationMode::Plain;
     }
     settings.communication
+}
+
+fn desfire_key_grant(right: AccessRight, key_number: u8, authenticated: bool) -> bool {
+    authenticated && matches!(right, AccessRight::Key(key) if key == key_number)
+}
+
+/// Effective communication mode for a write.
+///
+/// The write right or the read/write right grants the operation. A matching
+/// key right applies the file's mode; free access runs in Plain mode whatever
+/// the file settings say.
+fn desfire_write_communication(
+    settings: &FileSettings,
+    key_number: u8,
+    authenticated: bool,
+    file_id: u8,
+) -> Result<CommunicationMode> {
+    if desfire_key_grant(settings.access.write, key_number, authenticated)
+        || desfire_key_grant(settings.access.read_write, key_number, authenticated)
+    {
+        return Ok(settings.communication);
+    }
+    if settings.access.write == AccessRight::Free || settings.access.read_write == AccessRight::Free
+    {
+        return Ok(CommunicationMode::Plain);
+    }
+    if !authenticated
+        && [settings.access.write, settings.access.read_write]
+            .into_iter()
+            .any(|right| matches!(right, AccessRight::Key(_)))
+    {
+        return Err(NfcError::AuthenticationRequired(format!(
+            "file {file_id:02X} needs a key for writes"
+        )));
+    }
+    Err(NfcError::InvalidArgument(format!(
+        "file {file_id:02X} denies write access to this key"
+    )))
+}
+
+fn desfire_read_granted(settings: &FileSettings, key_number: u8, authenticated: bool) -> bool {
+    desfire_key_grant(settings.access.read, key_number, authenticated)
+        || desfire_key_grant(settings.access.read_write, key_number, authenticated)
+        || settings.access.read == AccessRight::Free
+        || settings.access.read_write == AccessRight::Free
+}
+
+/// One-line result used by `nfctl` and the GTK write view.
+pub fn write_text(result: &DesfireWriteResult) -> String {
+    let protection = match result.key_type {
+        Some(key_type) => format!("{} · {}", key_type.name(), result.integrity.label()),
+        None => result.integrity.label().to_owned(),
+    };
+    let end = u64::from(result.offset) + result.written as u64;
+    format!(
+        "settings: {}\nprotection: {}\nwritten: {}..{} ({} bytes)\nbackup: {} bytes\ncommit: {}\nread-back: {} bytes verified",
+        result.settings.summary(),
+        protection,
+        result.offset,
+        end,
+        result.written,
+        result.backup.len(),
+        if result.committed {
+            "committed"
+        } else {
+            "not needed"
+        },
+        result.read_back.len()
+    )
 }
 
 fn verify_record_bytes(actual: usize, count: u32, record_size: u32) -> Result<()> {

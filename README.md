@@ -19,7 +19,8 @@ validated on PN532 UART. DESFire EV3 inventory, factory-key authentication, and
 plain/MACed/enciphered file reads are validated on both readers; key
 verification and authenticated UID reads are validated on ACR122U. The Type 4
 NDEF read is exposed in CLI and GUI, and NDEF provisioning and guarded delete
-are implemented. Generic secure-messaging writes remain pending. Type 4 read/write is validated on
+are implemented. Generic Standard/Backup file writes are implemented for Plain,
+MACed, and Enciphered modes; their hardware write record is pending. Type 4 read/write is validated on
 PN532 UART but has no CLI or GUI surface yet. See
 [Hardware matrix](docs/hardware-matrix.md).
 Both first-release readers are implemented: PN532 UART
@@ -286,6 +287,13 @@ cargo run -p nfctl -- --mock --device mock:ntag215 type2 read --page 4
 cargo run -p nfctl -- --mock --device mock:ntag215 ndef write --text hello
 cargo run -p nfctl -- --mock --device mock:ntag215 ndef read
 cargo run -p nfctl -- --mock --device mock:ntag215 type2 dump --output ntag.json
+```
+
+The mock DESFire carries a free-access 32-byte standard file:
+
+```sh
+cargo run -p nfctl -- --mock --device mock:desfire \
+  desfire write --aid F00D01 --file 01 --offset 4 --data 11223344
 ```
 
 `nfctl classic keys list|import|add|export` manages the legacy JSON key store.

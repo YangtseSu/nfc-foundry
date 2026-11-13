@@ -23,9 +23,9 @@ use nfc_app::classic::{
 };
 use nfc_app::desfire::{
     AuthKeyType, DesfireNdefDeleteRequest, DesfireNdefFormatRequest, DesfireReadRequest,
-    DesfireReadResult, DesfireUidRequest, DesfireVerifyKeyRequest, NDEF_APPLICATION_AID,
-    NDEF_CC_FILE, NDEF_CC_SIZE, NDEF_DATA_FILE, NDEF_DATA_SIZE, card_uid_text,
-    key_verification_text, read_protection_text,
+    DesfireReadResult, DesfireUidRequest, DesfireVerifyKeyRequest, DesfireWriteRequest,
+    NDEF_APPLICATION_AID, NDEF_CC_FILE, NDEF_CC_SIZE, NDEF_DATA_FILE, NDEF_DATA_SIZE,
+    card_uid_text, key_verification_text, read_protection_text, write_text,
 };
 use nfc_app::type2::{
     Type2Auth, Type2Format, Type2Lock, Type2LockResult, Type2MutationResult, Type2NdefWrite,
@@ -1052,6 +1052,17 @@ struct DesfireView {
     read: gtk::Button,
     output: gtk::Label,
     status: gtk::Label,
+    write_aid: gtk::Entry,
+    write_file: gtk::Entry,
+    write_key: gtk::PasswordEntry,
+    write_key_type: gtk::DropDown,
+    write_key_number: gtk::Entry,
+    write_offset: gtk::Entry,
+    write_data: gtk::Entry,
+    write_encoding: gtk::DropDown,
+    write: gtk::Button,
+    write_output: gtk::Label,
+    write_status: gtk::Label,
     verify_aid: gtk::Entry,
     verify_key: gtk::PasswordEntry,
     verify_key_type: gtk::DropDown,
@@ -1721,6 +1732,90 @@ fn build_desfire_view() -> DesfireView {
     read_page.append(&output_scroll);
     read_page.append(&status);
 
+    let write_page = page_box();
+    let write_form = gtk::Grid::new();
+    write_form.set_row_spacing(8);
+    write_form.set_column_spacing(12);
+    let mut write_row = 0;
+    let mut add_write_field = |label: &str, widget: &gtk::Widget| {
+        let caption = gtk::Label::new(Some(label));
+        caption.set_xalign(0.0);
+        caption.add_css_class("caption");
+        caption.add_css_class("dim-label");
+        write_form.attach(&caption, 0, write_row, 1, 1);
+        write_form.attach(widget, 1, write_row, 1, 1);
+        widget.set_hexpand(true);
+        write_row += 1;
+    };
+
+    let write_aid = gtk::Entry::new();
+    write_aid.set_placeholder_text(Some("A1B2C3"));
+    write_aid.set_max_width_chars(12);
+    add_write_field("Application ID", write_aid.upcast_ref());
+
+    let write_file = gtk::Entry::new();
+    write_file.set_placeholder_text(Some("01"));
+    write_file.set_max_width_chars(4);
+    add_write_field("File ID", write_file.upcast_ref());
+
+    let write_key = gtk::PasswordEntry::new();
+    write_key.set_show_peek_icon(true);
+    write_key.set_placeholder_text(Some("optional; required unless the file is free"));
+    add_write_field("Key (optional)", write_key.upcast_ref());
+
+    let write_key_type =
+        gtk::DropDown::from_strings(&["Auto", "DES", "2K3DES", "3K3DES", "AES", "AES EV2"]);
+    write_key_type.set_selected(0);
+    add_write_field("Key type", write_key_type.upcast_ref());
+
+    let write_key_number = gtk::Entry::new();
+    write_key_number.set_text("0");
+    write_key_number.set_max_width_chars(4);
+    add_write_field("Key number", write_key_number.upcast_ref());
+
+    let write_offset = gtk::Entry::new();
+    write_offset.set_text("0");
+    write_offset.set_max_width_chars(10);
+    add_write_field("Offset", write_offset.upcast_ref());
+
+    let write_encoding = gtk::DropDown::from_strings(&["Hex", "Text"]);
+    write_encoding.set_selected(0);
+    add_write_field("Payload encoding", write_encoding.upcast_ref());
+
+    let write_data = gtk::Entry::new();
+    write_data.set_placeholder_text(Some("AA BB CC or UTF-8 text"));
+    add_write_field("Data", write_data.upcast_ref());
+
+    let write = gtk::Button::with_label("Write file");
+    write.add_css_class("suggested-action");
+    let write_hint = gtk::Label::new(Some(
+        "The current file content is exported before the write, the card identity is \
+         checked, and the written range is read back. A file this session cannot read \
+         back is refused because the write cannot be verified.",
+    ));
+    write_hint.set_xalign(0.0);
+    write_hint.set_wrap(true);
+    write_hint.add_css_class("caption");
+    write_hint.add_css_class("dim-label");
+    let write_output = gtk::Label::new(None);
+    write_output.set_xalign(0.0);
+    write_output.set_wrap(true);
+    write_output.set_selectable(true);
+    write_output.add_css_class("monospace");
+    let write_output_scroll = gtk::ScrolledWindow::builder()
+        .child(&write_output)
+        .vexpand(true)
+        .build();
+    let write_status = gtk::Label::new(None);
+    write_status.set_xalign(0.0);
+    write_status.add_css_class("caption");
+    write_status.add_css_class("dim-label");
+    write_page.append(&write_form);
+    write_page.append(&write_hint);
+    write_page.append(&write);
+    write_page.append(&write_output_scroll);
+    write_page.append(&write_status);
+
     let verify_page = page_box();
     let verify_form = gtk::Grid::new();
     verify_form.set_row_spacing(8);
@@ -1877,6 +1972,7 @@ fn build_desfire_view() -> DesfireView {
     tabs.set_vexpand(true);
     tabs.add_titled(&inventory_page, Some("inventory"), "Inventory");
     tabs.add_titled(&read_page, Some("read"), "Read");
+    tabs.add_titled(&write_page, Some("write"), "Write");
     tabs.add_titled(&verify_page, Some("verify"), "Verify");
     tabs.add_titled(&ndef_page, Some("ndef"), "NDEF");
     let (root, switcher) = grouped_page(&tabs);
@@ -1898,6 +1994,17 @@ fn build_desfire_view() -> DesfireView {
         read,
         output,
         status,
+        write_aid,
+        write_file,
+        write_key,
+        write_key_type,
+        write_key_number,
+        write_offset,
+        write_data,
+        write_encoding,
+        write,
+        write_output,
+        write_status,
         verify_aid,
         verify_key,
         verify_key_type,
@@ -3332,6 +3439,10 @@ fn connect_signals(ui: &Rc<Ui>) {
     ui.desfire_view
         .read
         .connect_clicked(move |_| start_desfire_read(ui2.clone()));
+    let ui2 = ui.clone();
+    ui.desfire_view
+        .write
+        .connect_clicked(move |_| start_desfire_write(ui2.clone()));
     let ui2 = ui.clone();
     ui.desfire_view
         .verify
@@ -5917,12 +6028,17 @@ fn clear_desfire_session(ui: &Rc<Ui>) {
     ui.desfire_view.verify_key.set_text("");
     ui.desfire_view.verify_output.set_text("");
     ui.desfire_view.verify_status.set_text("");
+    ui.desfire_view.write_key.set_text("");
+    ui.desfire_view.write_output.set_text("");
+    ui.desfire_view.write_status.set_text("");
     ui.desfire_view.ndef_key.set_text("");
     ui.desfire_view.ndef_status.set_text("");
     ui.desfire_view.ndef_output.set_text("");
     ui.desfire_view.start_record.set_text("0");
     ui.desfire_view.record_count.set_text("");
     ui.desfire_view.read_key_type.set_selected(0);
+    ui.desfire_view.write_key_type.set_selected(0);
+    ui.desfire_view.write_encoding.set_selected(0);
     ui.desfire_view.verify_key_type.set_selected(0);
     ui.desfire_view.ndef_key_type.set_selected(0);
     ui.desfire_view.advanced.set_active(false);
@@ -6099,10 +6215,33 @@ fn parse_desfire_key(value: &str) -> std::result::Result<Option<Vec<u8>>, String
                 .map_err(|_| "the legacy key contains a non-hexadecimal digit".to_owned())?,
         );
     }
-    if !matches!(key.len(), 8 | 16) {
-        return Err("the legacy key must be 16 or 32 hex digits (DES or 2K3DES)".to_owned());
+    if !matches!(key.len(), 8 | 16 | 24 | 32) {
+        return Err(
+            "a DESFire key must be 8, 16, 24, or 32 bytes (DES, 2K3DES, 3K3DES, AES)".to_owned(),
+        );
     }
     Ok(Some(key))
+}
+
+fn parse_desfire_data(value: &str) -> std::result::Result<Vec<u8>, String> {
+    let compact: String = value
+        .chars()
+        .filter(|character| !character.is_ascii_whitespace() && *character != ':')
+        .collect();
+    if compact.is_empty() {
+        return Err("the write payload is empty".to_owned());
+    }
+    if !compact.len().is_multiple_of(2) {
+        return Err("the write payload must have an even number of hex digits".to_owned());
+    }
+    let mut data = Vec::with_capacity(compact.len() / 2);
+    for index in (0..compact.len()).step_by(2) {
+        data.push(
+            u8::from_str_radix(&compact[index..index + 2], 16)
+                .map_err(|_| "the write payload contains a non-hexadecimal digit".to_owned())?,
+        );
+    }
+    Ok(data)
 }
 
 fn desfire_ascii(bytes: &[u8]) -> String {
@@ -6312,6 +6451,74 @@ fn start_desfire_read(ui: Rc<Ui>) {
     });
 }
 
+fn start_desfire_write(ui: Rc<Ui>) {
+    if ui.busy.get() {
+        return;
+    }
+    let input = match desfire_write_input(&ui.desfire_view) {
+        Ok(input) => input,
+        Err(error) => {
+            ui.desfire_view
+                .write_status
+                .set_localized("Write input is invalid");
+            ui.status.set_localized("DESFire write input is invalid");
+            toast_error(&ui, &error);
+            return;
+        }
+    };
+    let mut request = DesfireWriteRequest::new(input.aid, input.file, input.data)
+        .offset(input.offset)
+        .key_number(input.key_number);
+    if let Some(key) = input.key {
+        request = request.key(key);
+    }
+    if let Some(key_type) = input.key_type {
+        request = request.key_type(key_type);
+    }
+    set_busy(&ui, true);
+    ui.status.set_localized("Writing the DESFire file…");
+    let service = ui.service.clone();
+    let (sender, receiver) = async_channel::bounded(1);
+    std::thread::spawn(move || {
+        let result = match service.lock() {
+            Ok(mut service) => service
+                .desfire_write(CancelToken::new(), request)
+                .map(|write| {
+                    let detail = format!("{} bytes", write.written);
+                    (write_text(&write), detail)
+                }),
+            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
+        };
+        let _ = sender.send_blocking(result);
+    });
+    glib::spawn_future_local(async move {
+        match receiver.recv().await {
+            Ok(result) => finish_desfire_write(&ui, result),
+            Err(_) => {
+                finish_desfire_write(&ui, Err(NfcError::Io("reader worker stopped".to_owned())))
+            }
+        }
+    });
+}
+
+fn finish_desfire_write(ui: &Rc<Ui>, result: NfcResult<(String, String)>) {
+    set_busy(ui, false);
+    match result {
+        Ok((text, detail)) => {
+            ui.desfire_view.write_output.set_text(&text);
+            ui.desfire_view.write_status.set_localized("Write verified");
+            ui.status
+                .set_localized(&format!("DESFire write verified · {detail}"));
+            append_log(ui, &format!("desfire · write · {detail}"));
+        }
+        Err(error) => {
+            ui.desfire_view.write_status.set_localized("Write failed");
+            ui.status.set_localized("DESFire write failed");
+            toast_error(ui, &format!("DESFire write: {error}"));
+        }
+    }
+}
+
 fn finish_desfire_read(ui: &Rc<Ui>, result: NfcResult<(String, String)>) {
     set_busy(ui, false);
     match result {
@@ -6326,6 +6533,44 @@ fn finish_desfire_read(ui: &Rc<Ui>, result: NfcResult<(String, String)>) {
             toast_error(ui, &format!("DESFire read: {error}"));
         }
     }
+}
+
+struct DesfireWriteInput {
+    aid: [u8; 3],
+    file: u8,
+    key: Option<Vec<u8>>,
+    key_type: Option<AuthKeyType>,
+    key_number: u8,
+    offset: u32,
+    data: Vec<u8>,
+}
+
+fn desfire_write_input(view: &DesfireView) -> std::result::Result<DesfireWriteInput, String> {
+    let aid = parse_desfire_hex(&view.write_aid.text(), 3, "application ID")?;
+    let data = match view.write_encoding.selected() {
+        0 => parse_desfire_data(&view.write_data.text())?,
+        _ => {
+            let text = view.write_data.text().to_string();
+            if text.is_empty() {
+                return Err("the write payload is empty".to_owned());
+            }
+            text.into_bytes()
+        }
+    };
+    Ok(DesfireWriteInput {
+        aid: [aid[0], aid[1], aid[2]],
+        file: parse_desfire_hex(&view.write_file.text(), 1, "file ID")?[0],
+        key: parse_desfire_key(&view.write_key.text())?,
+        key_type: desfire_key_type(&view.write_key_type),
+        key_number: desfire_key_number(&view.write_key_number.text())?,
+        offset: view
+            .write_offset
+            .text()
+            .trim()
+            .parse::<u32>()
+            .map_err(|_| "offset must be an unsigned integer".to_owned())?,
+        data,
+    })
 }
 
 struct DesfireKeyInput {
@@ -6989,6 +7234,7 @@ fn update_desfire_actions(ui: &Ui) {
     let advanced = sensitive && ui.desfire_view.advanced.is_active();
     ui.desfire_view.refresh.set_sensitive(sensitive);
     ui.desfire_view.read.set_sensitive(sensitive);
+    ui.desfire_view.write.set_sensitive(sensitive);
     ui.desfire_view.verify.set_sensitive(sensitive);
     ui.desfire_view.read_uid.set_sensitive(sensitive);
     ui.desfire_view.read_ndef.set_sensitive(sensitive);
@@ -15561,6 +15807,10 @@ mod tests {
             Some("Read NDEF")
         );
         assert!(ui.desfire_view.read_ndef.is_sensitive());
+        assert!(ui.desfire_view.tabs.child_by_name("write").is_some());
+        assert_eq!(ui.desfire_view.write.label().as_deref(), Some("Write file"));
+        assert!(ui.desfire_view.write.is_sensitive());
+        assert_eq!(ui.desfire_view.write_encoding.selected(), 0);
         assert!(ui.desfire_view.tabs.child_by_name("verify").is_some());
         assert_eq!(
             ui.desfire_view.verify.label().as_deref(),
@@ -15646,6 +15896,26 @@ mod tests {
             8
         );
         assert!(parse_desfire_key("00").is_err());
+        assert_eq!(
+            parse_desfire_key(&"00".repeat(24))
+                .expect("3K3DES key")
+                .expect("some key")
+                .len(),
+            24
+        );
+        assert_eq!(
+            parse_desfire_key(&"00".repeat(32))
+                .expect("AES key")
+                .expect("some key")
+                .len(),
+            32
+        );
+        assert_eq!(
+            parse_desfire_data("AA BB CC").expect("payload"),
+            vec![0xAA, 0xBB, 0xCC]
+        );
+        assert!(parse_desfire_data("").is_err());
+        assert!(parse_desfire_data("ABC").is_err());
         assert_eq!(desfire_ascii(b"NFC\0"), "NFC.");
     }
 

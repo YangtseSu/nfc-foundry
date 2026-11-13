@@ -5,9 +5,9 @@
 //!
 //! Creates reserved 3K3DES and AES applications with zero test keys and one
 //! plain, one MACed, and one enciphered standard file plus one MACed and one
-//! enciphered value file. Reads every file through each secure channel, then
-//! removes both applications. File data is zero after creation, so the fixture
-//! needs no secure-messaging write.
+//! enciphered value file. Reads every file through each secure channel, writes
+//! a known range to the standard files through `nfc-app`, reads it back, then
+//! removes both applications.
 //!
 //! ```sh
 //! NFC_FOUNDRY_HARDWARE=1 NFC_FOUNDRY_HARDWARE_WRITE=yes \
@@ -28,7 +28,7 @@ use std::env;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use nfc_app::Service;
-use nfc_app::desfire::{DesfireReadRequest, DesfireReadResult, FileContents};
+use nfc_app::desfire::{DesfireReadRequest, DesfireReadResult, DesfireWriteRequest, FileContents};
 use nfc_core::{CancelToken, NfcError, Result};
 use nfc_desfire::{AuthKeyType, CommunicationMode, Desfire, FileSettings, ValueFileSpec};
 use nfc_drivers::DriverRegistry;
@@ -225,6 +225,87 @@ fn direct_reads(
     Ok(())
 }
 
+const WRITE_OFFSET: u32 = 8;
+const WRITE_PAYLOAD: [u8; 16] = [0x5A; 16];
+
+fn service_writes(
+    service: &mut Service,
+    aid: [u8; 3],
+    key: &[u8],
+    key_type: AuthKeyType,
+) -> Result<()> {
+    for (file_id, mode) in [
+        (PLAIN_FILE, CommunicationMode::Plain),
+        (MACED_FILE, CommunicationMode::Maced),
+        (FULL_FILE, CommunicationMode::Enciphered),
+    ] {
+        let request = DesfireWriteRequest::new(aid, file_id, WRITE_PAYLOAD.to_vec())
+            .offset(WRITE_OFFSET)
+            .key(key.to_vec())
+            .key_type(key_type);
+        let write = service.desfire_write(CancelToken::new(), request)?;
+        verify(
+            write.communication == mode,
+            format!(
+                "{} write of file {file_id:02X} used {}, expected {}",
+                key_type.name(),
+                write.communication.name(),
+                mode.name()
+            ),
+        )?;
+        verify(
+            write.offset == WRITE_OFFSET && write.written == WRITE_PAYLOAD.len(),
+            format!(
+                "{} write of file {file_id:02X} covered the wrong range",
+                key_type.name()
+            ),
+        )?;
+        verify(
+            !write.committed,
+            "a Standard file write must not open a transaction",
+        )?;
+        verify(
+            write.read_back == WRITE_PAYLOAD,
+            format!(
+                "{} write of file {file_id:02X} did not read back",
+                key_type.name()
+            ),
+        )?;
+        verify(
+            write.backup.len() == DATA_SIZE as usize,
+            "the pre-write backup did not contain the whole file",
+        )?;
+        println!(
+            "{} file {file_id:02X} {} write: {}",
+            key_type.name(),
+            mode.name(),
+            write.integrity.label()
+        );
+
+        let read = service.desfire_read(
+            CancelToken::new(),
+            DesfireReadRequest::new(aid, file_id)
+                .key(key.to_vec())
+                .key_type(key_type),
+        )?;
+        let DesfireReadResult::Data(read) = read else {
+            return Err(NfcError::VerificationFailed(
+                "a standard file did not use ReadData".to_owned(),
+            ));
+        };
+        let start = WRITE_OFFSET as usize;
+        let end = start + WRITE_PAYLOAD.len();
+        verify(
+            read.data[start..end] == WRITE_PAYLOAD,
+            format!(
+                "{} file {file_id:02X} did not keep the written range",
+                key_type.name()
+            ),
+        )?;
+    }
+    Ok(())
+}
+
 fn service_reads(
     service: &mut Service,
     aid: [u8; 3],
@@ -331,6 +412,24 @@ fn reads_maced_and_enciphered_files_over_ev1_and_ev2() -> Result<()> {
                 break;
             }
             eprintln!("{} secure-messaging reads passed", key_type.name());
+        }
+        if outcome.is_ok() {
+            for (aid, key, key_type) in [
+                (TDES3_AID, &TDES3_KEY[..], AuthKeyType::Tdes3),
+                (AES_AID, &AES_KEY[..], AuthKeyType::Aes),
+                (AES_AID, &AES_KEY[..], AuthKeyType::AesEv2),
+            ] {
+                let mut service = Service::with_transport(Arc::new(DriverRegistry));
+                service.refresh_devices()?;
+                service.select_device(&conn)?;
+                let service_result = service_writes(&mut service, aid, key, key_type);
+                drop(service);
+                if let Err(error) = service_result {
+                    outcome = Err(error);
+                    break;
+                }
+                eprintln!("{} secure-messaging writes passed", key_type.name());
+            }
         }
         outcome
     };

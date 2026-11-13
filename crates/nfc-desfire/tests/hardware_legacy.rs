@@ -84,7 +84,7 @@ fn run(desfire: &mut Desfire<'_>) -> Result<()> {
     assert_eq!(desfire.session_key().map(<[u8]>::len), Some(16));
 
     desfire.create_standard_file(TEST_FILE, None, 0, 0x0000, 32)?;
-    desfire.write_data(TEST_FILE, 0, PAYLOAD)?;
+    desfire.write_data(TEST_FILE, 0, PAYLOAD, nfc_desfire::CommunicationMode::Plain)?;
     desfire.commit_transaction()?;
     let read = desfire.read_data(
         TEST_FILE,

@@ -526,6 +526,38 @@ enum DesfireCommand {
         #[arg(long, value_name = "N")]
         record_count: Option<u32>,
     },
+    /// Write a Standard or Backup data file and verify it.
+    Write {
+        /// Application ID, e.g. A1B2C3.
+        #[arg(long, value_name = "HEX")]
+        aid: String,
+        /// File ID, e.g. 01.
+        #[arg(long, value_name = "HEX")]
+        file: String,
+        /// Data as hexadecimal digits.
+        #[arg(long, value_name = "HEX")]
+        data: Option<String>,
+        /// File whose bytes are written.
+        #[arg(long, value_name = "PATH")]
+        data_file: Option<PathBuf>,
+        /// Data-file byte offset.
+        #[arg(long, default_value_t = 0, value_name = "N")]
+        offset: u32,
+        /// Key for the selected family: DES 8, AES/2K3DES 16, 3K3DES 24 bytes.
+        #[arg(
+            long,
+            value_name = "HEX",
+            env = "NFC_FOUNDRY_DESFIRE_KEY",
+            hide_env_values = true
+        )]
+        key: Option<String>,
+        /// Explicit key family: des, 2k3des, 3k3des, aes, or ev2.
+        #[arg(long, value_name = "TYPE")]
+        key_type: Option<String>,
+        /// Application key number, 0..=14.
+        #[arg(long, default_value_t = 0, value_name = "N")]
+        key_number: u8,
+    },
 }
 
 #[derive(Clone, Debug, Subcommand)]
@@ -2198,6 +2230,48 @@ fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<
             }
             Ok(())
         }
+        DesfireCommand::Write {
+            aid,
+            file,
+            data,
+            data_file,
+            offset,
+            key,
+            key_type,
+            key_number,
+        } => {
+            let aid = parse_hex_array::<3>(&aid, "DESFire AID")?;
+            let file_id = parse_hex_array::<1>(&file, "DESFire file ID")?[0];
+            let data = match (data, data_file) {
+                (Some(data), None) => parse_hex_bytes(&data, "DESFire data")?,
+                (None, Some(path)) => fs::read(&path).map_err(|error| {
+                    NfcError::Io(format!("could not read {}: {error}", path.display()))
+                })?,
+                _ => {
+                    return Err(NfcError::InvalidArgument(
+                        "pass exactly one of --data or --data-file".to_owned(),
+                    ));
+                }
+            };
+            if data.is_empty() {
+                return Err(NfcError::InvalidArgument(
+                    "DESFire write data must not be empty".to_owned(),
+                ));
+            }
+            let mut request = nfc_app::desfire::DesfireWriteRequest::new(aid, file_id, data)
+                .offset(offset)
+                .key_number(key_number);
+            if let Some(key) = key {
+                request = request.key(parse_hex_bytes(&key, "DESFire key")?);
+            }
+            if let Some(key_type) = key_type {
+                request = request.key_type(parse_auth_key_type(&key_type)?);
+            }
+            let result = service.desfire_write(CancelToken::new(), request)?;
+            println!("aid {} file {:02X}", hex_bytes(&aid), file_id);
+            print!("{}", nfc_app::desfire::write_text(&result));
+            Ok(())
+        }
         DesfireCommand::Info => {
             let inventory = service.desfire_inventory(CancelToken::new())?;
             print!("{}", nfc_app::desfire::inventory_text(&inventory));
@@ -3110,7 +3184,13 @@ fn mock_service() -> Service {
         )),
     );
     let desfire = MockDesfireTransport::with_tag(
-        MockDesfire::new([0x00; 8], AuthKeyType::Des).with_key_version(0),
+        MockDesfire::new([0x00; 8], AuthKeyType::Des)
+            .with_key_version(0)
+            .with_file(
+                0x01,
+                vec![0x00, 0x00, 0xEE, 0xEE, 0x20, 0x00, 0x00],
+                vec![0u8; 32],
+            ),
     );
     Service::with_transport(Arc::new(MockDevices {
         standard: transport,
