@@ -1,6 +1,6 @@
 # Spec: phase 26.8 DESFire generic data write and transactions
 
-Status: complete 2026-11-13; PN532 UART recorded, ACR122U pending. Plan:
+Status: complete 2026-11-13; PN532 UART and ACR122U recorded. Plan:
 [26-desfire-workbench.md](../plan/26-desfire-workbench.md). Note:
 [26h-generic-write.md](../notes/26h-generic-write.md).
 
@@ -105,4 +105,4 @@ After the write:
 - GTK test for the Write tab input parsing.
 - Hardware: reserved 3K3DES and AES applications with Plain, MACed,
   Enciphered, and Backup files on PN532 UART, written through the service and
-  read back, then removed. Passed 2026-11-13. The ACR122U row is pending.
+  read back, then removed. Passed on PN532 UART and ACR122U on 2026-11-13.

@@ -244,9 +244,8 @@ applications with plain, MACed, and enciphered files, reads them through the
 direct layer and `nfc-app`, then writes a known range to each file through
 `Service::desfire_write` and reads it back, including a Backup file whose
 commit precedes the read-back. The read record passed on PN532 UART and
-ACR122U on 2026-11-12; the write record passed on PN532 UART on 2026-11-13.
-The ACR122U write row is pending. The same `NFC_FOUNDRY_HARDWARE_FORMAT=yes`
-rule applies:
+ACR122U on 2026-11-12; the write record passed on PN532 UART and ACR122U on
+2026-11-13. The same `NFC_FOUNDRY_HARDWARE_FORMAT=yes` rule applies:
 
 ```sh
 NFC_FOUNDRY_HARDWARE=1 NFC_FOUNDRY_HARDWARE_WRITE=yes \

@@ -138,10 +138,36 @@ protection: plain · 3K3DES · EV1 CMAC verified
 ```
 
 The fixtures were removed afterwards and `nfctl desfire info` reported
-`applications: none`. The ACR122U row remains unrecorded: `pcscd` held
-`acr122_usb:001:002` during the run and could not be stopped without an
-interactive credential. Re-run the command above with
-`NFC_FOUNDRY_DEVICE=acr122_usb:<bus>:<address>` and `pcscd` stopped.
+`applications: none`.
+
+ACR122U direct USB/CCID `acr122_usb:001:002`, 2026-11-13, same card and
+fixtures, `pcscd` stopped. The full gated test passed with the same reads and
+writes for 3K3DES EV1, AES EV1, and AES EV2, including the Backup commit; the
+CLI then wrote and read the Backup file on the kept fixture:
+
+```text
+$ nfctl --device acr122_usb:001:002 desfire write --aid F00D06 \
+    --file 06 --offset 0 --data CAFEBABE12345678 \
+    --key <24-byte zero> --key-type 3k3des
+aid F0 0D 06 file 06
+settings: backup data · plain · read key 0, write key 0, rw key 0, change key 0 · 48 bytes
+protection: 3K3DES · EV1 CMAC verified
+written: 0..8 (8 bytes)
+backup: 48 bytes
+commit: committed
+read-back: 8 bytes verified
+
+$ nfctl --device acr122_usb:001:002 desfire read --aid F00D06 \
+    --file 06 --offset 0 --length 8 --key <24-byte zero> --key-type 3k3des
+data: CA FE BA BE 12 34 56 78
+protection: plain · 3K3DES · EV1 CMAC verified
+```
+
+The card then had no applications but 0 free EEPROM bytes from deleted-file
+tombstones, so a later setup run stopped at its free-memory preflight; that is
+the documented FormatPICC condition, not a write failure. Set
+`NFC_FOUNDRY_HARDWARE_FORMAT=yes` on the next write run to clear the
+tombstones.
 
 ## Next
 
