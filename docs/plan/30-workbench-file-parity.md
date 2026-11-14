@@ -1,9 +1,10 @@
 # Phase 30 plan: workbench and file parity
 
-Status: in progress 2026-11-15. 30.2 and 30.3 are implemented; 30.1 is pending.
+Status: complete 2026-11-15. All three implementation slices and their
+documentation are in.
 Decisions from the parity review:
 
-- restore the old sector-grouped block table and ASCII presentation (pending);
+- restore the old sector-grouped block table and ASCII presentation (done);
 - write/read `.nfcx.json` sidecars for image-only dump exports (done);
 - add an explicit “export all candidates” action that includes built-ins (done);
 - keep the current GTK layout; no old shell resurrection.

@@ -96,9 +96,10 @@ a blank card after a confirmation and backup. `nfctl classic ndef` uses
 the same services. The Classic mapping has no capability-container record; the
 GPB carries the mapping version and access state. The GPUI Kit shell was
 removed on `feat/gtk4-ui`. The GTK4 workbench in `crates/gui` provides the
-shell, real reader selection, Classic read/table/inspector, verified block
-write, dump save/load, Keys, Key scan, Recovery, Diff, Restore, a shared NDEF
-message workbench with multi-record editing, RTD forms, `.ndef` load/save,
+shell, real reader selection, Classic read/table/inspector with sector-grouped
+rows, masked hex/ASCII columns, and per-sector key/edit summaries, verified
+block write, dump save/load, Keys, Key scan, Recovery, Diff, Restore, a shared
+NDEF message workbench with multi-record editing, RTD forms, `.ndef` load/save,
 verified write and format for Classic and Type 2, Type 2 Memory/Protection with
 user-page and Advanced writes, locks, password configuration, and project
 dump/restore, plus Diagnostics, Activity, and persisted Settings. The interface is complete in English and Simplified

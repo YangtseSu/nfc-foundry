@@ -54,11 +54,19 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
 
 ## Blocks
 
-- `GtkColumnView` with `Block`, `Sector`, `Type`, `Status`, and `Data`.
-  `Data` expands and shows all 16 bytes; unknown bytes are `??`.
-- Selecting a row updates the inspector; the rail repeats the selection.
+- `GtkColumnView` grouped by sector with `Block`, `Sector`, `Type`, `Status`,
+  `Data`, and `ASCII`.
+  - A sector header reads `Sector NN` with its block count, Key A/Key B
+    presence, and unsaved-edit count. Header rows are labels, not selectable
+    rows; moving across one lands on the adjacent block in the same direction.
+  - Block rows keep `Data` expanded with all 16 bytes; unknown bytes are `??`.
+  - `ASCII` shows printable `0x20..=0x7E` bytes and `.` for control or unknown
+    bytes. Unknown bytes never render as a zero glyph.
+- Selecting a block updates the inspector; the rail repeats the selection. A
+  sector header never opens the inspector.
 - Inspector: block number, sector, role, status, error text, decoded detail,
-  hex entry, Read block, Write block, and the safety note.
+  hex entry, a separate ASCII line, Read block, Write block, and the safety
+  note.
 - Decoded detail:
   - access group, its block range, C1/C2/C3 condition, and read/write/
     increment/decrement keys;

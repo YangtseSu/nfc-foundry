@@ -55,7 +55,7 @@ use nfc_type2::{
     NdefState, RestoreOptions, Type2Image, Type2Ndef, Type2Product, exchange as type2_exchange,
 };
 
-use crate::classic::{self, BlockRow};
+use crate::classic::{self, BlockRow, TableRow};
 use crate::i18n::{self, Language, Localized};
 use crate::ndef::{
     self as ndef_editor, BluetoothDraft, DppCarrier, DppDraft, MediaDraft, NdefEditor, RawDraft,
@@ -76,6 +76,7 @@ pub fn install_css() {
             opacity: 0.65;
         }
         .block-title { font-size: 1.35em; font-weight: 700; }
+        .sector-header { font-weight: 700; }
         stackswitcher > button {
             padding-left: 8px;
             padding-right: 8px;
@@ -187,26 +188,59 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
 
     let toast = adw::ToastOverlay::new();
 
-    let rows = gio::ListStore::new::<glib::BoxedAnyObject>();
+    let sectors = gio::ListStore::new::<glib::BoxedAnyObject>();
+    let sector_blocks: Vec<gio::ListStore> = (0..classic::MAX_SECTORS)
+        .map(|_| gio::ListStore::new::<glib::BoxedAnyObject>())
+        .collect();
+    let children = sector_blocks.clone();
+    let rows = gtk::TreeListModel::new(sectors.clone(), false, true, move |object| {
+        let object = object.downcast_ref::<glib::BoxedAnyObject>()?;
+        let row = object.borrow::<TableRow>();
+        let TableRow::Sector(sector) = &*row else {
+            return None;
+        };
+        children
+            .get(sector.sector)
+            .map(|store| store.clone().upcast::<gio::ListModel>())
+    });
     let selection = gtk::SingleSelection::new(Some(rows.clone()));
     let table = gtk::ColumnView::new(Some(selection.clone()));
     table.set_show_column_separators(true);
     table.set_show_row_separators(true);
-    table.append_column(&text_column::<BlockRow>("Block", 44, false, |row| {
-        format!("{:03}", row.number)
+    table.append_column(&classic_text_column("Block", 118, false, |row| match row {
+        TableRow::Sector(sector) => format!("Sector {:02}", sector.sector),
+        TableRow::Block(block) => format!("{:03}", block.number),
     }));
-    table.append_column(&text_column::<BlockRow>("Sector", 48, false, |row| {
-        format!("{:02}", row.sector)
+    table.append_column(&classic_text_column("Sector", 48, false, |row| match row {
+        TableRow::Sector(_) => String::new(),
+        TableRow::Block(block) => format!("{:02}", block.sector),
     }));
-    table.append_column(&text_column::<BlockRow>("Type", 34, false, |row| {
-        row.kind.to_owned()
+    table.append_column(&classic_text_column("Type", 50, false, |row| match row {
+        TableRow::Sector(sector) => format!("{} blocks", sector.block_count),
+        TableRow::Block(block) => block.kind.to_owned(),
     }));
-    table.append_column(&text_column::<BlockRow>("Status", 58, false, |row| {
-        row.display_status().to_owned()
-    }));
-    let data_column = copy_text_column::<BlockRow>("Data", 320, true, |row| row.data.clone());
+    table.append_column(&classic_text_column(
+        "Status",
+        132,
+        false,
+        |row| match row {
+            TableRow::Sector(sector) => sector_key_summary(sector),
+            TableRow::Block(block) => block.display_status().to_owned(),
+        },
+    ));
+    let data_column = classic_copy_column("Data", 320, true, |row| match row {
+        TableRow::Sector(sector) if sector.edited > 0 => {
+            format!("{} edited", sector.edited)
+        }
+        TableRow::Sector(_) => String::new(),
+        TableRow::Block(block) => block.data.clone(),
+    });
     data_column.set_expand(true);
     table.append_column(&data_column);
+    table.append_column(&classic_ascii_column(|row| match row {
+        TableRow::Sector(_) => String::new(),
+        TableRow::Block(block) => block.ascii.clone(),
+    }));
     let table_scroll = gtk::ScrolledWindow::builder().child(&table).build();
     table_scroll.set_has_frame(true);
     table_scroll.set_overlay_scrolling(false);
@@ -478,6 +512,9 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
         live: Cell::new(false),
         busy: Cell::new(false),
         rows,
+        sectors,
+        sector_blocks,
+        last_block_position: Cell::new(gtk::INVALID_LIST_POSITION),
         selection,
         table_stack,
         status,
@@ -614,6 +651,7 @@ struct Inspector {
     meta: gtk::Label,
     error: gtk::Label,
     details: gtk::Label,
+    ascii: gtk::Label,
     hex: gtk::Entry,
     read: gtk::Button,
     write: gtk::Button,
@@ -1044,7 +1082,10 @@ struct Ui {
     ndef: RefCell<Option<ClassicNdefInfo>>,
     live: Cell<bool>,
     busy: Cell<bool>,
-    rows: gio::ListStore,
+    rows: gtk::TreeListModel,
+    sectors: gio::ListStore,
+    sector_blocks: Vec<gio::ListStore>,
+    last_block_position: Cell<u32>,
     selection: gtk::SingleSelection,
     table_stack: gtk::Stack,
     status: gtk::Label,
@@ -1387,6 +1428,17 @@ fn build_inspector() -> Inspector {
     details.add_css_class("caption");
     details.add_css_class("mono");
 
+    let ascii_title = gtk::Label::new(Some("ASCII"));
+    ascii_title.set_xalign(0.0);
+    ascii_title.add_css_class("caption");
+    ascii_title.add_css_class("dim-label");
+    let ascii = gtk::Label::new(None);
+    ascii.set_xalign(0.0);
+    ascii.set_wrap(true);
+    ascii.set_selectable(true);
+    ascii.add_css_class("mono");
+    ascii.add_css_class("raw-data");
+
     let hex = gtk::Entry::new();
     hex.set_placeholder_text(Some("block not read"));
     hex.add_css_class("mono");
@@ -1458,6 +1510,8 @@ fn build_inspector() -> Inspector {
     root.append(&meta);
     root.append(&error);
     root.append(&details);
+    root.append(&ascii_title);
+    root.append(&ascii);
     root.append(&gtk::Separator::new(Orientation::Horizontal));
     root.append(&hex);
     root.append(&actions);
@@ -1475,6 +1529,7 @@ fn build_inspector() -> Inspector {
         meta,
         error,
         details,
+        ascii,
         hex,
         read,
         write,
@@ -4193,8 +4248,34 @@ fn connect_signals(ui: &Rc<Ui>) {
             });
         });
     let ui2 = ui.clone();
-    ui.selection
-        .connect_selected_notify(move |_| update_inspector(&ui2));
+    ui.selection.connect_selected_notify(move |selection| {
+        let position = selection.selected();
+        match table_row_at(&ui2, position) {
+            Some(TableRow::Block(_)) => {
+                ui2.last_block_position.set(position);
+                update_inspector(&ui2);
+            }
+            Some(TableRow::Sector(_)) => {
+                // Headers are group labels. Move to the adjacent block in the
+                // direction the selection was travelling so keyboard
+                // navigation still crosses sector boundaries.
+                let last = ui2.last_block_position.get();
+                let adjacent = if last != gtk::INVALID_LIST_POSITION && last < position {
+                    position.saturating_add(1)
+                } else if position > 0 {
+                    position - 1
+                } else {
+                    position.saturating_add(1)
+                };
+                let target = match table_row_at(&ui2, adjacent) {
+                    Some(TableRow::Block(_)) => adjacent,
+                    _ => gtk::INVALID_LIST_POSITION,
+                };
+                selection.set_selected(target);
+            }
+            None => update_inspector(&ui2),
+        }
+    });
 
     let ui2 = ui.clone();
     ui.read_button
@@ -4904,6 +4985,137 @@ fn copy_text_column<T: 'static>(
     text_column_with(title, width, mono, getter, true)
 }
 
+fn sector_key_summary(sector: &classic::SectorRow) -> String {
+    let mark = |present: bool| if present { "✓" } else { "–" };
+    format!(
+        "Key A {} · Key B {}",
+        mark(sector.key_a),
+        mark(sector.key_b)
+    )
+}
+
+fn classic_text_column(
+    title: &str,
+    width: i32,
+    mono: bool,
+    getter: fn(&TableRow) -> String,
+) -> gtk::ColumnViewColumn {
+    classic_column_with(title, width, mono, getter, false, false)
+}
+
+fn classic_copy_column(
+    title: &str,
+    width: i32,
+    mono: bool,
+    getter: fn(&TableRow) -> String,
+) -> gtk::ColumnViewColumn {
+    classic_column_with(title, width, mono, getter, true, false)
+}
+
+fn classic_ascii_column(getter: fn(&TableRow) -> String) -> gtk::ColumnViewColumn {
+    classic_column_with("ASCII", 140, true, getter, true, true)
+}
+
+/// One column of the grouped block table. The column view consumes
+/// `GtkTreeListRow` items, so bind unwraps the tree row before reading the
+/// sector or block snapshot. `raw_data` labels carry card bytes rather than UI
+/// copy and are marked so the language test does not treat them as chrome.
+fn classic_column_with(
+    title: &str,
+    width: i32,
+    mono: bool,
+    getter: fn(&TableRow) -> String,
+    copy_on_double_click: bool,
+    raw_data: bool,
+) -> gtk::ColumnViewColumn {
+    let factory = gtk::SignalListItemFactory::new();
+    factory.connect_setup(move |_, item| {
+        let item = item.downcast_ref::<gtk::ListItem>().expect("list item");
+        let label = gtk::Label::builder().xalign(0.0).build();
+        label.set_margin_start(6);
+        label.set_margin_end(6);
+        if mono {
+            label.add_css_class("mono");
+        }
+        if copy_on_double_click {
+            let gesture = gtk::GestureClick::new();
+            gesture.set_button(1);
+            gesture.set_propagation_phase(gtk::PropagationPhase::Capture);
+            let target = label.clone();
+            gesture.connect_pressed(move |_, presses, _, _| {
+                if presses == 2 {
+                    target.clipboard().set_text(&target.label());
+                }
+            });
+            label.add_controller(gesture);
+        }
+        item.set_child(Some(&label));
+    });
+    factory.connect_bind(move |_, item| {
+        let item = item.downcast_ref::<gtk::ListItem>().expect("list item");
+        let Some(tree_row) = item.item().and_downcast::<gtk::TreeListRow>() else {
+            return;
+        };
+        let Some(object) = tree_row.item().and_downcast::<glib::BoxedAnyObject>() else {
+            return;
+        };
+        let row = object.borrow::<TableRow>();
+        let label = item
+            .child()
+            .and_downcast::<gtk::Label>()
+            .expect("column label");
+        if row.sector_row().is_some() {
+            label.add_css_class("sector-header");
+        } else {
+            label.remove_css_class("sector-header");
+        }
+        if raw_data {
+            label.add_css_class("raw-data");
+        } else {
+            label.remove_css_class("raw-data");
+        }
+        label.set_localized(&getter(&row));
+    });
+    let column = gtk::ColumnViewColumn::new(Some(title), Some(factory));
+    column.set_fixed_width(width);
+    column.set_resizable(true);
+    column
+}
+
+fn table_row_at(ui: &Ui, position: u32) -> Option<TableRow> {
+    if position == gtk::INVALID_LIST_POSITION {
+        return None;
+    }
+    let tree_row = ui.rows.item(position).and_downcast::<gtk::TreeListRow>()?;
+    let object = tree_row.item().and_downcast::<glib::BoxedAnyObject>()?;
+    Some(object.borrow::<TableRow>().clone())
+}
+
+fn selected_table_row(ui: &Ui) -> Option<TableRow> {
+    let tree_row = ui
+        .selection
+        .selected_item()
+        .and_downcast::<gtk::TreeListRow>()?;
+    let object = tree_row.item().and_downcast::<glib::BoxedAnyObject>()?;
+    Some(object.borrow::<TableRow>().clone())
+}
+
+fn selected_row(ui: &Ui) -> Option<BlockRow> {
+    selected_table_row(ui)?.block_row().cloned()
+}
+
+fn selected_block_number(ui: &Ui) -> Option<usize> {
+    selected_row(ui).map(|row| row.number)
+}
+
+/// Flat position of one block in the expanded sector tree.
+fn block_position(ui: &Ui, number: usize) -> Option<u32> {
+    (0..ui.rows.n_items()).find(|position| {
+        table_row_at(ui, *position).and_then(|row| row.block_row().map(|block| block.number))
+            == Some(number)
+    })
+}
+
 fn text_column_with<T: 'static>(
     title: &str,
     width: i32,
@@ -4952,13 +5164,6 @@ fn text_column_with<T: 'static>(
     column
 }
 
-fn selected_row(ui: &Ui) -> Option<BlockRow> {
-    ui.selection
-        .selected_item()
-        .and_downcast::<glib::BoxedAnyObject>()
-        .map(|object| object.borrow::<BlockRow>().clone())
-}
-
 fn update_inspector(ui: &Ui) {
     let Some(row) = selected_row(ui) else {
         ui.inspector.title.set_localized("No block");
@@ -4967,6 +5172,7 @@ fn update_inspector(ui: &Ui) {
             .set_localized("Read a card to inspect a block.");
         ui.inspector.error.set_visible(false);
         ui.inspector.details.set_localized("");
+        ui.inspector.ascii.set_localized("");
         ui.inspector.hex.set_text("");
         ui.inspector.hex.set_sensitive(false);
         ui.inspector.read.set_sensitive(false);
@@ -5016,6 +5222,7 @@ fn update_inspector(ui: &Ui) {
         details.push_str(warning);
     }
     ui.inspector.details.set_localized(&details);
+    ui.inspector.ascii.set_localized(&row.ascii);
     ui.inspector
         .hex
         .set_text(if row.complete { &row.data } else { "" });
@@ -10147,7 +10354,7 @@ fn finish_read(ui: &Rc<Ui>, result: NfcResult<CardReadResult>) {
             ui.live.set(false);
             ui.dump.replace(None);
             ui.dump_source.replace(None);
-            ui.rows.remove_all();
+            clear_rows(ui);
             ui.table_stack.set_visible_child_name("empty");
             reset_advanced(ui);
             update_card(ui);
@@ -10188,17 +10395,48 @@ fn finish_read(ui: &Rc<Ui>, result: NfcResult<CardReadResult>) {
     }
 }
 
+fn clear_rows(ui: &Ui) {
+    for store in &ui.sector_blocks {
+        store.remove_all();
+    }
+    ui.sectors.remove_all();
+    ui.last_block_position.set(gtk::INVALID_LIST_POSITION);
+    ui.selection.set_selected(gtk::INVALID_LIST_POSITION);
+}
+
 fn populate_rows(ui: &Ui, dump: &Dump) {
-    ui.rows.remove_all();
     let dirty = ui.dirty_blocks.borrow().clone();
+    let keep = selected_block_number(ui);
+    for store in &ui.sector_blocks {
+        store.remove_all();
+    }
+    ui.sectors.remove_all();
+    for sector in classic::sector_rows(dump, &dirty) {
+        ui.sectors
+            .append(&glib::BoxedAnyObject::new(TableRow::Sector(sector)));
+    }
     for row in classic::rows_for_dirty(dump, &dirty) {
-        ui.rows.append(&glib::BoxedAnyObject::new(row));
+        if let Some(store) = ui.sector_blocks.get(row.sector) {
+            store.append(&glib::BoxedAnyObject::new(TableRow::Block(row)));
+        }
+    }
+    for position in 0..ui.sectors.n_items() {
+        if let Some(row) = ui.rows.row(position) {
+            row.set_expanded(true);
+        }
     }
     if dump.blocks.is_empty() {
         ui.table_stack.set_visible_child_name("empty");
-    } else {
-        ui.table_stack.set_visible_child_name("table");
-        ui.selection.set_selected(0);
+        return;
+    }
+    ui.table_stack.set_visible_child_name("table");
+    let target = keep
+        .and_then(|number| block_position(ui, number))
+        .or_else(|| block_position(ui, 0))
+        .unwrap_or(gtk::INVALID_LIST_POSITION);
+    ui.selection.set_selected(target);
+    if target != gtk::INVALID_LIST_POSITION {
+        ui.last_block_position.set(target);
     }
 }
 
@@ -10210,14 +10448,10 @@ fn workbench_snapshot(ui: &Ui) -> Option<WorkbenchSnapshot> {
 }
 
 fn apply_workbench_snapshot(ui: &Ui, snapshot: &WorkbenchSnapshot) {
-    let selected = ui.selection.selected();
     ui.dirty_blocks.replace(snapshot.dirty_blocks.clone());
     ui.undo_depth.set(snapshot.undo_depth);
     ui.dump.replace(Some(snapshot.dump.clone()));
     populate_rows(ui, &snapshot.dump);
-    if selected != gtk::INVALID_LIST_POSITION {
-        ui.selection.set_selected(selected);
-    }
     update_inspector(ui);
     update_card(ui);
     update_ndef(ui);
@@ -10325,9 +10559,24 @@ fn replace_row(ui: &Ui, block: usize) {
             })
         })
     };
-    if let Some(row) = row {
-        ui.rows
-            .splice(block as u32, 1, &[glib::BoxedAnyObject::new(row)]);
+    let Some(row) = row else {
+        return;
+    };
+    let Some(local) = ui
+        .dump
+        .borrow()
+        .as_ref()
+        .and_then(|dump| dump.layout.first_block(row.sector).ok())
+        .and_then(|first| block.checked_sub(first))
+    else {
+        return;
+    };
+    if let Some(store) = ui.sector_blocks.get(row.sector) {
+        store.splice(
+            local as u32,
+            1,
+            &[glib::BoxedAnyObject::new(TableRow::Block(row))],
+        );
     }
 }
 
@@ -10932,9 +11181,8 @@ fn invalidate_live_image(ui: &Rc<Ui>) {
     ui.dirty_blocks.replace(Vec::new());
     ui.undo_depth.set(0);
     ui.ndef.replace(None);
-    ui.rows.remove_all();
+    clear_rows(ui);
     ui.table_stack.set_visible_child_name("empty");
-    ui.selection.set_selected(gtk::INVALID_LIST_POSITION);
     ui.inspector.uid.set_text("");
     ui.inspector.uid_advanced.set_active(false);
     ui.restore_view.uid.set_text("");
@@ -11808,7 +12056,7 @@ fn show_type2_session(ui: &Rc<Ui>, session: Type2Session, live: bool) {
     ui.dump.replace(None);
     ui.dump_source.replace(None);
     ui.ndef.replace(None);
-    ui.rows.remove_all();
+    clear_rows(ui);
     ui.table_stack.set_visible_child_name("empty");
     ui.type2.replace(Some(session));
     ui.type2_view.advanced.set_active(false);
@@ -16361,7 +16609,7 @@ mod tests {
         }
         ui.ndef_view.read_only.set_active(false);
         update_ndef_actions(ui);
-        ui.rows.remove_all();
+        clear_rows(ui);
         ui.diff_view.rows.remove_all();
         ui.restore_view.rows.remove_all();
         ui.restore_view.result.set_localized("");
@@ -16441,6 +16689,26 @@ mod tests {
         update_restore_sensitivity(ui);
     }
 
+    fn select_block(ui: &Ui, number: usize) {
+        let position =
+            block_position(ui, number).unwrap_or_else(|| panic!("block {number} has no row"));
+        ui.selection.set_selected(position);
+    }
+
+    fn block_row_at(ui: &Ui, number: usize) -> Option<BlockRow> {
+        block_position(ui, number)
+            .and_then(|position| table_row_at(ui, position))
+            .and_then(|row| row.block_row().cloned())
+    }
+
+    fn sector_row_at(ui: &Ui, sector: usize) -> Option<classic::SectorRow> {
+        (0..ui.rows.n_items()).find_map(|position| {
+            table_row_at(ui, position)
+                .and_then(|row| row.sector_row().cloned())
+                .filter(|row| row.sector == sector)
+        })
+    }
+
     fn changed_block() -> [u8; 16] {
         [0xAA; 16]
     }
@@ -16506,6 +16774,7 @@ mod tests {
         }
         let harness = harness();
         selection_updates_inspector(&harness);
+        sector_grouping_and_ascii(&harness);
         write_gates_follow_state(&harness);
         reader_refresh_invalidates(&harness);
         reader_resolution_is_visible(&harness);
@@ -16667,9 +16936,10 @@ mod tests {
     }
 
     fn is_technical(text: &str) -> bool {
-        const TOKENS: [&str; 26] = [
+        const TOKENS: [&str; 27] = [
             "MIFARE",
             "NTAG",
+            "ASCII",
             "NDEF",
             "Type 2",
             "NFC",
@@ -16766,7 +17036,7 @@ mod tests {
         while context.iteration(false) {}
         reset(harness);
         show_dump(&harness.ui);
-        harness.ui.selection.set_selected(4);
+        select_block(&harness.ui, 4);
         switch_workspace(&harness.ui, Workspace::Classic);
         harness.ui.classic_tabs.set_visible_child_name("blocks");
         let uid = harness
@@ -16795,7 +17065,7 @@ mod tests {
             harness.ui.views.visible_child_name().as_deref(),
             Some("classic")
         );
-        assert_eq!(harness.ui.selection.selected(), 4);
+        assert_eq!(selected_block_number(&harness.ui), Some(4));
         assert_eq!(harness.ui.reader_combo.selected(), reader);
         assert_eq!(
             harness
@@ -16824,7 +17094,7 @@ mod tests {
             harness.ui.status.label()
         );
 
-        harness.ui.selection.set_selected(4);
+        select_block(&harness.ui, 4);
         update_inspector(&harness.ui);
         harness
             .ui
@@ -16883,7 +17153,7 @@ mod tests {
 
     fn selection_updates_inspector(harness: &Harness) {
         show_dump(&harness.ui);
-        harness.ui.selection.set_selected(4);
+        select_block(&harness.ui, 4);
         update_inspector(&harness.ui);
         assert_eq!(harness.ui.inspector.title.label(), "Block 004");
         assert!(
@@ -16896,22 +17166,108 @@ mod tests {
         );
         assert!(harness.ui.inspector.details.label().contains("read A|B"));
 
-        harness.ui.selection.set_selected(7);
+        select_block(&harness.ui, 7);
         update_inspector(&harness.ui);
         assert_eq!(harness.ui.inspector.title.label(), "Block 007");
         assert!(harness.ui.inspector.details.label().contains("trailer"));
         assert!(harness.ui.inspector.details.label().contains("Group 0"));
 
-        harness.ui.selection.set_selected(0);
+        select_block(&harness.ui, 0);
         update_inspector(&harness.ui);
         assert!(harness.ui.inspector.details.label().contains("BCC"));
         assert!(!harness.ui.inspector.write.is_sensitive());
     }
 
+    fn sector_grouping_and_ascii(harness: &Harness) {
+        reset(harness);
+        let ui = &harness.ui;
+        let mut dump = fixture_dump();
+        dump.metadata.keys = vec![
+            DumpKey {
+                sector: 1,
+                key_type: nfc_core::KeyType::A,
+                key: nfc_core::Key::from_hex("FFFFFFFFFFFF").expect("key"),
+                source: Some("read_context".to_owned()),
+            },
+            DumpKey {
+                sector: 1,
+                key_type: nfc_core::KeyType::B,
+                key: nfc_core::Key::from_hex("A0A1A2A3A4A5").expect("key"),
+                source: Some("read_context".to_owned()),
+            },
+        ];
+        dump.blocks[5].data[..4].copy_from_slice(b"Hi!!");
+        dump.blocks[5].known_mask = 0x000F;
+        reset_workbench(ui, &dump);
+        ui.dump.replace(Some(dump.clone()));
+        ui.dirty_blocks.replace(vec![4, 5]);
+        populate_rows(ui, &dump);
+        ui.live.set(true);
+
+        assert_eq!(ui.rows.n_items(), 64 + 16);
+        let header = sector_row_at(ui, 1).expect("sector 1 header");
+        assert_eq!(header.first_block, 4);
+        assert_eq!(header.block_count, 4);
+        assert!(header.key_a && header.key_b);
+        assert_eq!(header.edited, 2);
+        assert_eq!(sector_row_at(ui, 0).expect("sector 0").edited, 0);
+
+        select_block(ui, 5);
+        assert_eq!(ui.inspector.title.label(), "Block 005");
+        assert_eq!(ui.inspector.ascii.label(), "Hi!!............");
+        assert!(
+            block_row_at(ui, 5)
+                .expect("block 5 row")
+                .data
+                .contains("??")
+        );
+
+        select_block(ui, 15);
+        assert_eq!(selected_block_number(ui), Some(15));
+        ui.selection.set_selected(20);
+        assert_eq!(
+            selected_block_number(ui),
+            Some(16),
+            "forward navigation lands on the next sector's first block"
+        );
+        select_block(ui, 16);
+        ui.selection.set_selected(20);
+        assert_eq!(
+            selected_block_number(ui),
+            Some(15),
+            "backward navigation lands on the previous sector's last block"
+        );
+
+        let four_k = Dump::from_raw(&vec![0u8; Layout::Classic4K.dump_size()])
+            .expect("4K image")
+            .with_card(CardInfo::new(
+                TEST_UID.to_vec(),
+                [0x00, 0x02],
+                0x18,
+                CardType::MifareClassic4K,
+            ));
+        reset_workbench(ui, &four_k);
+        ui.dump.replace(Some(four_k.clone()));
+        populate_rows(ui, &four_k);
+        assert_eq!(ui.rows.n_items(), 256 + 40);
+        assert_eq!(sector_row_at(ui, 31).expect("sector 31").block_count, 4);
+        let large = sector_row_at(ui, 32).expect("sector 32");
+        assert_eq!(large.first_block, 128);
+        assert_eq!(large.block_count, 16);
+        assert_eq!(sector_row_at(ui, 39).expect("sector 39").first_block, 240);
+        select_block(ui, 255);
+        assert_eq!(ui.inspector.title.label(), "Block 255");
+        assert!(ui.inspector.details.label().contains("trailer"));
+        assert_eq!(
+            block_row_at(ui, 255).expect("row").ascii,
+            "................"
+        );
+    }
+
     fn write_gates_follow_state(harness: &Harness) {
         reset(harness);
         show_dump(&harness.ui);
-        harness.ui.selection.set_selected(4);
+        select_block(&harness.ui, 4);
         update_inspector(&harness.ui);
         let unchanged = classic::hex_with_mask(&image()[4], u16::MAX);
         harness.ui.inspector.hex.set_text(&unchanged);
@@ -16938,7 +17294,7 @@ mod tests {
         );
         assert!(!harness.ui.inspector.commit.is_sensitive());
 
-        harness.ui.selection.set_selected(0);
+        select_block(&harness.ui, 0);
         update_inspector(&harness.ui);
         harness
             .ui
@@ -16968,7 +17324,7 @@ mod tests {
     fn reader_refresh_invalidates(harness: &Harness) {
         reset(harness);
         show_dump(&harness.ui);
-        harness.ui.selection.set_selected(4);
+        select_block(&harness.ui, 4);
         harness
             .ui
             .inspector
@@ -17031,7 +17387,7 @@ mod tests {
         assert!(!ui.reader_connect.is_sensitive());
 
         show_dump(ui);
-        ui.selection.set_selected(4);
+        select_block(ui, 4);
         ui.inspector
             .hex
             .set_text(&classic::hex_with_mask(&changed_block(), u16::MAX));
@@ -17080,7 +17436,7 @@ mod tests {
     fn workbench_stage_undo_revert_and_write(harness: &Harness) {
         reset(harness);
         show_dump(&harness.ui);
-        harness.ui.selection.set_selected(4);
+        select_block(&harness.ui, 4);
         harness
             .ui
             .inspector
@@ -17091,14 +17447,7 @@ mod tests {
         assert_eq!(harness.handle.block(4), Some(image()[4]));
         assert_eq!(harness.ui.dirty_blocks.borrow().as_slice(), &[4]);
         assert!(harness.ui.inspector.commit.is_sensitive());
-        let row = harness
-            .ui
-            .rows
-            .item(4)
-            .and_downcast::<glib::BoxedAnyObject>()
-            .expect("row")
-            .borrow::<BlockRow>()
-            .clone();
+        let row = block_row_at(&harness.ui, 4).expect("row");
         assert_eq!(row.display_status(), "edited");
 
         undo_edit(harness.ui.clone());
@@ -17112,7 +17461,7 @@ mod tests {
             image()[4]
         );
 
-        harness.ui.selection.set_selected(4);
+        select_block(&harness.ui, 4);
         harness
             .ui
             .inspector
@@ -17122,7 +17471,7 @@ mod tests {
         stage_edit(harness.ui.clone());
         let mut trailer = image()[7];
         trailer[15] = 0xFE;
-        harness.ui.selection.set_selected(7);
+        select_block(&harness.ui, 7);
         update_inspector(&harness.ui);
         harness
             .ui
@@ -17182,7 +17531,7 @@ mod tests {
     fn identity_refusal_is_visible(harness: &Harness) {
         reset(harness);
         show_dump(&harness.ui);
-        harness.ui.selection.set_selected(4);
+        select_block(&harness.ui, 4);
         harness
             .ui
             .inspector
@@ -17449,7 +17798,7 @@ mod tests {
         assert!(body.contains("Validation: ok"), "{body}");
         assert!(body.contains("Verified: 0/16 sectors"), "{body}");
 
-        ui.selection.set_selected(4);
+        select_block(ui, 4);
         ui.inspector
             .hex
             .set_text(&classic::hex_with_mask(&changed_block(), u16::MAX));

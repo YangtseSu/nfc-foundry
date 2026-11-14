@@ -9,33 +9,41 @@ card identity, language, and status; these screens render the page only.
 ## Layout
 
 ```text
-shell sidebar        reader · card · Blocks · Classic NDEF · Diff · Keys · Recovery · System
-top bar              card identity (type · family · UID · detail) · reader menu · language · settings
-page header          eyebrow · title · subtitle · screen actions
-file row             dump path · format · Save · Load · Restore · continue policy (Blocks only)
-Blocks               metric strip · block table · fixed block inspector
+shell header         NFC Foundry · workspace selector · Read card · ☰ menu
+left rail            reader menu · Connect/Disconnect · status · capability profile
+                     card identity/size/readability · key-store status · selected block
+workspace tabs       Blocks · Details · NDEF · Keys · Recovery · Dumps
+Dumps tabs           Diff · Restore
+Blocks               sector-grouped block table · fixed block inspector
 Classic NDEF         message/capacity · mapping · write/export/format cards
-Diff                 before/after files · summary · changed-block table
-Keys                 key store table · scan scope · add/import inspector
+Keys                 Key store · Key scan
 Recovery             strategy · advanced options · scrollable log · save keys
-action bar           status · detail · last backup · Scan keys · Read card
+system page          Diagnostics · Activity · Settings
+status bar           operation text · spinner · layout/card facts
 ```
 
 - A presence scan detects the card family; the shell shows the Classic task
   group and routes Read card to the Classic workspace automatically.
-- The block table is the master view. The inspector scrolls independently and
-  keeps its read/write actions pinned at the bottom.
+- The block table is the master view. Rows are grouped under `Sector NN`
+  headers that summarize block count, Key A/Key B presence, and unsaved edits;
+  headers are not selectable. Block columns show `Data` hex with `??` for
+  unknown bytes and `ASCII` with `.` for control or unknown bytes.
+- The inspector scrolls independently and keeps its read/write actions pinned
+  at the bottom; it repeats the selected block's ASCII on its own line.
 - Block 0 is present but read-only. Trailer writes use the danger variant and
   name the target block; writes are disabled while the editor still matches
   the current bytes.
-- Save dump, Load dump, and Save/Load on Classic NDEF share the path and format
-  controls; Restore and the continue policy appear on Blocks only.
+- Save dump and Load dump live on Blocks; Restore and the continue policy live
+  under Dumps; Classic NDEF owns NDEF write/format and `.ndef` load/save.
 - A Save with an image-only format also writes the `.nfcx.json` sidecar with
   the card identity, read times, and sector keys. Load and Restore apply a
   matching sidecar; a missing or mismatched sidecar never changes the image.
 - The block inspector ends with a separate Advanced-mode UID section: a target
   UID entry and a destructive "Write UID…" action. It is disabled unless a live
   four-byte-UID Classic 1K image is loaded and Advanced mode is on.
+- The current GTK shell is retained. The old persistent Activity panel, Tag
+  health rail, and bottom action bar are not restored; Activity is a hidden
+  system page and the status bar carries the current operation.
 
 ## States
 
@@ -63,7 +71,8 @@ action bar           status · detail · last backup · Scan keys · Read card
 
 ## Tests
 
-`crates/gui/nfc-foundry/tests/ui.rs` covers read, block selection, inspector
-state, diff after a second read, key add, screen navigation, the trailer
-confirmation dialog, the block 0 refusal, settings persistence, and language
-switching.
+The gated GTK scenario in `crates/gui/src/app.rs` covers read, sector grouping
+for 1K and 4K images, block selection, inspector state, diff after a second
+read, key add, screen navigation, the trailer confirmation dialog, the block 0
+refusal, settings persistence, and language switching. Run it under Xvfb with
+`NFC_FOUNDRY_GUI_TESTS=1`; see [testing](../testing.md).

@@ -548,7 +548,9 @@ fn collect_texts(widget: &impl IsA<gtk::Widget>, include_dialog: bool) -> Vec<St
         if !include_dialog && widget.downcast_ref::<adw::AlertDialog>().is_some() {
             return;
         }
-        if let Some(label) = widget.downcast_ref::<gtk::Label>() {
+        if let Some(label) = widget.downcast_ref::<gtk::Label>()
+            && !label.has_css_class("raw-data")
+        {
             texts.push(label.label().to_string());
         }
         if let Some(button) = widget.downcast_ref::<gtk::Button>()
@@ -2414,6 +2416,8 @@ keys! {
     PagesReadable => ("{}/{} pages readable{}", "{}/{} 页可读{}"),
     PagesCount => ("{} pages", "{} 页"),
     BlocksCount => ("{} blocks", "{} 个数据块"),
+    EditedCount => ("{} edited", "{} 处已编辑"),
+    AsciiTitle => ("ASCII", "ASCII"),
     SavedCount => ("{} saved", "已保存 {}"),
     Type2CardDetail => ("{} pages · CC {} · NDEF {}", "{} 页 · CC {} · NDEF {}"),
     Type2SummaryLine => (

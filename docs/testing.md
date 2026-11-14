@@ -151,6 +151,14 @@ candidate key nor a Type 2 password, and that `apdu --raw` returns
 exchange with no card and the ISO-DEP requirement for a raw APDU. See
 [29f-developer-tools.md](specs/29f-developer-tools.md).
 
+The phase 30.1 block-table tests are hardware-free. `crates/gui/src/classic.rs`
+covers 1K/4K sector counts and first blocks, Key A/B and edit summaries,
+sector lookup on both row variants, and printable/control/unknown ASCII. The
+gated GTK scenario checks the 1K and 4K tree sizes, sector headers, a partial
+block's ASCII and `??` data, and Up/Down selection across a header. The
+contract is in
+[30-workbench-file-parity.md](specs/30-workbench-file-parity.md).
+
 The phase 30.2/30.3 file-parity tests are hardware-free. `nfc-classic` covers
 the sidecar round trip, legacy `keyA`/`keyB`, accepted-and-ignored legacy
 blocks, unknown versions, duplicate slots, sector bounds, and missing keys.

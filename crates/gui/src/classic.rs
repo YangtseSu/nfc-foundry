@@ -7,6 +7,11 @@ use nfc_classic::{
     AccessBits, BccStatus, Block, BlockKind, BlockStatus, DiffState, Dump, DumpDiff, KeyMask,
     Layout, value,
 };
+use nfc_core::KeyType;
+
+/// Largest supported sector count; the GUI preallocates one child model per
+/// sector and only fills the rows of the loaded layout.
+pub const MAX_SECTORS: usize = 40;
 
 /// One row in the Classic block table. Rows are immutable snapshots; a write
 /// replaces the row with a fresh snapshot from the service result.
@@ -17,6 +22,7 @@ pub struct BlockRow {
     pub kind: &'static str,
     pub status: &'static str,
     pub data: String,
+    pub ascii: String,
     pub complete: bool,
     pub trailer: bool,
     pub dirty: bool,
@@ -31,6 +37,7 @@ impl BlockRow {
             kind: kind_label(block.number, layout),
             status: status_label(block.status),
             data: hex_with_mask(&block.data, block.known_mask),
+            ascii: ascii_with_mask(&block.data, block.known_mask),
             complete: block.complete(),
             trailer: layout.is_trailer(block.number).unwrap_or(false),
             dirty: false,
@@ -52,6 +59,85 @@ pub fn rows_for_dirty(dump: &Dump, dirty: &[usize]) -> Vec<BlockRow> {
             let mut row = BlockRow::from_block(block, dump.layout);
             row.dirty = dirty.binary_search(&block.number).is_ok();
             row
+        })
+        .collect()
+}
+
+/// One sector header above its block rows. The header is a presentation
+/// summary: it never replaces or hides an image byte.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SectorRow {
+    pub sector: usize,
+    pub first_block: usize,
+    pub block_count: usize,
+    pub key_a: bool,
+    pub key_b: bool,
+    pub edited: usize,
+}
+
+/// One item of the grouped block table.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TableRow {
+    Sector(SectorRow),
+    Block(BlockRow),
+}
+
+impl TableRow {
+    pub fn sector_row(&self) -> Option<&SectorRow> {
+        match self {
+            Self::Sector(row) => Some(row),
+            Self::Block(_) => None,
+        }
+    }
+
+    pub fn block_row(&self) -> Option<&BlockRow> {
+        match self {
+            Self::Block(row) => Some(row),
+            Self::Sector(_) => None,
+        }
+    }
+}
+
+/// Sector headers with verified key and unsaved-edit counts. `key_a`/`key_b`
+/// mean the dump metadata holds a key that authenticated that sector.
+pub fn sector_rows(dump: &Dump, dirty: &[usize]) -> Vec<SectorRow> {
+    (0..dump.layout.sector_count())
+        .map(|sector| {
+            let first_block = dump
+                .layout
+                .first_block(sector)
+                .expect("sector within the layout");
+            let block_count = dump
+                .layout
+                .blocks_in_sector(sector)
+                .expect("sector within the layout");
+            let mut key_a = false;
+            let mut key_b = false;
+            for key in &dump.metadata.keys {
+                if key.sector != sector {
+                    continue;
+                }
+                match key.key_type {
+                    KeyType::A => key_a = true,
+                    KeyType::B => key_b = true,
+                }
+            }
+            let edited = dirty
+                .iter()
+                .filter(|number| {
+                    dump.blocks
+                        .get(**number)
+                        .is_some_and(|block| block.sector == sector)
+                })
+                .count();
+            SectorRow {
+                sector,
+                first_block,
+                block_count,
+                key_a,
+                key_b,
+                edited,
+            }
         })
         .collect()
 }
@@ -89,6 +175,21 @@ pub fn hex_with_mask(data: &[u8; 16], mask: u16) -> String {
         }
     }
     parts.join(" ")
+}
+
+/// Printable ASCII for one block. Bytes outside `0x20..=0x7E` and unknown
+/// bytes render as `.`; an unknown byte is never shown as a zero glyph.
+pub fn ascii_with_mask(data: &[u8; 16], mask: u16) -> String {
+    data.iter()
+        .enumerate()
+        .map(|(index, byte)| {
+            if mask & (1 << index) != 0 && (0x20..=0x7E).contains(byte) {
+                char::from(*byte)
+            } else {
+                '.'
+            }
+        })
+        .collect()
 }
 
 /// Parses exactly 16 bytes from space-separated or compact hexadecimal.
@@ -482,6 +583,66 @@ mod tests {
         let row = BlockRow::from_block(&block, Layout::Classic1K);
         assert_eq!(row.data, "DE AD BE EF ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ??");
         assert!(!row.complete);
+    }
+
+    #[test]
+    fn ascii_renders_printable_bytes_and_dots_for_unknown_or_control() {
+        let mut data = [0u8; 16];
+        data[..8].copy_from_slice(b"AB 09\x00\x7F~");
+        data[8..].fill(b'Z');
+        assert_eq!(ascii_with_mask(&data, u16::MAX), "AB 09..~ZZZZZZZZ");
+        assert_eq!(ascii_with_mask(&data, 0x00FF), "AB 09..~........");
+        assert_eq!(ascii_with_mask(&data, 0), "................");
+    }
+
+    #[test]
+    fn sector_rows_count_blocks_keys_and_edits() {
+        let mut dump = complete_dump();
+        let one_k = sector_rows(&dump, &[]);
+        assert_eq!(one_k.len(), 16);
+        assert_eq!(one_k[0].first_block, 0);
+        assert_eq!(one_k[0].block_count, 4);
+        assert!(!one_k[0].key_a && !one_k[0].key_b);
+        assert_eq!(one_k[0].edited, 0);
+
+        dump.metadata.keys = vec![
+            nfc_classic::DumpKey {
+                sector: 0,
+                key_type: KeyType::A,
+                key: nfc_core::Key::from_hex("FFFFFFFFFFFF").expect("key"),
+                source: None,
+            },
+            nfc_classic::DumpKey {
+                sector: 1,
+                key_type: KeyType::B,
+                key: nfc_core::Key::from_hex("A0A1A2A3A4A5").expect("key"),
+                source: None,
+            },
+        ];
+        let rows = sector_rows(&dump, &[1, 4, 5, 7]);
+        assert!(rows[0].key_a && !rows[0].key_b);
+        assert!(!rows[1].key_a && rows[1].key_b);
+        assert_eq!(rows[0].edited, 1);
+        assert_eq!(rows[1].edited, 3);
+
+        let four_k = Dump::new(Layout::Classic4K);
+        let rows = sector_rows(&four_k, &[]);
+        assert_eq!(rows.len(), 40);
+        assert_eq!(rows[31].block_count, 4);
+        assert_eq!(rows[32].first_block, 128);
+        assert_eq!(rows[32].block_count, 16);
+        assert_eq!(rows[39].first_block, 240);
+    }
+
+    #[test]
+    fn table_rows_expose_the_sector_of_both_variants() {
+        let dump = complete_dump();
+        let sector = TableRow::Sector(sector_rows(&dump, &[])[2].clone());
+        let block = TableRow::Block(BlockRow::from_block(&dump.blocks[9], Layout::Classic1K));
+        assert_eq!(sector.sector_row().map(|row| row.sector), Some(2));
+        assert_eq!(block.block_row().map(|row| row.sector), Some(2));
+        assert!(sector.block_row().is_none());
+        assert!(block.sector_row().is_none());
     }
 
     #[test]

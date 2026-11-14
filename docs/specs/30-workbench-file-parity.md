@@ -1,18 +1,16 @@
 # Spec: 30 file parity, sidecars and candidate export
 
-Status: 30.2 and 30.3 implemented 2026-11-15. 30.1 pending.
+Status: complete 2026-11-15 (30.1, 30.2, 30.3).
 
 Plan: [30-workbench-file-parity.md](../plan/30-workbench-file-parity.md).
 
 ## Scope of this record
 
-This spec covers the file-interchange half of phase 30:
+This spec covers phase 30's three slices:
 
+- 30.1: sector-grouped block rows, sector summaries, and the ASCII column;
 - 30.2: `<image>.nfcx.json` sidecars for image-only dump exports;
 - 30.3: an explicit stored-plus-built-in key candidate export.
-
-30.1 (sector grouping and the ASCII column) is not implemented here and stays
-pending in the phase plan.
 
 ## Naming decision
 
@@ -32,6 +30,21 @@ not produced and is not auto-detected as a dump.
 
 The sidecar `layout` value uses the existing project spelling `classic_1k` /
 `classic_4k`, not the plan example's `classic1k`.
+
+## Block table
+
+- `GtkTreeListModel` root rows are sector headers; each sector owns a child
+  model of block rows. Sectors are expanded after every populate.
+- A sector header shows `Sector NN`, its block count, Key A/Key B presence from
+  dump metadata, and the number of unsaved edits in that sector.
+- Header rows are not selectable. Selecting one moves to the adjacent block:
+  forward when the previous block was above, backward otherwise. The inspector
+  never opens for a header.
+- Block rows keep `Block`, `Sector`, `Type`, `Status`, `Data`, and `ASCII`.
+  `Data` shows all 16 bytes with `??` for unknown bytes. `ASCII` renders
+  `0x20..=0x7E` as-is and every control or unknown byte as `.`.
+- The inspector shows a separate ASCII line for the selected block. An unknown
+  byte is `.` there as well, never a zero glyph.
 
 ## Sidecar contract
 
@@ -117,6 +130,8 @@ Fields:
 
 ## Tests
 
+- `crates/gui/src/classic.rs`: 1K/4K sector counts and first blocks, Key A/B
+  and edit summaries, row-sector lookup, printable/control/unknown ASCII.
 - `crates/nfc-classic/tests/exchange.rs`: sidecar round trip, legacy
   `keyA`/`keyB`, legacy blocks accepted/ignored, unknown version, duplicate
   slots, sector bounds, missing keys.
@@ -130,9 +145,10 @@ Fields:
   and JSON, stored-only default, store unchanged.
 - `crates/nfctl/tests/cli_contract.rs`: candidate export report fields and no
   key material in machine output.
-- GTK scenario: sidecar metadata and verification records on load, project
-  precedence, mismatched-sidecar rejection, export-all button and store
-  immutability.
+- GTK scenario: 1K and 4K sector grouping, header summaries, unknown-byte
+  ASCII, selection across headers, sidecar metadata and verification records
+  on load, project precedence, mismatched-sidecar rejection, export-all button
+  and store immutability.
 
 ## Non-goals
 
