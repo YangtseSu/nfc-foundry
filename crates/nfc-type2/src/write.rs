@@ -177,7 +177,8 @@ pub fn write_page_verified(
     };
     cancel.check()?;
     reader.write_page(page, data)?;
-    cancel.check()?;
+    // A committed page write is always read back. Cancellation stops before
+    // the next page, not before this page's verification.
     if secret {
         // PWD and PACK read as zero, so a zero PACK cannot be compared with
         // the previous read-back. The write is always issued and the caller
@@ -849,6 +850,28 @@ mod tests {
             password,
             pack,
         }
+    }
+
+    #[test]
+    fn a_write_committed_during_cancellation_is_still_read_back() {
+        let (mut reader, mut image) = image();
+        let mut access = Type2AuthSession::none();
+        let cancel = CancelToken::new();
+        let hook = cancel.clone();
+        reader.on_write_applied(move || hook.cancel());
+        let result = write_page_verified(
+            &mut reader,
+            &mut image,
+            8,
+            [0xAA; 4],
+            WritePolicy::user(),
+            &mut access,
+            &cancel,
+        )
+        .expect("committed write must be verified");
+        assert!(result.changed);
+        assert!(cancel.is_cancelled());
+        assert_eq!(reader.page(8), Some([0xAA; 4]));
     }
 
     #[test]

@@ -247,6 +247,19 @@ fn sw(sw1: u8, sw2: u8) -> ApduResponse {
     ApduResponse::new(Vec::new(), [sw1, sw2])
 }
 
+type WriteHook = Arc<dyn Fn() + Send + Sync>;
+
+/// Test hook that runs after a write is applied. It is not `Debug`, so the
+/// state carries a wrapper with a stable placeholder.
+#[derive(Clone)]
+struct MockWriteHook(WriteHook);
+
+impl std::fmt::Debug for MockWriteHook {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("MockWriteHook(..)")
+    }
+}
+
 #[derive(Debug)]
 struct MockState {
     card: Option<CardInfo>,
@@ -262,6 +275,7 @@ struct MockState {
     open_count: usize,
     close_count: usize,
     faults: Vec<(MockCall, MockFault)>,
+    write_hook: Option<MockWriteHook>,
     capabilities: ReaderCapabilities,
     /// An ordinary write to block 0 is accepted, as on a CUID/Gen2 card.
     block_zero_writable: bool,
@@ -288,6 +302,7 @@ impl Default for MockState {
             open_count: 0,
             close_count: 0,
             faults: Vec::new(),
+            write_hook: None,
             capabilities: ReaderCapabilities {
                 classic_read: true,
                 classic_write: true,
@@ -320,6 +335,12 @@ impl MockState {
             return Err(fault.into_error());
         }
         self.present_card().map(|_| ())
+    }
+
+    fn run_write_hook(&self) {
+        if let Some(hook) = &self.write_hook {
+            (hook.0)();
+        }
     }
 
     /// NTAG21x configuration pages derived from the scripted capability
@@ -451,6 +472,14 @@ impl MockHandle {
         self.lock().faults.push((call, fault));
     }
 
+    /// Run `hook` after a block or page write is applied and before the mock
+    /// returns. Tests use it to cancel a token exactly inside a write. The
+    /// hook runs under the mock's state lock and must not call back into this
+    /// handle.
+    pub fn on_write_applied(&self, hook: impl Fn() + Send + Sync + 'static) {
+        self.lock().write_hook = Some(MockWriteHook(Arc::new(hook)));
+    }
+
     /// Replace the advertised capability profile.
     pub fn set_capabilities(&self, capabilities: ReaderCapabilities) {
         self.lock().capabilities = capabilities;
@@ -562,6 +591,10 @@ impl MockReader {
         self.state.fail_next(call, fault);
     }
 
+    pub fn on_write_applied(&self, hook: impl Fn() + Send + Sync + 'static) {
+        self.state.on_write_applied(hook);
+    }
+
     pub fn set_capabilities(&mut self, capabilities: ReaderCapabilities) {
         self.state.set_capabilities(capabilities);
     }
@@ -652,7 +685,9 @@ impl Reader for MockReader {
             }
         }
         state.present_card()?;
-        apply_block_write(&mut state, block, data, false)
+        apply_block_write(&mut state, block, data, false)?;
+        state.run_write_hook();
+        Ok(())
     }
 
     fn read_page_quad(&mut self, start_page: u8) -> Result<[u8; PAGE_QUAD_SIZE]> {
@@ -704,6 +739,7 @@ impl Reader for MockReader {
                 card.uid = uid;
             }
         }
+        state.run_write_hook();
         Ok(())
     }
 

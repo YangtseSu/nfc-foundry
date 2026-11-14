@@ -749,6 +749,23 @@ mod tests {
     }
 
     #[test]
+    fn a_classic_write_committed_during_cancellation_is_still_read_back() {
+        let (mut service, handle) = service_with_card(card(1));
+        handle.set_block(1, [0x00; 16]);
+        let cancel = CancelToken::new();
+        let hook = cancel.clone();
+        handle.on_write_applied(move || hook.cancel());
+        let mut operation = service
+            .begin_operation(OperationKind::Write, cancel.clone())
+            .expect("operation");
+        operation
+            .write_block_verified(1, [0xAA; 16])
+            .expect("committed write must be verified");
+        assert!(cancel.is_cancelled());
+        assert_eq!(handle.block(1), Some([0xAA; 16]));
+    }
+
+    #[test]
     fn verified_write_reads_back_and_rejects_lost_writes() {
         let (mut service, handle) = service_with_card(card(1));
         handle.set_block(1, [0x00; 16]);

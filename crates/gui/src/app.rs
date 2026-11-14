@@ -561,10 +561,16 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
         pending_desfire_dialog: RefCell::new(None),
         devices: RefCell::new(Vec::new()),
         reader_selection_updating: Cell::new(false),
+        tasks: TaskRegistry::default(),
+        task_timer: RefCell::new(None),
+        #[cfg(test)]
+        cancel_next_task: Cell::new(false),
         keyscan_cancel: RefCell::new(None),
+        keyscan_task: Cell::new(None),
         keyscan_result: RefCell::new(None),
         keyscan_run: Cell::new(0),
         recovery_cancel: RefCell::new(None),
+        recovery_task: Cell::new(None),
         pending_recovery_dialog: RefCell::new(None),
         recovery_result: RefCell::new(None),
         recovery_started: RefCell::new(None),
@@ -581,6 +587,7 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
     render_type2(&ui);
     refresh_keys(&ui);
     render_settings(&ui);
+    refresh_task_card(&ui);
     update_keyscan_sensitivity(&ui);
     update_recovery_sensitivity(&ui);
     update_restore_sensitivity(&ui);
@@ -698,6 +705,101 @@ struct ActivityRow {
     operation: String,
     result: String,
     detail: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TaskOutcome {
+    Succeeded,
+    Cancelled,
+    Failed,
+}
+
+impl TaskOutcome {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Succeeded => "Succeeded",
+            Self::Cancelled => "Cancelled",
+            Self::Failed => "Failed",
+        }
+    }
+}
+
+/// One long-running GUI operation. The worker thread only sees the
+/// `CancelToken`; every other field is owned by the GTK main thread.
+struct GuiTask {
+    id: u64,
+    label: String,
+    cancel: CancelToken,
+    started: Instant,
+    phase: RefCell<String>,
+    progress: Cell<Option<f64>>,
+    outcome: Cell<Option<TaskOutcome>>,
+    result: RefCell<String>,
+}
+
+#[derive(Default)]
+struct TaskRegistry {
+    next_id: Cell<u64>,
+    tasks: RefCell<Vec<Rc<GuiTask>>>,
+}
+
+impl TaskRegistry {
+    fn begin(&self, label: impl Into<String>) -> Rc<GuiTask> {
+        let id = self.next_id.get().wrapping_add(1);
+        self.next_id.set(id);
+        let task = Rc::new(GuiTask {
+            id,
+            label: label.into(),
+            cancel: CancelToken::new(),
+            started: Instant::now(),
+            phase: RefCell::new("Starting…".to_owned()),
+            progress: Cell::new(None),
+            outcome: Cell::new(None),
+            result: RefCell::new(String::new()),
+        });
+        self.tasks.borrow_mut().push(task.clone());
+        task
+    }
+
+    fn find(&self, id: u64) -> Option<Rc<GuiTask>> {
+        self.tasks
+            .borrow()
+            .iter()
+            .find(|task| task.id == id)
+            .cloned()
+    }
+
+    fn current(&self) -> Option<Rc<GuiTask>> {
+        self.tasks.borrow().last().cloned()
+    }
+
+    fn active(&self) -> Option<Rc<GuiTask>> {
+        self.tasks
+            .borrow()
+            .iter()
+            .rev()
+            .find(|task| task.outcome.get().is_none())
+            .cloned()
+    }
+
+    fn has_active(&self) -> bool {
+        self.tasks
+            .borrow()
+            .iter()
+            .any(|task| task.outcome.get().is_none())
+    }
+
+    fn clear_finished(&self) {
+        self.tasks
+            .borrow_mut()
+            .retain(|task| task.outcome.get().is_none());
+    }
+
+    #[cfg(test)]
+    fn reset(&self) {
+        self.tasks.borrow_mut().clear();
+        self.next_id.set(0);
+    }
 }
 
 struct KeyscanView {
@@ -891,10 +993,22 @@ struct DiagnosticsView {
     refresh: gtk::Button,
 }
 
+struct TaskView {
+    title: gtk::Label,
+    phase: gtk::Label,
+    elapsed: gtk::Label,
+    meter: gtk::Stack,
+    progress: gtk::ProgressBar,
+    spinner: gtk::Spinner,
+    cancel: gtk::Button,
+    result: gtk::Label,
+}
+
 struct ActivityView {
     root: gtk::Box,
     rows: gio::ListStore,
     clear: gtk::Button,
+    task: TaskView,
 }
 
 struct SettingsView {
@@ -1007,10 +1121,16 @@ struct Ui {
     devices: RefCell<Vec<DeviceInfo>>,
     /// Set while a programmatic combo change must not run the user handler.
     reader_selection_updating: Cell<bool>,
+    tasks: TaskRegistry,
+    task_timer: RefCell<Option<glib::SourceId>>,
+    #[cfg(test)]
+    cancel_next_task: Cell<bool>,
     keyscan_cancel: RefCell<Option<CancelToken>>,
+    keyscan_task: Cell<Option<u64>>,
     keyscan_result: RefCell<Option<ClassicKeyscanResult>>,
     keyscan_run: Cell<u64>,
     recovery_cancel: RefCell<Option<CancelToken>>,
+    recovery_task: Cell<Option<u64>>,
     pending_recovery_dialog: RefCell<Option<adw::AlertDialog>>,
     recovery_result: RefCell<Option<RecoveryOutcome>>,
     recovery_started: RefCell<Option<Instant>>,
@@ -3731,6 +3851,54 @@ fn build_activity_view() -> ActivityView {
     note.add_css_class("caption");
     note.add_css_class("dim-label");
 
+    let task_root = gtk::Box::new(Orientation::Vertical, 6);
+    task_root.add_css_class("card");
+    task_root.set_margin_top(6);
+    task_root.set_margin_bottom(6);
+    task_root.set_margin_start(12);
+    task_root.set_margin_end(12);
+    let task_head = gtk::Box::new(Orientation::Horizontal, 8);
+    let task_title = gtk::Label::new(Some("No task running"));
+    task_title.set_xalign(0.0);
+    task_title.set_hexpand(true);
+    task_title.add_css_class("heading");
+    let task_elapsed = gtk::Label::new(None);
+    task_elapsed.set_xalign(1.0);
+    task_elapsed.add_css_class("caption");
+    task_elapsed.add_css_class("dim-label");
+    task_head.append(&task_title);
+    task_head.append(&task_elapsed);
+    let task_phase = gtk::Label::new(Some(
+        "Long operations show their phase, elapsed time, and cancel action here.",
+    ));
+    task_phase.set_xalign(0.0);
+    task_phase.set_wrap(true);
+    task_phase.add_css_class("caption");
+    task_phase.add_css_class("dim-label");
+    let task_spinner = gtk::Spinner::new();
+    let task_progress = gtk::ProgressBar::new();
+    task_progress.set_show_text(true);
+    task_progress.set_hexpand(true);
+    task_progress.set_text(Some(""));
+    let task_meter = gtk::Stack::new();
+    task_meter.add_named(&task_spinner, Some("spinner"));
+    task_meter.add_named(&task_progress, Some("progress"));
+    task_meter.set_visible_child_name("spinner");
+    let task_row = gtk::Box::new(Orientation::Horizontal, 8);
+    task_row.append(&task_meter);
+    let task_cancel = gtk::Button::with_label("Cancel task");
+    task_cancel.set_halign(gtk::Align::End);
+    task_cancel.set_sensitive(false);
+    task_row.append(&task_cancel);
+    let task_result = gtk::Label::new(None);
+    task_result.set_xalign(0.0);
+    task_result.set_wrap(true);
+    task_result.set_visible(false);
+    task_root.append(&task_head);
+    task_root.append(&task_phase);
+    task_root.append(&task_row);
+    task_root.append(&task_result);
+
     let rows = gio::ListStore::new::<glib::BoxedAnyObject>();
     let selection = gtk::SingleSelection::new(Some(rows.clone()));
     let table = gtk::ColumnView::new(Some(selection));
@@ -3778,10 +3946,25 @@ fn build_activity_view() -> ActivityView {
 
     root.append(&title);
     root.append(&note);
+    root.append(&task_root);
     root.append(&scroll);
     root.append(&clear);
 
-    ActivityView { root, rows, clear }
+    ActivityView {
+        root,
+        rows,
+        clear,
+        task: TaskView {
+            title: task_title,
+            phase: task_phase,
+            elapsed: task_elapsed,
+            meter: task_meter,
+            progress: task_progress,
+            spinner: task_spinner,
+            cancel: task_cancel,
+            result: task_result,
+        },
+    }
 }
 
 const DUMP_FORMAT_CHOICES: [(DumpFormat, &str); 5] = [
@@ -4369,6 +4552,11 @@ fn connect_signals(ui: &Rc<Ui>) {
     ui.activity_view
         .clear
         .connect_clicked(move |_| clear_activity(&ui2));
+    let ui2 = ui.clone();
+    ui.activity_view
+        .task
+        .cancel
+        .connect_clicked(move |_| cancel_active_task(&ui2));
 
     let ui2 = ui.clone();
     ui.settings_view
@@ -7043,32 +7231,21 @@ fn start_desfire_inventory(ui: Rc<Ui>) {
     }
     set_busy(&ui, true);
     ui.status.set_localized("Reading DESFire inventory…");
-    let service = ui.service.clone();
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => service
-                .desfire_inventory(CancelToken::new())
-                .map(|inventory| {
-                    let text = nfc_app::desfire::inventory_text(&inventory);
-                    let first_aid = inventory
-                        .applications
-                        .first()
-                        .map(|application| application.aid);
-                    (text, first_aid)
-                }),
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        match receiver.recv().await {
-            Ok(result) => finish_desfire_inventory(&ui, result),
-            Err(_) => {
-                finish_desfire_inventory(&ui, Err(NfcError::Io("reader worker stopped".to_owned())))
-            }
-        }
-    });
+    run_service_task(
+        &ui,
+        "DESFire inventory",
+        move |service, cancel| {
+            service.desfire_inventory(cancel).map(|inventory| {
+                let text = nfc_app::desfire::inventory_text(&inventory);
+                let first_aid = inventory
+                    .applications
+                    .first()
+                    .map(|application| application.aid);
+                (text, first_aid)
+            })
+        },
+        finish_desfire_inventory,
+    );
 }
 
 fn finish_desfire_inventory(ui: &Rc<Ui>, result: NfcResult<(String, Option<[u8; 3]>)>) {
@@ -7086,6 +7263,11 @@ fn finish_desfire_inventory(ui: &Rc<Ui>, result: NfcResult<(String, Option<[u8; 
             view.status.set_localized("Inventory updated");
             ui.status.set_localized("DESFire inventory updated");
             append_log(ui, "desfire · inventory");
+        }
+        Err(NfcError::Cancelled) => {
+            ui.desfire_view.status.set_localized("Inventory cancelled");
+            ui.status.set_localized("DESFire inventory cancelled");
+            append_log(ui, "desfire · inventory cancelled");
         }
         Err(error) => {
             ui.desfire_view.status.set_localized("Inventory failed");
@@ -7166,12 +7348,12 @@ fn start_desfire_read(ui: Rc<Ui>) {
     }
     set_busy(&ui, true);
     ui.status.set_localized("Reading DESFire file…");
-    let service = ui.service.clone();
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => service
-                .desfire_read(CancelToken::new(), request)
+    run_service_task(
+        &ui,
+        "DESFire read",
+        move |service, cancel| {
+            service
+                .desfire_read(cancel, request)
                 .map(|read| match read {
                     DesfireReadResult::Data(read) => {
                         let text = format!(
@@ -7212,19 +7394,10 @@ fn start_desfire_read(ui: Rc<Ui>) {
                         }
                         (text, format!("{} records", read.records.len()))
                     }
-                }),
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        match receiver.recv().await {
-            Ok(result) => finish_desfire_read(&ui, result),
-            Err(_) => {
-                finish_desfire_read(&ui, Err(NfcError::Io("reader worker stopped".to_owned())))
-            }
-        }
-    });
+                })
+        },
+        finish_desfire_read,
+    );
 }
 
 fn start_desfire_write(ui: Rc<Ui>) {
@@ -7264,35 +7437,22 @@ fn start_desfire_write(ui: Rc<Ui>) {
     }
     set_busy(&ui, true);
     ui.status.set_localized("Writing the DESFire file…");
-    let service = ui.service.clone();
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => service
-                .desfire_write(CancelToken::new(), request)
-                .map(|write| {
-                    let detail = match &write.backup_path {
-                        Some(path) => {
-                            format!("{} bytes · backup {}", write.written, path.display())
-                        }
-                        None => format!("{} bytes", write.written),
-                    };
-                    (write_text(&write), detail)
-                }),
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        match receiver.recv().await {
-            Ok(result) => finish_desfire_write(&ui, target, result),
-            Err(_) => finish_desfire_write(
-                &ui,
-                target,
-                Err(NfcError::Io("reader worker stopped".to_owned())),
-            ),
-        }
-    });
+    run_service_task(
+        &ui,
+        "DESFire write",
+        move |service, cancel| {
+            service.desfire_write(cancel, request).map(|write| {
+                let detail = match &write.backup_path {
+                    Some(path) => {
+                        format!("{} bytes · backup {}", write.written, path.display())
+                    }
+                    None => format!("{} bytes", write.written),
+                };
+                (write_text(&write), detail)
+            })
+        },
+        move |ui, result| finish_desfire_write(ui, target, result),
+    );
 }
 
 fn finish_desfire_write(ui: &Rc<Ui>, target: String, result: NfcResult<(String, String)>) {
@@ -7307,6 +7467,13 @@ fn finish_desfire_write(ui: &Rc<Ui>, target: String, result: NfcResult<(String, 
                 ui,
                 &format!("desfire write · verified · {target} · {detail}"),
             );
+        }
+        Err(NfcError::Cancelled) => {
+            ui.desfire_view
+                .write_status
+                .set_localized("Write cancelled");
+            ui.status.set_localized("DESFire write cancelled");
+            append_log(ui, &format!("desfire write · cancelled · {target}"));
         }
         Err(error) => {
             ui.desfire_view.write_status.set_localized("Write failed");
@@ -7323,6 +7490,11 @@ fn finish_desfire_read(ui: &Rc<Ui>, result: NfcResult<(String, String)>) {
             ui.desfire_view.output.set_text(&text);
             ui.status.set_localized(&format!("DESFire read · {detail}"));
             append_log(ui, &format!("desfire · read · {detail}"));
+        }
+        Err(NfcError::Cancelled) => {
+            ui.desfire_view.status.set_localized("Read cancelled");
+            ui.status.set_localized("DESFire read cancelled");
+            append_log(ui, "desfire · read cancelled");
         }
         Err(error) => {
             ui.desfire_view.status.set_localized("Read failed");
@@ -7421,30 +7593,19 @@ fn start_desfire_verify_key(ui: Rc<Ui>) {
     }
     set_busy(&ui, true);
     ui.status.set_localized("Verifying the DESFire key…");
-    let service = ui.service.clone();
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => {
-                service
-                    .desfire_verify_key(CancelToken::new(), request)
-                    .map(|verification| {
-                        let detail = format!("key {}", verification.key_number);
-                        (key_verification_text(&verification), detail)
-                    })
-            }
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        match receiver.recv().await {
-            Ok(result) => finish_desfire_verify(&ui, result),
-            Err(_) => {
-                finish_desfire_verify(&ui, Err(NfcError::Io("reader worker stopped".to_owned())))
-            }
-        }
-    });
+    run_service_task(
+        &ui,
+        "DESFire verify key",
+        move |service, cancel| {
+            service
+                .desfire_verify_key(cancel, request)
+                .map(|verification| {
+                    let detail = format!("key {}", verification.key_number);
+                    (key_verification_text(&verification), detail)
+                })
+        },
+        finish_desfire_verify,
+    );
 }
 
 fn finish_desfire_verify(ui: &Rc<Ui>, result: NfcResult<(String, String)>) {
@@ -7456,6 +7617,11 @@ fn finish_desfire_verify(ui: &Rc<Ui>, result: NfcResult<(String, String)>) {
             ui.status
                 .set_localized(&format!("DESFire key verified · {detail}"));
             append_log(ui, &format!("desfire · verify · {detail}"));
+        }
+        Err(NfcError::Cancelled) => {
+            ui.desfire_view.verify_status.set_localized("Cancelled");
+            ui.status.set_localized("DESFire verification cancelled");
+            append_log(ui, "desfire · verify cancelled");
         }
         Err(error) => {
             ui.desfire_view
@@ -7494,28 +7660,17 @@ fn start_desfire_uid(ui: Rc<Ui>) {
     }
     set_busy(&ui, true);
     ui.status.set_localized("Reading the authenticated UID…");
-    let service = ui.service.clone();
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => service
-                .desfire_card_uid(CancelToken::new(), request)
-                .map(|read| {
-                    let detail = format!("UID {}", type2_ui::hex_bytes(&read.uid));
-                    (card_uid_text(&read), detail)
-                }),
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        match receiver.recv().await {
-            Ok(result) => finish_desfire_uid(&ui, result),
-            Err(_) => {
-                finish_desfire_uid(&ui, Err(NfcError::Io("reader worker stopped".to_owned())))
-            }
-        }
-    });
+    run_service_task(
+        &ui,
+        "Read DESFire UID",
+        move |service, cancel| {
+            service.desfire_card_uid(cancel, request).map(|read| {
+                let detail = format!("UID {}", type2_ui::hex_bytes(&read.uid));
+                (card_uid_text(&read), detail)
+            })
+        },
+        finish_desfire_uid,
+    );
 }
 
 fn finish_desfire_uid(ui: &Rc<Ui>, result: NfcResult<(String, String)>) {
@@ -7527,6 +7682,11 @@ fn finish_desfire_uid(ui: &Rc<Ui>, result: NfcResult<(String, String)>) {
             ui.status
                 .set_localized(&format!("DESFire UID read · {detail}"));
             append_log(ui, &format!("desfire · uid · {detail}"));
+        }
+        Err(NfcError::Cancelled) => {
+            ui.desfire_view.verify_status.set_localized("Cancelled");
+            ui.status.set_localized("DESFire UID read cancelled");
+            append_log(ui, "desfire · uid cancelled");
         }
         Err(error) => {
             ui.desfire_view
@@ -7655,44 +7815,41 @@ fn start_desfire_ndef_read(ui: Rc<Ui>) {
     ui.desfire_view
         .ndef_status
         .set_localized("Reading the NDEF application…");
-    let service = ui.service.clone();
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => service.type4_read(CancelToken::new()),
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        set_busy(&ui, false);
-        match receiver.recv().await {
-            Ok(Ok(read)) => {
-                ui.desfire_view
-                    .ndef_output
-                    .set_text(&desfire_ndef_text(&read));
-                ui.desfire_view.ndef_status.set_localized(&format!(
-                    "NDEF: {}",
-                    nfc_app::type4::ndef_label(&read.ndef.state)
-                ));
-                ui.status.set_localized("DESFire NDEF read");
-                append_log(&ui, "desfire · ndef read");
+    run_service_task(
+        &ui,
+        "DESFire NDEF read",
+        |service, cancel| service.type4_read(cancel),
+        |ui, result| {
+            set_busy(ui, false);
+            match result {
+                Ok(read) => {
+                    ui.desfire_view
+                        .ndef_output
+                        .set_text(&desfire_ndef_text(&read));
+                    ui.desfire_view.ndef_status.set_localized(&format!(
+                        "NDEF: {}",
+                        nfc_app::type4::ndef_label(&read.ndef.state)
+                    ));
+                    ui.status.set_localized("DESFire NDEF read");
+                    append_log(ui, "desfire · ndef read");
+                }
+                Err(NfcError::Cancelled) => {
+                    ui.desfire_view
+                        .ndef_status
+                        .set_localized("NDEF read cancelled");
+                    ui.status.set_localized("DESFire NDEF read cancelled");
+                    append_log(ui, "desfire · ndef read cancelled");
+                }
+                Err(error) => {
+                    ui.desfire_view
+                        .ndef_status
+                        .set_localized("NDEF read failed");
+                    ui.status.set_localized("DESFire NDEF read failed");
+                    toast_error(ui, &format!("DESFire NDEF read: {error}"));
+                }
             }
-            Ok(Err(error)) => {
-                ui.desfire_view
-                    .ndef_status
-                    .set_localized("NDEF read failed");
-                ui.status.set_localized("DESFire NDEF read failed");
-                toast_error(&ui, &format!("DESFire NDEF read: {error}"));
-            }
-            Err(_) => {
-                ui.desfire_view
-                    .ndef_status
-                    .set_localized("NDEF read failed");
-                toast_error(&ui, "Reader worker stopped");
-            }
-        }
-    });
+        },
+    );
 }
 
 fn start_desfire_ndef_format(ui: Rc<Ui>) {
@@ -7726,71 +7883,68 @@ fn start_desfire_ndef_format(ui: Rc<Ui>) {
 
     set_busy(&ui, true);
     ui.status.set_localized("Checking the DESFire NDEF plan…");
-    let service = ui.service.clone();
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => service.desfire_inventory(CancelToken::new()),
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        set_busy(&ui, false);
-        let inventory = match receiver.recv().await {
-            Ok(Ok(inventory)) => inventory,
-            Ok(Err(error)) => {
-                toast_error(&ui, &format!("DESFire inventory: {error}"));
-                return;
-            }
-            Err(_) => {
-                toast_error(&ui, "Reader worker stopped");
-                return;
-            }
-        };
-        if inventory
-            .applications
-            .iter()
-            .any(|application| application.aid == NDEF_APPLICATION_AID)
-        {
-            toast_error(
-                &ui,
-                "The NDEF application D27600 already exists; delete it first",
-            );
-            return;
-        }
-        let body = format!(
-            "{}\n\nCreate the NDEF Tag Application D27600 with DF name D2760000850101:\n\
-             CC: DESFire file {:02X} / ISO E103, {} bytes, read free and write key 0\n\
-             NDEF: DESFire file {:02X} / ISO E104, {} bytes, read and write free\n\
-             PICC key: key {key_number} (session only)\n\n\
-             No full-card backup exists. Delete the application with the same PICC key to undo.\n\n\
-             Type FORMAT to confirm",
-            inventory.version.name(),
-            NDEF_CC_FILE,
-            NDEF_CC_SIZE,
-            NDEF_DATA_FILE,
-            NDEF_DATA_SIZE,
-        );
-        let dialog = typed_confirmation_dialog(
-            "Format the DESFire NDEF application?",
-            &body,
-            "Format NDEF",
-            "FORMAT",
-        );
-        ui.pending_desfire_dialog.replace(Some(dialog.clone()));
-        let ui2 = ui.clone();
-        let key = RefCell::new(Some(key));
-        dialog.connect_response(None, move |_, response| {
-            ui2.pending_desfire_dialog.replace(None);
-            if response == "confirm"
-                && let Some(key) = key.borrow_mut().take()
+    run_service_task(
+        &ui,
+        "DESFire NDEF preflight",
+        |service, cancel| service.desfire_inventory(cancel),
+        move |ui, result| {
+            set_busy(ui, false);
+            let inventory = match result {
+                Ok(inventory) => inventory,
+                Err(NfcError::Cancelled) => {
+                    ui.status.set_localized("DESFire NDEF check cancelled");
+                    append_log(ui, "desfire · ndef format cancelled");
+                    return;
+                }
+                Err(error) => {
+                    toast_error(ui, &format!("DESFire inventory: {error}"));
+                    return;
+                }
+            };
+            if inventory
+                .applications
+                .iter()
+                .any(|application| application.aid == NDEF_APPLICATION_AID)
             {
-                execute_desfire_ndef_format(ui2.clone(), key, key_type, key_number);
+                toast_error(
+                    ui,
+                    "The NDEF application D27600 already exists; delete it first",
+                );
+                return;
             }
-        });
-        present_alert(&dialog, &ui.window);
-    });
+            let body = format!(
+                "{}\n\nCreate the NDEF Tag Application D27600 with DF name D2760000850101:\n\
+                 CC: DESFire file {:02X} / ISO E103, {} bytes, read free and write key 0\n\
+                 NDEF: DESFire file {:02X} / ISO E104, {} bytes, read and write free\n\
+                 PICC key: key {key_number} (session only)\n\n\
+                 No full-card backup exists. Delete the application with the same PICC key to undo.\n\n\
+                 Type FORMAT to confirm",
+                inventory.version.name(),
+                NDEF_CC_FILE,
+                NDEF_CC_SIZE,
+                NDEF_DATA_FILE,
+                NDEF_DATA_SIZE,
+            );
+            let dialog = typed_confirmation_dialog(
+                "Format the DESFire NDEF application?",
+                &body,
+                "Format NDEF",
+                "FORMAT",
+            );
+            ui.pending_desfire_dialog.replace(Some(dialog.clone()));
+            let ui2 = ui.clone();
+            let key = RefCell::new(Some(key));
+            dialog.connect_response(None, move |_, response| {
+                ui2.pending_desfire_dialog.replace(None);
+                if response == "confirm"
+                    && let Some(key) = key.borrow_mut().take()
+                {
+                    execute_desfire_ndef_format(ui2.clone(), key, key_type, key_number);
+                }
+            });
+            present_alert(&dialog, &ui.window);
+        },
+    );
 }
 
 fn execute_desfire_ndef_format(
@@ -7805,70 +7959,68 @@ fn execute_desfire_ndef_format(
     ui.desfire_view
         .ndef_status
         .set_localized("Formatting the NDEF application…");
-    let service = ui.service.clone();
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => {
-                let mut request = DesfireNdefFormatRequest::new(key)
-                    .key_number(key_number)
-                    .advanced(true)
-                    .confirm(true);
-                if let Some(key_type) = key_type {
-                    request = request.key_type(key_type);
-                }
-                service.desfire_ndef_format(request)
+    run_service_task(
+        &ui,
+        "Format DESFire NDEF",
+        move |service, cancel| {
+            let mut request = DesfireNdefFormatRequest::new(key)
+                .key_number(key_number)
+                .advanced(true)
+                .confirm(true)
+                .cancel(cancel);
+            if let Some(key_type) = key_type {
+                request = request.key_type(key_type);
             }
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        set_busy(&ui, false);
-        match receiver.recv().await {
-            Ok(Ok(result)) => {
-                ui.desfire_view.ndef_status.set_localized(&format!(
-                    "NDEF application formatted · CC {} · {}",
-                    type2_ui::hex_bytes(result.cc.raw()),
-                    nfc_app::type4::ndef_label(&result.ndef.state)
-                ));
-                ui.status
-                    .set_localized("DESFire NDEF application formatted");
-                journal_desfire(
-                    &ui,
-                    "ndef format",
-                    "application D27600",
-                    "succeeded",
-                    Some(&format!(
-                        "CC {} · {}",
+            service.desfire_ndef_format(request)
+        },
+        |ui, result| {
+            set_busy(ui, false);
+            match result {
+                Ok(result) => {
+                    ui.desfire_view.ndef_status.set_localized(&format!(
+                        "NDEF application formatted · CC {} · {}",
                         type2_ui::hex_bytes(result.cc.raw()),
                         nfc_app::type4::ndef_label(&result.ndef.state)
-                    )),
-                );
-                start_desfire_inventory(ui);
+                    ));
+                    ui.status
+                        .set_localized("DESFire NDEF application formatted");
+                    journal_desfire(
+                        ui,
+                        "ndef format",
+                        "application D27600",
+                        "succeeded",
+                        Some(&format!(
+                            "CC {} · {}",
+                            type2_ui::hex_bytes(result.cc.raw()),
+                            nfc_app::type4::ndef_label(&result.ndef.state)
+                        )),
+                    );
+                    start_desfire_inventory(ui.clone());
+                }
+                Err(NfcError::Cancelled) => {
+                    ui.desfire_view
+                        .ndef_status
+                        .set_localized("NDEF formatting cancelled");
+                    ui.status.set_localized("DESFire NDEF formatting cancelled");
+                    journal_desfire(ui, "ndef format", "application D27600", "cancelled", None);
+                }
+                Err(error) => {
+                    ui.desfire_view
+                        .ndef_status
+                        .set_localized("NDEF formatting failed");
+                    ui.status.set_localized("DESFire NDEF formatting failed");
+                    journal_desfire(
+                        ui,
+                        "ndef format",
+                        "application D27600",
+                        "failed",
+                        Some(&error.to_string()),
+                    );
+                    toast_error_unlogged(ui, &format!("DESFire NDEF format: {error}"));
+                }
             }
-            Ok(Err(error)) => {
-                ui.desfire_view
-                    .ndef_status
-                    .set_localized("NDEF formatting failed");
-                ui.status.set_localized("DESFire NDEF formatting failed");
-                journal_desfire(
-                    &ui,
-                    "ndef format",
-                    "application D27600",
-                    "failed",
-                    Some(&error.to_string()),
-                );
-                toast_error_unlogged(&ui, &format!("DESFire NDEF format: {error}"));
-            }
-            Err(_) => {
-                ui.desfire_view
-                    .ndef_status
-                    .set_localized("NDEF formatting failed");
-                toast_error(&ui, "Reader worker stopped");
-            }
-        }
-    });
+        },
+    );
 }
 
 fn start_desfire_ndef_delete(ui: Rc<Ui>) {
@@ -7903,62 +8055,59 @@ fn start_desfire_ndef_delete(ui: Rc<Ui>) {
     set_busy(&ui, true);
     ui.status
         .set_localized("Checking the DESFire NDEF application…");
-    let service = ui.service.clone();
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => service.desfire_inventory(CancelToken::new()),
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        set_busy(&ui, false);
-        let inventory = match receiver.recv().await {
-            Ok(Ok(inventory)) => inventory,
-            Ok(Err(error)) => {
-                toast_error(&ui, &format!("DESFire inventory: {error}"));
-                return;
-            }
-            Err(_) => {
-                toast_error(&ui, "Reader worker stopped");
-                return;
-            }
-        };
-        if !inventory
-            .applications
-            .iter()
-            .any(|application| application.aid == NDEF_APPLICATION_AID)
-        {
-            toast_error(&ui, "The NDEF application D27600 is not present");
-            return;
-        }
-        let body = format!(
-            "{}\n\nDelete the NDEF Tag Application D27600 and its CC/NDEF files.\n\
-             PICC key: key {key_number} (session only)\n\
-             Only the exact AN11004 layout is deleted. No byte-for-byte restore exists.\n\n\
-             Type DELETE to confirm",
-            inventory.version.name()
-        );
-        let dialog = typed_confirmation_dialog(
-            "Delete the DESFire NDEF application?",
-            &body,
-            "Delete NDEF",
-            "DELETE",
-        );
-        ui.pending_desfire_dialog.replace(Some(dialog.clone()));
-        let ui2 = ui.clone();
-        let key = RefCell::new(Some(key));
-        dialog.connect_response(None, move |_, response| {
-            ui2.pending_desfire_dialog.replace(None);
-            if response == "confirm"
-                && let Some(key) = key.borrow_mut().take()
+    run_service_task(
+        &ui,
+        "DESFire NDEF preflight",
+        |service, cancel| service.desfire_inventory(cancel),
+        move |ui, result| {
+            set_busy(ui, false);
+            let inventory = match result {
+                Ok(inventory) => inventory,
+                Err(NfcError::Cancelled) => {
+                    ui.status.set_localized("DESFire NDEF check cancelled");
+                    append_log(ui, "desfire · ndef delete cancelled");
+                    return;
+                }
+                Err(error) => {
+                    toast_error(ui, &format!("DESFire inventory: {error}"));
+                    return;
+                }
+            };
+            if !inventory
+                .applications
+                .iter()
+                .any(|application| application.aid == NDEF_APPLICATION_AID)
             {
-                execute_desfire_ndef_delete(ui2.clone(), key, key_type, key_number);
+                toast_error(ui, "The NDEF application D27600 is not present");
+                return;
             }
-        });
-        present_alert(&dialog, &ui.window);
-    });
+            let body = format!(
+                "{}\n\nDelete the NDEF Tag Application D27600 and its CC/NDEF files.\n\
+                 PICC key: key {key_number} (session only)\n\
+                 Only the exact AN11004 layout is deleted. No byte-for-byte restore exists.\n\n\
+                 Type DELETE to confirm",
+                inventory.version.name()
+            );
+            let dialog = typed_confirmation_dialog(
+                "Delete the DESFire NDEF application?",
+                &body,
+                "Delete NDEF",
+                "DELETE",
+            );
+            ui.pending_desfire_dialog.replace(Some(dialog.clone()));
+            let ui2 = ui.clone();
+            let key = RefCell::new(Some(key));
+            dialog.connect_response(None, move |_, response| {
+                ui2.pending_desfire_dialog.replace(None);
+                if response == "confirm"
+                    && let Some(key) = key.borrow_mut().take()
+                {
+                    execute_desfire_ndef_delete(ui2.clone(), key, key_type, key_number);
+                }
+            });
+            present_alert(&dialog, &ui.window);
+        },
+    );
 }
 
 fn execute_desfire_ndef_delete(
@@ -7973,66 +8122,64 @@ fn execute_desfire_ndef_delete(
     ui.desfire_view
         .ndef_status
         .set_localized("Deleting the NDEF application…");
-    let service = ui.service.clone();
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => {
-                let mut request = DesfireNdefDeleteRequest::new(key)
-                    .key_number(key_number)
-                    .advanced(true)
-                    .confirm(true);
-                if let Some(key_type) = key_type {
-                    request = request.key_type(key_type);
+    run_service_task(
+        &ui,
+        "Delete DESFire NDEF",
+        move |service, cancel| {
+            let mut request = DesfireNdefDeleteRequest::new(key)
+                .key_number(key_number)
+                .advanced(true)
+                .confirm(true)
+                .cancel(cancel);
+            if let Some(key_type) = key_type {
+                request = request.key_type(key_type);
+            }
+            service.desfire_ndef_delete(request)
+        },
+        |ui, result| {
+            set_busy(ui, false);
+            match result {
+                Ok(result) => {
+                    ui.desfire_view
+                        .ndef_status
+                        .set_localized("NDEF application deleted");
+                    ui.status.set_localized("DESFire NDEF application deleted");
+                    journal_desfire(
+                        ui,
+                        "ndef delete",
+                        "application D27600",
+                        "succeeded",
+                        Some(&format!(
+                            "{} application(s) remain",
+                            result.applications.len()
+                        )),
+                    );
+                    start_desfire_inventory(ui.clone());
                 }
-                service.desfire_ndef_delete(request)
+                Err(NfcError::Cancelled) => {
+                    ui.desfire_view
+                        .ndef_status
+                        .set_localized("NDEF delete cancelled");
+                    ui.status.set_localized("DESFire NDEF delete cancelled");
+                    journal_desfire(ui, "ndef delete", "application D27600", "cancelled", None);
+                }
+                Err(error) => {
+                    ui.desfire_view
+                        .ndef_status
+                        .set_localized("NDEF delete failed");
+                    ui.status.set_localized("DESFire NDEF delete failed");
+                    journal_desfire(
+                        ui,
+                        "ndef delete",
+                        "application D27600",
+                        "failed",
+                        Some(&error.to_string()),
+                    );
+                    toast_error_unlogged(ui, &format!("DESFire NDEF delete: {error}"));
+                }
             }
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        set_busy(&ui, false);
-        match receiver.recv().await {
-            Ok(Ok(result)) => {
-                ui.desfire_view
-                    .ndef_status
-                    .set_localized("NDEF application deleted");
-                ui.status.set_localized("DESFire NDEF application deleted");
-                journal_desfire(
-                    &ui,
-                    "ndef delete",
-                    "application D27600",
-                    "succeeded",
-                    Some(&format!(
-                        "{} application(s) remain",
-                        result.applications.len()
-                    )),
-                );
-                start_desfire_inventory(ui);
-            }
-            Ok(Err(error)) => {
-                ui.desfire_view
-                    .ndef_status
-                    .set_localized("NDEF delete failed");
-                ui.status.set_localized("DESFire NDEF delete failed");
-                journal_desfire(
-                    &ui,
-                    "ndef delete",
-                    "application D27600",
-                    "failed",
-                    Some(&error.to_string()),
-                );
-                toast_error_unlogged(&ui, &format!("DESFire NDEF delete: {error}"));
-            }
-            Err(_) => {
-                ui.desfire_view
-                    .ndef_status
-                    .set_localized("NDEF delete failed");
-                toast_error(&ui, "Reader worker stopped");
-            }
-        }
-    });
+        },
+    );
 }
 
 fn start_desfire_ndef_replace(ui: Rc<Ui>) {
@@ -8067,70 +8214,67 @@ fn start_desfire_ndef_replace(ui: Rc<Ui>) {
     set_busy(&ui, true);
     ui.status
         .set_localized("Checking the DESFire NDEF application…");
-    let service = ui.service.clone();
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => (|| -> NfcResult<_> {
-                let inventory = service.desfire_inventory(CancelToken::new())?;
-                if !inventory
-                    .applications
-                    .iter()
-                    .any(|application| application.aid == NDEF_APPLICATION_AID)
-                {
-                    return Err(NfcError::InvalidArgument(
-                        "the NDEF application D27600 is not present; use Format NDEF application"
-                            .to_owned(),
-                    ));
-                }
-                service.type4_read(CancelToken::new())
-            })(),
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        set_busy(&ui, false);
-        let read = match receiver.recv().await {
-            Ok(Ok(read)) => read,
-            Ok(Err(error)) => {
-                toast_error(&ui, &format!("DESFire NDEF replace: {error}"));
-                return;
-            }
-            Err(_) => {
-                toast_error(&ui, "Reader worker stopped");
-                return;
-            }
-        };
-        let body = format!(
-            "Current NDEF file: {} · CC {}\n\
-             PICC key: key {key_number} (session only)\n\n\
-             Read the current NDEF message, delete only the validated AN11004 application \
-             D27600, and create it again with the same CC and an empty NDEF file.\n\
-             No full-card backup exists; a failure after deletion leaves no NDEF application.\n\n\
-             Type REPLACE to confirm",
-            nfc_app::type4::ndef_label(&read.ndef.state),
-            type2_ui::hex_bytes(read.cc.raw()),
-        );
-        let dialog = typed_confirmation_dialog(
-            "Replace the DESFire NDEF application?",
-            &body,
-            "Replace NDEF",
-            "REPLACE",
-        );
-        ui.pending_desfire_dialog.replace(Some(dialog.clone()));
-        let ui2 = ui.clone();
-        let key = RefCell::new(Some(key));
-        dialog.connect_response(None, move |_, response| {
-            ui2.pending_desfire_dialog.replace(None);
-            if response == "confirm"
-                && let Some(key) = key.borrow_mut().take()
+    run_service_task(
+        &ui,
+        "DESFire NDEF preflight",
+        |service, cancel| {
+            let inventory = service.desfire_inventory(cancel.clone())?;
+            if !inventory
+                .applications
+                .iter()
+                .any(|application| application.aid == NDEF_APPLICATION_AID)
             {
-                execute_desfire_ndef_replace(ui2.clone(), key, key_type, key_number);
+                return Err(NfcError::InvalidArgument(
+                    "the NDEF application D27600 is not present; use Format NDEF application"
+                        .to_owned(),
+                ));
             }
-        });
-        present_alert(&dialog, &ui.window);
-    });
+            service.type4_read(cancel)
+        },
+        move |ui, result| {
+            set_busy(ui, false);
+            let read = match result {
+                Ok(read) => read,
+                Err(NfcError::Cancelled) => {
+                    ui.status.set_localized("DESFire NDEF check cancelled");
+                    append_log(ui, "desfire · ndef replace cancelled");
+                    return;
+                }
+                Err(error) => {
+                    toast_error(ui, &format!("DESFire NDEF replace: {error}"));
+                    return;
+                }
+            };
+            let body = format!(
+                "Current NDEF file: {} · CC {}\n\
+                 PICC key: key {key_number} (session only)\n\n\
+                 Read the current NDEF message, delete only the validated AN11004 application \
+                 D27600, and create it again with the same CC and an empty NDEF file.\n\
+                 No full-card backup exists; a failure after deletion leaves no NDEF application.\n\n\
+                 Type REPLACE to confirm",
+                nfc_app::type4::ndef_label(&read.ndef.state),
+                type2_ui::hex_bytes(read.cc.raw()),
+            );
+            let dialog = typed_confirmation_dialog(
+                "Replace the DESFire NDEF application?",
+                &body,
+                "Replace NDEF",
+                "REPLACE",
+            );
+            ui.pending_desfire_dialog.replace(Some(dialog.clone()));
+            let ui2 = ui.clone();
+            let key = RefCell::new(Some(key));
+            dialog.connect_response(None, move |_, response| {
+                ui2.pending_desfire_dialog.replace(None);
+                if response == "confirm"
+                    && let Some(key) = key.borrow_mut().take()
+                {
+                    execute_desfire_ndef_replace(ui2.clone(), key, key_type, key_number);
+                }
+            });
+            present_alert(&dialog, &ui.window);
+        },
+    );
 }
 
 fn execute_desfire_ndef_replace(
@@ -8145,71 +8289,69 @@ fn execute_desfire_ndef_replace(
     ui.desfire_view
         .ndef_status
         .set_localized("Replacing the NDEF application…");
-    let service = ui.service.clone();
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => {
-                let mut request = DesfireNdefReplaceRequest::new(key)
-                    .key_number(key_number)
-                    .advanced(true)
-                    .confirm(true);
-                if let Some(key_type) = key_type {
-                    request = request.key_type(key_type);
-                }
-                service.desfire_ndef_replace(request)
+    run_service_task(
+        &ui,
+        "Replace DESFire NDEF",
+        move |service, cancel| {
+            let mut request = DesfireNdefReplaceRequest::new(key)
+                .key_number(key_number)
+                .advanced(true)
+                .confirm(true)
+                .cancel(cancel);
+            if let Some(key_type) = key_type {
+                request = request.key_type(key_type);
             }
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        set_busy(&ui, false);
-        match receiver.recv().await {
-            Ok(Ok(result)) => {
-                ui.desfire_view.ndef_status.set_localized(&format!(
-                    "NDEF application replaced · previous {} · CC {} · {}",
-                    nfc_app::type4::ndef_label(&result.previous.state),
-                    type2_ui::hex_bytes(result.cc.raw()),
-                    nfc_app::type4::ndef_label(&result.ndef.state)
-                ));
-                ui.status.set_localized("DESFire NDEF application replaced");
-                journal_desfire(
-                    &ui,
-                    "ndef replace",
-                    "application D27600",
-                    "succeeded",
-                    Some(&format!(
-                        "previous {} · CC {} · {}",
+            service.desfire_ndef_replace(request)
+        },
+        |ui, result| {
+            set_busy(ui, false);
+            match result {
+                Ok(result) => {
+                    ui.desfire_view.ndef_status.set_localized(&format!(
+                        "NDEF application replaced · previous {} · CC {} · {}",
                         nfc_app::type4::ndef_label(&result.previous.state),
                         type2_ui::hex_bytes(result.cc.raw()),
                         nfc_app::type4::ndef_label(&result.ndef.state)
-                    )),
-                );
-                start_desfire_inventory(ui);
+                    ));
+                    ui.status.set_localized("DESFire NDEF application replaced");
+                    journal_desfire(
+                        ui,
+                        "ndef replace",
+                        "application D27600",
+                        "succeeded",
+                        Some(&format!(
+                            "previous {} · CC {} · {}",
+                            nfc_app::type4::ndef_label(&result.previous.state),
+                            type2_ui::hex_bytes(result.cc.raw()),
+                            nfc_app::type4::ndef_label(&result.ndef.state)
+                        )),
+                    );
+                    start_desfire_inventory(ui.clone());
+                }
+                Err(NfcError::Cancelled) => {
+                    ui.desfire_view
+                        .ndef_status
+                        .set_localized("NDEF replace cancelled");
+                    ui.status.set_localized("DESFire NDEF replace cancelled");
+                    journal_desfire(ui, "ndef replace", "application D27600", "cancelled", None);
+                }
+                Err(error) => {
+                    ui.desfire_view
+                        .ndef_status
+                        .set_localized("NDEF replace failed");
+                    ui.status.set_localized("DESFire NDEF replace failed");
+                    journal_desfire(
+                        ui,
+                        "ndef replace",
+                        "application D27600",
+                        "failed",
+                        Some(&error.to_string()),
+                    );
+                    toast_error_unlogged(ui, &format!("DESFire NDEF replace: {error}"));
+                }
             }
-            Ok(Err(error)) => {
-                ui.desfire_view
-                    .ndef_status
-                    .set_localized("NDEF replace failed");
-                ui.status.set_localized("DESFire NDEF replace failed");
-                journal_desfire(
-                    &ui,
-                    "ndef replace",
-                    "application D27600",
-                    "failed",
-                    Some(&error.to_string()),
-                );
-                toast_error_unlogged(&ui, &format!("DESFire NDEF replace: {error}"));
-            }
-            Err(_) => {
-                ui.desfire_view
-                    .ndef_status
-                    .set_localized("NDEF replace failed");
-                toast_error(&ui, "Reader worker stopped");
-            }
-        }
-    });
+        },
+    );
 }
 
 fn start_desfire_format_picc(ui: Rc<Ui>) {
@@ -8241,68 +8383,65 @@ fn start_desfire_format_picc(ui: Rc<Ui>) {
     set_busy(&ui, true);
     ui.status
         .set_localized("Checking the DESFire applications…");
-    let service = ui.service.clone();
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => service.desfire_inventory(CancelToken::new()),
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        set_busy(&ui, false);
-        let inventory = match receiver.recv().await {
-            Ok(Ok(inventory)) => inventory,
-            Ok(Err(error)) => {
-                toast_error(&ui, &format!("DESFire inventory: {error}"));
-                return;
+    run_service_task(
+        &ui,
+        "DESFire inventory",
+        |service, cancel| service.desfire_inventory(cancel),
+        move |ui, result| {
+            set_busy(ui, false);
+            let inventory = match result {
+                Ok(inventory) => inventory,
+                Err(NfcError::Cancelled) => {
+                    ui.status.set_localized("DESFire PICC check cancelled");
+                    append_log(ui, "desfire · format picc cancelled");
+                    return;
+                }
+                Err(error) => {
+                    toast_error(ui, &format!("DESFire inventory: {error}"));
+                    return;
+                }
+            };
+            let mut applications = String::new();
+            if inventory.applications.is_empty() {
+                applications.push_str("Applications: none\n");
+            } else {
+                applications.push_str("Applications to erase:\n");
+                for application in &inventory.applications {
+                    applications.push_str(&format!(
+                        "  {} · {} file(s)\n",
+                        type2_ui::hex_bytes(&application.aid),
+                        application.files.len()
+                    ));
+                }
             }
-            Err(_) => {
-                toast_error(&ui, "Reader worker stopped");
-                return;
-            }
-        };
-        let mut applications = String::new();
-        if inventory.applications.is_empty() {
-            applications.push_str("Applications: none\n");
-        } else {
-            applications.push_str("Applications to erase:\n");
-            for application in &inventory.applications {
-                applications.push_str(&format!(
-                    "  {} · {} file(s)\n",
-                    type2_ui::hex_bytes(&application.aid),
-                    application.files.len()
-                ));
-            }
-        }
-        let body = format!(
-            "{}\n\nFormatPICC erases every application and file.\n\n{}\n\
-             PICC key: key {key_number} (session only)\n\
-             The PICC master key returns to the factory state. This is a full reset and is \
-             never part of NDEF provisioning.\n\nType ERASE to confirm",
-            inventory.version.name(),
-            applications.trim_end(),
-        );
-        let dialog = typed_confirmation_dialog(
-            "Format the PICC and erase every application?",
-            &body,
-            "Format PICC",
-            "ERASE",
-        );
-        ui.pending_desfire_dialog.replace(Some(dialog.clone()));
-        let ui2 = ui.clone();
-        let key = RefCell::new(Some(key));
-        dialog.connect_response(None, move |_, response| {
-            ui2.pending_desfire_dialog.replace(None);
-            if response == "confirm"
-                && let Some(key) = key.borrow_mut().take()
-            {
-                execute_desfire_format_picc(ui2.clone(), key, key_type, key_number);
-            }
-        });
-        present_alert(&dialog, &ui.window);
-    });
+            let body = format!(
+                "{}\n\nFormatPICC erases every application and file.\n\n{}\n\
+                 PICC key: key {key_number} (session only)\n\
+                 The PICC master key returns to the factory state. This is a full reset and is \
+                 never part of NDEF provisioning.\n\nType ERASE to confirm",
+                inventory.version.name(),
+                applications.trim_end(),
+            );
+            let dialog = typed_confirmation_dialog(
+                "Format the PICC and erase every application?",
+                &body,
+                "Format PICC",
+                "ERASE",
+            );
+            ui.pending_desfire_dialog.replace(Some(dialog.clone()));
+            let ui2 = ui.clone();
+            let key = RefCell::new(Some(key));
+            dialog.connect_response(None, move |_, response| {
+                ui2.pending_desfire_dialog.replace(None);
+                if response == "confirm"
+                    && let Some(key) = key.borrow_mut().take()
+                {
+                    execute_desfire_format_picc(ui2.clone(), key, key_type, key_number);
+                }
+            });
+            present_alert(&dialog, &ui.window);
+        },
+    );
 }
 
 fn execute_desfire_format_picc(
@@ -8316,70 +8455,68 @@ fn execute_desfire_format_picc(
     ui.desfire_view
         .manage_status
         .set_localized("Formatting the PICC…");
-    let service = ui.service.clone();
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => {
-                let mut request = DesfireFormatPiccRequest::new(key)
-                    .key_number(key_number)
-                    .advanced(true)
-                    .confirm(true);
-                if let Some(key_type) = key_type {
-                    request = request.key_type(key_type);
-                }
-                service.desfire_format_picc(request)
+    run_service_task(
+        &ui,
+        "Format PICC",
+        move |service, cancel| {
+            let mut request = DesfireFormatPiccRequest::new(key)
+                .key_number(key_number)
+                .advanced(true)
+                .confirm(true)
+                .cancel(cancel);
+            if let Some(key_type) = key_type {
+                request = request.key_type(key_type);
             }
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        set_busy(&ui, false);
-        match receiver.recv().await {
-            Ok(Ok(result)) => {
-                ui.desfire_view.manage_status.set_localized(&format!(
-                    "PICC formatted · {} application(s) erased · {} bytes free",
-                    result.applications_before.len(),
-                    result.free_memory
-                ));
-                ui.status.set_localized("DESFire PICC formatted");
-                journal_desfire(
-                    &ui,
-                    "format picc",
-                    "all applications",
-                    "succeeded",
-                    Some(&format!(
-                        "{} application(s) erased · {} bytes free",
+            service.desfire_format_picc(request)
+        },
+        |ui, result| {
+            set_busy(ui, false);
+            match result {
+                Ok(result) => {
+                    ui.desfire_view.manage_status.set_localized(&format!(
+                        "PICC formatted · {} application(s) erased · {} bytes free",
                         result.applications_before.len(),
                         result.free_memory
-                    )),
-                );
-                ui.desfire_view.manage_key.set_text("");
-                start_desfire_inventory(ui);
+                    ));
+                    ui.status.set_localized("DESFire PICC formatted");
+                    journal_desfire(
+                        ui,
+                        "format picc",
+                        "all applications",
+                        "succeeded",
+                        Some(&format!(
+                            "{} application(s) erased · {} bytes free",
+                            result.applications_before.len(),
+                            result.free_memory
+                        )),
+                    );
+                    ui.desfire_view.manage_key.set_text("");
+                    start_desfire_inventory(ui.clone());
+                }
+                Err(NfcError::Cancelled) => {
+                    ui.desfire_view
+                        .manage_status
+                        .set_localized("FormatPICC cancelled");
+                    ui.status.set_localized("DESFire FormatPICC cancelled");
+                    journal_desfire(ui, "format picc", "all applications", "cancelled", None);
+                }
+                Err(error) => {
+                    ui.desfire_view
+                        .manage_status
+                        .set_localized("FormatPICC failed");
+                    ui.status.set_localized("DESFire FormatPICC failed");
+                    journal_desfire(
+                        ui,
+                        "format picc",
+                        "all applications",
+                        "failed",
+                        Some(&error.to_string()),
+                    );
+                    toast_error_unlogged(ui, &format!("DESFire FormatPICC: {error}"));
+                }
             }
-            Ok(Err(error)) => {
-                ui.desfire_view
-                    .manage_status
-                    .set_localized("FormatPICC failed");
-                ui.status.set_localized("DESFire FormatPICC failed");
-                journal_desfire(
-                    &ui,
-                    "format picc",
-                    "all applications",
-                    "failed",
-                    Some(&error.to_string()),
-                );
-                toast_error_unlogged(&ui, &format!("DESFire FormatPICC: {error}"));
-            }
-            Err(_) => {
-                ui.desfire_view
-                    .manage_status
-                    .set_localized("FormatPICC failed");
-                toast_error(&ui, "Reader worker stopped");
-            }
-        }
-    });
+        },
+    );
 }
 
 struct DesfireManageKey {
@@ -8546,46 +8683,38 @@ fn run_desfire_manage<F>(
     refresh: bool,
     task: F,
 ) where
-    F: FnOnce(&mut Service) -> NfcResult<String> + Send + 'static,
+    F: FnOnce(&mut Service, CancelToken) -> NfcResult<String> + Send + 'static,
 {
     set_busy(&ui, true);
     ui.status.set_localized(busy_status);
     ui.desfire_view.manage_status.set_localized(busy_status);
-    let service = ui.service.clone();
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => task(&mut service),
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        set_busy(&ui, false);
-        match receiver.recv().await {
-            Ok(Ok(text)) => {
+    run_service_task(&ui, operation, task, move |ui, result| {
+        set_busy(ui, false);
+        match result {
+            Ok(text) => {
                 ui.desfire_view.manage_output.set_text(&text);
                 ui.desfire_view.manage_status.set_localized(success_status);
                 ui.status.set_localized(success_status);
-                journal_desfire(&ui, operation, &target, "succeeded", None);
-                update_desfire_actions(&ui);
+                journal_desfire(ui, operation, &target, "succeeded", None);
+                update_desfire_actions(ui);
                 if refresh {
-                    start_desfire_inventory(ui);
+                    start_desfire_inventory(ui.clone());
                 }
             }
-            Ok(Err(error)) => {
+            Err(NfcError::Cancelled) => {
+                ui.desfire_view
+                    .manage_status
+                    .set_localized("DESFire management cancelled");
+                ui.status.set_localized("DESFire management cancelled");
+                journal_desfire(ui, operation, &target, "cancelled", None);
+            }
+            Err(error) => {
                 ui.desfire_view
                     .manage_status
                     .set_localized("DESFire management failed");
                 ui.status.set_localized("DESFire management failed");
-                journal_desfire(&ui, operation, &target, "failed", Some(&error.to_string()));
-                toast_error_unlogged(&ui, &format!("DESFire management: {error}"));
-            }
-            Err(_) => {
-                ui.desfire_view
-                    .manage_status
-                    .set_localized("Reader worker stopped");
-                toast_error(&ui, "Reader worker stopped");
+                journal_desfire(ui, operation, &target, "failed", Some(&error.to_string()));
+                toast_error_unlogged(ui, &format!("DESFire management: {error}"));
             }
         }
     });
@@ -8599,43 +8728,35 @@ fn run_desfire_keys<F>(
     success_status: &'static str,
     task: F,
 ) where
-    F: FnOnce(&mut Service) -> NfcResult<String> + Send + 'static,
+    F: FnOnce(&mut Service, CancelToken) -> NfcResult<String> + Send + 'static,
 {
     set_busy(&ui, true);
     ui.status.set_localized(busy_status);
     ui.desfire_view.keys_status.set_localized(busy_status);
-    let service = ui.service.clone();
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => task(&mut service),
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        set_busy(&ui, false);
-        match receiver.recv().await {
-            Ok(Ok(text)) => {
+    run_service_task(&ui, operation, task, move |ui, result| {
+        set_busy(ui, false);
+        match result {
+            Ok(text) => {
                 ui.desfire_view.keys_output.set_text(&text);
                 ui.desfire_view.keys_status.set_localized(success_status);
                 ui.status.set_localized(success_status);
-                journal_desfire(&ui, operation, &target, "succeeded", None);
-                update_desfire_actions(&ui);
+                journal_desfire(ui, operation, &target, "succeeded", None);
+                update_desfire_actions(ui);
             }
-            Ok(Err(error)) => {
+            Err(NfcError::Cancelled) => {
+                ui.desfire_view
+                    .keys_status
+                    .set_localized("DESFire key operation cancelled");
+                ui.status.set_localized("DESFire key operation cancelled");
+                journal_desfire(ui, operation, &target, "cancelled", None);
+            }
+            Err(error) => {
                 ui.desfire_view
                     .keys_status
                     .set_localized("DESFire key operation failed");
                 ui.status.set_localized("DESFire key operation failed");
-                journal_desfire(&ui, operation, &target, "failed", Some(&error.to_string()));
-                toast_error_unlogged(&ui, &format!("DESFire key: {error}"));
-            }
-            Err(_) => {
-                ui.desfire_view
-                    .keys_status
-                    .set_localized("Reader worker stopped");
-                toast_error(&ui, "Reader worker stopped");
+                journal_desfire(ui, operation, &target, "failed", Some(&error.to_string()));
+                toast_error_unlogged(ui, &format!("DESFire key: {error}"));
             }
         }
     });
@@ -8649,47 +8770,40 @@ fn run_desfire_mutation<F>(
     success_status: &'static str,
     task: F,
 ) where
-    F: FnOnce(&mut Service) -> NfcResult<String> + Send + 'static,
+    F: FnOnce(&mut Service, CancelToken) -> NfcResult<String> + Send + 'static,
 {
     set_busy(&ui, true);
     ui.status.set_localized(busy_status);
     ui.desfire_view.mutation_status.set_localized(busy_status);
-    let service = ui.service.clone();
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => task(&mut service),
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        set_busy(&ui, false);
-        match receiver.recv().await {
-            Ok(Ok(text)) => {
+    run_service_task(&ui, operation, task, move |ui, result| {
+        set_busy(ui, false);
+        match result {
+            Ok(text) => {
                 ui.desfire_view.mutation_output.set_text(&text);
                 ui.desfire_view
                     .mutation_status
                     .set_localized(success_status);
                 ui.status.set_localized(success_status);
-                journal_desfire(&ui, operation, &target, "succeeded", None);
-                update_desfire_actions(&ui);
-                start_desfire_inventory(ui);
+                journal_desfire(ui, operation, &target, "succeeded", None);
+                update_desfire_actions(ui);
+                start_desfire_inventory(ui.clone());
             }
-            Ok(Err(error)) => {
+            Err(NfcError::Cancelled) => {
+                ui.desfire_view
+                    .mutation_status
+                    .set_localized("DESFire value or record change cancelled");
+                ui.status
+                    .set_localized("DESFire value or record change cancelled");
+                journal_desfire(ui, operation, &target, "cancelled", None);
+            }
+            Err(error) => {
                 ui.desfire_view
                     .mutation_status
                     .set_localized("DESFire value or record change failed");
                 ui.status
                     .set_localized("DESFire value or record change failed");
-                journal_desfire(&ui, operation, &target, "failed", Some(&error.to_string()));
-                toast_error_unlogged(&ui, &format!("DESFire value/record: {error}"));
-            }
-            Err(_) => {
-                ui.desfire_view
-                    .mutation_status
-                    .set_localized("Reader worker stopped");
-                toast_error(&ui, "Reader worker stopped");
+                journal_desfire(ui, operation, &target, "failed", Some(&error.to_string()));
+                toast_error_unlogged(ui, &format!("DESFire value/record: {error}"));
             }
         }
     });
@@ -8812,9 +8926,9 @@ fn start_desfire_mutation(ui: Rc<Ui>) {
             ),
             "Changing the DESFire value…",
             "DESFire value changed",
-            move |service| {
+            move |service, cancel| {
                 service
-                    .desfire_value_change(request)
+                    .desfire_value_change(request.cancel(cancel))
                     .map(|result| value_text(&result))
             },
         );
@@ -8850,9 +8964,9 @@ fn start_desfire_mutation(ui: Rc<Ui>) {
             ),
             "Changing the DESFire records…",
             "DESFire records changed",
-            move |service| {
+            move |service, cancel| {
                 service
-                    .desfire_record_change(request)
+                    .desfire_record_change(request.cancel(cancel))
                     .map(|result| record_text(&result))
             },
         );
@@ -8888,11 +9002,12 @@ fn start_desfire_app_create(ui: Rc<Ui>) {
         "Creating the DESFire application…",
         "DESFire application created",
         true,
-        move |service| {
+        move |service, cancel| {
             let mut request = DesfireAppCreateRequest::new(input.aid)
                 .keys(keys)
                 .app_key_type(app_key_type)
-                .key_number(input.key_number);
+                .key_number(input.key_number)
+                .cancel(cancel);
             if let Some(key) = input.key {
                 request = request.key(key);
             }
@@ -8932,62 +9047,61 @@ fn start_desfire_app_delete(ui: Rc<Ui>) {
     let aid = input.aid;
     set_busy(&ui, true);
     ui.status.set_localized("Checking the DESFire application…");
-    let service = ui.service.clone();
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => service.desfire_inventory(CancelToken::new()),
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        set_busy(&ui, false);
-        let inventory = match receiver.recv().await {
-            Ok(Ok(inventory)) => inventory,
-            Ok(Err(error)) => {
-                toast_error(&ui, &format!("DESFire application delete: {error}"));
+    run_service_task(
+        &ui,
+        "DESFire inventory",
+        |service, cancel| service.desfire_inventory(cancel),
+        move |ui, result| {
+            set_busy(ui, false);
+            let inventory = match result {
+                Ok(inventory) => inventory,
+                Err(NfcError::Cancelled) => {
+                    ui.status
+                        .set_localized("DESFire application delete cancelled");
+                    append_log(ui, "desfire app delete · cancelled");
+                    return;
+                }
+                Err(error) => {
+                    toast_error(ui, &format!("DESFire application delete: {error}"));
+                    return;
+                }
+            };
+            let Some(application) = inventory
+                .applications
+                .iter()
+                .find(|application| application.aid == aid)
+            else {
+                toast_error(
+                    ui,
+                    &format!(
+                        "application {} is not listed on the card",
+                        type2_ui::hex_bytes(&aid)
+                    ),
+                );
                 return;
-            }
-            Err(_) => {
-                toast_error(&ui, "Reader worker stopped");
-                return;
-            }
-        };
-        let Some(application) = inventory
-            .applications
-            .iter()
-            .find(|application| application.aid == aid)
-        else {
-            toast_error(
-                &ui,
-                &format!(
-                    "application {} is not listed on the card",
-                    type2_ui::hex_bytes(&aid)
-                ),
-            );
-            return;
-        };
-        let mut files = String::new();
-        if application.files.is_empty() {
-            files.push_str("files: none visible without authentication\n");
-        } else {
-            files.push_str("files:\n");
-            for file in &application.files {
-                match FileSettings::parse(&file.settings) {
-                    Ok(settings) => {
-                        files.push_str(&format!("  {:02X}: {}\n", file.file_id, settings.summary()))
+            };
+            let mut files = String::new();
+            if application.files.is_empty() {
+                files.push_str("files: none visible without authentication\n");
+            } else {
+                files.push_str("files:\n");
+                for file in &application.files {
+                    match FileSettings::parse(&file.settings) {
+                        Ok(settings) => files.push_str(&format!(
+                            "  {:02X}: {}\n",
+                            file.file_id,
+                            settings.summary()
+                        )),
+                        Err(error) => files.push_str(&format!(
+                            "  {:02X}: undecoded ({error}) {}\n",
+                            file.file_id,
+                            type2_ui::hex_bytes(&file.settings)
+                        )),
                     }
-                    Err(error) => files.push_str(&format!(
-                        "  {:02X}: undecoded ({error}) {}\n",
-                        file.file_id,
-                        type2_ui::hex_bytes(&file.settings)
-                    )),
                 }
             }
-        }
-        let body = format!(
-            "Delete application {} from {} and every file it contains.\n\
+            let body = format!(
+                "Delete application {} from {} and every file it contains.\n\
              PICC key: key {}\n\
              {}\
              Manifest: {}\n\
@@ -8995,57 +9109,59 @@ fn start_desfire_app_delete(ui: Rc<Ui>) {
              Read-back: application ID list read after deletion.\n\
              No byte-for-byte restore exists.\n\n\
              Type DELETE to confirm",
-            type2_ui::hex_bytes(&aid),
-            inventory.version.name(),
-            input.key_number,
-            files,
-            manifest_path.display()
-        );
-        let dialog = typed_confirmation_dialog(
-            "Delete the DESFire application?",
-            &body,
-            "Delete application",
-            "DELETE",
-        );
-        ui.pending_desfire_dialog.replace(Some(dialog.clone()));
-        let ui2 = ui.clone();
-        let state = RefCell::new(Some((input, manifest_path)));
-        dialog.connect_response(None, move |_, response| {
-            ui2.pending_desfire_dialog.replace(None);
-            if response != "confirm" {
-                return;
-            }
-            let Some((input, manifest_path)) = state.borrow_mut().take() else {
-                return;
-            };
-            let target = format!("application {}", type2_ui::hex_bytes(&input.aid));
-            run_desfire_manage(
-                ui2.clone(),
-                "app delete",
-                target,
-                "Deleting the DESFire application…",
-                "DESFire application deleted",
-                true,
-                move |service| {
-                    let mut request = DesfireAppDeleteRequest::new(input.aid)
-                        .key_number(input.key_number)
-                        .advanced(true)
-                        .confirm(true)
-                        .manifest_path(manifest_path);
-                    if let Some(key) = input.key {
-                        request = request.key(key);
-                    }
-                    if let Some(key_type) = input.key_type {
-                        request = request.key_type(key_type);
-                    }
-                    service
-                        .desfire_delete_application(request)
-                        .map(|result| app_delete_text(&result))
-                },
+                type2_ui::hex_bytes(&aid),
+                inventory.version.name(),
+                input.key_number,
+                files,
+                manifest_path.display()
             );
-        });
-        present_alert(&dialog, &ui.window);
-    });
+            let dialog = typed_confirmation_dialog(
+                "Delete the DESFire application?",
+                &body,
+                "Delete application",
+                "DELETE",
+            );
+            ui.pending_desfire_dialog.replace(Some(dialog.clone()));
+            let ui2 = ui.clone();
+            let state = RefCell::new(Some((input, manifest_path)));
+            dialog.connect_response(None, move |_, response| {
+                ui2.pending_desfire_dialog.replace(None);
+                if response != "confirm" {
+                    return;
+                }
+                let Some((input, manifest_path)) = state.borrow_mut().take() else {
+                    return;
+                };
+                let target = format!("application {}", type2_ui::hex_bytes(&input.aid));
+                run_desfire_manage(
+                    ui2.clone(),
+                    "app delete",
+                    target,
+                    "Deleting the DESFire application…",
+                    "DESFire application deleted",
+                    true,
+                    move |service, cancel| {
+                        let mut request = DesfireAppDeleteRequest::new(input.aid)
+                            .key_number(input.key_number)
+                            .advanced(true)
+                            .confirm(true)
+                            .manifest_path(manifest_path)
+                            .cancel(cancel);
+                        if let Some(key) = input.key {
+                            request = request.key(key);
+                        }
+                        if let Some(key_type) = input.key_type {
+                            request = request.key_type(key_type);
+                        }
+                        service
+                            .desfire_delete_application(request)
+                            .map(|result| app_delete_text(&result))
+                    },
+                );
+            });
+            present_alert(&dialog, &ui.window);
+        },
+    );
 }
 
 fn desfire_keys_aid(view: &DesfireView) -> std::result::Result<[u8; 3], String> {
@@ -9100,8 +9216,10 @@ fn start_desfire_key_settings(ui: Rc<Ui>, changing: bool) {
             target,
             "Reading DESFire key settings…",
             "Key settings read",
-            move |service| {
-                let mut request = DesfireKeySettingsRequest::new(aid).key_number(key_number);
+            move |service, cancel| {
+                let mut request = DesfireKeySettingsRequest::new(aid)
+                    .key_number(key_number)
+                    .cancel(cancel);
                 if let Some(key) = key {
                     request = request.key(key);
                 }
@@ -9126,101 +9244,103 @@ fn start_desfire_key_settings(ui: Rc<Ui>, changing: bool) {
     let read_key = key.clone();
     set_busy(&ui, true);
     ui.status.set_localized("Checking DESFire key settings…");
-    let service = ui.service.clone();
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => {
-                let mut request = DesfireKeySettingsRequest::new(aid).key_number(key_number);
-                if let Some(key) = read_key {
-                    request = request.key(key);
+    run_service_task(
+        &ui,
+        "DESFire key settings preflight",
+        move |service, cancel| {
+            let mut request = DesfireKeySettingsRequest::new(aid)
+                .key_number(key_number)
+                .cancel(cancel);
+            if let Some(key) = read_key {
+                request = request.key(key);
+            }
+            if let Some(key_type) = key_type {
+                request = request.key_type(key_type);
+            }
+            service.desfire_key_settings(request)
+        },
+        move |ui, result| {
+            set_busy(ui, false);
+            let before = match result {
+                Ok(result) => result,
+                Err(NfcError::Cancelled) => {
+                    ui.status
+                        .set_localized("DESFire key settings check cancelled");
+                    append_log(ui, "desfire key settings · cancelled");
+                    return;
                 }
-                if let Some(key_type) = key_type {
-                    request = request.key_type(key_type);
+                Err(error) => {
+                    toast_error(ui, &format!("DESFire key settings: {error}"));
+                    return;
                 }
-                service.desfire_key_settings(request)
-            }
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        set_busy(&ui, false);
-        let before = match receiver.recv().await {
-            Ok(Ok(result)) => result,
-            Ok(Err(error)) => {
-                toast_error(&ui, &format!("DESFire key settings: {error}"));
-                return;
-            }
-            Err(_) => {
-                toast_error(&ui, "Reader worker stopped");
-                return;
-            }
-        };
-        let key_line = if key.is_some() {
-            format!("Key: key {key_number} (session only)")
-        } else {
-            "Key: none (free access)".to_owned()
-        };
-        let body = format!(
-            "Change the KeySettings byte of {label}.\n\
+            };
+            let key_line = if key.is_some() {
+                format!("Key: key {key_number} (session only)")
+            } else {
+                "Key: none (free access)".to_owned()
+            };
+            let body = format!(
+                "Change the KeySettings byte of {label}.\n\
              Current KeySettings: {:02X}\n\
              New KeySettings: {new_settings:02X}\n\
              {key_line}\n\
              This controls who may change keys and the application configuration.\n\
              Read-back: KeySettings read and compared after the command.\n\n\
              Type CHANGE to confirm",
-            before.before.key_settings
-        );
-        let dialog = typed_confirmation_dialog(
-            "Change DESFire KeySettings?",
-            &body,
-            "Change KeySettings",
-            "CHANGE",
-        );
-        ui.pending_desfire_dialog.replace(Some(dialog.clone()));
-        let ui2 = ui.clone();
-        let parsed = RefCell::new(Some((aid, key, key_type, key_number, new_settings)));
-        dialog.connect_response(None, move |_, response| {
-            ui2.pending_desfire_dialog.replace(None);
-            if response != "confirm" {
-                return;
-            }
-            let Some((aid, key, key_type, key_number, new_settings)) = parsed.borrow_mut().take()
-            else {
-                return;
-            };
-            let target = if aid == [0x00; 3] {
-                "PICC".to_owned()
-            } else {
-                format!("application {}", type2_ui::hex_bytes(&aid))
-            };
-            run_desfire_keys(
-                ui2.clone(),
-                "key settings",
-                target,
-                "Changing DESFire KeySettings…",
-                "KeySettings changed",
-                move |service| {
-                    let mut request = DesfireKeySettingsRequest::new(aid)
-                        .key_number(key_number)
-                        .new_key_settings(new_settings)
-                        .advanced(true)
-                        .confirm(true);
-                    if let Some(key) = key {
-                        request = request.key(key);
-                    }
-                    if let Some(key_type) = key_type {
-                        request = request.key_type(key_type);
-                    }
-                    service
-                        .desfire_key_settings(request)
-                        .map(|result| key_settings_text(&result))
-                },
+                before.before.key_settings
             );
-        });
-        present_alert(&dialog, &ui.window);
-    });
+            let dialog = typed_confirmation_dialog(
+                "Change DESFire KeySettings?",
+                &body,
+                "Change KeySettings",
+                "CHANGE",
+            );
+            ui.pending_desfire_dialog.replace(Some(dialog.clone()));
+            let ui2 = ui.clone();
+            let parsed = RefCell::new(Some((aid, key, key_type, key_number, new_settings)));
+            dialog.connect_response(None, move |_, response| {
+                ui2.pending_desfire_dialog.replace(None);
+                if response != "confirm" {
+                    return;
+                }
+                let Some((aid, key, key_type, key_number, new_settings)) =
+                    parsed.borrow_mut().take()
+                else {
+                    return;
+                };
+                let target = if aid == [0x00; 3] {
+                    "PICC".to_owned()
+                } else {
+                    format!("application {}", type2_ui::hex_bytes(&aid))
+                };
+                run_desfire_keys(
+                    ui2.clone(),
+                    "key settings",
+                    target,
+                    "Changing DESFire KeySettings…",
+                    "KeySettings changed",
+                    move |service, cancel| {
+                        let mut request = DesfireKeySettingsRequest::new(aid)
+                            .key_number(key_number)
+                            .new_key_settings(new_settings)
+                            .advanced(true)
+                            .confirm(true)
+                            .cancel(cancel);
+                        if let Some(key) = key {
+                            request = request.key(key);
+                        }
+                        if let Some(key_type) = key_type {
+                            request = request.key_type(key_type);
+                        }
+                        service
+                            .desfire_key_settings(request)
+                            .map(|result| key_settings_text(&result))
+                    },
+                );
+            });
+            present_alert(&dialog, &ui.window);
+        },
+    );
 }
 
 fn start_desfire_change_key(ui: Rc<Ui>) {
@@ -9309,51 +9429,47 @@ fn start_desfire_change_key(ui: Rc<Ui>) {
     let read_key = key.clone();
     set_busy(&ui, true);
     ui.status.set_localized("Checking DESFire key settings…");
-    let service = ui.service.clone();
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => {
-                let request = DesfireKeySettingsRequest::new(aid)
-                    .key(read_key)
-                    .key_type(session_type)
-                    .key_number(auth_key_number);
-                service.desfire_key_settings(request)
-            }
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        set_busy(&ui, false);
-        let before = match receiver.recv().await {
-            Ok(Ok(result)) => result,
-            Ok(Err(error)) => {
-                toast_error(&ui, &format!("DESFire key change: {error}"));
-                return;
-            }
-            Err(_) => {
-                toast_error(&ui, "Reader worker stopped");
-                return;
-            }
-        };
-        let current_version = before
-            .key_versions
-            .get(usize::from(key_number))
-            .copied()
-            .flatten()
-            .map_or("unreported".to_owned(), |version| version.to_string());
-        let export_line = match &export_path {
-            Some(path) => format!(
-                "The new key is written to {} (mode 0600) before the change.",
-                path.display()
-            ),
-            None => {
-                "The new key is not exported; it must be recorded outside this session.".to_owned()
-            }
-        };
-        let body = format!(
-            "Change key {key_number} of {label}.\n\
+    run_service_task(
+        &ui,
+        "DESFire key change preflight",
+        move |service, cancel| {
+            let request = DesfireKeySettingsRequest::new(aid)
+                .key(read_key)
+                .key_type(session_type)
+                .key_number(auth_key_number)
+                .cancel(cancel);
+            service.desfire_key_settings(request)
+        },
+        move |ui, result| {
+            set_busy(ui, false);
+            let before = match result {
+                Ok(result) => result,
+                Err(NfcError::Cancelled) => {
+                    ui.status.set_localized("DESFire key change cancelled");
+                    append_log(ui, "desfire key change · cancelled");
+                    return;
+                }
+                Err(error) => {
+                    toast_error(ui, &format!("DESFire key change: {error}"));
+                    return;
+                }
+            };
+            let current_version = before
+                .key_versions
+                .get(usize::from(key_number))
+                .copied()
+                .flatten()
+                .map_or("unreported".to_owned(), |version| version.to_string());
+            let export_line = match &export_path {
+                Some(path) => format!(
+                    "The new key is written to {} (mode 0600) before the change.",
+                    path.display()
+                ),
+                None => "The new key is not exported; it must be recorded outside this session."
+                    .to_owned(),
+            };
+            let body = format!(
+                "Change key {key_number} of {label}.\n\
              Current key version: {current_version}\n\
              New key version: {new_key_version}\n\
              Session key number: {auth_key_number}\n\
@@ -9361,28 +9477,12 @@ fn start_desfire_change_key(ui: Rc<Ui>) {
              The card is re-authenticated with the new key and its version is read back.\n\
              A lost key cannot be recovered.\n\n\
              Type CHANGE to confirm"
-        );
-        let dialog =
-            typed_confirmation_dialog("Change a DESFire key?", &body, "Change key", "CHANGE");
-        ui.pending_desfire_dialog.replace(Some(dialog.clone()));
-        let ui2 = ui.clone();
-        let parsed = RefCell::new(Some((
-            aid,
-            key,
-            key_type,
-            auth_key_number,
-            key_number,
-            current_key,
-            new_key,
-            new_key_version,
-            export_path,
-        )));
-        dialog.connect_response(None, move |_, response| {
-            ui2.pending_desfire_dialog.replace(None);
-            if response != "confirm" {
-                return;
-            }
-            let Some((
+            );
+            let dialog =
+                typed_confirmation_dialog("Change a DESFire key?", &body, "Change key", "CHANGE");
+            ui.pending_desfire_dialog.replace(Some(dialog.clone()));
+            let ui2 = ui.clone();
+            let parsed = RefCell::new(Some((
                 aid,
                 key,
                 key_type,
@@ -9392,46 +9492,64 @@ fn start_desfire_change_key(ui: Rc<Ui>) {
                 new_key,
                 new_key_version,
                 export_path,
-            )) = parsed.borrow_mut().take()
-            else {
-                return;
-            };
-            let target = if aid == [0x00; 3] {
-                format!("PICC key {key_number}")
-            } else {
-                format!("application {} key {key_number}", type2_ui::hex_bytes(&aid))
-            };
-            run_desfire_keys(
-                ui2.clone(),
-                "key change",
-                target,
-                "Changing the DESFire key…",
-                "DESFire key changed",
-                move |service| {
-                    let mut request = DesfireKeyChangeRequest::new(aid, key_number, new_key)
-                        .key(key)
-                        .auth_key_number(auth_key_number)
-                        .new_key_version(new_key_version)
-                        .advanced(true)
-                        .confirm(true);
-                    if let Some(key_type) = key_type {
-                        request = request.key_type(key_type);
-                    }
-                    if let Some(current_key) = current_key {
-                        request = request.current_key(current_key);
-                    }
-                    match export_path {
-                        Some(path) => request = request.export_path(path),
-                        None => request = request.acknowledge_unrecorded(true),
-                    }
-                    service
-                        .desfire_change_key(request)
-                        .map(|result| key_change_text(&result))
-                },
-            );
-        });
-        present_alert(&dialog, &ui.window);
-    });
+            )));
+            dialog.connect_response(None, move |_, response| {
+                ui2.pending_desfire_dialog.replace(None);
+                if response != "confirm" {
+                    return;
+                }
+                let Some((
+                    aid,
+                    key,
+                    key_type,
+                    auth_key_number,
+                    key_number,
+                    current_key,
+                    new_key,
+                    new_key_version,
+                    export_path,
+                )) = parsed.borrow_mut().take()
+                else {
+                    return;
+                };
+                let target = if aid == [0x00; 3] {
+                    format!("PICC key {key_number}")
+                } else {
+                    format!("application {} key {key_number}", type2_ui::hex_bytes(&aid))
+                };
+                run_desfire_keys(
+                    ui2.clone(),
+                    "key change",
+                    target,
+                    "Changing the DESFire key…",
+                    "DESFire key changed",
+                    move |service, cancel| {
+                        let mut request = DesfireKeyChangeRequest::new(aid, key_number, new_key)
+                            .key(key)
+                            .auth_key_number(auth_key_number)
+                            .new_key_version(new_key_version)
+                            .advanced(true)
+                            .confirm(true)
+                            .cancel(cancel);
+                        if let Some(key_type) = key_type {
+                            request = request.key_type(key_type);
+                        }
+                        if let Some(current_key) = current_key {
+                            request = request.current_key(current_key);
+                        }
+                        match export_path {
+                            Some(path) => request = request.export_path(path),
+                            None => request = request.acknowledge_unrecorded(true),
+                        }
+                        service
+                            .desfire_change_key(request)
+                            .map(|result| key_change_text(&result))
+                    },
+                );
+            });
+            present_alert(&dialog, &ui.window);
+        },
+    );
 }
 
 fn start_desfire_file_create(ui: Rc<Ui>) {
@@ -9466,9 +9584,10 @@ fn start_desfire_file_create(ui: Rc<Ui>) {
         "Creating the DESFire file…",
         "DESFire file created",
         true,
-        move |service| {
-            let mut request =
-                DesfireFileCreateRequest::new(input.aid, spec).key_number(input.key_number);
+        move |service, cancel| {
+            let mut request = DesfireFileCreateRequest::new(input.aid, spec)
+                .key_number(input.key_number)
+                .cancel(cancel);
             if let Some(key) = input.key {
                 request = request.key(key);
             }
@@ -9517,45 +9636,42 @@ fn start_desfire_file_delete(ui: Rc<Ui>) {
 
     set_busy(&ui, true);
     ui.status.set_localized("Checking the DESFire file…");
-    let service = ui.service.clone();
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => {
-                let mut request =
-                    DesfireFileInspectionRequest::new(aid, file_id).key_number(key_number);
-                if let Some(key) = key {
-                    request = request.key(key);
+    run_service_task(
+        &ui,
+        "DESFire file inspection",
+        move |service, cancel| {
+            let mut request = DesfireFileInspectionRequest::new(aid, file_id)
+                .key_number(key_number)
+                .cancel(cancel);
+            if let Some(key) = key {
+                request = request.key(key);
+            }
+            if let Some(key_type) = key_type {
+                request = request.key_type(key_type);
+            }
+            service.desfire_inspect_file(request)
+        },
+        move |ui, result| {
+            set_busy(ui, false);
+            let inspection = match result {
+                Ok(inspection) => inspection,
+                Err(NfcError::Cancelled) => {
+                    ui.status.set_localized("DESFire file delete cancelled");
+                    append_log(ui, "desfire file delete · cancelled");
+                    return;
                 }
-                if let Some(key_type) = key_type {
-                    request = request.key_type(key_type);
+                Err(error) => {
+                    toast_error(ui, &format!("DESFire file delete: {error}"));
+                    return;
                 }
-                service.desfire_inspect_file(request)
-            }
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        set_busy(&ui, false);
-        let inspection = match receiver.recv().await {
-            Ok(Ok(inspection)) => inspection,
-            Ok(Err(error)) => {
-                toast_error(&ui, &format!("DESFire file delete: {error}"));
-                return;
-            }
-            Err(_) => {
-                toast_error(&ui, "Reader worker stopped");
-                return;
-            }
-        };
-        let key_line = if input.key.is_some() {
-            format!("key: key {key_number} (session only)")
-        } else {
-            "key: none (free access)".to_owned()
-        };
-        let body = format!(
-            "Delete file {file_id:02X} from application {}.\n\
+            };
+            let key_line = if input.key.is_some() {
+                format!("key: key {key_number} (session only)")
+            } else {
+                "key: none (free access)".to_owned()
+            };
+            let body = format!(
+                "Delete file {file_id:02X} from application {}.\n\
              {key_line}\n\
              current: {}\n\
              Manifest: {}\n\
@@ -9563,54 +9679,60 @@ fn start_desfire_file_delete(ui: Rc<Ui>) {
              Read-back: file ID list read after deletion.\n\
              No byte-for-byte restore exists.\n\n\
              Type DELETE to confirm",
-            type2_ui::hex_bytes(&inspection.aid),
-            inspection.settings.summary(),
-            manifest_path.display()
-        );
-        let dialog =
-            typed_confirmation_dialog("Delete the DESFire file?", &body, "Delete file", "DELETE");
-        ui.pending_desfire_dialog.replace(Some(dialog.clone()));
-        let ui2 = ui.clone();
-        let state = RefCell::new(Some((input, file_id, manifest_path)));
-        dialog.connect_response(None, move |_, response| {
-            ui2.pending_desfire_dialog.replace(None);
-            if response != "confirm" {
-                return;
-            }
-            let Some((input, file_id, manifest_path)) = state.borrow_mut().take() else {
-                return;
-            };
-            let target = format!(
-                "application {} file {file_id:02X}",
-                type2_ui::hex_bytes(&input.aid)
+                type2_ui::hex_bytes(&inspection.aid),
+                inspection.settings.summary(),
+                manifest_path.display()
             );
-            run_desfire_manage(
-                ui2.clone(),
-                "file delete",
-                target,
-                "Deleting the DESFire file…",
-                "DESFire file deleted",
-                true,
-                move |service| {
-                    let mut request = DesfireFileDeleteRequest::new(input.aid, file_id)
-                        .key_number(input.key_number)
-                        .advanced(true)
-                        .confirm(true)
-                        .manifest_path(manifest_path);
-                    if let Some(key) = input.key {
-                        request = request.key(key);
-                    }
-                    if let Some(key_type) = input.key_type {
-                        request = request.key_type(key_type);
-                    }
-                    service
-                        .desfire_delete_file(request)
-                        .map(|result| file_delete_text(&result))
-                },
+            let dialog = typed_confirmation_dialog(
+                "Delete the DESFire file?",
+                &body,
+                "Delete file",
+                "DELETE",
             );
-        });
-        present_alert(&dialog, &ui.window);
-    });
+            ui.pending_desfire_dialog.replace(Some(dialog.clone()));
+            let ui2 = ui.clone();
+            let state = RefCell::new(Some((input, file_id, manifest_path)));
+            dialog.connect_response(None, move |_, response| {
+                ui2.pending_desfire_dialog.replace(None);
+                if response != "confirm" {
+                    return;
+                }
+                let Some((input, file_id, manifest_path)) = state.borrow_mut().take() else {
+                    return;
+                };
+                let target = format!(
+                    "application {} file {file_id:02X}",
+                    type2_ui::hex_bytes(&input.aid)
+                );
+                run_desfire_manage(
+                    ui2.clone(),
+                    "file delete",
+                    target,
+                    "Deleting the DESFire file…",
+                    "DESFire file deleted",
+                    true,
+                    move |service, cancel| {
+                        let mut request = DesfireFileDeleteRequest::new(input.aid, file_id)
+                            .key_number(input.key_number)
+                            .advanced(true)
+                            .confirm(true)
+                            .manifest_path(manifest_path)
+                            .cancel(cancel);
+                        if let Some(key) = input.key {
+                            request = request.key(key);
+                        }
+                        if let Some(key_type) = input.key_type {
+                            request = request.key_type(key_type);
+                        }
+                        service
+                            .desfire_delete_file(request)
+                            .map(|result| file_delete_text(&result))
+                    },
+                );
+            });
+            present_alert(&dialog, &ui.window);
+        },
+    );
 }
 
 fn start_desfire_file_settings(ui: Rc<Ui>) {
@@ -9648,99 +9770,100 @@ fn start_desfire_file_settings(ui: Rc<Ui>) {
     set_busy(&ui, true);
     ui.status
         .set_localized("Checking the DESFire file settings…");
-    let service = ui.service.clone();
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => {
-                let mut request =
-                    DesfireFileInspectionRequest::new(aid, file_id).key_number(key_number);
-                if let Some(key) = key {
-                    request = request.key(key);
+    run_service_task(
+        &ui,
+        "DESFire file inspection",
+        move |service, cancel| {
+            let mut request = DesfireFileInspectionRequest::new(aid, file_id)
+                .key_number(key_number)
+                .cancel(cancel);
+            if let Some(key) = key {
+                request = request.key(key);
+            }
+            if let Some(key_type) = key_type {
+                request = request.key_type(key_type);
+            }
+            service.desfire_inspect_file(request)
+        },
+        move |ui, result| {
+            set_busy(ui, false);
+            let inspection = match result {
+                Ok(inspection) => inspection,
+                Err(NfcError::Cancelled) => {
+                    ui.status
+                        .set_localized("DESFire file settings check cancelled");
+                    append_log(ui, "desfire file settings · cancelled");
+                    return;
                 }
-                if let Some(key_type) = key_type {
-                    request = request.key_type(key_type);
+                Err(error) => {
+                    toast_error(ui, &format!("DESFire file settings: {error}"));
+                    return;
                 }
-                service.desfire_inspect_file(request)
-            }
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        set_busy(&ui, false);
-        let inspection = match receiver.recv().await {
-            Ok(Ok(inspection)) => inspection,
-            Ok(Err(error)) => {
-                toast_error(&ui, &format!("DESFire file settings: {error}"));
-                return;
-            }
-            Err(_) => {
-                toast_error(&ui, "Reader worker stopped");
-                return;
-            }
-        };
-        let body = format!(
-            "{}\nType CHANGE to confirm",
-            file_settings_plan_text(
-                &inspection,
-                Some(communication),
-                Some(access_rights),
-                key_number,
-                authenticated,
-            )
-            .trim_end()
-        );
-        let dialog = typed_confirmation_dialog(
-            "Change the DESFire file settings?",
-            &body,
-            "Change file settings",
-            "CHANGE",
-        );
-        ui.pending_desfire_dialog.replace(Some(dialog.clone()));
-        let ui2 = ui.clone();
-        let state = RefCell::new(Some((input, file_id, communication, access_rights)));
-        dialog.connect_response(None, move |_, response| {
-            ui2.pending_desfire_dialog.replace(None);
-            if response != "confirm" {
-                return;
-            }
-            let Some((input, file_id, communication, access_rights)) = state.borrow_mut().take()
-            else {
-                return;
             };
-            let target = format!(
-                "application {} file {file_id:02X}",
-                type2_ui::hex_bytes(&input.aid)
+            let body = format!(
+                "{}\nType CHANGE to confirm",
+                file_settings_plan_text(
+                    &inspection,
+                    Some(communication),
+                    Some(access_rights),
+                    key_number,
+                    authenticated,
+                )
+                .trim_end()
             );
-            run_desfire_manage(
-                ui2.clone(),
-                "file settings",
-                target,
-                "Changing the DESFire file settings…",
-                "DESFire file settings changed",
-                true,
-                move |service| {
-                    let mut request = DesfireFileSettingsRequest::new(input.aid, file_id)
-                        .key_number(input.key_number)
-                        .communication(communication)
-                        .access_rights(access_rights)
-                        .advanced(true)
-                        .confirm(true);
-                    if let Some(key) = input.key {
-                        request = request.key(key);
-                    }
-                    if let Some(key_type) = input.key_type {
-                        request = request.key_type(key_type);
-                    }
-                    service
-                        .desfire_change_file_settings(request)
-                        .map(|result| file_settings_text(&result))
-                },
+            let dialog = typed_confirmation_dialog(
+                "Change the DESFire file settings?",
+                &body,
+                "Change file settings",
+                "CHANGE",
             );
-        });
-        present_alert(&dialog, &ui.window);
-    });
+            ui.pending_desfire_dialog.replace(Some(dialog.clone()));
+            let ui2 = ui.clone();
+            let state = RefCell::new(Some((input, file_id, communication, access_rights)));
+            dialog.connect_response(None, move |_, response| {
+                ui2.pending_desfire_dialog.replace(None);
+                if response != "confirm" {
+                    return;
+                }
+                let Some((input, file_id, communication, access_rights)) =
+                    state.borrow_mut().take()
+                else {
+                    return;
+                };
+                let target = format!(
+                    "application {} file {file_id:02X}",
+                    type2_ui::hex_bytes(&input.aid)
+                );
+                run_desfire_manage(
+                    ui2.clone(),
+                    "file settings",
+                    target,
+                    "Changing the DESFire file settings…",
+                    "DESFire file settings changed",
+                    true,
+                    move |service, cancel| {
+                        let mut request = DesfireFileSettingsRequest::new(input.aid, file_id)
+                            .key_number(input.key_number)
+                            .communication(communication)
+                            .access_rights(access_rights)
+                            .advanced(true)
+                            .confirm(true)
+                            .cancel(cancel);
+                        if let Some(key) = input.key {
+                            request = request.key(key);
+                        }
+                        if let Some(key_type) = input.key_type {
+                            request = request.key_type(key_type);
+                        }
+                        service
+                            .desfire_change_file_settings(request)
+                            .map(|result| file_settings_text(&result))
+                    },
+                );
+            });
+            present_alert(&dialog, &ui.window);
+        },
+    );
 }
 
 fn start_desfire_memory(ui: Rc<Ui>) {
@@ -9783,7 +9906,7 @@ fn start_desfire_memory(ui: Rc<Ui>) {
         "Reading the DESFire free memory…",
         "DESFire free memory read",
         false,
-        move |service| {
+        move |service, cancel| {
             let mut request = DesfireFreeMemoryRequest::new(aid).key_number(key_number);
             if let Some(key) = key {
                 request = request.key(key);
@@ -9792,7 +9915,7 @@ fn start_desfire_memory(ui: Rc<Ui>) {
                 request = request.key_type(key_type);
             }
             service
-                .desfire_free_memory(CancelToken::new(), request)
+                .desfire_free_memory(cancel, request)
                 .map(|free| free_memory_text(aid, free))
         },
     );
@@ -9874,25 +9997,14 @@ fn start_read(ui: Rc<Ui>) {
     reset_advanced(&ui);
     set_busy(&ui, true);
     ui.status.set_localized("Reading card…");
-    let service = ui.service.clone();
     let keys = ui.keys.borrow().clone();
     let include_common_keys = ui.preferences.borrow().use_common_keys;
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => {
-                service.read_card(&keys, include_common_keys, type2_auth, CancelToken::new())
-            }
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        match receiver.recv().await {
-            Ok(result) => finish_read(&ui, result),
-            Err(_) => finish_read(&ui, Err(NfcError::Io("reader worker stopped".to_owned()))),
-        }
-    });
+    run_service_task(
+        &ui,
+        "Read card",
+        move |service, cancel| service.read_card(&keys, include_common_keys, type2_auth, cancel),
+        finish_read,
+    );
 }
 
 fn finish_read(ui: &Rc<Ui>, result: NfcResult<CardReadResult>) {
@@ -10047,6 +10159,10 @@ fn finish_read(ui: &Rc<Ui>, result: NfcResult<CardReadResult>) {
         Ok(_) => {
             ui.status.set_localized("Read failed");
             toast_error(ui, "unsupported read result");
+        }
+        Err(NfcError::Cancelled) => {
+            ui.status.set_localized("Read cancelled");
+            append_log(ui, "read · cancelled");
         }
         Err(error) => {
             ui.live.set(false);
@@ -10215,26 +10331,13 @@ fn start_read_block(ui: Rc<Ui>) {
     set_busy(&ui, true);
     ui.status
         .set_localized(&format!("Reading block {block:03}…"));
-    let service = ui.service.clone();
     let keys = ui.keys.borrow().clone();
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => service.classic_read_block(block, &keys, true, CancelToken::new()),
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        match receiver.recv().await {
-            Ok(result) => finish_read_block(&ui, block, result),
-            Err(_) => finish_read_block(
-                &ui,
-                block,
-                Err(NfcError::Io("reader worker stopped".to_owned())),
-            ),
-        }
-    });
+    run_service_task(
+        &ui,
+        format!("Read block {block:03}"),
+        move |service, cancel| service.classic_read_block(block, &keys, true, cancel),
+        move |ui, result| finish_read_block(ui, block, result),
+    );
 }
 
 fn finish_read_block(ui: &Rc<Ui>, block: usize, result: NfcResult<ClassicBlockReadResult>) {
@@ -10277,6 +10380,10 @@ fn finish_read_block(ui: &Rc<Ui>, block: usize, result: NfcResult<ClassicBlockRe
             record_captured_keys(ui, &result.card, &[result.key]);
             ui.status.set_localized(&format!("Block {block:03} read"));
             append_log(ui, &format!("read block · {block:03}"));
+        }
+        Err(NfcError::Cancelled) => {
+            ui.status.set_localized("Block read cancelled");
+            append_log(ui, &format!("read block · {block:03} cancelled"));
         }
         Err(error) => {
             ui.status.set_localized("Block read failed");
@@ -10321,50 +10428,35 @@ fn start_preflight(
 ) {
     set_busy(ui, true);
     ui.status.set_localized("Building the write plan…");
-    let service = ui.service.clone();
     let keys = ui.keys.borrow().clone();
     let include_common_keys = ui.preferences.borrow().use_common_keys;
     let expected_card = source.card.clone();
     let request_source = source.clone();
     let use_workbench_baseline = restore_path.is_none();
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => {
-                let mut request = ClassicWritePreflight::new(request_source, &keys)
-                    .include_common_keys(include_common_keys)
-                    .selection(selection)
-                    .continue_on_failure(continue_on_failure)
-                    .advanced(advanced);
-                if let Some(uid) = uid_target {
-                    request = request.uid_target(uid);
-                }
-                if let Some(card) = expected_card {
-                    request = request.expected_card(card);
-                }
-                if use_workbench_baseline && let Some(baseline) = service.workbench_baseline_dump()
-                {
-                    request = request.baseline(baseline);
-                }
-                service.classic_write_preflight(request)
+    let done_source = source;
+    run_service_task(
+        ui,
+        "Write preflight",
+        move |service, cancel| {
+            let mut request = ClassicWritePreflight::new(request_source, &keys)
+                .include_common_keys(include_common_keys)
+                .selection(selection)
+                .continue_on_failure(continue_on_failure)
+                .advanced(advanced)
+                .cancel(cancel);
+            if let Some(uid) = uid_target {
+                request = request.uid_target(uid);
             }
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    let ui = ui.clone();
-    glib::spawn_future_local(async move {
-        match receiver.recv().await {
-            Ok(result) => finish_preflight(&ui, source, restore_path, advanced, result),
-            Err(_) => finish_preflight(
-                &ui,
-                source,
-                restore_path,
-                advanced,
-                Err(NfcError::Io("reader worker stopped".to_owned())),
-            ),
-        }
-    });
+            if let Some(card) = expected_card {
+                request = request.expected_card(card);
+            }
+            if use_workbench_baseline && let Some(baseline) = service.workbench_baseline_dump() {
+                request = request.baseline(baseline);
+            }
+            service.classic_write_preflight(request)
+        },
+        move |ui, result| finish_preflight(ui, done_source, restore_path, advanced, result),
+    );
 }
 
 fn finish_preflight(
@@ -10405,6 +10497,10 @@ fn finish_preflight(
                     advanced,
                 },
             );
+        }
+        Err(NfcError::Cancelled) => {
+            ui.status.set_localized("Write preflight cancelled");
+            append_log(ui, "plan · cancelled");
         }
         Err(error) => {
             ui.status.set_localized("Write preflight failed");
@@ -10515,7 +10611,6 @@ fn show_plan_dialog(ui: &Rc<Ui>, pending: PendingPlan) {
 fn start_plan_execution(ui: &Rc<Ui>, pending: PendingPlan) {
     set_busy(ui, true);
     ui.status.set_localized("Writing the planned blocks…");
-    let service = ui.service.clone();
     let keys = ui.keys.borrow().clone();
     let backup = ui.backup.borrow().clone();
     let token = pending.plan.token;
@@ -10530,39 +10625,28 @@ fn start_plan_execution(ui: &Rc<Ui>, pending: PendingPlan) {
         pending.source.clone()
     };
     let include_common_keys = ui.preferences.borrow().use_common_keys;
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => service.classic_write_execute(
+    let label = if restore_path.is_some() {
+        "Restore dump"
+    } else {
+        "Write changes"
+    };
+    run_service_task(
+        ui,
+        label,
+        move |service, cancel| {
+            service.classic_write_execute(
                 ClassicWriteExecution::new(token, source, &keys, &backup)
                     .include_common_keys(include_common_keys)
                     .advanced(advanced)
-                    .confirmed(true),
-            ),
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    let ui = ui.clone();
-    glib::spawn_future_local(async move {
-        match receiver.recv().await {
-            Ok(result) => {
-                if let Some(path) = restore_path {
-                    finish_restore(&ui, path, result);
-                } else {
-                    finish_workbench_write(&ui, result);
-                }
-            }
-            Err(_) => {
-                let error = Err(NfcError::Io("reader worker stopped".to_owned()));
-                if let Some(path) = restore_path {
-                    finish_restore(&ui, path, error);
-                } else {
-                    finish_workbench_write(&ui, error);
-                }
-            }
-        }
-    });
+                    .confirmed(true)
+                    .cancel(cancel),
+            )
+        },
+        move |ui, result| match restore_path {
+            Some(path) => finish_restore(ui, path, result),
+            None => finish_workbench_write(ui, result),
+        },
+    );
 }
 
 fn finish_workbench_write(ui: &Rc<Ui>, result: NfcResult<ClassicRestoreResult>) {
@@ -10597,6 +10681,14 @@ fn finish_workbench_write(ui: &Rc<Ui>, result: NfcResult<ClassicRestoreResult>) 
             } else {
                 toast_info(ui, "Write finished with failures; see the activity log");
             }
+        }
+        Err(NfcError::Cancelled) => {
+            ui.status.set_localized("Write cancelled");
+            append_log(
+                ui,
+                "write changes · cancelled; the card was not verified further",
+            );
+            refresh_workbench(ui);
         }
         Err(error) => {
             ui.status.set_localized("Write failed");
@@ -10661,37 +10753,32 @@ fn confirm_uid_write(ui: Rc<Ui>) {
     set_busy(&ui, true);
     ui.status
         .set_localized("Reading sector 0 for the UID plan…");
-    let service = ui.service.clone();
     let keys = ui.keys.borrow().clone();
     let include_common_keys = ui.preferences.borrow().use_common_keys;
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => service.classic_uid_preflight(
+    run_service_task(
+        &ui,
+        "UID preflight",
+        move |service, cancel| {
+            service.classic_uid_preflight(
                 ClassicUidPreflight::new(target, &keys)
                     .include_common_keys(include_common_keys)
                     .expected_card(card)
-                    .advanced(true),
-            ),
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    let ui = ui.clone();
-    glib::spawn_future_local(async move {
-        match receiver.recv().await {
-            Ok(result) => finish_uid_preflight(&ui, result),
-            Err(_) => {
-                finish_uid_preflight(&ui, Err(NfcError::Io("reader worker stopped".to_owned())))
-            }
-        }
-    });
+                    .advanced(true)
+                    .cancel(cancel),
+            )
+        },
+        finish_uid_preflight,
+    );
 }
 
 fn finish_uid_preflight(ui: &Rc<Ui>, result: NfcResult<ClassicUidPlan>) {
     set_busy(ui, false);
     match result {
         Ok(plan) => show_uid_plan_dialog(ui, plan),
+        Err(NfcError::Cancelled) => {
+            ui.status.set_localized("UID plan cancelled");
+            append_log(ui, "uid · preflight cancelled");
+        }
         Err(error) => {
             ui.status.set_localized("UID plan failed");
             toast_error(ui, &error.to_string());
@@ -10751,33 +10838,24 @@ fn show_uid_plan_dialog(ui: &Rc<Ui>, plan: ClassicUidPlan) {
 fn start_uid_execution(ui: &Rc<Ui>, plan: ClassicUidPlan) {
     set_busy(ui, true);
     ui.status.set_localized("Writing manufacturer block 0…");
-    let service = ui.service.clone();
     let keys = ui.keys.borrow().clone();
     let backup = ui.backup.borrow().clone();
     let include_common_keys = ui.preferences.borrow().use_common_keys;
     let token = plan.token;
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => service.classic_uid_execute(
+    run_service_task(
+        ui,
+        "Write UID",
+        move |service, cancel| {
+            service.classic_uid_execute(
                 ClassicUidExecution::new(token, &keys, &backup)
                     .include_common_keys(include_common_keys)
                     .advanced(true)
-                    .confirmed(true),
-            ),
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    let ui = ui.clone();
-    glib::spawn_future_local(async move {
-        match receiver.recv().await {
-            Ok(result) => finish_uid_execution(&ui, result),
-            Err(_) => {
-                finish_uid_execution(&ui, Err(NfcError::Io("reader worker stopped".to_owned())))
-            }
-        }
-    });
+                    .confirmed(true)
+                    .cancel(cancel),
+            )
+        },
+        finish_uid_execution,
+    );
 }
 
 fn finish_uid_execution(ui: &Rc<Ui>, result: NfcResult<nfc_app::classic::ClassicUidResult>) {
@@ -10816,6 +10894,13 @@ fn finish_uid_execution(ui: &Rc<Ui>, result: NfcResult<nfc_app::classic::Classic
             );
             invalidate_live_image(ui);
             ui.status.set_localized("UID changed · re-reading the card");
+            start_read(ui.clone());
+        }
+        Err(NfcError::Cancelled) => {
+            ui.status
+                .set_localized("UID write cancelled · re-reading the card");
+            append_log(ui, "uid · cancelled");
+            invalidate_live_image(ui);
             start_read(ui.clone());
         }
         Err(error) => {
@@ -11056,30 +11141,21 @@ fn confirm_ndef_write(ui: Rc<Ui>) {
 fn start_ndef_write(ui: Rc<Ui>, message: NdefMessage) {
     set_busy(&ui, true);
     ui.status.set_localized("Writing NDEF message…");
-    let service = ui.service.clone();
     let keys = ui.keys.borrow().clone();
     let backup = ui.backup.borrow().clone();
     let expected_card = ui.dump.borrow().as_ref().and_then(|dump| dump.card.clone());
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => {
-                let mut request = ClassicNdefWrite::new(message, &keys, &backup);
-                if let Some(card) = expected_card {
-                    request = request.expected_card(card);
-                }
-                service.classic_ndef_write(request)
+    run_service_task(
+        &ui,
+        "Write NDEF",
+        move |service, cancel| {
+            let mut request = ClassicNdefWrite::new(message, &keys, &backup).cancel(cancel);
+            if let Some(card) = expected_card {
+                request = request.expected_card(card);
             }
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        match receiver.recv().await {
-            Ok(result) => finish_ndef_write(&ui, result),
-            Err(_) => finish_ndef_write(&ui, Err(NfcError::Io("reader worker stopped".to_owned()))),
-        }
-    });
+            service.classic_ndef_write(request)
+        },
+        finish_ndef_write,
+    );
 }
 
 fn finish_ndef_write(ui: &Rc<Ui>, result: NfcResult<ClassicNdefWriteResult>) {
@@ -11104,6 +11180,13 @@ fn finish_ndef_write(ui: &Rc<Ui>, result: NfcResult<ClassicNdefWriteResult>) {
                 ),
             );
             toast_info(ui, "NDEF written and read back");
+        }
+        Err(NfcError::Cancelled) => {
+            ui.status.set_localized("NDEF write cancelled");
+            append_log(
+                ui,
+                "ndef write · cancelled; every block written before the stop was read back",
+            );
         }
         Err(error) => {
             ui.status.set_localized("NDEF write failed");
@@ -11179,34 +11262,24 @@ fn confirm_ndef_format(ui: Rc<Ui>) {
 fn start_ndef_format(ui: Rc<Ui>, read_only: bool) {
     set_busy(&ui, true);
     ui.status.set_localized("Formatting the NDEF area…");
-    let service = ui.service.clone();
     let keys = ui.keys.borrow().clone();
     let backup = ui.backup.borrow().clone();
     let expected_card = ui.dump.borrow().as_ref().and_then(|dump| dump.card.clone());
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => {
-                let mut request = ClassicNdefFormat::new(&keys, &backup)
-                    .confirm(true)
-                    .read_only(read_only);
-                if let Some(card) = expected_card {
-                    request = request.expected_card(card);
-                }
-                service.classic_ndef_format(request)
+    run_service_task(
+        &ui,
+        "Format NDEF area",
+        move |service, cancel| {
+            let mut request = ClassicNdefFormat::new(&keys, &backup)
+                .confirm(true)
+                .read_only(read_only)
+                .cancel(cancel);
+            if let Some(card) = expected_card {
+                request = request.expected_card(card);
             }
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        match receiver.recv().await {
-            Ok(result) => finish_ndef_format(&ui, result),
-            Err(_) => {
-                finish_ndef_format(&ui, Err(NfcError::Io("reader worker stopped".to_owned())))
-            }
-        }
-    });
+            service.classic_ndef_format(request)
+        },
+        finish_ndef_format,
+    );
 }
 
 fn finish_ndef_format(ui: &Rc<Ui>, result: NfcResult<ClassicNdefFormatResult>) {
@@ -11228,6 +11301,13 @@ fn finish_ndef_format(ui: &Rc<Ui>, result: NfcResult<ClassicNdefFormatResult>) {
                 ),
             );
             toast_info(ui, "NDEF area formatted and read back");
+        }
+        Err(NfcError::Cancelled) => {
+            ui.status.set_localized("NDEF format cancelled");
+            append_log(
+                ui,
+                "ndef format · cancelled; every block written before the stop was read back",
+            );
         }
         Err(error) => {
             ui.status.set_localized("NDEF format failed");
@@ -11954,38 +12034,28 @@ fn start_type2_restore(
 ) {
     set_busy(&ui, true);
     ui.status.set_localized("Restoring the Type 2 image…");
-    let service = ui.service.clone();
     let backup = ui.backup.borrow().clone();
     let expected = ui
         .type2
         .borrow()
         .as_ref()
         .map(|session| session.card.clone());
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => {
-                let mut request = Type2Restore::new(source, &backup)
-                    .options(options)
-                    .auth(auth)
-                    .confirm(true);
-                if let Some(card) = expected {
-                    request = request.expected_card(card);
-                }
-                service.type2_restore(request)
+    run_service_task(
+        &ui,
+        "Restore Type 2 image",
+        move |service, cancel| {
+            let mut request = Type2Restore::new(source, &backup)
+                .options(options)
+                .auth(auth)
+                .confirm(true)
+                .cancel(cancel);
+            if let Some(card) = expected {
+                request = request.expected_card(card);
             }
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        match receiver.recv().await {
-            Ok(result) => finish_type2_restore(&ui, result),
-            Err(_) => {
-                finish_type2_restore(&ui, Err(NfcError::Io("reader worker stopped".to_owned())))
-            }
-        }
-    });
+            service.type2_restore(request)
+        },
+        finish_type2_restore,
+    );
 }
 
 fn finish_type2_restore(ui: &Rc<Ui>, result: NfcResult<Type2MutationResult>) {
@@ -12012,6 +12082,10 @@ fn finish_type2_restore(ui: &Rc<Ui>, result: NfcResult<Type2MutationResult>) {
                 .restore_label
                 .set_localized("No restore image loaded");
             update_type2_restore_sensitivity(ui);
+        }
+        Err(NfcError::Cancelled) => {
+            ui.status.set_localized("Type 2 restore cancelled");
+            append_log(ui, "type2 restore · cancelled");
         }
         Err(error) => {
             ui.status.set_localized("Type 2 restore failed");
@@ -12113,40 +12187,28 @@ fn start_type2_page_write(
 ) {
     set_busy(&ui, true);
     ui.status.set_localized(&format!("Writing page {page:03}…"));
-    let service = ui.service.clone();
     let backup = ui.backup.borrow().clone();
     let expected = ui
         .type2
         .borrow()
         .as_ref()
         .map(|session| session.card.clone());
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => {
-                let mut request = Type2PageWrite::new(page, data, &backup)
-                    .advanced(advanced)
-                    .confirm(advanced)
-                    .auth(auth);
-                if let Some(card) = expected {
-                    request = request.expected_card(card);
-                }
-                service.type2_write_page(request)
+    run_service_task(
+        &ui,
+        format!("Write page {page:03}"),
+        move |service, cancel| {
+            let mut request = Type2PageWrite::new(page, data, &backup)
+                .advanced(advanced)
+                .confirm(advanced)
+                .auth(auth)
+                .cancel(cancel);
+            if let Some(card) = expected {
+                request = request.expected_card(card);
             }
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        match receiver.recv().await {
-            Ok(result) => finish_type2_page_write(&ui, page, result),
-            Err(_) => finish_type2_page_write(
-                &ui,
-                page,
-                Err(NfcError::Io("reader worker stopped".to_owned())),
-            ),
-        }
-    });
+            service.type2_write_page(request)
+        },
+        move |ui, result| finish_type2_page_write(ui, page, result),
+    );
 }
 
 fn finish_type2_page_write(ui: &Rc<Ui>, page: u8, result: NfcResult<Type2PageResult>) {
@@ -12172,6 +12234,10 @@ fn finish_type2_page_write(ui: &Rc<Ui>, page: u8, result: NfcResult<Type2PageRes
                 ui.status.set_localized("No change");
                 toast_info(ui, "The page already contained these bytes");
             }
+        }
+        Err(NfcError::Cancelled) => {
+            ui.status.set_localized("Type 2 write cancelled");
+            append_log(ui, &format!("type2 write · page {page:03} cancelled"));
         }
         Err(error) => {
             ui.status.set_localized("Type 2 write failed");
@@ -12247,33 +12313,27 @@ fn confirm_type2_lock(ui: Rc<Ui>) {
 fn start_type2_lock(ui: Rc<Ui>, pages: Vec<u8>, auth: Option<Type2Auth>) {
     set_busy(&ui, true);
     ui.status.set_localized("Writing Type 2 lock bits…");
-    let service = ui.service.clone();
     let backup = ui.backup.borrow().clone();
     let expected = ui
         .type2
         .borrow()
         .as_ref()
         .map(|session| session.card.clone());
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => {
-                let mut request = Type2Lock::new(pages, &backup).confirm(true).auth(auth);
-                if let Some(card) = expected {
-                    request = request.expected_card(card);
-                }
-                service.type2_lock(request)
+    run_service_task(
+        &ui,
+        "Write lock bits",
+        move |service, cancel| {
+            let mut request = Type2Lock::new(pages, &backup)
+                .confirm(true)
+                .auth(auth)
+                .cancel(cancel);
+            if let Some(card) = expected {
+                request = request.expected_card(card);
             }
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        match receiver.recv().await {
-            Ok(result) => finish_type2_lock(&ui, result),
-            Err(_) => finish_type2_lock(&ui, Err(NfcError::Io("reader worker stopped".to_owned()))),
-        }
-    });
+            service.type2_lock(request)
+        },
+        finish_type2_lock,
+    );
 }
 
 fn finish_type2_lock(ui: &Rc<Ui>, result: NfcResult<Type2LockResult>) {
@@ -12297,6 +12357,10 @@ fn finish_type2_lock(ui: &Rc<Ui>, result: NfcResult<Type2LockResult>) {
                 append_log(ui, &format!("type2 lock · {backup}"));
                 toast_info(ui, "Lock bits written and read back");
             }
+        }
+        Err(NfcError::Cancelled) => {
+            ui.status.set_localized("Type 2 lock cancelled");
+            append_log(ui, "type2 lock · cancelled");
         }
         Err(error) => {
             ui.status.set_localized("Type 2 lock failed");
@@ -12325,25 +12389,26 @@ fn confirm_type2_uid(ui: Rc<Ui>) {
             return;
         }
     };
-    let service = ui.service.clone();
     set_busy(&ui, true);
     ui.status.set_localized("Checking the Type 2 UID plan…");
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => service.type2_uid_preflight(&target, CancelToken::new()),
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        set_busy(&ui, false);
-        match receiver.recv().await {
-            Ok(Ok(plan)) => present_type2_uid_plan(&ui, plan),
-            Ok(Err(error)) => toast_error(&ui, &error.to_string()),
-            Err(_) => toast_error(&ui, "reader worker stopped"),
+    run_service_task(
+        &ui,
+        "Type 2 UID preflight",
+        move |service, cancel| service.type2_uid_preflight(&target, cancel),
+        finish_type2_uid_preflight,
+    );
+}
+
+fn finish_type2_uid_preflight(ui: &Rc<Ui>, result: NfcResult<Type2UidPlan>) {
+    set_busy(ui, false);
+    match result {
+        Ok(plan) => present_type2_uid_plan(ui, plan),
+        Err(NfcError::Cancelled) => {
+            ui.status.set_localized("Type 2 UID check cancelled");
+            append_log(ui, "type2 uid · preflight cancelled");
         }
-    });
+        Err(error) => toast_error(ui, &error.to_string()),
+    }
 }
 
 fn present_type2_uid_plan(ui: &Rc<Ui>, plan: Type2UidPlan) {
@@ -12376,34 +12441,28 @@ fn present_type2_uid_plan(ui: &Rc<Ui>, plan: Type2UidPlan) {
 fn start_type2_uid_execute(ui: Rc<Ui>, plan: Type2UidPlan) {
     set_busy(&ui, true);
     ui.status.set_localized("Changing the Type 2 UID…");
-    let service = ui.service.clone();
     let backup = ui.backup.borrow().clone();
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => {
-                let executed =
-                    service.type2_uid_execute(Type2UidExecution::new(plan, &backup).confirm(true));
-                match executed {
-                    Ok(result) => {
-                        let read = service
-                            .type2_read(Type2ReadRequest::new(CancelToken::new()))
-                            .ok();
-                        Ok((result, read))
-                    }
-                    Err(error) => Err(error),
+    run_service_task(
+        &ui,
+        "Write Type 2 UID",
+        move |service, cancel| {
+            let executed = service.type2_uid_execute(
+                Type2UidExecution::new(plan, &backup)
+                    .confirm(true)
+                    .cancel(cancel),
+            );
+            match executed {
+                Ok(result) => {
+                    let read = service
+                        .type2_read(Type2ReadRequest::new(CancelToken::new()))
+                        .ok();
+                    Ok((result, read))
                 }
+                Err(error) => Err(error),
             }
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        match receiver.recv().await {
-            Ok(result) => finish_type2_uid(&ui, result),
-            Err(_) => finish_type2_uid(&ui, Err(NfcError::Io("reader worker stopped".to_owned()))),
-        }
-    });
+        },
+        finish_type2_uid,
+    );
 }
 
 fn finish_type2_uid(ui: &Rc<Ui>, result: NfcResult<(Type2UidResult, Option<Type2ReadResult>)>) {
@@ -12435,6 +12494,11 @@ fn finish_type2_uid(ui: &Rc<Ui>, result: NfcResult<(Type2UidResult, Option<Type2
                 ),
             );
             toast_info(ui, "Type 2 UID changed and verified");
+        }
+        Err(NfcError::Cancelled) => {
+            ui.status
+                .set_localized("Type 2 UID change cancelled; re-read the tag");
+            append_log(ui, "type2 uid · cancelled");
         }
         Err(error) => {
             ui.status.set_localized("Type 2 UID change failed");
@@ -12528,37 +12592,27 @@ fn start_type2_password(
 ) {
     set_busy(&ui, true);
     ui.status.set_localized("Writing password configuration…");
-    let service = ui.service.clone();
     let backup = ui.backup.borrow().clone();
     let expected = ui
         .type2
         .borrow()
         .as_ref()
         .map(|session| session.card.clone());
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => {
-                let mut request = Type2Password::new(auth0, access, password, pack, &backup)
-                    .current(current)
-                    .confirm(true);
-                if let Some(card) = expected {
-                    request = request.expected_card(card);
-                }
-                service.type2_password(request)
+    run_service_task(
+        &ui,
+        "Write password configuration",
+        move |service, cancel| {
+            let mut request = Type2Password::new(auth0, access, password, pack, &backup)
+                .current(current)
+                .confirm(true)
+                .cancel(cancel);
+            if let Some(card) = expected {
+                request = request.expected_card(card);
             }
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        match receiver.recv().await {
-            Ok(result) => finish_type2_password(&ui, result),
-            Err(_) => {
-                finish_type2_password(&ui, Err(NfcError::Io("reader worker stopped".to_owned())))
-            }
-        }
-    });
+            service.type2_password(request)
+        },
+        finish_type2_password,
+    );
 }
 
 fn finish_type2_password(ui: &Rc<Ui>, result: NfcResult<Type2MutationResult>) {
@@ -12573,6 +12627,10 @@ fn finish_type2_password(ui: &Rc<Ui>, result: NfcResult<Type2MutationResult>) {
                 .set_localized("Password configuration written and verified");
             append_log(ui, &format!("type2 password · {backup}"));
             toast_info(ui, "Password configuration written and verified");
+        }
+        Err(NfcError::Cancelled) => {
+            ui.status.set_localized("Type 2 password write cancelled");
+            append_log(ui, "type2 password · cancelled");
         }
         Err(error) => {
             ui.status.set_localized("Type 2 password failed");
@@ -12805,35 +12863,26 @@ fn confirm_type2_ndef_write(ui: Rc<Ui>) {
 fn start_type2_ndef_write(ui: Rc<Ui>, message: NdefMessage, auth: Option<Type2Auth>) {
     set_busy(&ui, true);
     ui.status.set_localized("Writing NDEF message…");
-    let service = ui.service.clone();
     let backup = ui.backup.borrow().clone();
     let expected = ui
         .type2
         .borrow()
         .as_ref()
         .map(|session| session.card.clone());
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => {
-                let mut request = Type2NdefWrite::new(message, &backup).auth(auth);
-                if let Some(card) = expected {
-                    request = request.expected_card(card);
-                }
-                service.type2_ndef_write(request)
+    run_service_task(
+        &ui,
+        "Write NDEF",
+        move |service, cancel| {
+            let mut request = Type2NdefWrite::new(message, &backup)
+                .auth(auth)
+                .cancel(cancel);
+            if let Some(card) = expected {
+                request = request.expected_card(card);
             }
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        match receiver.recv().await {
-            Ok(result) => finish_type2_ndef_write(&ui, result),
-            Err(_) => {
-                finish_type2_ndef_write(&ui, Err(NfcError::Io("reader worker stopped".to_owned())))
-            }
-        }
-    });
+            service.type2_ndef_write(request)
+        },
+        finish_type2_ndef_write,
+    );
 }
 
 fn finish_type2_ndef_write(ui: &Rc<Ui>, result: NfcResult<Type2MutationResult>) {
@@ -12859,6 +12908,13 @@ fn finish_type2_ndef_write(ui: &Rc<Ui>, result: NfcResult<Type2MutationResult>) 
                 ),
             );
             toast_info(ui, "NDEF written and read back");
+        }
+        Err(NfcError::Cancelled) => {
+            ui.status.set_localized("NDEF write cancelled");
+            append_log(
+                ui,
+                "type2 ndef write · cancelled; every page written before the stop was read back",
+            );
         }
         Err(error) => {
             ui.status.set_localized("NDEF write failed");
@@ -12954,38 +13010,28 @@ fn confirm_type2_ndef_format(ui: Rc<Ui>) {
 fn start_type2_ndef_format(ui: Rc<Ui>, auth: Option<Type2Auth>, allow_otp_cc: bool) {
     set_busy(&ui, true);
     ui.status.set_localized("Formatting the NDEF data area…");
-    let service = ui.service.clone();
     let backup = ui.backup.borrow().clone();
     let expected = ui
         .type2
         .borrow()
         .as_ref()
         .map(|session| session.card.clone());
-    let (sender, receiver) = async_channel::bounded(1);
-    std::thread::spawn(move || {
-        let result = match service.lock() {
-            Ok(mut service) => {
-                let mut request = Type2Format::new(&backup)
-                    .confirm(true)
-                    .allow_otp_cc(allow_otp_cc)
-                    .auth(auth);
-                if let Some(card) = expected {
-                    request = request.expected_card(card);
-                }
-                service.type2_ndef_format(request)
+    run_service_task(
+        &ui,
+        "Format NDEF area",
+        move |service, cancel| {
+            let mut request = Type2Format::new(&backup)
+                .confirm(true)
+                .allow_otp_cc(allow_otp_cc)
+                .auth(auth)
+                .cancel(cancel);
+            if let Some(card) = expected {
+                request = request.expected_card(card);
             }
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        let _ = sender.send_blocking(result);
-    });
-    glib::spawn_future_local(async move {
-        match receiver.recv().await {
-            Ok(result) => finish_type2_ndef_format(&ui, result),
-            Err(_) => {
-                finish_type2_ndef_format(&ui, Err(NfcError::Io("reader worker stopped".to_owned())))
-            }
-        }
-    });
+            service.type2_ndef_format(request)
+        },
+        finish_type2_ndef_format,
+    );
 }
 
 fn finish_type2_ndef_format(ui: &Rc<Ui>, result: NfcResult<Type2MutationResult>) {
@@ -13008,6 +13054,13 @@ fn finish_type2_ndef_format(ui: &Rc<Ui>, result: NfcResult<Type2MutationResult>)
                 ),
             );
             toast_info(ui, "NDEF data area formatted and read back");
+        }
+        Err(NfcError::Cancelled) => {
+            ui.status.set_localized("NDEF format cancelled");
+            append_log(
+                ui,
+                "type2 ndef format · cancelled; every page written before the stop was read back",
+            );
         }
         Err(error) => {
             ui.status.set_localized("NDEF format failed");
@@ -13700,6 +13753,15 @@ fn finish_restore(ui: &Rc<Ui>, path: PathBuf, result: NfcResult<ClassicRestoreRe
             update_inspector(ui);
             update_restore_sensitivity(ui);
         }
+        Err(NfcError::Cancelled) => {
+            ui.status.set_localized("Restore cancelled");
+            ui.restore_view.rows.remove_all();
+            ui.restore_view.result.set_localized(
+                "Cancelled. Every block written before the stop was read back; re-read the card to refresh the image.",
+            );
+            append_log(ui, "restore · cancelled");
+            update_restore_sensitivity(ui);
+        }
         Err(error) => {
             ui.status.set_localized("Restore failed");
             ui.restore_view.rows.remove_all();
@@ -14304,7 +14366,9 @@ fn start_keyscan(ui: Rc<Ui>) {
         return;
     }
     let key_types = key_types_from(&ui.keyscan_view);
-    let token = CancelToken::new();
+    let task = begin_task(&ui, "Key scan");
+    let token = task.cancel.clone();
+    ui.keyscan_task.set(Some(task.id));
     let run = ui.keyscan_run.get().wrapping_add(1);
     ui.keyscan_run.set(run);
     ui.keyscan_cancel.replace(Some(token.clone()));
@@ -14347,6 +14411,14 @@ fn start_keyscan(ui: Rc<Ui>) {
             if ui2.keyscan_run.get() != run {
                 break;
             }
+            if let Some(id) = ui2.keyscan_task.get() {
+                set_task_phase(&ui2, id, &keyscan_progress_text(progress));
+                set_task_progress(
+                    &ui2,
+                    id,
+                    Some((progress.sector as f64 + 1.0) / progress.sector_count.max(1) as f64),
+                );
+            }
             ui2.keyscan_view
                 .progress
                 .set_localized(&keyscan_progress_text(progress));
@@ -14371,6 +14443,9 @@ fn keyscan_progress_text(progress: KeyscanProgress) -> String {
 }
 
 fn finish_keyscan(ui: &Rc<Ui>, result: NfcResult<ClassicKeyscanResult>) {
+    if let Some(id) = ui.keyscan_task.take() {
+        finish_task(ui, id, &result);
+    }
     ui.keyscan_cancel.replace(None);
     set_busy(ui, false);
     match result {
@@ -14445,9 +14520,11 @@ fn finish_keyscan(ui: &Rc<Ui>, result: NfcResult<ClassicKeyscanResult>) {
     update_keyscan_sensitivity(ui);
 }
 
-fn cancel_keyscan(ui: &Ui) {
-    if let Some(token) = ui.keyscan_cancel.borrow().as_ref() {
-        token.cancel();
+fn cancel_keyscan(ui: &Rc<Ui>) {
+    if ui.keyscan_cancel.borrow().is_some() {
+        if let Some(id) = ui.keyscan_task.get() {
+            cancel_task(ui, id);
+        }
         ui.keyscan_view
             .progress
             .set_localized("Cancelling after the current exchange…");
@@ -14670,7 +14747,9 @@ fn begin_recovery(ui: Rc<Ui>) {
         .recovery_candidates(view.common.is_active());
     let candidate_count = candidates.len();
 
-    let token = CancelToken::new();
+    let task = begin_task(&ui, "Recovery");
+    let token = task.cancel.clone();
+    ui.recovery_task.set(Some(task.id));
     let run = ui.recovery_run.get().wrapping_add(1);
     ui.recovery_run.set(run);
     ui.recovery_cancel.replace(Some(token.clone()));
@@ -14722,6 +14801,10 @@ fn begin_recovery(ui: Rc<Ui>) {
                 break;
             }
             let text = recovery_progress_text(progress);
+            if let Some(id) = ui2.recovery_task.get() {
+                set_task_phase(&ui2, id, &text);
+                set_task_progress(&ui2, id, recovery_progress_fraction(progress));
+            }
             if recovery_progress_is_live(progress) {
                 ui2.recovery_view.log.live("info", &text);
             } else {
@@ -14837,6 +14920,33 @@ fn recovery_progress_is_live(progress: RecoveryProgress) -> bool {
     )
 }
 
+fn recovery_progress_fraction(progress: RecoveryProgress) -> Option<f64> {
+    match progress {
+        RecoveryProgress::Dictionary {
+            sector,
+            sector_count,
+            ..
+        }
+        | RecoveryProgress::Sector {
+            sector,
+            sector_count,
+            ..
+        }
+        | RecoveryProgress::Verify {
+            sector,
+            sector_count,
+        } => (sector_count > 0).then(|| (sector + 1) as f64 / sector_count as f64),
+        RecoveryProgress::BruteForce {
+            tested_states,
+            total_states,
+            ..
+        } => (total_states > 0).then(|| tested_states as f64 / total_states as f64),
+        RecoveryProgress::Darkside { .. }
+        | RecoveryProgress::Acquiring { .. }
+        | RecoveryProgress::Filtering { .. } => None,
+    }
+}
+
 fn recovery_captured_keys(result: &RecoveryResult, target_block: u8) -> Vec<AuthenticatedKey> {
     if !result.sector_keys.is_empty() {
         return result
@@ -14888,6 +14998,9 @@ fn finish_recovery(
     ui.recovery_started.replace(None);
     if let Some(timer) = ui.recovery_timer.borrow_mut().take() {
         timer.remove();
+    }
+    if let Some(id) = ui.recovery_task.take() {
+        finish_task(ui, id, &result);
     }
     ui.recovery_cancel.replace(None);
     set_busy(ui, false);
@@ -14996,9 +15109,11 @@ fn finish_recovery(
     update_recovery_sensitivity(ui);
 }
 
-fn cancel_recovery(ui: &Ui) {
-    if let Some(token) = ui.recovery_cancel.borrow().as_ref() {
-        token.cancel();
+fn cancel_recovery(ui: &Rc<Ui>) {
+    if ui.recovery_cancel.borrow().is_some() {
+        if let Some(id) = ui.recovery_task.get() {
+            cancel_task(ui, id);
+        }
         ui.recovery_view
             .log
             .append("warning", "Cancelling after the current exchange…");
@@ -15551,6 +15666,183 @@ fn activity_time() -> String {
 fn clear_activity(ui: &Rc<Ui>) {
     ui.activity.borrow_mut().clear();
     ui.activity_view.rows.remove_all();
+    ui.tasks.clear_finished();
+    refresh_task_card(ui);
+}
+
+fn begin_task(ui: &Rc<Ui>, label: impl Into<String>) -> Rc<GuiTask> {
+    let task = ui.tasks.begin(label);
+    #[cfg(test)]
+    if ui.cancel_next_task.replace(false) {
+        task.cancel.cancel();
+        task.phase
+            .replace("Cancelling after the current exchange…".to_owned());
+    }
+    start_task_timer(ui);
+    refresh_task_card(ui);
+    task
+}
+
+fn set_task_phase(ui: &Ui, id: u64, phase: &str) {
+    if let Some(task) = ui.tasks.find(id) {
+        task.phase.replace(phase.to_owned());
+        refresh_task_card(ui);
+    }
+}
+
+fn set_task_progress(ui: &Ui, id: u64, progress: Option<f64>) {
+    if let Some(task) = ui.tasks.find(id) {
+        task.progress.set(progress);
+        refresh_task_card(ui);
+    }
+}
+
+/// Marks one task terminal. The caller still owns the operation-specific
+/// Activity row and status line, so cancellation detail stays in one place.
+fn finish_task<T>(ui: &Ui, id: u64, result: &NfcResult<T>) {
+    let Some(task) = ui.tasks.find(id) else {
+        return;
+    };
+    if task.outcome.get().is_some() {
+        return;
+    }
+    let (outcome, detail) = match result {
+        Ok(_) => (TaskOutcome::Succeeded, "Complete".to_owned()),
+        Err(NfcError::Cancelled) => (
+            TaskOutcome::Cancelled,
+            "Cancelled before the next reader exchange.".to_owned(),
+        ),
+        Err(error) => (TaskOutcome::Failed, error.to_string()),
+    };
+    task.outcome.set(Some(outcome));
+    task.result.replace(detail);
+    refresh_task_card(ui);
+    if !ui.tasks.has_active() {
+        stop_task_timer(ui);
+    }
+}
+
+fn cancel_task(ui: &Rc<Ui>, id: u64) {
+    let Some(task) = ui.tasks.find(id) else {
+        return;
+    };
+    if task.outcome.get().is_some() || task.cancel.is_cancelled() {
+        return;
+    }
+    task.cancel.cancel();
+    task.phase
+        .replace("Cancelling after the current exchange…".to_owned());
+    refresh_task_card(ui);
+}
+
+fn cancel_active_task(ui: &Rc<Ui>) {
+    if let Some(task) = ui.tasks.active() {
+        cancel_task(ui, task.id);
+    }
+}
+
+fn refresh_task_card(ui: &Ui) {
+    let view = &ui.activity_view.task;
+    let Some(task) = ui.tasks.current() else {
+        view.title.set_localized("No task running");
+        view.phase.set_localized(
+            "Long operations show their phase, elapsed time, and cancel action here.",
+        );
+        view.elapsed.set_localized("");
+        view.meter.set_visible(false);
+        view.spinner.stop();
+        view.cancel.set_sensitive(false);
+        view.result.set_visible(false);
+        view.result.set_localized("");
+        return;
+    };
+    view.title.set_localized(&task.label);
+    view.elapsed.set_localized(&format!(
+        "Elapsed {}",
+        format_elapsed(task.started.elapsed())
+    ));
+    if let Some(outcome) = task.outcome.get() {
+        view.phase.set_localized(outcome.label());
+        view.meter.set_visible(false);
+        view.spinner.stop();
+        view.cancel.set_sensitive(false);
+        view.result.set_visible(true);
+        view.result.set_localized(task.result.borrow().as_str());
+        return;
+    }
+    view.phase.set_localized(&task.phase.borrow());
+    view.cancel.set_sensitive(!task.cancel.is_cancelled());
+    view.meter.set_visible(true);
+    match task.progress.get() {
+        Some(fraction) => {
+            let fraction = fraction.clamp(0.0, 1.0);
+            view.meter.set_visible_child_name("progress");
+            view.spinner.stop();
+            view.progress.set_fraction(fraction);
+            view.progress
+                .set_text(Some(&format!("{}%", (fraction * 100.0).round() as u32)));
+        }
+        None => {
+            view.meter.set_visible_child_name("spinner");
+            view.spinner.start();
+        }
+    }
+    view.result.set_visible(false);
+    view.result.set_localized("");
+}
+
+fn start_task_timer(ui: &Rc<Ui>) {
+    if ui.task_timer.borrow().is_some() {
+        return;
+    }
+    let ui2 = ui.clone();
+    let source = glib::timeout_add_seconds_local(1, move || {
+        refresh_task_card(&ui2);
+        if ui2.tasks.has_active() {
+            glib::ControlFlow::Continue
+        } else {
+            ui2.task_timer.borrow_mut().take();
+            glib::ControlFlow::Break
+        }
+    });
+    ui.task_timer.replace(Some(source));
+}
+
+fn stop_task_timer(ui: &Ui) {
+    if let Some(source) = ui.task_timer.borrow_mut().take() {
+        source.remove();
+    }
+}
+
+/// Runs one service operation on a worker thread and records it in the task
+/// registry. `work` owns the request; `done` owns the surface updates.
+fn run_service_task<T, W, D>(ui: &Rc<Ui>, label: impl Into<String>, work: W, done: D)
+where
+    T: Send + 'static,
+    W: FnOnce(&mut Service, CancelToken) -> NfcResult<T> + Send + 'static,
+    D: FnOnce(&Rc<Ui>, NfcResult<T>) + 'static,
+{
+    let task = begin_task(ui, label);
+    let id = task.id;
+    let cancel = task.cancel.clone();
+    let service = ui.service.clone();
+    let (sender, receiver) = async_channel::bounded(1);
+    std::thread::spawn(move || {
+        let result = match service.lock() {
+            Ok(mut service) => work(&mut service, cancel),
+            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
+        };
+        let _ = sender.send_blocking(result);
+    });
+    let ui = ui.clone();
+    glib::spawn_future_local(async move {
+        let result = match receiver.recv().await {
+            Ok(result) => result,
+            Err(_) => Err(NfcError::Io("reader worker stopped".to_owned())),
+        };
+        finish_task(&ui, id, &result);
+        done(&ui, result);
+    });
 }
 
 #[cfg(test)]
@@ -15991,6 +16283,7 @@ mod tests {
         ui.settings_error.replace(None);
         let _ = std::fs::remove_file(harness.keys_dir.path().join("ui.json"));
         ui.keyscan_cancel.replace(None);
+        ui.keyscan_task.set(None);
         ui.keyscan_result.replace(None);
         ui.keyscan_run.set(0);
         ui.keyscan_view.rows.remove_all();
@@ -16004,6 +16297,7 @@ mod tests {
             .summary
             .set_localized("Scan a MIFARE Classic card to list per-sector keys.");
         ui.recovery_cancel.replace(None);
+        ui.recovery_task.set(None);
         ui.recovery_result.replace(None);
         ui.recovery_started.replace(None);
         if let Some(timer) = ui.recovery_timer.borrow_mut().take() {
@@ -16022,6 +16316,12 @@ mod tests {
         ui.recovery_view.elapsed.set_localized("Elapsed —");
         ui.activity.borrow_mut().clear();
         ui.activity_view.rows.remove_all();
+        ui.tasks.reset();
+        ui.cancel_next_task.set(false);
+        if let Some(timer) = ui.task_timer.borrow_mut().take() {
+            timer.remove();
+        }
+        refresh_task_card(ui);
         ui.settings_view.status.set_localized("");
         render_settings(ui);
         render_diagnostics(ui);
@@ -16115,6 +16415,7 @@ mod tests {
         reader_resolution_is_visible(&harness);
         reader_monitor_invalidates(&harness);
         reader_disconnect_and_reconnect(&harness);
+        task_cancellation_states(&harness);
         workbench_stage_undo_revert_and_write(&harness);
         identity_refusal_is_visible(&harness);
         restore_cancel_then_confirm(&harness);
@@ -17076,6 +17377,116 @@ mod tests {
         );
     }
 
+    fn task_cancellation_states(harness: &Harness) {
+        reset(harness);
+        let ui = &harness.ui;
+        choose_reader(harness, "mock:classic");
+
+        // The task card's own cancel action cancels the token immediately and
+        // does not claim completion before the worker answers.
+        let task = begin_task(ui, "Manual task");
+        assert!(ui.activity_view.task.cancel.is_sensitive());
+        ui.activity_view.task.cancel.emit_clicked();
+        assert!(task.cancel.is_cancelled());
+        assert_eq!(
+            ui.activity_view.task.phase.label(),
+            "Cancelling after the current exchange…"
+        );
+        assert!(!ui.activity_view.task.cancel.is_sensitive());
+        finish_task(ui, task.id, &Err::<(), _>(NfcError::Cancelled));
+        assert_eq!(ui.activity_view.task.phase.label(), "Cancelled");
+        assert!(ui.activity_view.task.result.label().contains("Cancelled"));
+
+        // Read.
+        ui.cancel_next_task.set(true);
+        start_read(ui.clone());
+        pump_until(ui, "cancelled read", || {
+            !ui.busy.get() && ui.status.label().contains("Read cancelled")
+        });
+        assert_eq!(ui.activity_view.task.title.label(), "Read card");
+        assert_eq!(ui.activity_view.task.phase.label(), "Cancelled");
+        assert!(!ui.activity_view.task.meter.is_visible());
+        assert!(activity_text(ui).contains("read · cancelled"));
+        assert!(!ui.live.get());
+
+        // Classic NDEF write stops before the first exchange and keeps the
+        // tag image unchanged.
+        let blocks = formatted_image(false);
+        install_image(harness, &blocks);
+        show_image(ui, &dump_for(&blocks));
+        set_ndef_records(
+            ui,
+            vec![RecordDraft::Text(TextDraft {
+                text: "Cancelled".to_owned(),
+                language: "en".to_owned(),
+                encoding: TextEncoding::Utf8,
+            })],
+        );
+        ui.cancel_next_task.set(true);
+        confirm_ndef_write(ui.clone());
+        let dialog = alert_pending(&ui.pending_ndef_write_dialog);
+        emit_response(&dialog, "write");
+        pump_until(ui, "cancelled NDEF write", || {
+            !ui.busy.get() && ui.status.label().contains("NDEF write cancelled")
+        });
+        assert_eq!(ui.activity_view.task.title.label(), "Write NDEF");
+        assert_eq!(ui.activity_view.task.phase.label(), "Cancelled");
+        assert!(activity_text(ui).contains("ndef write · cancelled"));
+        assert_eq!(
+            harness.handle.block(4),
+            Some(blocks[4]),
+            "a write cancelled before the first exchange must not change the card"
+        );
+
+        // Restore execution: build a valid plan, then cancel before it runs.
+        let source = dump_for(&blocks);
+        let keys = ui.keys.borrow().clone();
+        let plan = {
+            let mut service = ui.service.lock().expect("service");
+            service
+                .classic_write_preflight(
+                    ClassicWritePreflight::new(source.clone(), &keys)
+                        .selection(RestoreSelection::Blocks(vec![4])),
+                )
+                .expect("write preflight")
+        };
+        ui.cancel_next_task.set(true);
+        start_plan_execution(
+            ui,
+            PendingPlan {
+                plan,
+                source,
+                restore_path: Some(harness.keys_dir.path().join("restore-source.json")),
+                advanced: false,
+            },
+        );
+        pump_until(ui, "cancelled restore", || {
+            !ui.busy.get() && ui.status.label().contains("Restore cancelled")
+        });
+        assert_eq!(ui.activity_view.task.title.label(), "Restore dump");
+        assert_eq!(ui.activity_view.task.phase.label(), "Cancelled");
+        assert!(activity_text(ui).contains("restore · cancelled"));
+
+        // Key scan and recovery share the same task card.
+        ui.cancel_next_task.set(true);
+        start_keyscan(ui.clone());
+        pump_until(ui, "cancelled key scan", || !ui.busy.get());
+        assert_eq!(ui.activity_view.task.title.label(), "Key scan");
+        assert_eq!(ui.activity_view.task.phase.label(), "Cancelled");
+        assert!(activity_text(ui).contains("keyscan · cancelled"));
+
+        ui.recovery_view.strategy.set_selected(1);
+        update_recovery_sensitivity(ui);
+        ui.cancel_next_task.set(true);
+        start_recovery(ui.clone());
+        let dialog = alert_pending(&ui.pending_recovery_dialog);
+        emit_response(&dialog, "confirm");
+        pump_until(ui, "cancelled recovery", || !ui.busy.get());
+        assert_eq!(ui.activity_view.task.title.label(), "Recovery");
+        assert_eq!(ui.activity_view.task.phase.label(), "Cancelled");
+        assert!(activity_text(ui).contains("recovery · cancelled"));
+    }
+
     fn read_captures_keys(harness: &Harness) {
         reset(harness);
         let ui = &harness.ui;
@@ -17087,6 +17498,10 @@ mod tests {
         });
         let after = ui.keys.borrow().verified_count(&test_card());
         assert!(after > before, "verified keys were not captured");
+        assert_eq!(ui.activity_view.task.title.label(), "Read card");
+        assert_eq!(ui.activity_view.task.phase.label(), "Succeeded");
+        assert_eq!(ui.activity_view.task.result.label(), "Complete");
+        assert!(!ui.activity_view.task.cancel.is_sensitive());
         let path = harness.keys_dir.path().join("classic-keys.json");
         let loaded = KeyStore::load(&path).expect("persisted key store");
         assert!(loaded.verified_count(&test_card()) >= after);

@@ -1,9 +1,9 @@
 # Phase 29 plan: CLI contract and reader ownership
 
 Status: in progress 2026-11-14. 29.1 (CLI machine contract), 29.2
-(cross-process reader lock), 29.3 (device selection), and 29.4 (GUI
-connect/disconnect) are done; 29.5-29.7 remain. Decisions from the parity
-review:
+(cross-process reader lock), 29.3 (device selection), 29.4 (GUI
+connect/disconnect), and 29.5 (cancellation and unified tasks) are done;
+29.6-29.7 remain. Decisions from the parity review:
 
 - complete the old `nfctl` machine contract in one phase;
 - GUI and CLI share a cross-process reader lock;
@@ -155,6 +155,10 @@ Done 2026-11-14. Spec:
   disconnect; write gates stay off while disconnected.
 
 ### 29.5 Cancellation and unified tasks
+
+Done 2026-11-14. Spec:
+[29e-cancellation-tasks.md](../specs/29e-cancellation-tasks.md). Note:
+[29e-cancellation-tasks.md](../notes/29e-cancellation-tasks.md).
 
 - Add a GUI task registry for every long operation: read, Classic block write,
   restore, NDEF write/format, UID preflight/execute, Type 2 page/lock/password/

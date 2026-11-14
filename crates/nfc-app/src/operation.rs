@@ -131,7 +131,9 @@ impl<'a> Operation<'a> {
     pub fn write_block_verified(&mut self, block: u8, data: [u8; BLOCK_SIZE]) -> Result<()> {
         self.cancel.check()?;
         self.reader.write_block(block, data)?;
-        self.cancel.check()?;
+        // A committed write is always read back, even when cancellation was
+        // requested while the write was in flight. Cancellation stops the
+        // next exchange, not the verification of this one.
         let read_back = self.reader.read_block(block)?;
         if read_back != data {
             return Err(NfcError::VerificationFailed(format!(

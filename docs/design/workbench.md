@@ -193,7 +193,16 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
 - `GtkColumnView` with `Time`, `Operation`, `Result`, and `Detail`.
 - Session-only; warnings and backup paths appear in `Detail`. Key material and
   NDEF payloads are not logged.
-- `Clear activity` empties the session list. Activity is the only audit surface; the left rail no longer duplicates it.
+- A task card above the table tracks the latest long operation: label, phase,
+  elapsed time, numeric progress when the service emits it (otherwise a
+  spinner), and `Cancel task`. Terminal state is `Succeeded`, `Cancelled`, or
+  `Failed`; with no task it reads `No task running`.
+- `Cancel task` stops before the next reader exchange. A block or page write
+  already issued still runs its read-back before the sequence stops, so a
+  cancelled write never lacks verification for the last exchange.
+- `Clear activity` empties the session list and discards finished task cards;
+  an active task keeps its card until the worker answers. Activity is the only
+  audit surface; the left rail no longer duplicates it.
 
 ## Language
 
