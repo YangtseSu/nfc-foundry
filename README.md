@@ -165,7 +165,7 @@ Supported hardware for the first release:
 
 Out of scope for the first release: PN53x USB, generic or PC/SC-only readers,
 Proxmark3 device control, Windows, macOS, containers, AppImage/Flatpak/Snap,
-telemetry, and a browser-first UI.
+telemetry, a browser-first UI, and a GUI command terminal or shell launch.
 
 Post-release work is listed in the phase plan (phases 13-17): phase 13 is the
 pending RF and transport prerequisite; phases 14-17 are optional and cover
@@ -272,6 +272,8 @@ nfctl --device pn532_uart:/dev/ttyUSB0 scan --json
 nfctl --device pn532_uart:/dev/ttyUSB0 classic read --block 4 --json \
   | jq -r .result.hex
 nfctl --device pn532_uart:/dev/ttyUSB0 classic keyscan --jsonl
+nfctl --timeout 30s --device pn532_uart:/dev/ttyUSB0 \
+  classic dump --output card-dump.bin --json
 ```
 
 - `--json` writes one envelope: `ok`, `command`, `device`, `card`, `warnings`,
@@ -378,7 +380,10 @@ Device selection uses an exact connstring, taken from `--device`,
 serial ports as `pn532_uart:` candidates, with USB serial adapters first and
 legacy `/dev/ttyS*` nodes without detected hardware skipped, because a UART
 adapter cannot be identified without opening it. Several readers require an
-explicit choice rather than a guess. Opening validates the PN532 firmware:
+explicit choice rather than a guess. One process owns a reader at a time: a
+second `nfctl` exits 4 with `reader_busy`, and the workbench shows the same
+busy error, until the holder disconnects or exits. Opening validates the PN532
+firmware:
 
 ```sh
 cargo run -p nfctl -- list
@@ -517,9 +522,14 @@ the live card differs. Key scan authenticates candidates per sector and merges
 only on request. Recovery exposes every native strategy with acquisition,
 filtering, and brute-force progress, elapsed time, cancellation, verified-key
 saving, and the engine limitations verbatim. Activity is a session-only record
-that omits key material and NDEF payloads. Settings persist the key store,
-backup directory, hardnested tables, default-key group, and default dump
-format in `$XDG_CONFIG_HOME/nfc-foundry/ui.json` with atomic `0600` writes.
+that omits key material and NDEF payloads. Every long operation also appears in
+the Activity task card with elapsed time, optional numeric progress, and
+`Cancel task`; cancellation stops before the next reader exchange, and a write
+already issued still runs its read-back. `Disconnect` keeps the inspected image
+as `Inspection only` and disables writes until a new read. Settings persist the
+key store, backup directory, hardnested tables, default-key group, and default
+dump format in `$XDG_CONFIG_HOME/nfc-foundry/ui.json` with atomic `0600`
+writes.
 Type 4 read stays out of the UI; the PN532 hardware record exists as of
 2026-11-12. The `zh-CN` catalog and packaging remain in progress. The
 application icon and desktop entry are in `resources/` for the packaged

@@ -120,6 +120,37 @@ default multi-reader mock exits 2 instead of guessing. The GTK scenario
 refreshes readers and asserts the selected name and exact connstring in the
 reader panel. See [29c-device-selection.md](specs/29c-device-selection.md).
 
+The phase 29.4 Connect/Disconnect tests are hardware-free. `nfc-app` covers
+disconnect stopping polling, closing the reader, releasing the cross-process
+lock, and the next read reopening the reader. The GTK scenario clicks
+`Disconnect`, asserts the `Disconnected` status and disabled write gates, then
+reconnects and reads again. See
+[29d-gui-connect-disconnect.md](specs/29d-gui-connect-disconnect.md).
+
+The phase 29.5 cancellation tests are hardware-free. The GTK scenario cancels
+a read, key scan, recovery, Classic NDEF write, and restore from the Activity
+task card and asserts `Cancelled` plus one Activity row; it also checks the
+cancel action's token and phase transition and the terminal `Succeeded` state
+after a read. `nfc-app` and `nfc-type2` cancel a token inside a write and assert
+that the read-back still runs, so a committed write is never reported without
+verification. The GTK scenario requires a display:
+
+```sh
+NFC_FOUNDRY_GUI_TESTS=1 xvfb-run -a cargo test -p nfc-foundry --bin \
+  nfc-foundry app::tests::gtk_workbench_scenarios -- --exact
+```
+
+See [29e-cancellation-tasks.md](specs/29e-cancellation-tasks.md).
+
+The phase 29.6 developer-tools tests are hardware-free and cover both sides of
+the feature. A default build asserts that `pn532` and `apdu` are absent from
+help and rejected by the parser; a `developer-tools` build asserts that they
+are listed, that the console prints its bypass warning and leaks neither a
+candidate key nor a Type 2 password, and that `apdu --raw` returns
+`data`/`sw`/`statusOk` without echoing the request. `nfc-app` covers a console
+exchange with no card and the ISO-DEP requirement for a raw APDU. See
+[29f-developer-tools.md](specs/29f-developer-tools.md).
+
 The phase 08 NDEF tests are hardware-free. `nfc-ndef` has deterministic tests
 for the Text RTD example, short/normal/chunked record layouts, all 36 URI
 prefixes, TLV length forms through 65,535 octets, unknown TLV and padding
@@ -787,6 +818,18 @@ keyscan progress assertion and recovery candidate expansion. `nfctl` covers
 explicit `--key-file` keyscan candidates with common keys disabled and the
 reader/build facts in `diag`. Settings unit tests cover missing and malformed
 files, permissions, and path validation.
+
+Feature-gated code is outside the default `cargo test --workspace` graph. Check
+both sides of a feature:
+
+```sh
+cargo test -p nfctl -p nfc-app --features developer-tools
+cargo clippy -p nfctl -p nfc-app --all-targets --features developer-tools -- \
+  -D warnings
+```
+
+Release packages and the AUR recipes use default features, so they never
+compile `pn532 shell` or `apdu --raw`.
 
 For hardware features:
 

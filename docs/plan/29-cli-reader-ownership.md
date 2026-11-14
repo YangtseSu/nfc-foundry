@@ -1,10 +1,7 @@
 # Phase 29 plan: CLI contract and reader ownership
 
-Status: in progress 2026-11-15. 29.1 (CLI machine contract), 29.2
-(cross-process reader lock), 29.3 (device selection), 29.4 (GUI
-connect/disconnect), 29.5 (cancellation and unified tasks), and 29.6
-(developer-only raw diagnostics) are done; 29.7 remains. Decisions from the
-parity review:
+Status: done 2026-11-15. All slices are complete. Decisions from the parity
+review:
 
 - complete the old `nfctl` machine contract in one phase;
 - GUI and CLI share a cross-process reader lock;
@@ -204,6 +201,9 @@ Done 2026-11-15. Spec:
   no secret logging.
 
 ### 29.7 Docs and non-goals
+
+Done 2026-11-15. Spec: [29g-docs-non-goals.md](../specs/29g-docs-non-goals.md).
+Note: [29g-docs-non-goals.md](../notes/29g-docs-non-goals.md).
 
 - Add `docs/cli.md`.
 - Update README CLI examples and device selection.

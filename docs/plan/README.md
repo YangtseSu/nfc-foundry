@@ -54,7 +54,7 @@ work; their current equivalents are the GTK4 workspaces.
 | 26 | DESFire workbench: read/write, app/file/key management, secure messaging, NDEF | done (26.10 timer and 26.11 key sets blocked) |
 | 27 | NDEF workbench: multi-record editor, RTD forms, `.ndef` load/save, Classic/Type 2 write | done |
 | 28 | ACR122U PC/SC transport (ACR122U only, not generic PC/SC) | done |
-| 29 | CLI machine contract, cross-process reader ownership, cancellation/tasks, developer raw diagnostics | in progress (29.1-29.6 done) |
+| 29 | CLI machine contract, cross-process reader ownership, cancellation/tasks, developer raw diagnostics | done (29.1-29.7) |
 | 30 | Workbench/file parity: sector grouping/ASCII, dump sidecars, export all candidates | pending |
 | 31 | Conditional scope register: card emulation, Jewel/Topaz | conditional |
 
@@ -65,6 +65,8 @@ work; their current equivalents are the GTK4 workspaces.
   0002.
 - Phase 29 developer raw tools (`pn532 shell`, arbitrary `apdu --raw`) are
   non-default features and never ship in release packages.
+- Phase 29 drops `OpenCommandTerminal`: the GUI has no command terminal,
+  private runtime, external engine bundle, or shell launch.
 - Phase 31 records conditional directions only; neither card emulation nor
   Jewel/Topaz is in the support matrix until a phase is accepted.
 - One phase at a time unless work is genuinely independent.

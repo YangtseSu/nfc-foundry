@@ -337,6 +337,11 @@ The header `☰` menu groups application-level actions:
 - About NFC Foundry: `AdwAboutDialog` with the application name, version,
   GPL-3.0-or-later license, and repository link.
 
+There is no command terminal entry. The GUI never launches a shell, bundles a
+private runtime or external engine, or exposes raw reader/APDU commands; the
+developer diagnostics in `nfctl` are CLI-only and gated by a non-default
+feature.
+
 ## Copy and states
 
 - English base copy in this slice; `zh-CN` is a completion requirement.
