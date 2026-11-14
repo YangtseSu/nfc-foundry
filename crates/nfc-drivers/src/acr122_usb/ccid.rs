@@ -65,6 +65,11 @@ impl CcidTransport {
                         device.device_address()
                     ),
                 )
+                .with_physical_id(physical_id(
+                    device.busnum(),
+                    device.device_address(),
+                    device.serial_number(),
+                ))
             })
             .collect();
         found.sort_by(|left, right| left.conn_string.cmp(&right.conn_string));
@@ -349,6 +354,15 @@ fn bulk_endpoints(interface: &Interface) -> Result<(Endpoint<Bulk, Out>, Endpoin
     Ok((endpoint_out, endpoint_in))
 }
 
+/// Lock identity for an ACR122U. A USB serial number survives bus/address
+/// reassignment; readers without one fall back to the address pair.
+fn physical_id(bus: u8, address: u8, serial: Option<&str>) -> String {
+    match serial.filter(|serial| !serial.is_empty()) {
+        Some(serial) => format!("{ACR122_USB_PREFIX}serial:{serial}"),
+        None => format!("{ACR122_USB_PREFIX}{bus:03}:{address:03}"),
+    }
+}
+
 fn parse_connstring(conn_string: &str) -> Result<(u8, u8)> {
     let target = conn_string.strip_prefix(ACR122_USB_PREFIX).ok_or_else(|| {
         NfcError::InvalidArgument(format!(
@@ -468,6 +482,16 @@ mod tests {
             }
         );
         assert!(split_apdu(vec![0x90]).is_err());
+    }
+
+    #[test]
+    fn physical_id_prefers_the_usb_serial_number() {
+        assert_eq!(
+            physical_id(1, 17, Some("ACR122SERIAL")),
+            "acr122_usb:serial:ACR122SERIAL"
+        );
+        assert_eq!(physical_id(1, 17, None), "acr122_usb:001:017");
+        assert_eq!(physical_id(1, 17, Some("")), "acr122_usb:001:017");
     }
 
     #[test]

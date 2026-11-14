@@ -59,6 +59,14 @@ reader command without `--device` exits 2 with a usage error, and an unknown
 connstring also exits 2. Reader enumeration failures, a missing card, and
 reader timeouts exit 4.
 
+The GUI and CLI take one exclusive advisory lock per physical reader, under
+`$XDG_RUNTIME_DIR/nfc-foundry` (or a per-user temporary directory when the
+runtime directory is unset). The lock is acquired before the reader opens and
+held until the connection closes. A second process on the same physical reader
+exits 4 with `code: "reader_busy"`; the message names the holder when its
+record is available. Two different connstrings for one reader, such as a PN532
+`/dev/ttyUSB0` path and its `/dev/serial/by-id` alias, share the lock.
+
 ## Exit codes
 
 | Code | Meaning |
@@ -93,6 +101,7 @@ The error envelope carries one stable `code` and the numeric `exitCode`.
 | `deadline_exceeded` | 1 | `NfcError::Cancelled` after `--timeout` expiry |
 | `no_card` | 4 | `NfcError::NoCard` |
 | `no_reader` | 4 | `NfcError::NoReader` |
+| `reader_busy` | 4 | `NfcError::ReaderBusy` from the cross-process reader lock |
 | `timeout` | 4 | `NfcError::Timeout` from a reader exchange |
 | `unsupported` | 4 | `NfcError::Unsupported` |
 | `not_implemented` | 7 | `NfcError::NotImplemented` |
@@ -369,7 +378,7 @@ envelope.
 
 - `nfctl pn532 shell` and `nfctl apdu --raw` arrive with the `developer-tools`
   feature (`29.6`) and are absent from release builds.
-- The GUI and CLI share the reader through a cross-process lock in `29.2`.
-  Until then, two processes may contend for a reader; the OS error is reported
-  as exit 1 (`io`).
+- The GUI and CLI share one cross-process lock per physical reader. A second
+  process on the same reader exits 4 with `reader_busy`; the lock is released
+  when the holder closes the reader or exits.
 - `LIBNFC_DEVICE` is not supported.

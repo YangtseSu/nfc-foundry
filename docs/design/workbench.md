@@ -19,6 +19,9 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
   lease. Removing the card, presenting a different card, or losing the reader
   invalidates the live image, resets Advanced mode, and disables writes while
   the inspected bytes stay visible.
+- Opening a reader also claims its cross-process lock. When another NFC Foundry
+  process owns the reader, the panel shows `Error: reader busy: …`, the device
+  is not opened, and no write path becomes available.
 - Workspaces: `Classic` shows `Blocks`, `Details`, `NDEF`, `Keys`, `Recovery`,
   and `Dumps`;
   `Type 2` shows `Pages`, `Protection`, `NDEF`, and `Dumps`; `DESFire` shows

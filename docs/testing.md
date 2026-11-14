@@ -100,6 +100,15 @@ stdout/stderr separation, and sandboxed backup paths. Unit tests in
 deadline flag, durations, and output-mode pre-scan. See
 [cli.md](cli.md) for the contract.
 
+The phase 29.2 reader-lock tests are hardware-free. `nfc-app` covers exclusive
+contention, release, stale-file reuse, private directory/file modes, stable
+file names, and the device manager refusing to open a reader held by another
+lock. `nfc-drivers` covers PN532 by-id preference and ACR122U serial identity.
+`crates/nfctl/tests/cli_contract.rs` runs two real processes against one mock
+reader: the loser exits 4 with `reader_busy`, and the reader is usable after
+the holder is stopped. Every CLI sandbox sets `XDG_RUNTIME_DIR` so lock files
+stay inside the test directory. See [29b-reader-lock.md](specs/29b-reader-lock.md).
+
 The phase 08 NDEF tests are hardware-free. `nfc-ndef` has deterministic tests
 for the Text RTD example, short/normal/chunked record layouts, all 36 URI
 prefixes, TLV length forms through 65,535 octets, unknown TLV and padding

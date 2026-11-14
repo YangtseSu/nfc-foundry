@@ -13,6 +13,7 @@ pub mod health;
 pub mod operation;
 pub mod paths;
 pub mod reader;
+mod reader_lock;
 pub mod recovery;
 pub mod service;
 pub mod type2;

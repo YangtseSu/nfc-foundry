@@ -12,6 +12,7 @@ fn nfctl(args: &[&str]) -> Output {
         .args(args)
         .env("XDG_CONFIG_HOME", config.path())
         .env("XDG_DATA_HOME", data.path())
+        .env("XDG_RUNTIME_DIR", config.path().join("runtime"))
         .output()
         .expect("run nfctl")
 }
@@ -22,6 +23,7 @@ fn nfctl_with_data(args: &[&str], data: &Path) -> Output {
         .args(args)
         .env("XDG_CONFIG_HOME", config.path())
         .env("XDG_DATA_HOME", data)
+        .env("XDG_RUNTIME_DIR", config.path().join("runtime"))
         .output()
         .expect("run nfctl")
 }
@@ -31,6 +33,7 @@ fn nfctl_chinese_locale(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_nfctl"))
         .args(args)
         .env("XDG_CONFIG_HOME", config.path())
+        .env("XDG_RUNTIME_DIR", config.path().join("runtime"))
         .env("LANG", "zh_CN.UTF-8")
         .env("LC_ALL", "zh_CN.UTF-8")
         .env("LC_MESSAGES", "zh_CN.UTF-8")

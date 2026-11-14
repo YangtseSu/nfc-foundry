@@ -6016,11 +6016,15 @@ fn build_service(mock: bool) -> Service {
     }
 }
 
+fn mock_device(name: &str, conn_string: &str) -> DeviceInfo {
+    DeviceInfo::new(name, conn_string).with_physical_id(conn_string)
+}
+
 fn mock_service() -> Service {
     let transport = MockTransport::new();
     let (classic_card, classic_blocks) = mock_classic_card();
     let handle = transport.add(
-        DeviceInfo::new("Mock Classic 1K", "mock:classic-1k"),
+        mock_device("Mock Classic 1K", "mock:classic-1k"),
         Some(classic_card),
     );
     for (block, data) in classic_blocks {
@@ -6028,14 +6032,14 @@ fn mock_service() -> Service {
     }
     let (ndef_card, ndef_blocks) = mock_classic_ndef_card();
     let ndef_handle = transport.add(
-        DeviceInfo::new("Mock Classic NDEF 1K", "mock:classic-ndef"),
+        mock_device("Mock Classic NDEF 1K", "mock:classic-ndef"),
         Some(ndef_card),
     );
     for (block, data) in ndef_blocks {
         ndef_handle.set_block(block, data);
     }
     let ntag = transport.add(
-        DeviceInfo::new("Mock NTAG215", "mock:ntag215"),
+        mock_device("Mock NTAG215", "mock:ntag215"),
         Some(CardInfo::new(
             vec![0x04, 0x5B, 0x1C, 0x2A, 0x3B, 0x4C, 0x80],
             [0x00, 0x44],
@@ -6055,7 +6059,7 @@ fn mock_service() -> Service {
     ntag.set_page(132, [0x00, 0x00, 0x00, 0x00]);
     ntag.set_password([0xFF; PAGE_SIZE], [0x00, 0x00]);
     let type4 = transport.add(
-        DeviceInfo::new("Mock Type 4 DESFire", "mock:type4-desfire"),
+        mock_device("Mock Type 4 DESFire", "mock:type4-desfire"),
         Some(CardInfo::new(
             vec![0x04, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26],
             [0x00, 0x44],
@@ -6075,7 +6079,7 @@ fn mock_service() -> Service {
     ndef_file.extend_from_slice(&encoded);
     type4.set_type4_tag(MockType4Tag::new(mock_type4_cc(), ndef_file));
     transport.add(
-        DeviceInfo::new("Mock MIFARE Mini", "mock:mini"),
+        mock_device("Mock MIFARE Mini", "mock:mini"),
         Some(CardInfo::new(
             vec![0x04, 0x11, 0x22, 0x33],
             [0x00, 0x04],
@@ -6083,7 +6087,7 @@ fn mock_service() -> Service {
             CardType::MifareMini,
         )),
     );
-    transport.add(DeviceInfo::new("Mock empty reader", "mock:empty"), None);
+    transport.add(mock_device("Mock empty reader", "mock:empty"), None);
     let desfire = MockDesfireTransport::with_tag(
         MockDesfire::new([0x00; 8], AuthKeyType::Des)
             .with_key_version(0)

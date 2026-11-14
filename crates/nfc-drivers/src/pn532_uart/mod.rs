@@ -90,6 +90,35 @@ impl Pn532Uart {
 
 fn port_device(port_name: &str) -> DeviceInfo {
     DeviceInfo::new(READER_NAME, format!("{PN532_UART_PREFIX}{port_name}"))
+        .with_physical_id(physical_id(port_name))
+}
+
+/// Lock identity for a serial port. A `/dev/serial/by-id` entry is preferred
+/// because it survives re-enumeration; otherwise the canonical device path is
+/// used, falling back to the path from the connstring when the node is absent.
+fn physical_id(port_name: &str) -> String {
+    physical_id_in(std::path::Path::new("/dev/serial/by-id"), port_name)
+}
+
+fn physical_id_in(by_id_dir: &std::path::Path, port_name: &str) -> String {
+    use std::path::PathBuf;
+
+    let canonical = std::fs::canonicalize(port_name).ok();
+    if let Some(canonical) = &canonical
+        && let Ok(entries) = std::fs::read_dir(by_id_dir)
+    {
+        let mut matches = entries
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| std::fs::canonicalize(path).is_ok_and(|target| target == *canonical))
+            .collect::<Vec<PathBuf>>();
+        matches.sort();
+        if let Some(path) = matches.into_iter().next() {
+            return format!("{PN532_UART_PREFIX}{}", path.display());
+        }
+    }
+    let path = canonical.unwrap_or_else(|| PathBuf::from(port_name));
+    format!("{PN532_UART_PREFIX}{}", path.display())
 }
 
 /// Convert enumerated ports into candidates, dropping legacy UART nodes with
@@ -291,13 +320,38 @@ mod tests {
 
     #[test]
     fn maps_serial_ports_to_exact_connstrings() {
+        let node = port_device("/dev/ttyUSB0");
+        assert_eq!(node.name, READER_NAME);
+        assert_eq!(node.conn_string, "pn532_uart:/dev/ttyUSB0");
+        assert!(
+            node.physical_id
+                .as_deref()
+                .is_some_and(|id| id.starts_with(PN532_UART_PREFIX))
+        );
+
+        let uart = port_device("ttyAMA0");
+        assert_eq!(uart.conn_string, "pn532_uart:ttyAMA0");
+        assert_eq!(uart.physical_id.as_deref(), Some("pn532_uart:ttyAMA0"));
+    }
+
+    #[test]
+    fn physical_id_prefers_the_by_id_symlink() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let by_id = directory.path().join("by-id");
+        std::fs::create_dir(&by_id).expect("create by-id");
+        let node = directory.path().join("ttyUSB0");
+        std::fs::write(&node, b"").expect("create node");
+        let link = by_id.join("usb-1a86_USB_Serial-if00-port0");
+        std::os::unix::fs::symlink(&node, &link).expect("create symlink");
+
+        let node_name = node.to_string_lossy();
         assert_eq!(
-            port_device("/dev/ttyUSB0"),
-            DeviceInfo::new(READER_NAME, "pn532_uart:/dev/ttyUSB0")
+            physical_id_in(&by_id, &node_name),
+            format!("pn532_uart:{}", link.display())
         );
         assert_eq!(
-            port_device("ttyAMA0"),
-            DeviceInfo::new(READER_NAME, "pn532_uart:ttyAMA0")
+            physical_id_in(&by_id, "/dev/ttyUSB-does-not-exist"),
+            "pn532_uart:/dev/ttyUSB-does-not-exist"
         );
     }
 

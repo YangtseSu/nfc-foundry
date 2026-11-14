@@ -4,6 +4,11 @@
 pub struct DeviceInfo {
     pub name: String,
     pub conn_string: String,
+    /// Stable physical identity used for the cross-process reader lock. Drivers
+    /// set the most durable identity they can resolve, for example a
+    /// `/dev/serial/by-id` path or a USB serial number. It is `None` for
+    /// scripted transports, which never claim host hardware.
+    pub physical_id: Option<String>,
 }
 
 impl DeviceInfo {
@@ -11,7 +16,13 @@ impl DeviceInfo {
         Self {
             name: name.into(),
             conn_string: conn_string.into(),
+            physical_id: None,
         }
+    }
+
+    pub fn with_physical_id(mut self, physical_id: impl Into<String>) -> Self {
+        self.physical_id = Some(physical_id.into());
+        self
     }
 }
 

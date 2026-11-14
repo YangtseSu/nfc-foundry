@@ -27,13 +27,28 @@ impl Sandbox {
 
     fn command(&self, arguments: &[&str]) -> Output {
         let mut command = Command::new(env!("CARGO_BIN_EXE_nfctl"));
+        self.configure(&mut command);
+        command.args(arguments);
+        command.output().expect("run nfctl")
+    }
+
+    fn spawn(&self, arguments: &[&str]) -> std::process::Child {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_nfctl"));
+        self.configure(&mut command);
+        command
+            .args(arguments)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn nfctl")
+    }
+
+    fn configure(&self, command: &mut Command) {
         command.env_clear();
         command.env("HOME", self.directory.path());
         command.env("XDG_CONFIG_HOME", self.directory.path().join("config"));
         command.env("XDG_DATA_HOME", self.directory.path().join("data"));
         command.env("XDG_RUNTIME_DIR", self.directory.path().join("run"));
-        command.args(arguments);
-        command.output().expect("run nfctl")
     }
 
     fn json(&self, arguments: &[&str]) -> (Value, Output) {
@@ -451,6 +466,7 @@ fn signal_cancellation_exits_six() {
         .env("HOME", sandbox.path())
         .env("XDG_CONFIG_HOME", sandbox.path().join("config"))
         .env("XDG_DATA_HOME", sandbox.path().join("data"))
+        .env("XDG_RUNTIME_DIR", sandbox.path().join("run"))
         .args([
             "--mock",
             "--device",
@@ -477,6 +493,49 @@ fn signal_cancellation_exits_six() {
     assert_eq!(value["type"], "result");
     assert_eq!(error_code(&value), "cancelled");
     assert_eq!(value["error"]["exitCode"], 6);
+}
+
+#[test]
+fn a_second_process_cannot_claim_the_same_reader() {
+    use std::io::BufRead;
+
+    let sandbox = Sandbox::new();
+    let mut holder = sandbox.spawn(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "scan",
+        "--watch",
+        "--jsonl",
+    ]);
+    let stdout = holder.stdout.take().expect("holder stdout");
+    let mut stdout = std::io::BufReader::new(stdout);
+    let mut first_line = String::new();
+    stdout
+        .read_line(&mut first_line)
+        .expect("holder prints its first event");
+    assert!(
+        first_line.contains("\"type\":\"card\""),
+        "holder did not open the reader: {first_line}"
+    );
+
+    let (value, output) =
+        sandbox.json(&["--mock", "--device", "mock:classic-1k", "scan", "--json"]);
+    assert_eq!(code(&output), 4);
+    assert_eq!(error_code(&value), "reader_busy");
+    assert_eq!(value["error"]["exitCode"], 4);
+    let message = value["error"]["message"].as_str().expect("message");
+    assert!(message.contains("in use"), "{message}");
+
+    let status = Command::new("sh")
+        .args(["-c", &format!("kill -TERM {}", holder.id())])
+        .status()
+        .expect("stop the holder");
+    assert!(status.success());
+    assert_eq!(holder.wait().expect("wait for holder").code(), Some(6));
+
+    let (_, output) = sandbox.json(&["--mock", "--device", "mock:classic-1k", "scan", "--json"]);
+    assert_eq!(code(&output), 0, "the released reader stays usable");
 }
 
 #[test]

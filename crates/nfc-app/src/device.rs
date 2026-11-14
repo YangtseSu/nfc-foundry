@@ -1,4 +1,5 @@
 use std::cell::Cell;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -9,16 +10,24 @@ use crate::operation::{Operation, OperationKind};
 use crate::reader::{
     MonitorState, ReaderMonitorConfig, ReaderSnapshot, ReaderUpdate, is_transient,
 };
+use crate::reader_lock::ReaderLock;
 
 /// Reader selection and lifecycle state. A reader is opened only when an
 /// operation or a monitor poll needs it and is closed on release, device loss,
 /// or a selection change. `begin_operation` sets the busy status and the
 /// returned lease clears it on drop, so a poll can never share the reader.
+///
+/// Opening also claims the cross-process lock for the reader's physical
+/// identity; the lock is held until the connection closes.
 pub struct DeviceManager {
     transport: Arc<dyn Transport>,
     devices: Vec<DeviceInfo>,
     selected: Option<String>,
     reader: Option<Box<dyn Reader>>,
+    lock: Option<ReaderLock>,
+    /// Overrides the runtime lock directory. Tests inject a private directory;
+    /// hosts use the default runtime location.
+    lock_dir: Option<PathBuf>,
     busy: Cell<bool>,
     /// A release parks the reader until an operation or an explicit selection.
     polling_paused: bool,
@@ -33,15 +42,26 @@ impl Default for DeviceManager {
 
 impl DeviceManager {
     pub fn with_transport(transport: Arc<dyn Transport>) -> Self {
+        Self::with_lock_dir(transport, None)
+    }
+
+    fn with_lock_dir(transport: Arc<dyn Transport>, lock_dir: Option<PathBuf>) -> Self {
         Self {
             transport,
             devices: Vec::new(),
             selected: None,
             reader: None,
+            lock: None,
+            lock_dir,
             busy: Cell::new(false),
             polling_paused: false,
             monitor: MonitorState::new(),
         }
+    }
+
+    #[cfg(test)]
+    fn with_transport_and_lock_dir(transport: Arc<dyn Transport>, lock_dir: PathBuf) -> Self {
+        Self::with_lock_dir(transport, Some(lock_dir))
     }
 
     pub fn devices(&self) -> &[DeviceInfo] {
@@ -129,6 +149,7 @@ impl DeviceManager {
         } else {
             Ok(())
         };
+        self.lock = None;
         self.busy.set(false);
         self.monitor.forget_card();
         self.polling_paused = true;
@@ -236,11 +257,24 @@ impl DeviceManager {
                 .opened(reader.capabilities(), reader.firmware());
             return Ok(());
         }
+        let lock = match self
+            .devices
+            .iter()
+            .find(|device| device.conn_string == conn_string)
+            .filter(|device| device.physical_id.is_some())
+        {
+            Some(device) => Some(match &self.lock_dir {
+                Some(directory) => ReaderLock::acquire_in(directory, device)?,
+                None => ReaderLock::acquire(device)?,
+            }),
+            None => None,
+        };
         let mut reader = self.transport.open(conn_string)?;
         reader.open(conn_string)?;
         self.monitor
             .opened(reader.capabilities(), reader.firmware());
         self.reader = Some(reader);
+        self.lock = lock;
         Ok(())
     }
 
@@ -265,6 +299,7 @@ impl DeviceManager {
         if let Some(mut reader) = self.reader.take() {
             let _ = reader.close();
         }
+        self.lock = None;
     }
 }
 
@@ -390,5 +425,44 @@ mod tests {
         drop(operation);
         assert!(!manager.busy.get());
         assert_eq!(manager.state().status, crate::reader::ReaderStatus::Polling);
+    }
+
+    #[test]
+    fn another_holder_blocks_the_reader_until_release() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let transport = MockTransport::new();
+        let info = DeviceInfo::new("Mock", "mock:0").with_physical_id("test:manager:0");
+        let handle = transport.add(info.clone(), Some(card(1)));
+        let mut manager = DeviceManager::with_transport_and_lock_dir(
+            Arc::new(transport),
+            directory.path().to_path_buf(),
+        );
+        manager.refresh().expect("refresh");
+        manager.select("mock:0").expect("select");
+
+        let held = ReaderLock::acquire_in(directory.path(), &info).expect("other holder");
+        let now = Instant::now();
+        let update = manager.poll(now);
+        assert_eq!(update.snapshot.status, crate::reader::ReaderStatus::Error);
+        assert!(
+            update
+                .snapshot
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("in use")),
+            "{:?}",
+            update.snapshot.error
+        );
+        assert!(!handle.is_open(), "the busy reader was opened anyway");
+
+        drop(held);
+        manager.refresh().expect("refresh after contention");
+        let update = manager.poll(now + std::time::Duration::from_millis(1));
+        assert_eq!(update.snapshot.status, crate::reader::ReaderStatus::Polling);
+        assert!(handle.is_open());
+        assert!(ReaderLock::acquire_in(directory.path(), &info).is_err());
+
+        manager.release().expect("release");
+        ReaderLock::acquire_in(directory.path(), &info).expect("lock after release");
     }
 }

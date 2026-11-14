@@ -93,10 +93,9 @@ impl Acr122Pcsc {
             .iter()
             .filter(|reader| is_acr122_reader(&reader.to_string_lossy()))
             .map(|reader| {
-                DeviceInfo::new(
-                    READER_NAME,
-                    format!("{}{}", crate::ACR122_PCSC_PREFIX, reader.to_string_lossy()),
-                )
+                let conn_string =
+                    format!("{}{}", crate::ACR122_PCSC_PREFIX, reader.to_string_lossy());
+                DeviceInfo::new(READER_NAME, conn_string.clone()).with_physical_id(conn_string)
             })
             .collect())
     }

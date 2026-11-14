@@ -100,6 +100,7 @@ fn classify_service(error: &NfcError, deadline_expired: bool) -> Classification 
         }
         NfcError::NoCard => Classification::new("no_card", 4),
         NfcError::NoReader => Classification::new("no_reader", 4),
+        NfcError::ReaderBusy(_) => Classification::new("reader_busy", 4),
         NfcError::Timeout(_) => Classification::new("timeout", 4),
         NfcError::AuthenticationFailed => Classification::new("authentication", 1),
         NfcError::AuthenticationRequired(_) => Classification::new("authentication_required", 1),
@@ -127,6 +128,7 @@ mod tests {
             (NfcError::Cancelled, ("cancelled", 6)),
             (NfcError::NoCard, ("no_card", 4)),
             (NfcError::NoReader, ("no_reader", 4)),
+            (NfcError::ReaderBusy("in use".into()), ("reader_busy", 4)),
             (NfcError::Timeout("x".into()), ("timeout", 4)),
             (NfcError::AuthenticationFailed, ("authentication", 1)),
             (

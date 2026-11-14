@@ -968,6 +968,7 @@ dependencies = [
  "nfc-transport",
  "nfc-type2",
  "nfc-type4",
+ "rustix",
  "serde",
  "serde_json",
  "tempfile",
@@ -1023,6 +1024,7 @@ dependencies = [
  "nusb",
  "pcsc",
  "serialport",
+ "tempfile",
 ]
 
 [[package]]
