@@ -2143,3 +2143,201 @@ fn mini_reports_its_identity_and_refuses_a_classic_read() {
     );
     assert!(!dump.exists(), "no dump may be written for a Mini card");
 }
+
+#[test]
+fn image_exports_write_and_consume_sidecar_metadata() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let dump = directory.path().join("card-dump.bin");
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "classic",
+        "dump",
+        "--output",
+        dump.to_str().expect("path"),
+        "--format",
+        "raw",
+    ]);
+    assert_success(&output);
+    let sidecar = directory.path().join("card-dump.bin.nfcx.json");
+    assert!(sidecar.exists(), "{}", stdout(&output));
+    assert!(stdout(&output).contains("sidecar:"), "{}", stdout(&output));
+    let document: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&sidecar).expect("sidecar")).expect("json");
+    assert_eq!(document["version"], 1);
+    assert_eq!(document["complete"], true);
+    assert_eq!(document["layout"], "classic_1k");
+    assert_eq!(document["card"]["uid"], "04A2248A");
+    assert_eq!(document["card"]["atqa"], "0004");
+    assert_eq!(document["card"]["sak"], 8);
+    assert!(
+        !document["keys"].as_array().expect("keys").is_empty(),
+        "{document}"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mode = std::fs::metadata(&sidecar)
+            .expect("mode")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
+    let store = directory.path().join("keys.json");
+    let output = nfctl(&[
+        "--mock",
+        "--key-store",
+        store.to_str().expect("path"),
+        "card",
+        "health",
+        "--input",
+        dump.to_str().expect("path"),
+    ]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("sidecar:"), "{text}");
+    assert!(text.contains("UID 04 A2 24 8A (4 bytes)"), "{text}");
+    assert!(text.contains("keys: 16/16 sectors covered"), "{text}");
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "classic",
+        "restore",
+        "--input",
+        dump.to_str().expect("path"),
+        "--dry-run",
+    ]);
+    assert_success(&output);
+    assert!(stdout(&output).contains("sidecar:"), "{}", stdout(&output));
+
+    let without = directory.path().join("no-sidecar.bin");
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "classic",
+        "dump",
+        "--output",
+        without.to_str().expect("path"),
+        "--format",
+        "raw",
+        "--no-sidecar",
+    ]);
+    assert_success(&output);
+    assert!(!directory.path().join("no-sidecar.bin.nfcx.json").exists());
+
+    let project = directory.path().join("card.json");
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "classic",
+        "dump",
+        "--output",
+        project.to_str().expect("path"),
+        "--format",
+        "project",
+    ]);
+    assert_success(&output);
+    assert!(!directory.path().join("card.json.nfcx.json").exists());
+}
+
+#[test]
+fn keys_export_all_candidates_is_sorted_and_keeps_the_store() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let store = directory.path().join("keys.json");
+    let store_arg = store.to_str().expect("path");
+    let output = nfctl(&[
+        "classic",
+        "keys",
+        "add",
+        "a0a1a2a3a4a5",
+        "--sector",
+        "0",
+        "--key-type",
+        "A",
+        "--key-store",
+        store_arg,
+    ]);
+    assert_success(&output);
+    let before = std::fs::read_to_string(&store).expect("store");
+
+    let dic = directory.path().join("candidates.dic");
+    let output = nfctl(&[
+        "classic",
+        "keys",
+        "export",
+        "--all-candidates",
+        "--format",
+        "dic",
+        "--output",
+        dic.to_str().expect("path"),
+        "--key-store",
+        store_arg,
+    ]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("57 keys, all_candidates"), "{text}");
+    let exported = std::fs::read_to_string(&dic).expect("dic");
+    let lines: Vec<_> = exported.lines().collect();
+    assert_eq!(lines.len(), 57);
+    assert!(lines.iter().all(|line| line.len() == 12));
+    assert!(lines.iter().all(|line| {
+        line.chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+    }));
+    assert!(lines.windows(2).all(|pair| pair[0] < pair[1]));
+    assert!(lines.contains(&"A0A1A2A3A4A5"));
+    assert_eq!(std::fs::read_to_string(&store).expect("store"), before);
+
+    let json_path = directory.path().join("candidates.json");
+    let output = nfctl(&[
+        "classic",
+        "keys",
+        "export",
+        "--all-candidates",
+        "--format",
+        "json",
+        "--output",
+        json_path.to_str().expect("path"),
+        "--key-store",
+        store_arg,
+    ]);
+    assert_success(&output);
+    let document: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&json_path).expect("json")).expect("json");
+    assert_eq!(document["version"], 1);
+    assert_eq!(document["scope"], "all_candidates");
+    let keys = document["keys"].as_array().expect("keys");
+    assert_eq!(keys.len(), 57);
+    let stored = keys
+        .iter()
+        .find(|entry| entry["key"] == "A0A1A2A3A4A5")
+        .expect("stored key");
+    assert_eq!(stored["source"], "stored");
+    assert!(keys.iter().any(|entry| entry["source"] == "builtin"));
+
+    let stored_dic = directory.path().join("stored.dic");
+    let output = nfctl(&[
+        "classic",
+        "keys",
+        "export",
+        "--format",
+        "dic",
+        "--output",
+        stored_dic.to_str().expect("path"),
+        "--key-store",
+        store_arg,
+    ]);
+    assert_success(&output);
+    assert_eq!(
+        std::fs::read_to_string(&stored_dic).expect("stored dic"),
+        "A0A1A2A3A4A5\n"
+    );
+    assert_eq!(std::fs::read_to_string(&store).expect("store"), before);
+}

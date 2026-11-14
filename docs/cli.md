@@ -356,7 +356,7 @@ in JSON.
 | Command | `result` fields |
 |---|---|
 | `classic.read` | `block`, `hex`, `ascii` |
-| `classic.dump` | `path`, `format`, `bytes`, `identityOnly`, `layout`, `blocksReadable`, `blocksTotal`, `sectorsReadable`, `sectorsTotal`, `skippedSectors`, `keysPath` |
+| `classic.dump` | `path`, `format`, `bytes`, `identityOnly`, `layout`, `blocksReadable`, `blocksTotal`, `sectorsReadable`, `sectorsTotal`, `skippedSectors`, `sidecarPath`, `keysPath` |
 | `classic.write` | `block`, `changed`, `verified`, `backup`; dry run: `dryRun: true`, `plan` |
 | `classic.uid` | `changed`, `uidBefore`, `uidAfter`, `block0`, `backend`, `backup`; dry run: `dryRun: true`, `plan` |
 | `classic.restore` | `dryRun`, `written`, `unchanged`, `unknownSkipped`, `notSelected`, `planned`, `trailers`, `backup`, `failures`, `blocks`, `uid`; dry run: `dryRun: true`, `plan` |
@@ -365,7 +365,7 @@ in JSON.
 | `classic.keys.import` | `path`, `added`, `duplicates`, `ignored`, `issues` |
 | `classic.keys.add` | `path`, `added` |
 | `classic.keys.delete` | `path`, `deleted` |
-| `classic.keys.export` | `path`, `format`, `bytes`; requires `--output` in machine modes |
+| `classic.keys.export` | `path`, `format`, `bytes`, `keys`, `scope` (`stored` or `all_candidates`); requires `--output` in machine modes |
 | `classic.diff` | `layout`, `changed`, `equal`, `unknown`, `trailerChanges`, `identityChanged`, `blocks` |
 | `classic.ndef.info`, `classic.ndef.read` | `ndef`: `{mad, state, capacity, messageBytes, records}`; read adds `output` |
 | `classic.ndef.write` | `writtenBlocks`, `changedBlocks`, `backup`, `ndef` |
@@ -441,10 +441,34 @@ envelope.
 
 `pn532.shell` is interactive and produces no machine result.
 
+## Dump sidecars
+
+Raw, MCT, and Proxmark3 images carry bytes only. `classic dump` also writes
+`<image>.nfcx.json` beside the image with `version`, `complete`, `layout`,
+`card`, `device`, `startedAt`, `finishedAt`, and sector `keys`. The sidecar is
+metadata: image bytes remain authoritative, and a sidecar never changes a
+block.
+
+- Written by default for image-only formats, atomically with mode `0600`.
+  `--no-sidecar` disables it; project exports keep metadata inline and never
+  get a sidecar.
+- A sidecar write failure is a warning; the image write still succeeds.
+- `classic restore` and `card health` apply a matching sidecar to a raw, MCT,
+  or Proxmark3 load. A missing sidecar is normal. A malformed sidecar, an
+  unknown version, or a layout/completeness/card mismatch warns and loads the
+  image without metadata.
+- Project JSON never consults a sidecar. `classic diff` compares images only.
+- `classic.keys export --all-candidates` writes the unique union of stored
+  keys and the built-in dictionary, sorted by uppercase hexadecimal. The
+  default remains stored-only. `--all-candidates` never mutates the store.
+  JSON output has `{"version":1,"scope":"all_candidates","keys":[{"key","source"}]}`;
+  `.dic` output is one key per line.
+
 ## Device and file side effects
 
-- `classic dump` writes the image and, when keys were verified, a paired `.dic`
-  key file. The envelope reports both paths.
+- `classic dump` writes the image, an image-only `.nfcx.json` sidecar unless
+  `--no-sidecar` is set, and, when keys were verified, a paired `.dic` key
+  file. The envelope reports the image, sidecar, and key-file paths.
 - `classic restore`, `classic write`, `classic uid`, Type 2 writes and formats,
   NDEF writes and formats, and DESFire backups write a pre-change backup under
   the backup directory, `--backup-dir`, or `$XDG_DATA_HOME/nfc-foundry`.

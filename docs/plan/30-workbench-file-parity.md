@@ -1,11 +1,16 @@
 # Phase 30 plan: workbench and file parity
 
-Status: pending 2026-11-12. Decisions from the parity review:
+Status: in progress 2026-11-15. 30.2 and 30.3 are implemented; 30.1 is pending.
+Decisions from the parity review:
 
-- restore the old sector-grouped block table and ASCII presentation;
-- write/read `.nfcx.json` sidecars for image-only dump exports;
-- add an explicit “export all candidates” action that includes built-ins;
+- restore the old sector-grouped block table and ASCII presentation (pending);
+- write/read `.nfcx.json` sidecars for image-only dump exports (done);
+- add an explicit “export all candidates” action that includes built-ins (done);
 - keep the current GTK layout; no old shell resurrection.
+
+The sidecar suffix is the one place phase 30 reintroduces `nfcx`; project images
+remain `*.nfc-foundry.json`. See
+[specs/30-workbench-file-parity.md](../specs/30-workbench-file-parity.md).
 
 ## Goal
 

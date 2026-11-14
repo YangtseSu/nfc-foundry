@@ -55,7 +55,7 @@ work; their current equivalents are the GTK4 workspaces.
 | 27 | NDEF workbench: multi-record editor, RTD forms, `.ndef` load/save, Classic/Type 2 write | done |
 | 28 | ACR122U PC/SC transport (ACR122U only, not generic PC/SC) | done |
 | 29 | CLI machine contract, cross-process reader ownership, cancellation/tasks, developer raw diagnostics | done (29.1-29.7) |
-| 30 | Workbench/file parity: sector grouping/ASCII, dump sidecars, export all candidates | pending |
+| 30 | Workbench/file parity: sector grouping/ASCII, dump sidecars, export all candidates | in progress (30.2, 30.3 done) |
 | 31 | Conditional scope register: card emulation, Jewel/Topaz | conditional |
 
 ## Rules

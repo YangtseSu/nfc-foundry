@@ -300,6 +300,29 @@ impl KeyEntry {
     }
 }
 
+/// Where an exported candidate key came from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CandidateSource {
+    Stored,
+    Builtin,
+}
+
+impl CandidateSource {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Stored => "stored",
+            Self::Builtin => "builtin",
+        }
+    }
+}
+
+/// One key in the stored-plus-built-in candidate set.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct KeyCandidate {
+    pub key: Key,
+    pub source: CandidateSource,
+}
+
 /// In-memory key store with stable candidate ordering: explicit sector keys
 /// first, then wildcard keys, each in insertion order. Verifications are
 /// card-scoped and survive storage.
@@ -401,6 +424,40 @@ impl KeyStore {
         let mut text = String::new();
         for key in self.all_keys() {
             text.push_str(&key.to_hex());
+            text.push('\n');
+        }
+        text
+    }
+
+    /// Unique union of stored keys and the built-in dictionary, sorted by
+    /// uppercase hexadecimal. Stored provenance wins when a key is both.
+    /// Reading candidates never mutates the store.
+    pub fn candidate_keys(&self) -> Vec<KeyCandidate> {
+        let mut candidates: Vec<KeyCandidate> = self
+            .all_keys()
+            .into_iter()
+            .map(|key| KeyCandidate {
+                key,
+                source: CandidateSource::Stored,
+            })
+            .collect();
+        for key in common_keys() {
+            if !candidates.iter().any(|candidate| candidate.key == key) {
+                candidates.push(KeyCandidate {
+                    key,
+                    source: CandidateSource::Builtin,
+                });
+            }
+        }
+        candidates.sort_by_cached_key(|candidate| candidate.key.to_hex());
+        candidates
+    }
+
+    /// `.dic` text for [`Self::candidate_keys`]: one uppercase key per line.
+    pub fn export_candidate_dic(&self) -> String {
+        let mut text = String::new();
+        for candidate in self.candidate_keys() {
+            text.push_str(&candidate.key.to_hex());
             text.push('\n');
         }
         text
@@ -1394,6 +1451,77 @@ mod tests {
         assert_eq!(report.duplicates, 1);
         assert_eq!(store.len(), 2);
         assert_eq!(store.candidates_for(0).len(), 4);
+    }
+
+    #[test]
+    fn candidate_export_unions_stored_and_builtin_keys_deterministically() {
+        let mut store = KeyStore::new();
+        let empty = store.candidate_keys();
+        assert_eq!(empty.len(), COMMON_KEYS.len());
+        assert!(
+            empty
+                .iter()
+                .all(|candidate| candidate.source == CandidateSource::Builtin)
+        );
+        assert_eq!(
+            empty
+                .iter()
+                .map(|candidate| candidate.key.to_hex())
+                .collect::<Vec<_>>(),
+            {
+                let mut keys = common_keys()
+                    .into_iter()
+                    .map(Key::to_hex)
+                    .collect::<Vec<_>>();
+                keys.sort();
+                keys
+            }
+        );
+
+        store
+            .add(KeyEntry::new(
+                None,
+                KeyKind::Any,
+                key(0xCD),
+                KeySource::Manual,
+            ))
+            .expect("custom");
+        store
+            .add(KeyEntry::new(
+                Some(0),
+                KeyKind::A,
+                Key::from_hex("FFFFFFFFFFFF").expect("builtin"),
+                KeySource::KeyScan,
+            ))
+            .expect("builtin duplicate");
+        let candidates = store.candidate_keys();
+        assert_eq!(candidates.len(), COMMON_KEYS.len() + 1);
+        assert_eq!(
+            candidates
+                .iter()
+                .filter(|candidate| candidate.key == key(0xCD))
+                .count(),
+            1
+        );
+        let factory = candidates
+            .iter()
+            .find(|candidate| candidate.key == Key::from_hex("FFFFFFFFFFFF").expect("key"))
+            .expect("factory key");
+        assert_eq!(factory.source, CandidateSource::Stored);
+        assert_eq!(store.len(), 2);
+        assert_eq!(store.entries().len(), 2);
+
+        let dic = store.export_candidate_dic();
+        let lines: Vec<_> = dic.lines().collect();
+        assert_eq!(lines.len(), candidates.len());
+        assert!(lines.windows(2).all(|pair| pair[0] < pair[1]));
+        assert!(lines.iter().all(|line| line.len() == 12));
+        assert!(lines.iter().all(|line| {
+            line.chars()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+        }));
+        assert!(dic.ends_with('\n'));
+        assert_eq!(store.len(), 2);
     }
 
     #[test]

@@ -1702,6 +1702,16 @@ keys! {
         "Exported unique keys; sector, A/B, and provenance are not stored in .dic",
         "已导出唯一密钥；扇区、A/B 和来源不会存入 .dic"
     ),
+    ExportAllCandidates => ("Export all candidates…", "导出全部候选密钥…"),
+    ExportAllCandidatesTitle => ("Export all key candidates", "导出全部候选密钥"),
+    ExportAllTooltip => (
+        "Stored keys plus the built-in dictionary; the store is not changed",
+        "存储密钥加内置字典；密钥库不会被修改"
+    ),
+    ExportAllNote => (
+        "Exported stored keys and built-in candidates; the key store was not changed",
+        "已导出存储密钥和内置候选；密钥库未被修改"
+    ),
 
     // Diff and restore.
     DiffTitle => ("Dump diff", "转储比较"),

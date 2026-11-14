@@ -30,6 +30,9 @@ action bar           status · detail · last backup · Scan keys · Read card
   the current bytes.
 - Save dump, Load dump, and Save/Load on Classic NDEF share the path and format
   controls; Restore and the continue policy appear on Blocks only.
+- A Save with an image-only format also writes the `.nfcx.json` sidecar with
+  the card identity, read times, and sector keys. Load and Restore apply a
+  matching sidecar; a missing or mismatched sidecar never changes the image.
 - The block inspector ends with a separate Advanced-mode UID section: a target
   UID entry and a destructive "Write UID…" action. It is disabled unless a live
   four-byte-UID Classic 1K image is loaded and Advanced mode is on.

@@ -8,7 +8,7 @@ use serde_json::{Map, Number, Value};
 
 use crate::access::{AccessBits, AccessCondition};
 use crate::bcc::BccStatus;
-use crate::{BlockStatus, Dump, DumpKey, Layout};
+use crate::{BlockStatus, Dump, DumpKey, DumpMetadata, Layout};
 
 const PROJECT_VERSION: u32 = 2;
 const PROJECT_MIN_VERSION: u32 = 1;
@@ -427,6 +427,260 @@ fn decode_known_mask(block: usize, value: &str) -> Result<u16> {
             "dump project block {block} has an invalid known mask"
         ))
     })
+}
+
+// ---- image-only sidecars --------------------------------------------------
+
+const SIDECAR_VERSION: u32 = 1;
+
+/// Metadata recovered from an `<image>.nfcx.json` sidecar. The image bytes
+/// stay authoritative: a sidecar only restores provenance, card identity, and
+/// authenticated sector keys.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SidecarLoad {
+    pub layout: Layout,
+    pub complete: Option<bool>,
+    pub card: Option<CardInfo>,
+    pub metadata: DumpMetadata,
+    pub warnings: Vec<String>,
+    /// False when the version is unknown. The caller ignores the metadata and
+    /// reports the warning; the image still loads.
+    pub usable: bool,
+}
+
+#[derive(Serialize)]
+struct SidecarExport {
+    version: u32,
+    complete: bool,
+    layout: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    card: Option<ProjectCard>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    device: Option<String>,
+    #[serde(rename = "startedAt", skip_serializing_if = "Option::is_none")]
+    started_at: Option<u64>,
+    #[serde(rename = "finishedAt", skip_serializing_if = "Option::is_none")]
+    finished_at: Option<u64>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    keys: Vec<ProjectKey>,
+}
+
+#[derive(Deserialize)]
+struct SidecarDocument {
+    #[serde(default)]
+    version: Option<u32>,
+    #[serde(default)]
+    complete: Option<bool>,
+    layout: String,
+    #[serde(default)]
+    card: Option<ProjectCard>,
+    #[serde(default)]
+    device: Option<String>,
+    #[serde(default, rename = "startedAt")]
+    started_at: Option<u64>,
+    #[serde(default, rename = "finishedAt")]
+    finished_at: Option<u64>,
+    #[serde(default)]
+    keys: Vec<SidecarKey>,
+    /// Legacy project files carry the full block image. It is validated for
+    /// the layout and discarded; the image file stays authoritative.
+    #[serde(default)]
+    blocks: Option<Value>,
+}
+
+#[derive(Deserialize)]
+struct SidecarKey {
+    sector: usize,
+    #[serde(default, rename = "type")]
+    key_type: Option<String>,
+    #[serde(default)]
+    key: Option<String>,
+    #[serde(default)]
+    source: Option<String>,
+    #[serde(default, rename = "keyA")]
+    key_a: Option<String>,
+    #[serde(default, rename = "keyB")]
+    key_b: Option<String>,
+}
+
+/// Serializes the metadata sidecar for an image-only export.
+pub fn encode_sidecar(dump: &Dump) -> Result<Vec<u8>> {
+    dump.validate_geometry()?;
+    if let Some(card) = &dump.card {
+        validate_card_identity(card)?;
+    }
+    let document = SidecarExport {
+        version: SIDECAR_VERSION,
+        complete: dump.complete(),
+        layout: dump.layout.name().to_owned(),
+        card: dump.card.as_ref().map(project_card),
+        device: dump.metadata.device.clone(),
+        started_at: dump.metadata.started_at,
+        finished_at: dump.metadata.finished_at,
+        keys: dump
+            .metadata
+            .keys
+            .iter()
+            .map(|entry| ProjectKey {
+                sector: entry.sector,
+                key_type: entry.key_type.label().to_string(),
+                key: entry.key.to_hex(),
+                source: entry.source.clone(),
+            })
+            .collect(),
+    };
+    let mut encoded = serde_json::to_vec_pretty(&document).map_err(|error| {
+        NfcError::InvalidArgument(format!("cannot encode dump sidecar: {error}"))
+    })?;
+    encoded.push(b'\n');
+    Ok(encoded)
+}
+
+/// Parses a sidecar. Unknown versions and legacy key/block shapes are accepted
+/// here so the caller can decide whether to apply the metadata.
+pub fn parse_sidecar(data: &[u8]) -> Result<SidecarLoad> {
+    let document: SidecarDocument = parse_json(data)?;
+    let layout = Layout::from_name(&document.layout)?;
+    if document.version != Some(SIDECAR_VERSION) {
+        let version = document
+            .version
+            .map(|version| version.to_string())
+            .unwrap_or_else(|| "missing".to_owned());
+        return Ok(SidecarLoad {
+            layout,
+            complete: None,
+            card: None,
+            metadata: DumpMetadata::default(),
+            warnings: vec![format!(
+                "sidecar version {version} is not supported; metadata ignored"
+            )],
+            usable: false,
+        });
+    }
+    if let Some(blocks) = &document.blocks {
+        validate_sidecar_blocks(layout, blocks)?;
+    }
+    let mut metadata = DumpMetadata {
+        device: document.device.filter(|value| !value.trim().is_empty()),
+        started_at: document.started_at,
+        finished_at: document.finished_at,
+        keys: Vec::new(),
+    };
+    for entry in document.keys {
+        metadata.keys.extend(decode_sidecar_key(layout, entry)?);
+    }
+    let card = document
+        .card
+        .as_ref()
+        .map(decode_project_card)
+        .transpose()?
+        .flatten();
+    let mut probe = Dump::new(layout);
+    probe.card = card.clone();
+    probe.metadata = metadata.clone();
+    probe.validate_metadata()?;
+    Ok(SidecarLoad {
+        layout,
+        complete: document.complete,
+        card,
+        metadata,
+        warnings: Vec::new(),
+        usable: true,
+    })
+}
+
+fn decode_sidecar_key(layout: Layout, stored: SidecarKey) -> Result<Vec<DumpKey>> {
+    if let Some(key_type) = stored.key_type {
+        let key = stored.key.ok_or_else(|| {
+            NfcError::InvalidArgument(format!(
+                "sidecar sector {} key type {} has no key",
+                stored.sector, key_type
+            ))
+        })?;
+        return Ok(vec![decode_project_key(
+            layout,
+            ProjectKey {
+                sector: stored.sector,
+                key_type,
+                key,
+                source: stored.source,
+            },
+        )?]);
+    }
+    if stored.key.is_some() {
+        return Err(NfcError::InvalidArgument(format!(
+            "sidecar sector {} key has no type",
+            stored.sector
+        )));
+    }
+    if stored.sector >= layout.sector_count() {
+        return Err(NfcError::InvalidArgument(format!(
+            "sidecar key names sector {}, outside the {} layout",
+            stored.sector,
+            layout.name()
+        )));
+    }
+    let source = stored.source.filter(|value| !value.trim().is_empty());
+    let mut keys = Vec::new();
+    for (label, value, key_type) in [
+        ("keyA", stored.key_a, KeyType::A),
+        ("keyB", stored.key_b, KeyType::B),
+    ] {
+        let Some(value) = value.filter(|value| !value.trim().is_empty()) else {
+            continue;
+        };
+        let key = Key::from_hex(&value).map_err(|error| {
+            NfcError::InvalidArgument(format!("sidecar sector {} {label}: {error}", stored.sector))
+        })?;
+        keys.push(DumpKey {
+            sector: stored.sector,
+            key_type,
+            key,
+            source: source.clone(),
+        });
+    }
+    if keys.is_empty() {
+        return Err(NfcError::InvalidArgument(format!(
+            "sidecar sector {} has no key",
+            stored.sector
+        )));
+    }
+    Ok(keys)
+}
+
+fn validate_sidecar_blocks(layout: Layout, blocks: &Value) -> Result<()> {
+    let count = match blocks {
+        Value::Array(entries) => entries.len(),
+        Value::Object(entries) => {
+            for name in entries.keys() {
+                let number: usize = name.trim().parse().map_err(|_| {
+                    NfcError::InvalidArgument(format!(
+                        "sidecar legacy block name {name:?} is not a block number"
+                    ))
+                })?;
+                if number >= layout.block_count() {
+                    return Err(NfcError::InvalidArgument(format!(
+                        "sidecar legacy block {number} is outside the {} layout",
+                        layout.name()
+                    )));
+                }
+            }
+            entries.len()
+        }
+        _ => {
+            return Err(NfcError::InvalidArgument(
+                "sidecar legacy blocks must be an array or object".to_owned(),
+            ));
+        }
+    };
+    if count != layout.block_count() {
+        return Err(NfcError::InvalidArgument(format!(
+            "sidecar has {count} legacy blocks, expected {} for {}",
+            layout.block_count(),
+            layout.name()
+        )));
+    }
+    Ok(())
 }
 
 fn status_name(status: BlockStatus) -> &'static str {

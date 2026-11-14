@@ -151,6 +151,21 @@ candidate key nor a Type 2 password, and that `apdu --raw` returns
 exchange with no card and the ISO-DEP requirement for a raw APDU. See
 [29f-developer-tools.md](specs/29f-developer-tools.md).
 
+The phase 30.2/30.3 file-parity tests are hardware-free. `nfc-classic` covers
+the sidecar round trip, legacy `keyA`/`keyB`, accepted-and-ignored legacy
+blocks, unknown versions, duplicate slots, sector bounds, and missing keys.
+`nfc-app` covers the `<image>.nfcx.json` path, atomic `0600` writes, project
+skips, missing/corrupt/mismatched sidecars, card and key adoption on raw loads,
+and the stored-plus-built-in candidate union with deterministic order and no
+store mutation. `nfctl` covers a raw dump that writes a `0600` sidecar,
+`card health` and `restore --dry-run` that consume it, `--no-sidecar`, project
+skip, and `keys export --all-candidates` in `.dic` and JSON; the machine
+contract asserts `scope`/`keys` and no key material. The GTK scenario loads a
+raw image with a sidecar and asserts the adopted metadata and verification
+record, project precedence, mismatched-sidecar rejection, and the export-all
+button. Sidecar and `--all-candidates` behavior is in
+[30-workbench-file-parity.md](specs/30-workbench-file-parity.md).
+
 The phase 08 NDEF tests are hardware-free. `nfc-ndef` has deterministic tests
 for the Text RTD example, short/normal/chunked record layouts, all 36 URI
 prefixes, TLV length forms through 65,535 octets, unknown TLV and padding

@@ -12,7 +12,7 @@ use nfc_app::classic::{
     ClassicNdefRead, ClassicNdefWrite, ClassicRead, ClassicUidExecution, ClassicUidPlan,
     ClassicUidPreflight, ClassicWriteExecution, ClassicWritePlan, ClassicWritePreflight, KeyEntry,
     KeyFile, KeyKind, KeySource, KeyStore, KeyTypes, RestoreSelection, RestoreUidState,
-    common_keys, format_uid, parse_block_list, parse_uid,
+    adopt_sidecar, common_keys, format_uid, parse_block_list, parse_uid, write_sidecar,
 };
 use nfc_app::desfire::{
     AccessRight, AccessRights, ApplicationKeyType, AuthKeyType, CommunicationMode,
@@ -258,6 +258,9 @@ enum ClassicCommand {
         /// auto, raw, proxmark3, mct, or project.
         #[arg(long, default_value = "auto", value_name = "FORMAT")]
         format: String,
+        /// Do not write the `.nfcx.json` metadata sidecar.
+        #[arg(long)]
+        no_sidecar: bool,
     },
     /// Write one block after a backup and read-back verification.
     Write {
@@ -395,6 +398,9 @@ enum KeysCommand {
     Export {
         #[arg(long, default_value = "dic", value_name = "dic|json")]
         format: String,
+        /// Include the built-in dictionary; the store itself is not changed.
+        #[arg(long)]
+        all_candidates: bool,
         /// Write to this path instead of standard output.
         #[arg(long, short, value_name = "PATH")]
         output: Option<PathBuf>,
@@ -1905,9 +1911,13 @@ fn classic(run: &mut Run<'_>, service: &mut Service, command: ClassicCommand) ->
             run.out.set_command("classic.read");
             classic_read(run, service, block)
         }
-        ClassicCommand::Dump { output, format } => {
+        ClassicCommand::Dump {
+            output,
+            format,
+            no_sidecar,
+        } => {
             run.out.set_command("classic.dump");
-            classic_dump(run, service, &output, &format)
+            classic_dump(run, service, &output, &format, no_sidecar)
         }
         ClassicCommand::Write {
             block,
@@ -1979,6 +1989,7 @@ fn classic_dump(
     service: &mut Service,
     output: &Path,
     format: &str,
+    no_sidecar: bool,
 ) -> CliResult<Value> {
     prepare(run, service)?;
     let mut keys = load_key_store(run.cli)?;
@@ -2006,13 +2017,25 @@ fn classic_dump(
     }
     let bytes = exchange::export(&result.dump, requested)?;
     let chosen = requested.resolve(&result.dump);
-    if requested == DumpFormat::Raw && !result.dump.metadata.keys.is_empty() {
-        warn!(
-            run.out,
-            "raw dump is image-only; sector keys and provenance were not written"
-        );
-    }
     write_output(output, &bytes)?;
+    let mut sidecar_path = None;
+    if no_sidecar {
+        if chosen != DumpFormat::Project && !result.dump.metadata.keys.is_empty() {
+            warn!(
+                run.out,
+                "image-only formats do not carry sector keys; the sidecar is disabled"
+            );
+        }
+    } else {
+        match write_sidecar(output, chosen, &result.dump) {
+            Ok(Some(path)) => {
+                say!(run.out, "sidecar: {}", path.display());
+                sidecar_path = Some(path.display().to_string());
+            }
+            Ok(None) => {}
+            Err(error) => warn!(run.out, "sidecar was not written: {error}"),
+        }
+    }
     let mut keys_path = None;
     if !result.dump.metadata.keys.is_empty() {
         let key_path = KeyFile::path_for_dump(output);
@@ -2077,6 +2100,7 @@ fn classic_dump(
         "sectorsReadable": readability.readable_sectors,
         "sectorsTotal": readability.total_sectors,
         "skippedSectors": readability.skipped_sectors,
+        "sidecarPath": sidecar_path,
         "keysPath": keys_path,
     }))
 }
@@ -2350,13 +2374,25 @@ fn classic_restore(
     };
     prepare(run, service)?;
     let bytes = read_input(input)?;
-    let load = match format {
+    let mut load = match format {
         Some(format) => {
             exchange::load_as(&bytes, DumpFormat::parse(format).map_err(CliError::usage)?)?
         }
         None => exchange::load(&bytes)?,
     };
     for warning in &load.warnings {
+        warn!(run.out, "{warning}");
+    }
+    let sidecar = adopt_sidecar(input, load.format, &mut load.dump);
+    if let Some(path) = &sidecar.path {
+        say!(
+            run.out,
+            "sidecar: {} ({} key(s))",
+            path.display(),
+            sidecar.keys
+        );
+    }
+    for warning in &sidecar.warnings {
         warn!(run.out, "{warning}");
     }
     let mut keys = load_key_store(run.cli)?;
@@ -2973,14 +3009,30 @@ fn classic_keys(run: &mut Run<'_>, command: KeysCommand) -> CliResult<Value> {
                 "deleted": deleted,
             }))
         }
-        KeysCommand::Export { format, output } => {
+        KeysCommand::Export {
+            format,
+            all_candidates,
+            output,
+        } => {
             run.out.set_command("classic.keys.export");
             let (store, _path) = management_store(run.cli, false)?;
             let format = format.trim().to_ascii_lowercase();
-            let bytes = match format.as_str() {
-                "dic" => store.export_dic().into_bytes(),
-                "json" => store.to_json()?,
-                other => {
+            let scope = if all_candidates {
+                "all_candidates"
+            } else {
+                "stored"
+            };
+            let keys = if all_candidates {
+                store.candidate_keys().len()
+            } else {
+                store.all_keys().len()
+            };
+            let bytes = match (all_candidates, format.as_str()) {
+                (true, "dic") => store.export_candidate_dic().into_bytes(),
+                (true, "json") => candidate_json(&store)?,
+                (false, "dic") => store.export_dic().into_bytes(),
+                (false, "json") => store.to_json()?,
+                (_, other) => {
                     return Err(CliError::Usage(format!(
                         "unknown key export format {other:?}; use dic or json"
                     )));
@@ -2989,11 +3041,19 @@ fn classic_keys(run: &mut Run<'_>, command: KeysCommand) -> CliResult<Value> {
             match output {
                 Some(path) => {
                     write_output(&path, &bytes)?;
-                    say!(run.out, "wrote {} ({} bytes)", path.display(), bytes.len());
+                    say!(
+                        run.out,
+                        "wrote {} ({} bytes, {} keys, {scope})",
+                        path.display(),
+                        bytes.len(),
+                        keys
+                    );
                     Ok(json!({
                         "path": path.display().to_string(),
                         "format": format,
                         "bytes": bytes.len(),
+                        "keys": keys,
+                        "scope": scope,
                     }))
                 }
                 None => {
@@ -3009,6 +3069,28 @@ fn classic_keys(run: &mut Run<'_>, command: KeysCommand) -> CliResult<Value> {
             }
         }
     }
+}
+
+fn candidate_json(store: &KeyStore) -> Result<Vec<u8>> {
+    let keys: Vec<_> = store
+        .candidate_keys()
+        .into_iter()
+        .map(|candidate| {
+            json!({
+                "key": candidate.key.to_hex(),
+                "source": candidate.source.label(),
+            })
+        })
+        .collect();
+    let document = json!({
+        "version": 1,
+        "scope": "all_candidates",
+        "keys": keys,
+    });
+    let mut bytes = serde_json::to_vec_pretty(&document)
+        .map_err(|error| NfcError::Io(format!("could not serialize key candidates: {error}")))?;
+    bytes.push(b'\n');
+    Ok(bytes)
 }
 
 fn classic_diff(run: &mut Run<'_>, before: &Path, after: &Path) -> CliResult<Value> {
@@ -6427,10 +6509,11 @@ fn capability_summary(capabilities: &nfc_app::CapabilityReport) -> String {
 
 fn card_health(run: &mut Run<'_>, input: &Path, format: Option<&str>) -> CliResult<Value> {
     let bytes = read_input(input)?;
-    let load = match format {
+    let mut load = match format {
         Some(name) => exchange::load_as(&bytes, DumpFormat::parse(name).map_err(CliError::usage)?)?,
         None => exchange::load(&bytes)?,
     };
+    let sidecar = adopt_sidecar(input, load.format, &mut load.dump);
     let mut store = load_key_store(run.cli)?;
     if let Some(card) = &load.dump.card {
         store.record_dump_keys(card, &load.dump.metadata.keys)?;
@@ -6444,6 +6527,17 @@ fn card_health(run: &mut Run<'_>, input: &Path, format: Option<&str>) -> CliResu
         load.format.name(),
         load.dump.layout.name()
     );
+    if let Some(path) = &sidecar.path {
+        say!(
+            run.out,
+            "sidecar: {} ({} key(s))",
+            path.display(),
+            sidecar.keys
+        );
+    }
+    for warning in &sidecar.warnings {
+        warn!(run.out, "{warning}");
+    }
     if let Some(identity) = &health.identity {
         say!(
             run.out,

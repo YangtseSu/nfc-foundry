@@ -5,6 +5,7 @@
 //! ordering, backups, and read-back verification.
 
 pub mod backup;
+pub mod dump;
 pub mod keys;
 pub(crate) mod keyscan;
 pub mod ndef;
@@ -16,11 +17,12 @@ pub(crate) mod workbench;
 pub(crate) mod write;
 
 pub use backup::{BackupRecord, BackupStore};
+pub use dump::{SIDECAR_SUFFIX, SidecarAdoption, adopt_sidecar, sidecar_path, write_sidecar};
 pub use keys::{
-    AuthenticatedKey, COMMON_KEYS, DEFAULT_EXTENDED_KEYS, DEFAULT_KEYS, EV1_SIGNATURE_KEYS,
-    KeyEntry, KeyFile, KeyImportIssue, KeyImportReport, KeyKind, KeySource, KeyStore,
-    KeyVerification, card_id, common_keys, common_only_keys, default_extended_keys, default_keys,
-    ev1_signature_keys,
+    AuthenticatedKey, COMMON_KEYS, CandidateSource, DEFAULT_EXTENDED_KEYS, DEFAULT_KEYS,
+    EV1_SIGNATURE_KEYS, KeyCandidate, KeyEntry, KeyFile, KeyImportIssue, KeyImportReport, KeyKind,
+    KeySource, KeyStore, KeyVerification, card_id, common_keys, common_only_keys,
+    default_extended_keys, default_keys, ev1_signature_keys,
 };
 pub use keyscan::{
     ClassicKeyscan, ClassicKeyscanResult, KeyTypes, KeyscanProgress, KeyscanSink, SectorKeys,

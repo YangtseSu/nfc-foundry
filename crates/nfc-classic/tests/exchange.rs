@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use nfc_classic::{BlockStatus, Dump, DumpFormat, DumpKey, DumpMetadata, Layout, exchange};
-use nfc_core::{Key, KeyType};
+use nfc_core::{CardInfo, CardType, Key, KeyType};
 use serde_json::json;
 
 fn complete_dump(layout: Layout) -> Dump {
@@ -377,4 +377,149 @@ fn project_export_of_a_default_dump_keeps_unknown_bytes_unknown() {
     assert!(text.contains("\"knownMask\": \"0000\""));
     let loaded = exchange::load_as(text.as_bytes(), DumpFormat::Project).expect("project");
     assert_eq!(loaded.dump.blocks[0].known_mask, 0);
+}
+
+fn sidecar_card() -> CardInfo {
+    CardInfo::new(
+        vec![0x01, 0x02, 0x03, 0x04],
+        [0x00, 0x04],
+        0x08,
+        CardType::MifareClassic1K,
+    )
+}
+
+#[test]
+fn sidecar_round_trip_preserves_card_and_metadata() {
+    let mut dump = complete_dump(Layout::Classic1K).with_card(sidecar_card());
+    dump.metadata = DumpMetadata {
+        device: Some("pn532_uart:/dev/ttyUSB0".to_owned()),
+        started_at: Some(1_762_819_200),
+        finished_at: Some(1_762_819_205),
+        keys: vec![
+            DumpKey {
+                sector: 0,
+                key_type: KeyType::A,
+                key: Key::from_hex("FFFFFFFFFFFF").expect("key"),
+                source: Some("read_context".to_owned()),
+            },
+            DumpKey {
+                sector: 1,
+                key_type: KeyType::B,
+                key: Key::from_hex("A0A1A2A3A4A5").expect("key"),
+                source: Some("recovery".to_owned()),
+            },
+        ],
+    };
+    let encoded = exchange::encode_sidecar(&dump).expect("sidecar encode");
+    let document: serde_json::Value = serde_json::from_slice(&encoded).expect("json");
+    assert_eq!(document["version"], 1);
+    assert_eq!(document["complete"], true);
+    assert_eq!(document["layout"], "classic_1k");
+    assert_eq!(document["card"]["uid"], "01020304");
+    assert_eq!(document["card"]["atqa"], "0004");
+    assert_eq!(document["card"]["sak"], 8);
+    assert_eq!(document["keys"][0]["type"], "A");
+    assert_eq!(document["keys"][0]["key"], "FFFFFFFFFFFF");
+    assert_eq!(document["keys"][0]["source"], "read_context");
+
+    let loaded = exchange::parse_sidecar(&encoded).expect("sidecar parse");
+    assert!(loaded.usable);
+    assert!(loaded.warnings.is_empty());
+    assert_eq!(loaded.layout, dump.layout);
+    assert_eq!(loaded.complete, Some(true));
+    assert_eq!(loaded.card, dump.card);
+    assert_eq!(loaded.metadata, dump.metadata);
+}
+
+#[test]
+fn sidecar_accepts_the_legacy_key_a_key_b_shape() {
+    let sidecar = json!({
+        "version": 1,
+        "complete": true,
+        "layout": "classic_1k",
+        "card": {"uid": "01020304", "atqa": "0004", "sak": 8},
+        "keys": [
+            {"sector": 0, "keyA": "FFFFFFFFFFFF", "keyB": "A0A1A2A3A4A5"},
+            {"sector": 1, "keyA": "D3F7D3F7D3F7"},
+        ],
+    });
+    let loaded = exchange::parse_sidecar(sidecar.to_string().as_bytes()).expect("sidecar");
+    assert!(loaded.usable);
+    assert_eq!(loaded.metadata.keys.len(), 3);
+    assert_eq!(loaded.metadata.keys[0].sector, 0);
+    assert_eq!(loaded.metadata.keys[0].key_type, KeyType::A);
+    assert_eq!(loaded.metadata.keys[1].key_type, KeyType::B);
+    assert_eq!(loaded.metadata.keys[2].sector, 1);
+    assert_eq!(loaded.metadata.keys[2].key_type, KeyType::A);
+}
+
+#[test]
+fn sidecar_accepts_and_ignores_legacy_blocks() {
+    let blocks = (0..Layout::Classic1K.block_count())
+        .map(|block| json!({"block": block, "data": "00".repeat(16)}))
+        .collect::<Vec<_>>();
+    let sidecar = json!({
+        "version": 1,
+        "complete": true,
+        "layout": "classic_1k",
+        "keys": [{"sector": 0, "type": "A", "key": "FFFFFFFFFFFF"}],
+        "blocks": blocks,
+    });
+    let loaded = exchange::parse_sidecar(sidecar.to_string().as_bytes()).expect("sidecar");
+    assert!(loaded.usable);
+    assert_eq!(loaded.metadata.keys.len(), 1);
+
+    let mut short = sidecar.clone();
+    short["blocks"] = json!([]);
+    let error = exchange::parse_sidecar(short.to_string().as_bytes()).expect_err("block count");
+    assert!(error.to_string().contains("legacy blocks"), "{error}");
+}
+
+#[test]
+fn sidecar_unknown_version_warns_without_metadata() {
+    let sidecar = json!({
+        "version": 9,
+        "complete": true,
+        "layout": "classic_1k",
+        "keys": [{"sector": 0, "type": "A", "key": "FFFFFFFFFFFF"}],
+    });
+    let loaded = exchange::parse_sidecar(sidecar.to_string().as_bytes()).expect("sidecar");
+    assert!(!loaded.usable);
+    assert!(loaded.metadata.keys.is_empty());
+    assert_eq!(loaded.warnings.len(), 1);
+    assert!(
+        loaded.warnings[0].contains("version 9"),
+        "{:?}",
+        loaded.warnings
+    );
+}
+
+#[test]
+fn sidecar_rejects_invalid_keys_and_sector_bounds() {
+    let duplicate = json!({
+        "version": 1,
+        "layout": "classic_1k",
+        "keys": [
+            {"sector": 0, "type": "A", "key": "FFFFFFFFFFFF"},
+            {"sector": 0, "keyA": "A0A1A2A3A4A5"},
+        ],
+    });
+    let error = exchange::parse_sidecar(duplicate.to_string().as_bytes()).expect_err("duplicate");
+    assert!(error.to_string().contains("repeats"), "{error}");
+
+    let outside = json!({
+        "version": 1,
+        "layout": "classic_1k",
+        "keys": [{"sector": 16, "type": "A", "key": "FFFFFFFFFFFF"}],
+    });
+    let error = exchange::parse_sidecar(outside.to_string().as_bytes()).expect_err("bounds");
+    assert!(error.to_string().contains("outside"), "{error}");
+
+    let missing_key = json!({
+        "version": 1,
+        "layout": "classic_1k",
+        "keys": [{"sector": 0, "type": "A"}],
+    });
+    let error = exchange::parse_sidecar(missing_key.to_string().as_bytes()).expect_err("key");
+    assert!(error.to_string().contains("has no key"), "{error}");
 }

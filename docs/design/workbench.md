@@ -137,6 +137,9 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
 - Import `.dic` text or JSON; save the JSON store; export a Proxmark3 `.dic`.
   The last import report shows added, duplicates, ignored, and line-numbered
   issues.
+- `Export all candidates…` writes the unique union of the stored keys and the
+  built-in dictionary as a sorted `.dic`. Built-in keys stay candidates and are
+  never added to the store.
 - Copy states that `.dic` export is lossy and does not carry sector, type, or
   provenance.
 - Reads and writes use the same in-memory store; there is no second key
@@ -259,8 +262,13 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
   Foundry project.
 - Default names: `card-dump.bin`, `card-dump.mfc.json`, `card-dump.mct`, and
   `card-dump.nfc-foundry.json`.
-- Load detects the format from content and shows format plus warnings. A
-  partial read is never reported as complete.
+- Image-only saves also write `<image>.nfcx.json` with the card identity,
+  device, timestamps, and sector keys. Project saves keep metadata inline and
+  never get a sidecar.
+- Load detects the format from content and shows format plus warnings. A raw,
+  MCT, or Proxmark3 load applies a matching sidecar; a missing sidecar is
+  normal and a mismatch warns without changing the image. A partial read is
+  never reported as complete.
 
 ## NDEF
 

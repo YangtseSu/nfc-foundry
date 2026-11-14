@@ -18,8 +18,8 @@ use nfc_app::classic::{
     ClassicRestoreResult, ClassicUidExecution, ClassicUidPlan, ClassicUidPreflight,
     ClassicWriteExecution, ClassicWritePlan, ClassicWritePreflight, KeyEntry, KeyFile, KeyKind,
     KeySource, KeyStore, KeyTypes, KeyscanProgress, KeyscanSink, RestoreSelection, RestoreUidState,
-    WorkbenchSnapshot, common_keys, common_only_keys, default_extended_keys, default_keys,
-    ev1_signature_keys, format_uid, parse_block_list, parse_uid,
+    WorkbenchSnapshot, adopt_sidecar, common_keys, common_only_keys, default_extended_keys,
+    default_keys, ev1_signature_keys, format_uid, parse_block_list, parse_uid, write_sidecar,
 };
 use nfc_app::desfire::{
     ApplicationKeyType, AuthKeyType, CommunicationMode, DesfireAppCreateRequest,
@@ -639,6 +639,7 @@ struct KeysView {
     import: gtk::Button,
     save: gtk::Button,
     export: gtk::Button,
+    export_all: gtk::Button,
 }
 
 struct DetailsView {
@@ -3228,11 +3229,16 @@ fn build_keys_view() -> KeysView {
     delete.set_sensitive(false);
     let save = gtk::Button::with_label("Save store");
     let export = gtk::Button::with_label("Export .dic…");
+    let export_all = gtk::Button::with_label("Export all candidates…");
+    export_all.set_tooltip_text(Some(
+        "Stored keys plus the built-in dictionary; the store is not changed",
+    ));
     let actions = gtk::Box::new(Orientation::Horizontal, 6);
     actions.append(&delete);
     actions.append(&import);
     actions.append(&save);
     actions.append(&export);
+    actions.append(&export_all);
 
     let status = gtk::Label::new(None);
     status.set_xalign(0.0);
@@ -3268,6 +3274,7 @@ fn build_keys_view() -> KeysView {
         import,
         save,
         export,
+        export_all,
     }
 }
 
@@ -4489,6 +4496,10 @@ fn connect_signals(ui: &Rc<Ui>) {
     ui.keys_view
         .export
         .connect_clicked(move |_| export_keys(&ui2));
+    let ui2 = ui.clone();
+    ui.keys_view
+        .export_all
+        .connect_clicked(move |_| export_all_candidates(&ui2));
 
     let ui2 = ui.clone();
     ui.keyscan_view
@@ -13389,6 +13400,53 @@ fn export_keys(ui: &Rc<Ui>) {
     });
 }
 
+fn export_all_candidates(ui: &Rc<Ui>) {
+    let dialog = gtk::FileDialog::builder()
+        .title(i18n::translate_lines("Export all key candidates"))
+        .initial_name("classic-candidates.dic")
+        .build();
+    set_dialog_folder(&dialog, DataFolder::Keys);
+    let ui2 = ui.clone();
+    dialog.save(Some(&ui.window), None::<&gio::Cancellable>, move |result| {
+        let file = match result {
+            Ok(file) => file,
+            Err(error) => {
+                if !error.matches(gtk::DialogError::Dismissed) {
+                    toast_error(&ui2, &error.to_string());
+                }
+                return;
+            }
+        };
+        let Some(path) = file.path() else {
+            toast_error(&ui2, "The selected location is not a local file");
+            return;
+        };
+        let candidates = ui2.keys.borrow().candidate_keys().len();
+        let text = ui2.keys.borrow().export_candidate_dic();
+        match std::fs::write(&path, text.as_bytes()) {
+            Ok(()) => {
+                append_log(
+                    &ui2,
+                    &format!(
+                        "keys · exported {candidates} candidate(s) to {}",
+                        path.display()
+                    ),
+                );
+                toast_info(
+                    &ui2,
+                    "Exported stored keys and built-in candidates; the key store was not changed",
+                );
+            }
+            Err(error) => {
+                toast_error(
+                    &ui2,
+                    &format!("Could not write {}: {error}", path.display()),
+                );
+            }
+        }
+    });
+}
+
 #[derive(Clone, Copy)]
 enum DiffSide {
     Before,
@@ -13528,7 +13586,8 @@ fn load_restore_dump(ui: &Rc<Ui>) {
             }
         };
         match exchange::load(&bytes) {
-            Ok(load) => {
+            Ok(mut load) => {
+                let sidecar = adopt_sidecar(&path, load.format, &mut load.dump);
                 let readability = load.dump.readability();
                 let uid = load
                     .dump
@@ -13557,6 +13616,19 @@ fn load_restore_dump(ui: &Rc<Ui>) {
                 ui2.restore_view.result.set_localized("");
                 ui2.restore_view.rows.remove_all();
                 for warning in &load.warnings {
+                    append_log(&ui2, &format!("warning · {warning}"));
+                }
+                if let Some(sidecar_path) = &sidecar.path {
+                    append_log(
+                        &ui2,
+                        &format!(
+                            "restore · sidecar {} · {} key(s)",
+                            sidecar_path.display(),
+                            sidecar.keys
+                        ),
+                    );
+                }
+                for warning in &sidecar.warnings {
                     append_log(&ui2, &format!("warning · {warning}"));
                 }
                 append_log(
@@ -13900,6 +13972,15 @@ fn choose_save_path(ui: &Rc<Ui>, dump: &Dump, format: DumpFormat) {
         match exchange::export(&dump, format) {
             Ok(bytes) => match std::fs::write(&path, &bytes) {
                 Ok(()) => {
+                    let mut sidecar_written = false;
+                    match write_sidecar(&path, chosen, &dump) {
+                        Ok(Some(sidecar)) => {
+                            sidecar_written = true;
+                            append_log(&ui2, &format!("save · sidecar {}", sidecar.display()));
+                        }
+                        Ok(None) => {}
+                        Err(error) => append_log(&ui2, &format!("save · sidecar failed · {error}")),
+                    }
                     let saved = ui2
                         .service
                         .lock()
@@ -13950,7 +14031,8 @@ fn choose_save_path(ui: &Rc<Ui>, dump: &Dump, format: DumpFormat) {
                     }
                     let keys_omitted = chosen != DumpFormat::Project
                         && !dump.metadata.keys.is_empty()
-                        && key_count == 0;
+                        && key_count == 0
+                        && !sidecar_written;
                     append_log(
                         &ui2,
                         &format!("save · {} · {} format", path.display(), chosen.name()),
@@ -14030,7 +14112,8 @@ fn load_dump_file(ui: &Rc<Ui>, path: &Path) -> Result<(), String> {
         );
         return Ok(());
     }
-    let loaded = exchange::load(&bytes).map_err(|error| error.to_string())?;
+    let mut loaded = exchange::load(&bytes).map_err(|error| error.to_string())?;
+    let sidecar = adopt_sidecar(path, loaded.format, &mut loaded.dump);
     ui.type2.replace(None);
     ui.type2_restore.replace(None);
     ui.live.set(false);
@@ -14083,6 +14166,19 @@ fn load_dump_file(ui: &Rc<Ui>, path: &Path) -> Result<(), String> {
         ),
     );
     for warning in &loaded.warnings {
+        append_log(ui, &format!("warning · {warning}"));
+    }
+    if let Some(sidecar_path) = &sidecar.path {
+        append_log(
+            ui,
+            &format!(
+                "load · sidecar {} · {} key(s)",
+                sidecar_path.display(),
+                sidecar.keys
+            ),
+        );
+    }
+    for warning in &sidecar.warnings {
         append_log(ui, &format!("warning · {warning}"));
     }
     toast_info(ui, "Dump loaded; writes are disabled without a live card");
@@ -15850,7 +15946,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use nfc_app::ReaderMonitorConfig;
-    use nfc_classic::{Layout, bcc_for_uid};
+    use nfc_classic::{DumpKey, DumpMetadata, Layout, bcc_for_uid};
     use nfc_classic_ndef::{
         MAD_ACCESS_BITS, MAD_KEY_A, MAD1_GPB, Mad, MadVersion, NFC_GPB_RO, NFC_GPB_RW, NFC_KEY_A,
         NFC_RO_ACCESS_BITS, NFC_RW_ACCESS_BITS, format_ndef_area,
@@ -16422,6 +16518,9 @@ mod tests {
         restore_with_uid(&harness);
         diff_screen_classifies_blocks(&harness);
         keys_screen_adds_and_saves(&harness);
+        keys_view_exports_all_candidates_without_mutating_the_store(&harness);
+        classic_sidecar_restores_metadata_on_load_and_project_wins(&harness);
+        classic_load_ignores_a_mismatched_sidecar(&harness);
         details_view_matches_the_dump_and_key_model(&harness);
         read_captures_keys(&harness);
         identity_only_read_stays_inspect(&harness);
@@ -19261,6 +19360,101 @@ mod tests {
             detail,
             "aid F0 0D 01 file 01 · 4 bytes · backup /tmp/a.json"
         );
+    }
+
+    fn classic_sidecar_restores_metadata_on_load_and_project_wins(harness: &Harness) {
+        reset(harness);
+        let ui = &harness.ui;
+        let directory = tempfile::tempdir().expect("dump dir");
+        let mut dump = fixture_dump();
+        dump.metadata = DumpMetadata {
+            device: Some("mock:classic".to_owned()),
+            started_at: Some(1_762_819_200),
+            finished_at: Some(1_762_819_205),
+            keys: vec![DumpKey {
+                sector: 0,
+                key_type: nfc_core::KeyType::A,
+                key: Key::from_hex("FFFFFFFFFFFF").expect("key"),
+                source: Some("read_context".to_owned()),
+            }],
+        };
+        let image_path = directory.path().join("card-dump.bin");
+        std::fs::write(
+            &image_path,
+            exchange::export(&dump, DumpFormat::Raw).expect("raw"),
+        )
+        .expect("image");
+        nfc_app::classic::write_sidecar(&image_path, DumpFormat::Raw, &dump).expect("sidecar");
+        load_dump_file(ui, &image_path).expect("load raw");
+        let loaded = ui.dump.borrow().clone().expect("dump");
+        assert_eq!(loaded.metadata, dump.metadata);
+        assert_eq!(loaded.card.as_ref(), dump.card.as_ref());
+        let card = loaded.card.expect("card");
+        assert_eq!(ui.keys.borrow().verified_count(&card), 1);
+        assert!(
+            ui.status.label().contains("card-dump.bin"),
+            "{}",
+            ui.status.label()
+        );
+
+        let project_path = directory.path().join("project.json");
+        std::fs::write(
+            &project_path,
+            exchange::export(&fixture_dump(), DumpFormat::Project).expect("project"),
+        )
+        .expect("project file");
+        nfc_app::classic::write_sidecar(&project_path, DumpFormat::Raw, &dump).expect("sidecar");
+        load_dump_file(ui, &project_path).expect("load project");
+        let loaded = ui.dump.borrow().clone().expect("dump");
+        assert!(loaded.metadata.keys.is_empty());
+        assert_eq!(loaded.card.as_ref(), Some(&test_card()));
+    }
+
+    fn classic_load_ignores_a_mismatched_sidecar(harness: &Harness) {
+        reset(harness);
+        let ui = &harness.ui;
+        let directory = tempfile::tempdir().expect("dump dir");
+        let other = CardInfo::new(vec![0x55; 4], [0x00, 0x04], 0x08, CardType::MifareClassic1K);
+        let mut source = fixture_dump();
+        source.card = Some(other);
+        source.metadata = DumpMetadata {
+            device: None,
+            started_at: None,
+            finished_at: None,
+            keys: vec![DumpKey {
+                sector: 1,
+                key_type: nfc_core::KeyType::A,
+                key: Key::from_hex("A0A1A2A3A4A5").expect("key"),
+                source: None,
+            }],
+        };
+        let image_path = directory.path().join("card-dump.mfc.json");
+        std::fs::write(
+            &image_path,
+            exchange::export(&fixture_dump(), DumpFormat::Proxmark3).expect("proxmark3"),
+        )
+        .expect("image");
+        nfc_app::classic::write_sidecar(&image_path, DumpFormat::Proxmark3, &source)
+            .expect("sidecar");
+        load_dump_file(ui, &image_path).expect("load proxmark3");
+        let loaded = ui.dump.borrow().clone().expect("dump");
+        assert!(loaded.metadata.keys.is_empty());
+        assert_eq!(loaded.card.as_ref(), Some(&test_card()));
+    }
+
+    fn keys_view_exports_all_candidates_without_mutating_the_store(harness: &Harness) {
+        reset(harness);
+        let ui = &harness.ui;
+        let button =
+            find_button(&ui.keys_view.root, "Export all candidates…").expect("export-all button");
+        assert!(button.is_sensitive());
+
+        let before = ui.keys.borrow().clone();
+        let count = ui.keys.borrow().candidate_keys().len();
+        let text = ui.keys.borrow().export_candidate_dic();
+        assert_eq!(count, nfc_app::classic::COMMON_KEYS.len());
+        assert_eq!(text.lines().count(), count);
+        assert_eq!(*ui.keys.borrow(), before);
     }
 
     #[test]

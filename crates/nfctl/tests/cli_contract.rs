@@ -726,3 +726,31 @@ fn collect_files(directory: &Path, paths: &mut Vec<PathBuf>) {
         }
     }
 }
+
+#[test]
+fn key_candidate_export_reports_scope_without_key_material() {
+    let sandbox = Sandbox::new();
+    let dic = sandbox.path().join("candidates.dic");
+    let (value, output) = sandbox.json(&[
+        "classic",
+        "keys",
+        "export",
+        "--all-candidates",
+        "--output",
+        dic.to_str().expect("utf8 path"),
+        "--json",
+    ]);
+    assert_eq!(code(&output), 0);
+    assert_envelope(&value);
+    assert_eq!(value["command"], "classic.keys.export");
+    assert_eq!(value["result"]["scope"], "all_candidates");
+    assert_eq!(value["result"]["keys"], 57);
+    assert_eq!(value["result"]["format"], "dic");
+    assert_eq!(value["result"]["path"], dic.to_str().expect("utf8 path"));
+    assert_no_key_material(&String::from_utf8_lossy(&output.stdout));
+
+    let (value, output) =
+        sandbox.json(&["classic", "keys", "export", "--all-candidates", "--json"]);
+    assert_eq!(code(&output), 2);
+    assert_eq!(error_code(&value), "usage");
+}

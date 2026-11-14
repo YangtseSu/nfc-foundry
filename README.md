@@ -274,6 +274,7 @@ nfctl --device pn532_uart:/dev/ttyUSB0 classic read --block 4 --json \
 nfctl --device pn532_uart:/dev/ttyUSB0 classic keyscan --jsonl
 nfctl --timeout 30s --device pn532_uart:/dev/ttyUSB0 \
   classic dump --output card-dump.bin --json
+nfctl --mock classic keys export --all-candidates --output all.dic
 ```
 
 - `--json` writes one envelope: `ok`, `command`, `device`, `card`, `warnings`,
@@ -287,6 +288,12 @@ nfctl --timeout 30s --device pn532_uart:/dev/ttyUSB0 \
 - Keys, Type 2 PWD/PACK, DESFire key material, and dump payloads never appear
   in machine output. `classic keys export` requires `--output` with `--json` or
   `--jsonl`.
+- Raw, MCT, and Proxmark3 dumps write a `<image>.nfcx.json` sidecar with card
+  identity, read times, and sector keys; `--no-sidecar` disables it. Project
+  dumps keep that metadata inline.
+- `classic keys export --all-candidates` writes the sorted union of stored
+  keys and the built-in dictionary without changing the store; the default is
+  stored-only.
 
 Read [docs/cli.md](docs/cli.md) for every command name, result shape, error
 code, and JSONL event.
