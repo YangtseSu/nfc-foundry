@@ -15,6 +15,7 @@ use nusb::transfer::{Buffer, Bulk, Direction, In, Out, TransferError};
 use nusb::{Endpoint, Interface, MaybeFuture};
 
 use crate::ACR122_USB_PREFIX;
+use crate::acr122::link::{AcrLink, ApduResponse};
 
 pub(crate) const ACR122_VID: u16 = 0x072F;
 pub(crate) const ACR122_PID: u16 = 0x2200;
@@ -29,20 +30,6 @@ const MAX_CCID_MESSAGE: usize = 512;
 const ICC_MUTE: u8 = 0xFE;
 
 pub(crate) const ACR122_READER_NAME: &str = "ACR122U USB";
-
-/// A complete APDU response, before ISO 7816 status-word handling.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ApduResponse {
-    pub data: Vec<u8>,
-    pub sw: [u8; 2],
-}
-
-/// Operations the ACR122 protocol layer needs from the USB transport.
-pub(crate) trait AcrLink: Send {
-    fn power_on(&mut self) -> Result<()>;
-    fn xfr_block(&mut self, apdu: &[u8], timeout: Duration) -> Result<ApduResponse>;
-    fn shutdown(&mut self);
-}
 
 /// One opened ACR122U CCID interface.
 pub(crate) struct CcidTransport {

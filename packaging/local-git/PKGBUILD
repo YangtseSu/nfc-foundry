@@ -15,9 +15,10 @@ depends=(
   hicolor-icon-theme
   libadwaita
   libgcc
+  pcsclite
   systemd-libs
 )
-makedepends=(cargo git rust)
+makedepends=(cargo git pkgconf rust)
 _repo="${NFC_FOUNDRY_GIT_SRC:-/path/to/nfc-foundry-rs}"
 source=("$pkgname::git+file://$_repo")
 sha256sums=('SKIP')

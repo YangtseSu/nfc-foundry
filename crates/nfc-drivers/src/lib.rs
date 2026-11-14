@@ -1,5 +1,9 @@
-//! Concrete reader drivers. Only PN532 UART and ACR122U USB/CCID are in scope.
+//! Concrete reader drivers. Only PN532 UART, ACR122U USB/CCID, and ACR122U
+//! PC/SC are in scope.
 
+mod acr122;
+#[cfg(feature = "acr122-pcsc")]
+pub mod acr122_pcsc;
 pub mod acr122_usb;
 mod gen1a;
 pub mod pn532_uart;
@@ -8,13 +12,51 @@ mod pn53x;
 use nfc_core::{NfcError, Result};
 use nfc_transport::{DeviceInfo, Reader, Transport};
 
+#[cfg(feature = "acr122-pcsc")]
+use crate::acr122_pcsc::{Acr122Pcsc, READER_NAME as ACR122_PCSC_READER_NAME};
 use crate::acr122_usb::{Acr122Usb, READER_NAME as ACR122_READER_NAME};
 use crate::pn532_uart::{Pn532Uart, READER_NAME};
 
 pub const PN532_UART_PREFIX: &str = "pn532_uart:";
 pub const ACR122_USB_PREFIX: &str = "acr122_usb:";
+pub const ACR122_PCSC_PREFIX: &str = "acr122_pcsc:";
 
-/// Enumeration and open entry point for both supported driver families.
+/// Whether this build includes the ACR122U PC/SC transport.
+pub const ACR122_PCSC_ENABLED: bool = cfg!(feature = "acr122-pcsc");
+
+/// PC/SC service facts for diagnostics in surfaces.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PcscStatus {
+    pub enabled: bool,
+    pub available: bool,
+    pub error: Option<String>,
+    pub readers: Vec<String>,
+}
+
+/// Query PC/SC availability, the `pcscd` state, and matched ACR122U names.
+///
+/// A build without the `acr122-pcsc` feature reports `enabled: false` and
+/// performs no I/O.
+pub fn pcsc_status() -> PcscStatus {
+    #[cfg(feature = "acr122-pcsc")]
+    {
+        acr122_pcsc::diagnose()
+    }
+    #[cfg(not(feature = "acr122-pcsc"))]
+    {
+        PcscStatus::default()
+    }
+}
+
+/// Name and connstring prefix of every compiled driver family.
+const DRIVERS: &[(&str, &str)] = &[
+    (READER_NAME, PN532_UART_PREFIX),
+    (ACR122_READER_NAME, ACR122_USB_PREFIX),
+    #[cfg(feature = "acr122-pcsc")]
+    (ACR122_PCSC_READER_NAME, ACR122_PCSC_PREFIX),
+];
+
+/// Enumeration and open entry point for every compiled driver family.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DriverRegistry;
 
@@ -24,10 +66,7 @@ impl DriverRegistry {
     }
 
     fn classify(conn_string: &str) -> Result<&'static str> {
-        for (name, prefix) in [
-            (READER_NAME, PN532_UART_PREFIX),
-            (ACR122_READER_NAME, ACR122_USB_PREFIX),
-        ] {
+        for &(name, prefix) in DRIVERS {
             if let Some(target) = conn_string.strip_prefix(prefix) {
                 if target.is_empty() {
                     return Err(NfcError::InvalidArgument(format!(
@@ -46,15 +85,24 @@ impl Transport for DriverRegistry {
         let mut devices = Vec::new();
         collect_available(&mut devices, Pn532Uart::enumerate())?;
         collect_available(&mut devices, Acr122Usb::enumerate())?;
+        #[cfg(feature = "acr122-pcsc")]
+        collect_available(&mut devices, Acr122Pcsc::enumerate())?;
         Ok(devices)
     }
 
     fn open(&self, conn_string: &str) -> Result<Box<dyn Reader>> {
-        let info = DeviceInfo::new(Self::classify(conn_string)?, conn_string);
-        if conn_string.starts_with(PN532_UART_PREFIX) {
+        let name = Self::classify(conn_string)?;
+        let info = DeviceInfo::new(name, conn_string);
+        if name == READER_NAME {
             Ok(Box::new(Pn532Uart::new(info)))
-        } else {
+        } else if name == ACR122_READER_NAME {
             Ok(Box::new(Acr122Usb::new(info)))
+        } else {
+            #[cfg(feature = "acr122-pcsc")]
+            if name == ACR122_PCSC_READER_NAME {
+                return Ok(Box::new(Acr122Pcsc::new(info)));
+            }
+            Err(NfcError::Unsupported("unknown reader connstring"))
         }
     }
 }

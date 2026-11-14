@@ -17,7 +17,7 @@ gtk = { package = "gtk4", version = "0.11", features = ["v4_10"] }
 nfc-app.workspace = true
 nfc-classic.workspace = true
 nfc-core.workspace = true
-nfc-drivers.workspace = true
+nfc-drivers = { workspace = true, default-features = false }
 nfc-ndef.workspace = true
 nfc-recover.workspace = true
 nfc-transport.workspace = true
@@ -29,6 +29,10 @@ serde_json.workspace = true
 [dev-dependencies]
 nfc-classic-ndef.workspace = true
 tempfile = "3"
+
+[features]
+default = ["acr122-pcsc"]
+acr122-pcsc = ["nfc-drivers/acr122-pcsc"]
 
 [lints]
 workspace = true

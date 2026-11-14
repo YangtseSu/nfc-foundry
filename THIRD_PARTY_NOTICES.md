@@ -8,6 +8,8 @@ license files or generate a dependency manifest.
 | Dependency | Version | License |
 |---|---:|---|
 | `nusb` | 0.2.x | Apache-2.0 OR MIT |
+| `pcsc` | 2.9.x | MIT |
+| `pcsc-sys` | 1.3.x | MIT |
 | `serialport` | 4.10.x | MPL-2.0 |
 | `clap` | 4.6.x | MIT OR Apache-2.0 |
 | `thiserror` | 2.0.x | MIT OR Apache-2.0 |

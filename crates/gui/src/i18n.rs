@@ -972,6 +972,45 @@ keys! {
         "Checking DESFire key settings…",
         "正在检查 DESFire 密钥设置…"
     ),
+    DesfireKeyManagementHint => (
+        "Read the key settings and per-key versions. Changing KeySettings or a key needs Advanced mode on the Manage tab and typed confirmation. A key change writes the new key to the export file (mode 0600) before the card command, re-authenticates with the new key, and reads its version back. A lost key cannot be recovered.",
+        "读取密钥设置和每个密钥的版本。更改 KeySettings 或密钥需要在管理页启用高级模式并输入确认；密钥更改会在卡片命令前把新密钥写入导出文件（权限 0600），用新密钥重新认证并回读版本。丢失的密钥无法恢复。"
+    ),
+    DesfireReadKeySettingsButton => ("Read key settings", "读取密钥设置"),
+    DesfireValueCredit => ("Value credit", "值充值"),
+    DesfireSessionKey => ("Current session key", "当前会话密钥"),
+    DesfireSessionKeyPlaceholder => (
+        "session key; optional for a free read",
+        "会话密钥；自由读取时可选"
+    ),
+    DesfireSessionKeyType => ("Session key type", "会话密钥类型"),
+    DesfireSessionKeyNumber => ("Session key number", "会话密钥编号"),
+    DesfireKeyAidPlaceholder => ("A1B2C3; empty for the PICC", "A1B2C3；PICC 留空"),
+    DesfireTargetKeyNumber => ("Key number to change", "要更改的密钥编号"),
+    DesfireTargetKeyValue => ("Target key current value", "目标密钥当前值"),
+    DesfireTargetKeyValuePlaceholder => (
+        "current value of the target key; required when it differs from the session key",
+        "目标密钥的当前值；与会话密钥不同时必填"
+    ),
+    DesfireNewKey => ("New key", "新密钥"),
+    DesfireNewKeyVersion => ("New key version", "新密钥版本"),
+    DesfireNewKeySettings => ("New KeySettings (optional)", "新 KeySettings（可选）"),
+    DesfireNewKeySettingsPlaceholder => (
+        "new KeySettings byte, e.g. 0F",
+        "新的 KeySettings 字节，例如 0F"
+    ),
+    DesfireExportPath => ("Export path", "导出路径"),
+    DesfireExportPathPlaceholder => (
+        "file that receives the new key before the change",
+        "更改前接收新密钥的文件"
+    ),
+    DesfireWithoutExport => ("Without an export", "不导出"),
+    DesfireKeyRecorded => (
+        "The new key is recorded outside this session",
+        "新密钥已记录在本会话之外"
+    ),
+    DesfireChangeKeySettingsButton => ("Change KeySettings", "更改密钥设置"),
+    DesfireChangeKeyButton => ("Change key", "更改密钥"),
     DesfireKeySettingsRead => ("Key settings read", "密钥设置已读取"),
     DesfireChangingKeySettings => (
         "Changing DESFire KeySettings…",

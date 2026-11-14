@@ -8,19 +8,21 @@ pkgdesc='NFC reader workbench for MIFARE Classic and NFC Forum Type 2/NDEF cards
 arch=('x86_64')
 url='https://github.com/YangtseSu/nfc-foundry-rs'
 license=('GPL-3.0-or-later')
-# Runtime libraries: glibc, libgcc, and libudev (systemd-libs) for the reader
-# backends.
+# Runtime libraries: glibc, libgcc, libudev (systemd-libs), and libpcsclite for
+# the reader backends.
 depends=(
   glibc
   gtk4
   hicolor-icon-theme
   libadwaita
   libgcc
+  pcsclite
   systemd-libs
 )
 makedepends=(
   cargo
   git
+  pkgconf
   rust
 )
 source=("$pkgname-$pkgver::git+$url.git#tag=v$pkgver")

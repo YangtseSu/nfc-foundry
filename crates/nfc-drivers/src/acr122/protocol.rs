@@ -18,7 +18,7 @@ use nfc_core::{
 };
 use nfc_transport::{ApduResponse, ParityFrame};
 
-use super::ccid::AcrLink;
+use super::link::AcrLink;
 use crate::gen1a::{self, Gen1aLink};
 use crate::pn53x::{
     AUTO_ATR_RES_AND_RATS, FirmwareVersion, GET_FIRMWARE_VERSION, IN_COMMUNICATE_THRU,
@@ -852,7 +852,7 @@ mod tests {
     use std::collections::VecDeque;
     use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-    use super::super::ccid::ApduResponse;
+    use super::super::link::ApduResponse;
     use super::*;
     use crate::pn53x::PN532_IC;
 

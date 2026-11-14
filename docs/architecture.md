@@ -17,8 +17,10 @@ Classic  Recovery  NDEF
        nfc-transport
             |
         nfc-drivers
-       /           \
- pn532_uart     acr122_usb
+     /       |        \
+pn532_uart  acr122_usb  acr122_pcsc
+                \        /
+                 acr122 (shared protocol)
 ```
 
 Dependencies point downward. A lower crate never depends on a GUI feature, the
@@ -30,7 +32,7 @@ application shell, or a sibling feature.
 |---|---|---|
 | `nfc-core` | Card identity, card type, shared errors, ISO/IEC 14443A constants | no |
 | `nfc-transport` | `Reader`, `Transport`, raw and capability traits, device facts | no |
-| `nfc-drivers` | PN532 UART and ACR122U USB/CCID mechanics | yes |
+| `nfc-drivers` | PN532 UART, ACR122U USB/CCID, and ACR122U PC/SC mechanics | yes |
 | `nfc-classic` | Classic geometry, BCC, access bits, value blocks, dump, diff, exchange | no |
 | `nfc-recover` | Crypto1, darkside, nested, staticnested, hardnested, FM11RF08S, auto | via transport |
 | `nfc-ndef` | NDEF message/record, TLV, templates, validation | no |
@@ -120,20 +122,24 @@ card that is already ACTIVE does not answer a second `InListPassiveTarget`.
 Enumeration lists serial ports without opening them; only an exact open
 validates that the device is a PN532.
 
-### ACR122U USB
+### ACR122U
 
-`acr122_usb` is split into three layers:
+The ACR122U has one shared command layer and two links:
 
-- `ccid`: `nusb` enumeration and interface claim, CCID message framing,
-  ICC power-on, `PC_to_RDR_XfrBlock`, timeouts, and stale bulk-IN draining.
-- `protocol`: the ACR122 pseudo-APDU (`FF 00 00 00 Lc D4 ...`), firmware
-  validation, initiator and RF field setup, card selection, Classic block
-  access, raw bytes/bits, and the Gen1A sequence.
-- reader: exact `acr122_usb:<bus>:<address>` open/close and the
-  `Reader`/`ManufacturerWriter` implementations.
+- `acr122`: `AcrLink`, the ACR122 pseudo-APDU (`FF 00 00 00 Lc D4 ...`),
+  firmware validation, initiator and RF field setup, card selection, Classic
+  block access, raw bytes/bits, the Gen1A sequence, and the shared
+  `Acr122Reader` state behind both wrappers.
+- `acr122_usb`: `nusb` enumeration and interface claim, CCID message framing,
+  ICC power-on, `PC_to_RDR_XfrBlock`, timeouts, stale bulk-IN draining, and the
+  exact `acr122_usb:<bus>:<address>` connstring.
+- `acr122_pcsc`: PC/SC context and exact reader lookup, `SCARD_SHARE_DIRECT`
+  with the CCID escape control (`SCARD_CTL_CODE(3500)`) for raw PN532 frames,
+  a `SCARD_SHARE_SHARED` T=1 fallback, and the exact
+  `acr122_pcsc:<reader name>` connstring.
 
-The ACR122U carries a PN532 behind its own firmware, so the command layer
-reuses the shared `pn53x` command values and response parsing. Responses arrive
+The ACR122U carries a PN532 behind its own firmware, so the shared command
+layer reuses the `pn53x` command values and response parsing. Responses arrive
 as `D5 <command+1>` plus an ISO 7816 status word; `61xx` is continued with
 GetResponse, and `6300` maps to the missing-card error. The ACR122U vendor CCID
 status `0x81` is not an error on data blocks.
@@ -145,9 +151,16 @@ than `InRelease` alone to return the card to IDLE. The Gen1A path reselects the
 card before entering raw mode so no Crypto1 authentication state encrypts the
 backdoor frames.
 
-`pcscd` claims the same CCID interface through libusb, so the direct USB path
-and the PC/SC alias cannot be used at once. A busy interface is reported with
-the instruction to stop `pcscd`.
+The PC/SC link accepts only reader names containing `ACR122`. Opening in
+direct mode leaves card activation to the driver's own `InListPassiveTarget`,
+so card state is identical to the direct USB path; a firmware that rejects
+direct mode falls back to T=1 transmit and reports the direct failure in the
+error if the fallback also fails. `pcscd` claims the same CCID interface, so
+the direct USB path and the PC/SC transport cannot be used at once and never
+fall back to each other. A busy interface is reported with the instruction to
+stop `pcscd`; PC/SC contention names the other client. `pcscd` being absent
+yields no PC/SC devices in enumeration, and `nfctl diag` reports the service
+state without failing the direct USB list.
 
 ## Device ownership
 

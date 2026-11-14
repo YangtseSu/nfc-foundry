@@ -38,13 +38,17 @@ read/write is
 validated on
 PN532 UART but has no CLI or GUI surface yet. See
 [Hardware matrix](docs/hardware-matrix.md).
-Both first-release readers are implemented: PN532 UART
-and ACR122U direct USB/CCID. The ACR122U path claims the CCID interface with
-`nusb`, carries PN532 commands in the ACR122 pseudo-APDU, and supports
-selection, Classic authentication and block access, raw bytes/bits, and a
-Gen1A manufacturer-block write capability. Hardware validation covered
-Classic and Type 2 reads, a raw 7-bit REQA, and a same-value Gen1A block 0
-write verified by reselection and read-back. The Classic workflow layer covers
+Both first-release readers are implemented: PN532 UART and the ACR122U over
+direct USB/CCID or PC/SC. The direct path claims the CCID interface with
+`nusb`; the PC/SC path opens the exact named reader through `pcscd` with
+`SCARD_SHARE_DIRECT` and the CCID escape control. Both carry PN532 commands in
+the ACR122 pseudo-APDU and support selection, Classic authentication and block
+access, raw bytes/bits, and a Gen1A manufacturer-block write capability.
+Hardware validation covers Classic and Type 2 reads, a raw 7-bit REQA, and a
+same-value Gen1A block 0 write verified by reselection and read-back. The
+ACR122U PC/SC rows add Classic dump/keyscan, data-block and trailer writes,
+UID change/restore, Classic NDEF write/restore, recovery parity, Type 2
+read/NDEF write, and Type 4/DESFire NDEF read/write. The Classic workflow layer covers
 key stores, common-key authentication, partial dumps, single-block reads and
 writes, restores, key scans, and atomic project-format backups. Reads, scans,
 and recovery capture verified sector keys into the card-scoped version-2 key
@@ -154,10 +158,11 @@ Supported hardware for the first release:
 
 - PN532 UART (`pn532_uart`)
 - ACR122U direct USB/CCID (`acr122_usb`)
+- ACR122U PC/SC (`acr122_pcsc`)
 
-Out of scope for the first release: PN53x USB, PC/SC-only readers, Proxmark3
-device control, Windows, macOS, containers, AppImage/Flatpak/Snap, telemetry,
-and a browser-first UI.
+Out of scope for the first release: PN53x USB, generic or PC/SC-only readers,
+Proxmark3 device control, Windows, macOS, containers, AppImage/Flatpak/Snap,
+telemetry, and a browser-first UI.
 
 Post-release work is listed in the phase plan (phases 13-17): phase 13 is the
 pending RF and transport prerequisite; phases 14-17 are optional and cover
@@ -173,8 +178,9 @@ support is claimed until validated.
 - GUI: GTK4-rs (`gtk4` + `libadwaita`) in `crates/gui`, one frontend only,
   decided in [ADR 0006](docs/adr/0006-gtk4-rs.md). The GPUI Kit implementation
   was removed and is not a fallback.
-- Transport: pure Rust drivers over `serialport` (PN532 UART) and `nusb`
-  (ACR122U USB/CCID). No C shim, no CGO, no `libnfc`.
+- Transport: pure Rust drivers over `serialport` (PN532 UART), `nusb`
+  (ACR122U USB/CCID), and `pcsc` over system `libpcsclite` (ACR122U PC/SC). No
+  C shim, no CGO, no `libnfc`.
 - Recovery: native Rust, ported from the current
   [RfidResearchGroup/proxmark3](https://github.com/RfidResearchGroup/proxmark3)
   implementation. The old `mfoc`/`mfcuk`/`mfoc-hardnested` binaries are
@@ -188,7 +194,7 @@ support is claimed until validated.
 crates/
   nfc-core            # card identity, errors, shared primitives
   nfc-transport       # Reader/Transport traits
-  nfc-drivers         # pn532_uart, acr122_usb
+  nfc-drivers         # pn532_uart, acr122_usb, acr122_pcsc
   nfc-classic         # geometry, BCC, access, value, dump, diff, exchange
   nfc-recover         # Crypto1 and Classic key-recovery attacks
   nfc-ndef            # NDEF/TLV/message/record core
@@ -244,10 +250,11 @@ cargo build -p nfc-foundry
 cargo run -p nfc-foundry
 ```
 
-It needs GTK 4.10 or newer and libadwaita 1.5 or newer development/runtime
-libraries. On Arch Linux: `gtk4`, `libadwaita`, `hicolor-icon-theme`; on
-Debian/Ubuntu: `libgtk-4-dev`, `libadwaita-1-dev`, `hicolor-icon-theme`. The
-language selector is in Settings; `nfctl` stays English under every locale.
+It needs GTK 4.10 or newer, libadwaita 1.5 or newer, and libpcsclite
+development/runtime libraries. On Arch Linux: `gtk4`, `libadwaita`,
+`hicolor-icon-theme`, `pcsclite`; on Debian/Ubuntu: `libgtk-4-dev`,
+`libadwaita-1-dev`, `hicolor-icon-theme`, `libpcsclite-dev`. The language
+selector is in Settings; `nfctl` stays English under every locale.
 
 Hardware tests never run by default. They require an explicit feature and
 environment variable; see `docs/testing.md`.
@@ -402,6 +409,20 @@ path and restart it afterwards. The ACR122U was validated for firmware
 identification, Classic 1K read, Type 2 read, raw 7-bit REQA, and a same-value
 Gen1A manufacturer-block write; see the
 [phase 05 note](docs/notes/05-acr122-usb.md).
+
+When `pcscd` owns the reader, use the exact PC/SC reader name instead:
+
+```sh
+cargo run -p nfctl -- list
+cargo run -p nfctl -- \
+  --device 'acr122_pcsc:ACS ACR122U 00 00' \
+  scan
+```
+
+PC/SC enumeration lists only ACR122U readers. `pcscd` starts on the first
+PC/SC client when its socket is enabled; `nfctl diag` reports whether the
+service and the reader are reachable. See the
+[phase 28 note](docs/notes/28-acr122u-pcsc.md).
 
 Type 2 and NDEF commands share the same device selection:
 

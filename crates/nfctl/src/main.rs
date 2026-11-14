@@ -4667,14 +4667,35 @@ fn mock_classic_card() -> (CardInfo, Vec<(u8, [u8; BLOCK_SIZE])>) {
 }
 
 fn supported_drivers() -> Vec<nfc_app::DriverInfo> {
-    vec![
+    let mut drivers = vec![
         nfc_app::DriverInfo::new("PN532 UART", nfc_drivers::PN532_UART_PREFIX),
         nfc_app::DriverInfo::new("ACR122U USB", nfc_drivers::ACR122_USB_PREFIX),
-    ]
+    ];
+    if nfc_drivers::ACR122_PCSC_ENABLED {
+        drivers.push(nfc_app::DriverInfo::new(
+            "ACR122U PC/SC",
+            nfc_drivers::ACR122_PCSC_PREFIX,
+        ));
+    }
+    drivers
+}
+
+fn pcsc_info() -> nfc_app::PcscInfo {
+    let status = nfc_drivers::pcsc_status();
+    nfc_app::PcscInfo {
+        enabled: status.enabled,
+        available: status.available,
+        error: status.error,
+        readers: status.readers,
+    }
 }
 
 fn diag(cli: &Cli, service: &mut Service, json: bool) -> Result<()> {
-    let report = service.self_check(supported_drivers(), cli.hardnested_tables.as_deref());
+    let report = service.self_check(
+        supported_drivers(),
+        pcsc_info(),
+        cli.hardnested_tables.as_deref(),
+    );
     if json {
         print!(
             "{}",
@@ -4693,6 +4714,24 @@ fn diag(cli: &Cli, service: &mut Service, json: bool) -> Result<()> {
         report.platform.os, report.platform.arch
     );
     println!("drivers: {}", driver_summary(&report.drivers));
+    if !report.pcsc.enabled {
+        println!("pcsc: not built");
+    } else if report.pcsc.available {
+        if report.pcsc.readers.is_empty() {
+            println!("pcsc: pcscd available · no ACR122U reader");
+        } else {
+            println!("pcsc: pcscd available · {}", report.pcsc.readers.join(", "));
+        }
+    } else {
+        println!(
+            "pcsc: unavailable ({})",
+            report
+                .pcsc
+                .error
+                .as_deref()
+                .unwrap_or("PC/SC context failed")
+        );
+    }
     if !report.readers.available {
         println!(
             "readers: unavailable ({})",

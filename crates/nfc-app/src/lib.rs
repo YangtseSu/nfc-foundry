@@ -32,8 +32,8 @@ pub use classic::{
 };
 pub use device::DeviceManager;
 pub use diagnostics::{
-    APP_NAME, AppInfo, CapabilityReport, DriverInfo, PlatformInfo, ReaderDevice, ReaderListing,
-    SelfCheck, TablesStatus,
+    APP_NAME, AppInfo, CapabilityReport, DriverInfo, PcscInfo, PlatformInfo, ReaderDevice,
+    ReaderListing, SelfCheck, TablesStatus,
 };
 pub use health::{CardHealth, CardIdentityHealth, KeyCoverage, classic_health};
 pub use nfc_classic_ndef::{

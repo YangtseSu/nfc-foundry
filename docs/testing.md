@@ -550,7 +550,21 @@ cargo test -p nfc-drivers --features hardware-write -- --ignored
 The test writes the current manufacturer block back unchanged unless
 `NFC_FOUNDRY_TEST_UID` is set, then reselects and verifies block 0. It refuses a card
 that is not a four-byte UID MIFARE Classic 1K and a block with an invalid BCC.
-Restart `pcscd` afterwards when the PC/SC alias is needed.
+Restart `pcscd` afterwards when the PC/SC transport is needed.
+
+ACR122U PC/SC checks need a running `pcscd` and no direct-USB client:
+
+```sh
+NFC_FOUNDRY_HARDWARE=1 \
+NFC_FOUNDRY_DEVICE='acr122_pcsc:ACS ACR122U 00 00' \
+cargo test -p nfc-drivers --features hardware --test hardware_acr122_pcsc -- --ignored
+```
+
+The Gen1A row uses the same `hardware-write` feature plus
+`NFC_FOUNDRY_HARDWARE_WRITE=yes` and `NFC_FOUNDRY_HARDWARE_GEN1A_CONFIRM=yes`.
+The same connstring works for the `nfctl` workflow tests. A stopped service
+yields no PC/SC devices; `nfctl diag` reports it without hiding the direct USB
+reader.
 
 The phase 05 hardware record on 2026-11-10 used an ACR122U at
 `acr122_usb:001:017` with internal PN532 firmware 1.6:
@@ -564,6 +578,23 @@ The phase 05 hardware record on 2026-11-10 used an ACR122U at
   card, verified by reselection and read-back; the UID stayed
   `FA B9 CF F4`;
 - several open/close cycles; a physical unplug/replug was not exercised.
+
+The phase 28 PC/SC record on 2026-11-14 used
+`acr122_pcsc:ACS ACR122U 00 00`, internal PN532 firmware 1.6, with `pcscd`
+active through socket activation:
+
+- enumeration listed `ACR122U PC/SC` next to `ACR122U USB`;
+- Classic 1K `FA B9 CF F4`: dump 64/64 blocks and 16/16 sectors, keyscan 44
+  attempts and 16 verified Key A, data-block write/restore (block 4), trailer
+  write/restore (block 11, GPB `40` → `BF` → `40`), UID change/restore through
+  `nfc-app`, Gen1A same-value block 0 write, Classic NDEF write/read/restore;
+- raw 7-bit REQA returned ATQA `04 00` in 16 bits;
+- Recovery parity returned a 32-bit tag nonce;
+- NTAG215 `04 34 4C C2 83 5C 80`: 135/135 pages, NDEF vCard decoded, 33-byte
+  Text record written/read, original user memory restored;
+- DESFire EV3 8K: inventory, AN11004 `D27600` provisioning, CC 2.0
+  (15 bytes), MLe 59/MLc 52, empty NDEF read, Text record written/read, empty
+  state restored, application deleted and `applications: none` verified.
 
 The phase 04 hardware record on 2026-11-10 used a PN532 over
 `/dev/ttyUSB0` and a MIFARE Classic 1K (`FA B9 CF F4`):

@@ -16,7 +16,7 @@ use crate::classic::{
     WorkbenchValidation, WriteToken,
 };
 use crate::device::DeviceManager;
-use crate::diagnostics::{DriverInfo, ReaderDevice, SelfCheck};
+use crate::diagnostics::{DriverInfo, PcscInfo, ReaderDevice, SelfCheck};
 use crate::operation::{Operation, OperationKind};
 use crate::reader::{ReaderMonitorConfig, ReaderSnapshot, ReaderUpdate};
 use crate::type2::{Type2ReadRequest, Type2ReadResult};
@@ -119,7 +119,12 @@ impl Service {
 
     /// Builds the self-check document. Reader enumeration is the only device
     /// access: the report never selects, reads, or authenticates a card.
-    pub fn self_check(&mut self, drivers: Vec<DriverInfo>, tables_dir: Option<&Path>) -> SelfCheck {
+    pub fn self_check(
+        &mut self,
+        drivers: Vec<DriverInfo>,
+        pcsc: PcscInfo,
+        tables_dir: Option<&Path>,
+    ) -> SelfCheck {
         let devices = match self.devices.refresh() {
             Ok(()) => Ok(self
                 .devices
@@ -133,7 +138,7 @@ impl Service {
             Err(error) => Err(error.to_string()),
         };
         let snapshot = self.devices.state();
-        SelfCheck::new(drivers, devices, &snapshot, tables_dir)
+        SelfCheck::new(drivers, devices, &snapshot, pcsc, tables_dir)
     }
 
     pub fn card_info(&mut self) -> Result<CardInfo> {
@@ -972,7 +977,11 @@ mod tests {
     fn self_check_enumerates_readers_and_reports_open_firmware() {
         let (mut service, _handle) = service_with_card(card(1));
         service.poll_reader();
-        let report = service.self_check(vec![DriverInfo::new("Mock transport", "mock:")], None);
+        let report = service.self_check(
+            vec![DriverInfo::new("Mock transport", "mock:")],
+            PcscInfo::default(),
+            None,
+        );
         assert!(report.readers.available);
         assert_eq!(report.readers.devices.len(), 1);
         assert_eq!(report.readers.devices[0].conn_string, "mock:0");

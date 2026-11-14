@@ -1969,13 +1969,22 @@ fn diag_json_is_a_stable_self_check_without_card_material() {
     let object = value.as_object().expect("object");
     assert_eq!(
         object.keys().cloned().collect::<Vec<_>>(),
-        ["app", "drivers", "hardnested_tables", "platform", "readers"]
+        [
+            "app",
+            "drivers",
+            "hardnested_tables",
+            "pcsc",
+            "platform",
+            "readers"
+        ]
     );
     assert_eq!(value["app"]["version"], env!("CARGO_PKG_VERSION"));
     assert!(value["app"]["commit"].is_string(), "{text}");
     assert!(value["app"]["build_date"].is_string(), "{text}");
     assert_eq!(value["platform"]["os"], std::env::consts::OS);
     assert_eq!(value["drivers"][0]["conn_string_prefix"], "pn532_uart:");
+    assert!(value["pcsc"]["enabled"].is_boolean(), "{text}");
+    assert!(value["pcsc"]["readers"].is_array(), "{text}");
     assert_eq!(value["readers"]["available"], true);
     assert!(
         value["readers"]["devices"]

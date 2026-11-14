@@ -9,9 +9,12 @@ rust-version.workspace = true
 nfc-core.workspace = true
 nfc-transport.workspace = true
 nusb.workspace = true
+pcsc = { workspace = true, optional = true }
 serialport.workspace = true
 
 [features]
+default = ["acr122-pcsc"]
+acr122-pcsc = ["dep:pcsc"]
 hardware = []
 hardware-write = ["hardware"]
 

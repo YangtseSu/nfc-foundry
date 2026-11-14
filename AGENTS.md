@@ -38,11 +38,14 @@ editor. It has its own codec crate and family-specific adapters.
 - GUI view code is presentation only. Domain logic lives in `nfc-*` crates and
   `nfc-app`; the GUI calls application services.
 - Transport is pure Rust. PN532 UART uses `serialport`. ACR122U uses direct
-  USB/CCID via `nusb`. Do not add a C shim, CGO, `libnfc`, or `libnfc-ng`.
-- Only two hardware targets in the first release:
+  USB/CCID via `nusb` or PC/SC via the `pcsc` crate over system
+  `libpcsclite`. Do not add a C shim, CGO, `libnfc`, or `libnfc-ng`.
+- Reader connstring families:
   - `pn532_uart`
   - `acr122_usb` (direct USB/CCID)
-- PN53x USB, PC/SC-only readers, and Proxmark3 device control are out of scope.
+  - `acr122_pcsc` (PC/SC, ACR122U readers only)
+- PN53x USB, generic or PC/SC-only readers, and Proxmark3 device control are
+  out of scope.
 - Key recovery is native Rust in `nfc-recover`. Do not add external
   `mfoc`/`mfcuk`/`mfoc-hardnested` processes to the shipped product.
 - Proxmark3 is not a device backend. Users run PM3's own client; NFC Foundry
@@ -153,10 +156,15 @@ trace in the phase note.
 
 ### ACR122U
 
-- Direct USB/CCID, not PC/SC, for the first release.
-- Implement the CCID transport and ACR122 escape/raw commands needed for
-  ISO/IEC 14443A bytes and bits.
-- PC/SC is a future optional path only after raw-bit validation.
+- Direct USB/CCID is the default transport.
+- PC/SC is a second link for the same reader, using `SCARD_SHARE_DIRECT` and
+  the CCID escape control for the ACR122 pseudo-APDU; T=1 `SCardTransmit` is
+  the fallback. It reuses `Acr122Protocol`; do not add a second command layer.
+- Only readers whose name contains `ACR122` are enumerated or opened. The
+  connstring is `acr122_pcsc:<exact reader name>`.
+- `pcscd` owns the interface for the PC/SC path; direct USB claims it with
+  `nusb`, so the two transports never run at the same time and never fall back
+  to each other.
 
 No driver is advertised as supported until it has an explicit hardware test
 record for the operations it claims.

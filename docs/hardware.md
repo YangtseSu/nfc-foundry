@@ -9,7 +9,8 @@ passed.
 | Target | Connstring | Backend | First-release scope |
 |---|---|---|---|
 | PN532 UART | `pn532_uart:/dev/ttyUSB0` | `serialport` + PN532 framing | Classic + Type 2 + raw bits/parity; nested/static-nested/hardnested recovery |
-| ACR122U | `acr122_usb:...` | `nusb` + CCID + ACR122 pseudo-APDU | Classic + Type 2 + raw bits/parity + Gen1A; nested/static-nested/hardnested recovery |
+| ACR122U direct USB | `acr122_usb:<bus>:<address>` | `nusb` + CCID + ACR122 pseudo-APDU | Classic + Type 2 + raw bits/parity + Gen1A; nested/static-nested/hardnested recovery |
+| ACR122U PC/SC | `acr122_pcsc:<reader name>` | `pcsc` + `libpcsclite` + ACR122 pseudo-APDU | Same ACR122 command set; capabilities follow the PC/SC hardware rows |
 
 No other reader is advertised in the first release.
 
@@ -73,18 +74,26 @@ A 4K card run remains a future hardware check.
 
 ## ACR122U
 
-Target direct USB/CCID only. Do not use PC/SC in the first release.
+The ACR122U has two links over the same ACR122 command layer. Pick the link
+matching the current owner of the CCID interface:
 
-The connstring is `acr122_usb:<bus>:<address>` in decimal, for example
-`acr122_usb:001:017`. Enumeration reports the exact address for each attached
-`072F:2200` reader; opening claims the CCID interface and validates the
-internal PN532 firmware.
+- `acr122_usb:<bus>:<address>` in decimal, for example `acr122_usb:001:017`,
+  when no PC/SC service holds the reader;
+- `acr122_pcsc:<exact reader name>`, for example
+  `acr122_pcsc:ACS ACR122U 00 00`, when `pcscd` owns the reader.
+
+Direct USB enumeration reports the exact address for each attached `072F:2200`
+reader; opening claims the CCID interface and validates the internal PN532
+firmware. The PC/SC link enumerates only reader names containing `ACR122` and
+connects to the exact name.
 
 Implement:
 
 - USB enumeration by VID/PID and exact bus/address connstring;
 - CCID interface claim, bulk endpoints, bounded timeouts, abort, and stale
   bulk-IN draining;
+- PC/SC context, exact reader lookup, `SCARD_SHARE_DIRECT` with the CCID
+  escape control, and a T=1 fallback;
 - ICC power-on, PICC operating parameters, initiator mode, RF field control,
   and passive retry configuration;
 - ACR122 pseudo-APDU direct transmit (`FF 00 00 00 Lc D4 ...`) for ISO/IEC
@@ -99,12 +108,16 @@ the direct USB path:
 sudo systemctl stop pcscd
 ```
 
-The driver reports a busy interface with the same instruction. The PC/SC alias
-is not supported; restart `pcscd` after the direct USB session when other
-smart-card applications need it.
+The driver reports a busy interface with the same instruction. For the PC/SC
+path the service must be running (`systemctl start pcscd`, or socket
+activation on the first PC/SC client). The two links never fall back to each
+other.
 
-Rationale: PC/SC pseudo-APDUs do not provide the same raw bit/parity control
-required by Classic recovery and Gen1A.
+PC/SC direct mode still gives the PN532 raw bit/parity control: the escape
+control carries the same pseudo-APDU as the USB path, and the card stays
+inactive until the driver selects it. The T=1 fallback is only for firmware
+that rejects direct mode; its raw-bit and recovery rows must be validated
+before being advertised on such a unit.
 
 Hardware tests:
 
@@ -113,9 +126,20 @@ Hardware tests:
 - read one Classic block with a known key;
 - raw 7-bit REQA with a 16-bit ATQA response;
 - Gen1A block 0 write only with explicit confirmation and read-back;
-- repeated open/close cycles.
+- repeated open/close cycles;
+- PC/SC enumeration, exact-name open, firmware identification, Classic read
+  and write, raw bits, recovery parity, and Gen1A;
+- card removal and reconnect.
 
-Current status: validated on 2026-11-10 with an ACR122U at
+PC/SC status: validated on 2026-11-14 with an ACR122U at
+`acr122_pcsc:ACS ACR122U 00 00`, internal PN532 firmware 1.6, through
+`SCARD_SHARE_DIRECT` and the CCID escape control. Classic select/read/dump,
+key scan, data-block and trailer writes with backups, UID change/restore,
+Gen1A block 0, raw 7-bit REQA, recovery parity, and Classic NDEF
+write/read/restore passed. Type 2 page/NDEF and Type 4/DESFire NDEF rows also
+passed with the NTAG215 and the owned DESFire EV3.
+
+Direct USB status: validated on 2026-11-10 with an ACR122U at
 `acr122_usb:001:017` and internal PN532 firmware 1.6. The run covered firmware
 identification, MIFARE Classic 1K block read with a known key, Type 2 page
 read, raw 7-bit REQA, and a same-value Gen1A manufacturer-block write verified
@@ -168,7 +192,7 @@ reports no repeated-nonce sample.
 ## Unsupported by design
 
 - PN53x USB drivers
-- PC/SC-only readers and the ACR122U PC/SC alias
+- Generic or PC/SC-only readers (ACR122U PC/SC is supported)
 - Proxmark3 USB device control
 - Windows/macOS transport
 - SPI/I2C and embedded Linux buses

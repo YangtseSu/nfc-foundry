@@ -21,8 +21,14 @@ required. Replug the reader after installing the rule.
 sudo systemctl stop pcscd
 ```
 
-The PC/SC alias (`acr122_pcsc`) is not supported, and the driver reports a busy
-interface with an instruction to stop `pcscd`.
+The driver reports a busy interface with an instruction to stop `pcscd`. To use
+the `acr122_pcsc` backend instead, keep `pcscd` running (its socket activates
+it on demand) and select the exact named reader:
+
+```sh
+nfctl list
+nfctl --device 'acr122_pcsc:ACS ACR122U 00 00' scan
+```
 
 ## PN532 UART
 

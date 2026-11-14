@@ -41,8 +41,8 @@ use nfc_app::type2::{
     Type2Restore, Type2UidExecution, Type2UidPlan, Type2UidResult, parse_uid_hex,
 };
 use nfc_app::{
-    CardReadResult, ClassicNdefInfo, ClassicNdefState, DriverInfo, ReaderDevice, ReaderEvent,
-    ReaderSnapshot, ReaderStatus, ReaderUpdate, SelfCheck, Service, classic_health,
+    CardReadResult, ClassicNdefInfo, ClassicNdefState, DriverInfo, PcscInfo, ReaderDevice,
+    ReaderEvent, ReaderSnapshot, ReaderStatus, ReaderUpdate, SelfCheck, Service, classic_health,
 };
 use nfc_classic::{Dump, DumpFormat, DumpLoad, diff, exchange};
 use nfc_core::{CancelToken, CardInfo, CardType, Key, NfcError, Result as NfcResult};
@@ -873,6 +873,7 @@ struct DiagnosticsView {
     drivers: gtk::Label,
     firmware: gtk::Label,
     capabilities: gtk::Label,
+    pcsc: gtk::Label,
     tables: gtk::Label,
     readers: gtk::Label,
     build: gtk::Label,
@@ -2317,7 +2318,7 @@ fn build_desfire_view() -> DesfireView {
     let mutation_run = gtk::Button::with_label("Apply value or record change");
     mutation_run.add_css_class("suggested-action");
     let mutation_hint = gtk::Label::new(Some(
-        "Value changes check the file limits before the command, commit the transaction,          and read the value back. Record changes read every record first, check the record          bounds, commit, and read every record back. A Transaction MAC is shown as verified          only when the supplied AppTransactionMACKey reproduces it.",
+        "Value changes check the file limits before the command, commit the transaction, and read the value back. Record changes read every record first, check the record bounds, commit, and read every record back. A Transaction MAC is shown as verified only when the supplied AppTransactionMACKey reproduces it.",
     ));
     mutation_hint.set_xalign(0.0);
     mutation_hint.set_wrap(true);
@@ -2350,10 +2351,7 @@ fn build_desfire_view() -> DesfireView {
 
     let keys_page = page_box();
     let keys_hint = gtk::Label::new(Some(
-        "Read the key settings and per-key versions. Changing KeySettings or a key needs \
-         Advanced mode on the Manage tab and typed confirmation. A key change writes the new \
-         key to the export file (mode 0600) before the card command, re-authenticates with the \
-         new key, and reads its version back. A lost key cannot be recovered.",
+        "Read the key settings and per-key versions. Changing KeySettings or a key needs Advanced mode on the Manage tab and typed confirmation. A key change writes the new key to the export file (mode 0600) before the card command, re-authenticates with the new key, and reads its version back. A lost key cannot be recovered.",
     ));
     keys_hint.set_xalign(0.0);
     keys_hint.set_wrap(true);
@@ -3662,6 +3660,7 @@ fn build_diagnostics_view() -> DiagnosticsView {
     let drivers = diagnostic_label();
     let firmware = diagnostic_label();
     let capabilities = diagnostic_label();
+    let pcsc = diagnostic_label();
     let tables = diagnostic_label();
     let readers = diagnostic_label();
     let build = diagnostic_label();
@@ -3674,6 +3673,7 @@ fn build_diagnostics_view() -> DiagnosticsView {
     root.append(&drivers);
     root.append(&firmware);
     root.append(&capabilities);
+    root.append(&pcsc);
     root.append(&tables);
     root.append(&readers);
     root.append(&build);
@@ -3686,6 +3686,7 @@ fn build_diagnostics_view() -> DiagnosticsView {
         drivers,
         firmware,
         capabilities,
+        pcsc,
         tables,
         readers,
         build,
@@ -14919,10 +14920,27 @@ fn save_recovered_key(ui: &Rc<Ui>) {
 }
 
 fn supported_drivers() -> Vec<DriverInfo> {
-    vec![
+    let mut drivers = vec![
         DriverInfo::new("PN532 UART", nfc_drivers::PN532_UART_PREFIX),
         DriverInfo::new("ACR122U USB", nfc_drivers::ACR122_USB_PREFIX),
-    ]
+    ];
+    if nfc_drivers::ACR122_PCSC_ENABLED {
+        drivers.push(DriverInfo::new(
+            "ACR122U PC/SC",
+            nfc_drivers::ACR122_PCSC_PREFIX,
+        ));
+    }
+    drivers
+}
+
+fn pcsc_info() -> PcscInfo {
+    let status = nfc_drivers::pcsc_status();
+    PcscInfo {
+        enabled: status.enabled,
+        available: status.available,
+        error: status.error,
+        readers: status.readers,
+    }
 }
 
 fn render_diagnostics(ui: &Ui) {
@@ -14942,6 +14960,7 @@ fn render_diagnostics(ui: &Ui) {
         supported_drivers(),
         Ok(devices),
         &snapshot,
+        pcsc_info(),
         tables_dir.as_deref(),
     );
     view.version.set_localized(&format!(
@@ -14970,6 +14989,28 @@ fn render_diagnostics(ui: &Ui) {
     let capabilities = capability_text(snapshot.capabilities);
     view.capabilities
         .set_localized(&format!("Reader capabilities: {capabilities}"));
+    let pcsc = if !report.pcsc.enabled {
+        "PC/SC: not built".to_owned()
+    } else if report.pcsc.available {
+        if report.pcsc.readers.is_empty() {
+            "PC/SC: pcscd available · no ACR122U reader".to_owned()
+        } else {
+            format!(
+                "PC/SC: pcscd available · {}",
+                report.pcsc.readers.join(", ")
+            )
+        }
+    } else {
+        format!(
+            "PC/SC: unavailable ({})",
+            report
+                .pcsc
+                .error
+                .as_deref()
+                .unwrap_or("PC/SC context failed")
+        )
+    };
+    view.pcsc.set_localized(&pcsc);
     let tables = match (
         &report.hardnested_tables.path,
         &report.hardnested_tables.error,
@@ -16076,7 +16117,7 @@ mod tests {
     }
 
     fn is_technical(text: &str) -> bool {
-        const TOKENS: [&str; 24] = [
+        const TOKENS: [&str; 26] = [
             "MIFARE",
             "NTAG",
             "NDEF",
@@ -16101,6 +16142,8 @@ mod tests {
             "PRNG",
             "Crypto1",
             "FM11RF08S",
+            "2K3DES",
+            "3K3DES",
         ];
         TOKENS.iter().any(|token| text.contains(token))
             || matches!(

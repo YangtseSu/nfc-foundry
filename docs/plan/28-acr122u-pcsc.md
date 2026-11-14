@@ -1,6 +1,8 @@
 # Phase 28 plan: ACR122U PC/SC transport
 
-Status: pending 2026-11-12. Decisions: add **ACR122U PC/SC only**, not generic
+Status: done 2026-11-14. The PC/SC transport is implemented and every
+advertised capability has a hardware row; a physical card removal/reconnect was
+not exercised (recorded in the phase note). Decisions: add **ACR122U PC/SC only**, not generic
 PC/SC reader support. Direct USB/CCID remains the default ACR122U transport.
 
 ## Goal

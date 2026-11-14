@@ -12,9 +12,11 @@ Release: `0.1.0`.
 |---|---|---|---|---|
 | PN532 UART (CH340 adapter) | `pn532_uart:/dev/ttyUSB0` | PN532 firmware 1.6 | 2026-11-11 | `docs/notes/02-pn532-uart.md`, `04-classic-workflows.md`, `06-recovery-foundation.md`, `07-hardnested.md`, `09-type2-ndef.md`, `10-classic-ndef.md`, `11-type4-ndef.md`, `24c-uid-write.md`, `25a-classic-4k.md`, `25b-ultralight-ev1.md`, `25c-fm11rf08s.md`, `25d-type2-uid.md`, `25e-desfire.md`, `26g-cryptographic-verification.md`, `26h-generic-write.md`, `26i-management.md`, `26j-value-record-write.md`, `26k-key-management.md`, `26l-ndef-replace-format.md`, `26m-write-gates.md` |
 | ACR122U direct USB/CCID | `acr122_usb:001:002` | internal PN532 firmware 1.6 | 2026-11-11 | `docs/notes/05-acr122-usb.md`, `06-recovery-foundation.md`, `07-hardnested.md`, `09-type2-ndef.md`, `24c-uid-write.md`, `24d-restore-with-uid.md`, `26e-secure-messaging.md`, `26f-type4-ndef-read.md`, `26g-cryptographic-verification.md`, `26j-value-record-write.md`, `26k-key-management.md`, `26l-ndef-replace-format.md`, `26m-write-gates.md` |
+| ACR122U PC/SC | `acr122_pcsc:ACS ACR122U 00 00` | internal PN532 firmware 1.6, PC/SC direct mode | 2026-11-14 | `docs/notes/28-acr122u-pcsc.md` |
 
-`pcscd` was stopped for every ACR122U run. The ACR122U was opened as the
-logged-in user through the `uaccess` udev rule.
+`pcscd` was stopped for every direct USB/CCID run. The ACR122U was opened as
+the logged-in user through the `uaccess` udev rule. PC/SC rows ran with
+`pcscd` active through socket activation.
 
 ## Certified operations
 
@@ -70,6 +72,28 @@ tested, and no read, write, restore, or recovery operation is claimed for it.
 | DESFire Standard/Backup file-settings decode | validated | validated | 2026-11-12: PN532 UART, DESFire EV3; the NDEF application's `E103` (15 bytes) and `E104` (255 bytes) decoded as standard/plain with the expected access rights and raw settings. Value, Linear Record, Cyclic Record, and Transaction MAC layouts are unit-tested only. ACR122U `acr122_usb:001:002` decoded the phase 26.5 standard and value fixture settings. See `docs/notes/26b-file-settings.md`. |
 | DESFire EV3 temporary application/file round trip | validated | validated | 2026-11-12: PN532 UART; created reserved AID `F0 0D 01` (1 key, 2K3DES), authenticated app key 0, created plain standard file `01` (32 bytes, key-0 access), wrote and read back `NFC Foundry DESFire` at offset 0, deleted the app, and confirmed `GetApplicationIDs` empty. No other application was touched. ACR122U `acr122_usb:001:002` passed `hardware_legacy` on 2026-11-14. |
 | Type 4 NDEF read/write | validated | validated (DESFire D27600) | phase 11, 2026-11-12: PN532 UART, NTAG 424 DNA `04 86 40 42 22 17 90`; CC 2.0 (23 bytes), MLe 256/MLc 255, NDEF file `E104` with 256-byte capacity, empty state; Text record written and read back, empty state cleared and re-read. ACR122U `acr122_usb:001:002` (`pcscd` stopped), 2026-11-14: DESFire EV3 with the AN11004 `D27600` application, CC 2.0 (15 bytes), MLe 59/MLc 52, NDEF file `E104` 255 bytes; read, Text write/read, and restore to empty passed. The NTAG 424 DNA card was not on the ACR122U. |
+
+### ACR122U PC/SC transport
+
+The ACR122U PC/SC link reuses the ACR122 command layer; these rows were run
+through `acr122_pcsc:ACS ACR122U 00 00` on 2026-11-14 with `pcscd` active.
+
+| Operation | Result | Evidence |
+|---|---|---|
+| Enumerate, exact-name open, firmware check | validated | `PN532 IC 32 · firmware 1.6 · support 07`; `ACR122U PC/SC` listed next to `ACR122U USB` |
+| Classic 1K select, UID/ATQA/SAK | validated | `FA B9 CF F4` |
+| Classic full dump and per-sector key scan | validated | 64/64 blocks, 16/16 sectors; scan 44 attempts, 16 verified Key A |
+| Classic data-block write, read-back, restore | validated | block 4, project backup, restored byte for byte |
+| Classic sector-trailer write, read-back, restore | validated | block 11, GPB `40` → `BF` → `40`, backup each write |
+| Classic UID change and restore through `nfc-app` | validated | Gen1A `FA B9 CF F4` → `FA B9 CF F5` → restore |
+| Gen1A manufacturer block 0 same-value write | validated | reselect and read-back |
+| Raw 7-bit REQA with 16-bit ATQA | validated | ATQA `04 00`, 16 bits |
+| Crypto1 parity probe | validated | 32-bit tag nonce |
+| Classic NDEF read/write/restore | validated | Text record written (3 blocks), read back, original NDEF restored |
+| Type 2 page read and full image | validated | NTAG215 `04 34 4C C2 83 5C 80`, 135/135 pages, NDEF vCard decoded |
+| Type 2 NDEF format/write/read/restore | validated | 33-byte Text record, original image restored |
+| Type 4 NDEF read/write/restore (DESFire `D27600`) | validated | CC 2.0 (15 bytes), MLe 59/MLc 52, empty state, Text write/read, deleted to `applications: none` |
+| Card removal and reconnect | not recorded | manual run pending |
 
 ## Card records
 

@@ -103,6 +103,15 @@ pub struct TablesStatus {
     pub error: Option<String>,
 }
 
+/// PC/SC availability reported by the surface that owns the driver list.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct PcscInfo {
+    pub enabled: bool,
+    pub available: bool,
+    pub error: Option<String>,
+    pub readers: Vec<String>,
+}
+
 /// Complete self-check document.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct SelfCheck {
@@ -110,6 +119,7 @@ pub struct SelfCheck {
     pub platform: PlatformInfo,
     pub drivers: Vec<DriverInfo>,
     pub readers: ReaderListing,
+    pub pcsc: PcscInfo,
     pub hardnested_tables: TablesStatus,
 }
 
@@ -120,6 +130,7 @@ impl SelfCheck {
         drivers: Vec<DriverInfo>,
         devices: Result<Vec<ReaderDevice>, String>,
         snapshot: &ReaderSnapshot,
+        pcsc: PcscInfo,
         tables_dir: Option<&Path>,
     ) -> Self {
         let readers = match devices {
@@ -171,6 +182,7 @@ impl SelfCheck {
             },
             drivers,
             readers,
+            pcsc,
             hardnested_tables,
         }
     }
@@ -218,6 +230,7 @@ mod tests {
                 firmware: Some("PN532 IC 32 · firmware 1.6 · support 07".to_owned()),
                 error: None,
             },
+            PcscInfo::default(),
             None,
         )
     }
@@ -229,7 +242,14 @@ mod tests {
         let object = value.as_object().expect("object");
         assert_eq!(
             object.keys().collect::<Vec<_>>(),
-            ["app", "drivers", "hardnested_tables", "platform", "readers"]
+            [
+                "app",
+                "drivers",
+                "hardnested_tables",
+                "pcsc",
+                "platform",
+                "readers"
+            ]
         );
         assert_eq!(value["app"]["name"], APP_NAME);
         assert_eq!(value["app"]["version"], env!("CARGO_PKG_VERSION"));
@@ -327,6 +347,7 @@ mod tests {
                 firmware: None,
                 error: None,
             },
+            PcscInfo::default(),
             Some(Path::new("/nonexistent/nfc-foundry-tables")),
         );
         let value = serde_json::to_value(&report).expect("json");
