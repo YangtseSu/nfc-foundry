@@ -68,8 +68,8 @@ fn apply_mad(dump: &mut Dump, version: MadVersion, sectors: &[u8]) {
         data[9] = NFC_GPB_RW;
         dump.blocks[trailer].set_read(data);
         let first = dump.layout.first_block(sector).expect("first");
-        for block in first..trailer {
-            dump.blocks[block].set_read([0u8; BLOCK_SIZE]);
+        for block in &mut dump.blocks[first..trailer] {
+            block.set_read([0u8; BLOCK_SIZE]);
         }
     }
 }

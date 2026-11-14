@@ -33,8 +33,8 @@ fn blank_dump(layout: Layout) -> Dump {
         data[9] = 0x69;
         dump.blocks[trailer].set_read(data);
         let first = layout.first_block(sector).expect("first");
-        for block in first..trailer {
-            dump.blocks[block].set_read([0u8; BLOCK_SIZE]);
+        for block in &mut dump.blocks[first..trailer] {
+            block.set_read([0u8; BLOCK_SIZE]);
         }
     }
     dump
@@ -89,8 +89,8 @@ fn format_dump(dump: &mut Dump, version: MadVersion, sectors: &[u8]) {
             .layout
             .trailer_block(usize::from(*sector))
             .expect("trailer");
-        for block in first..trailer {
-            dump.blocks[block].set_read([0u8; BLOCK_SIZE]);
+        for block in &mut dump.blocks[first..trailer] {
+            block.set_read([0u8; BLOCK_SIZE]);
         }
     }
     let area_len = sectors.iter().fold(0usize, |total, sector| {
@@ -112,10 +112,10 @@ fn format_dump(dump: &mut Dump, version: MadVersion, sectors: &[u8]) {
             .layout
             .trailer_block(usize::from(*sector))
             .expect("trailer");
-        for block in first..trailer {
+        for block in &mut dump.blocks[first..trailer] {
             let chunk: [u8; BLOCK_SIZE] =
                 area[offset..offset + BLOCK_SIZE].try_into().expect("block");
-            dump.blocks[block].set_read(chunk);
+            block.set_read(chunk);
             offset += BLOCK_SIZE;
         }
     }

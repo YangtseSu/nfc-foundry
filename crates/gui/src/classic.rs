@@ -307,12 +307,12 @@ fn trailer_access(layout: Layout, sector: usize, bits: &AccessBits, block: &Bloc
         access_hex(bits),
         condition_codes(bits)
     );
-    for group in 0..3 {
+    for (group, condition) in bits.groups[..3].iter().enumerate() {
         text.push_str(&format!(
             "Group {group} · {} · {} · {}\n",
             group_blocks(layout, sector, group),
-            condition_code(bits.groups[group]),
-            data_permissions(bits.groups[group])
+            condition_code(*condition),
+            data_permissions(*condition)
         ));
     }
     let permissions = bits.groups[3].trailer_access();

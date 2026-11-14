@@ -420,8 +420,7 @@ impl<'a> Filter<'a> {
     pub fn check_smallest_bitflip_bitarrays(&mut self) -> f64 {
         let mut smallest = (1u64 << 48) as f64;
         let mut best = 0;
-        for first_byte in 0..256 {
-            let group = &self.nonces.groups[first_byte];
+        for (first_byte, group) in self.nonces.groups.iter().enumerate().take(256) {
             if group.states[0].is_none() || group.states[1].is_none() {
                 continue;
             }
@@ -949,9 +948,9 @@ mod tests {
 
     #[test]
     fn part_sum_sets_are_disjoint_and_cover_the_state_space() {
-        for odd_even in 0..2 {
-            for index in 0..NUM_PART_SUMS {
-                assert!(!PART_SUMS.a0[odd_even][index].is_empty());
+        for sums in &PART_SUMS.a0 {
+            for part in sums {
+                assert!(!part.is_empty());
             }
         }
         assert_eq!(

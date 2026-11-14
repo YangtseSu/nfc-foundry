@@ -419,15 +419,9 @@ fn dump_reads_block_zero_after_sector_auth_and_records_unreadable_sectors() {
             .all(|key| key.source == KeySource::Common)
     );
     assert!(!result.keys.iter().any(|key| key.sector == 1));
-    for block in 4..8 {
-        assert!(
-            !result.dump.blocks[block].complete(),
-            "sector 1 block {block}"
-        );
-        assert_eq!(
-            result.dump.blocks[block].status,
-            nfc_classic::BlockStatus::AuthFailed
-        );
+    for (number, block) in result.dump.blocks.iter().enumerate().skip(4).take(4) {
+        assert!(!block.complete(), "sector 1 block {number}");
+        assert_eq!(block.status, nfc_classic::BlockStatus::AuthFailed);
     }
     assert!(result.dump.blocks[8].complete());
     assert!(
@@ -778,8 +772,8 @@ fn restore_writes_data_blocks_before_the_trailer_and_backs_up() {
     assert!(result.failures.is_empty());
     assert_eq!(result.blocks.len(), 64);
     assert_eq!(result.blocks[0].state, RestoreBlockState::Unchanged);
-    for block in 4..=7 {
-        assert_eq!(result.blocks[block].state, RestoreBlockState::Written);
+    for block in &result.blocks[4..=7] {
+        assert_eq!(block.state, RestoreBlockState::Written);
     }
     assert_eq!(result.blocks[8].state, RestoreBlockState::Unchanged);
     assert_eq!(handle.lock().write_log, vec![4, 5, 6, 7]);
@@ -805,8 +799,8 @@ fn restore_stops_at_the_first_failure_by_default() {
     let directory = tempfile::tempdir().expect("temp dir");
     let backup = BackupStore::new(directory.path());
     let mut source = read_dump(&mut service, &store);
-    for block in 4..7 {
-        source.blocks[block].set_read([block as u8 + 0x40; BLOCK_SIZE]);
+    for (number, block) in source.blocks.iter_mut().enumerate().skip(4).take(3) {
+        block.set_read([number as u8 + 0x40; BLOCK_SIZE]);
     }
     let mut new_trailer = trailer([0xFF, 0x07, 0x80]);
     new_trailer[10..16].copy_from_slice(&[0xBB; 6]);
@@ -831,8 +825,8 @@ fn restore_honors_the_explicit_continue_policy() {
     let directory = tempfile::tempdir().expect("temp dir");
     let backup = BackupStore::new(directory.path());
     let mut source = read_dump(&mut service, &store);
-    for block in 4..7 {
-        source.blocks[block].set_read([block as u8 + 0x40; BLOCK_SIZE]);
+    for (number, block) in source.blocks.iter_mut().enumerate().skip(4).take(3) {
+        block.set_read([number as u8 + 0x40; BLOCK_SIZE]);
     }
     let mut new_trailer = trailer([0xFF, 0x07, 0x80]);
     new_trailer[10..16].copy_from_slice(&[0xBB; 6]);
@@ -1062,8 +1056,8 @@ fn selective_restore_writes_only_the_requested_blocks() {
     let directory = tempfile::tempdir().expect("temp dir");
     let backup = BackupStore::new(directory.path());
     let mut source = read_dump(&mut service, &store);
-    for block in 4..=6 {
-        source.blocks[block].set_read([block as u8 + 0x40; BLOCK_SIZE]);
+    for (number, block) in source.blocks.iter_mut().enumerate().skip(4).take(3) {
+        block.set_read([number as u8 + 0x40; BLOCK_SIZE]);
     }
 
     let result = service

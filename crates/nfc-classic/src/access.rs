@@ -205,8 +205,8 @@ mod tests {
     #[test]
     fn transport_configuration_round_trips() {
         let decoded = AccessBits::decode([0xFF, 0x07, 0x80]).expect("valid access bits");
-        for group in 0..3 {
-            assert_eq!(decoded.groups[group].code(), 0);
+        for group in &decoded.groups[..3] {
+            assert_eq!(group.code(), 0);
         }
         assert_eq!(decoded.groups[3].code(), 1);
         assert_eq!(decoded.encode(), [0xFF, 0x07, 0x80]);

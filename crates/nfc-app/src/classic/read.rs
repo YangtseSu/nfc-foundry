@@ -227,18 +227,19 @@ pub fn read_dump(
         let Some(authenticated) = authenticated else {
             unread_sectors.push(sector);
             warnings.push(format!("sector {sector}: no candidate key authenticated"));
-            for block in first..first + count {
-                dump.blocks[block].status = nfc_classic::BlockStatus::AuthFailed;
-                dump.blocks[block].error = Some("no candidate key authenticated".to_owned());
+            for block in &mut dump.blocks[first..first + count] {
+                block.status = nfc_classic::BlockStatus::AuthFailed;
+                block.error = Some("no candidate key authenticated".to_owned());
             }
             continue;
         };
         let mut read_any = false;
-        for block in first..first + count {
+        for (offset, block) in dump.blocks[first..first + count].iter_mut().enumerate() {
+            let number = first + offset;
             operation.cancel().check()?;
-            match operation.read_block(block as u8) {
+            match operation.read_block(number as u8) {
                 Ok(data) => {
-                    dump.blocks[block].set_read(data);
+                    block.set_read(data);
                     read_any = true;
                 }
                 Err(NfcError::Timeout(message)) => {
@@ -246,13 +247,13 @@ pub fn read_dump(
                     // the block as unreadable and let the next read or the
                     // final identity check decide. Do not reselect here: a
                     // reselect would reset Crypto1 for the remaining blocks.
-                    dump.blocks[block].status = nfc_classic::BlockStatus::ReadFailed;
-                    dump.blocks[block].error = Some(message);
+                    block.status = nfc_classic::BlockStatus::ReadFailed;
+                    block.error = Some(message);
                 }
                 Err(error) if is_fatal_read_error(&error) => return Err(error),
                 Err(error) => {
-                    dump.blocks[block].status = nfc_classic::BlockStatus::ReadFailed;
-                    dump.blocks[block].error = Some(error.to_string());
+                    block.status = nfc_classic::BlockStatus::ReadFailed;
+                    block.error = Some(error.to_string());
                 }
             }
         }
@@ -268,10 +269,10 @@ pub fn read_dump(
     }
 
     if identity_only {
-        for block in 0..layout.block_count() {
-            if dump.blocks[block].status == nfc_classic::BlockStatus::Unread {
-                dump.blocks[block].status = nfc_classic::BlockStatus::AuthFailed;
-                dump.blocks[block].error = Some("no MIFARE authentication response".to_owned());
+        for block in dump.blocks.iter_mut().take(layout.block_count()) {
+            if block.status == nfc_classic::BlockStatus::Unread {
+                block.status = nfc_classic::BlockStatus::AuthFailed;
+                block.error = Some("no MIFARE authentication response".to_owned());
             }
         }
         warnings.push(

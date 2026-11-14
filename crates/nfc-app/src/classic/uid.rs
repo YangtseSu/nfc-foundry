@@ -909,8 +909,8 @@ pub(crate) fn verify_restored_sector_zero(
     }
     reader.authenticate(0, plan.sector0_key.0, plan.sector0_key.1)?;
     let mut dump = Dump::new(Layout::Classic1K).with_card(card);
-    for number in 0..4 {
-        dump.blocks[number].set_read(reader.read_block(number as u8)?);
+    for (number, block) in dump.blocks.iter_mut().take(4).enumerate() {
+        block.set_read(reader.read_block(number as u8)?);
     }
     if dump_fingerprint(&dump) != plan.card_fingerprint {
         return Err(NfcError::VerificationFailed(
