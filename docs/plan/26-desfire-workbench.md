@@ -1,11 +1,11 @@
 # Phase 26 plan: DESFire workbench
 
-Status: in progress. 26.1–26.11 are complete; 26.12–26.13 are pending, except
-that 26.12's ordinary NDEF provisioning and guarded delete landed in phase
-25.5. 26.10's Transaction Timer configuration and 26.11's multiple key sets are
-blocked on non-public encodings. Hardware: PN532 UART first; ACR122U records
-after a reader is available. 26.8 and 26.9 passed on PN532 UART and ACR122U on
-2026-11-13; 26.10 and 26.11 passed on PN532 UART on 2026-11-14.
+Status: in progress. 26.1–26.12 are complete; 26.13 is pending. 26.10's
+Transaction Timer configuration and 26.11's multiple key sets are blocked on
+non-public encodings. Hardware: PN532 UART first; ACR122U records after a
+reader is available. 26.8 and 26.9 passed on PN532 UART and ACR122U on
+2026-11-13; 26.10 and 26.11 passed on PN532 UART on 2026-11-14; 26.12 passed
+on PN532 UART on 2026-11-14.
 
 ## Goal
 
@@ -311,9 +311,11 @@ Acceptance:
 
 ### 26.12 NDEF provisioning and format
 
-Status: ordinary provisioning, Type 4 read-back, typed confirmation, and the
-guarded `DeleteApplication` undo landed in phase 25.5. This slice now covers
-the replace path and `FormatPICC`.
+Status: complete 2026-11-14. The ordinary provisioning, Type 4 read-back,
+typed confirmation, and guarded `DeleteApplication` undo landed in phase 25.5.
+This slice adds the replace path and `FormatPICC`. See
+[26l-ndef-replace-format.md](../notes/26l-ndef-replace-format.md) and the
+[26l spec](../specs/26l-ndef-replace-format.md).
 
 Deliver:
 
@@ -321,8 +323,9 @@ Deliver:
   name `D2760000850101` and the CC/NDEF files, then read back the complete
   message through the Type 4 writer.
 - Delete only the NDEF application created by this product as the undo path.
-- Add the explicit replace path: delete the validated NDEF application and
-  provision it again after a separate typed confirmation.
+- Add the explicit replace path: read the current NDEF message, delete the
+  validated NDEF application, and provision it again after a separate typed
+  confirmation.
 - `FormatPICC` as a separate full-reset action that erases every application;
   it is Advanced, typed-confirmation, and never automatic.
 - Refuse NDEF provisioning when a valid NDEF application already exists unless
@@ -334,6 +337,9 @@ Acceptance:
   its NDEF application deleted, leaving the pre-format application list.
 - `FormatPICC` is not used for ordinary NDEF provisioning.
 - No formatting is performed by a read or inventory operation.
+
+Hardware: the replace round trip and a separate `FormatPICC` reset passed on
+PN532 UART on 2026-11-14; the ACR122U row remains unrecorded.
 
 ### 26.13 Advanced write gates and recovery behavior
 

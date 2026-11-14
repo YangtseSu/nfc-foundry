@@ -611,6 +611,129 @@ pub struct DesfireNdefFormatResult {
     pub ndef: Type4Ndef,
 }
 
+/// Replace the NDEF Tag Application after reading its current message.
+///
+/// The existing application is deleted only when it matches the exact
+/// AN11004 layout created by this product. The key is the PICC master key and
+/// stays out of `Debug`.
+pub struct DesfireNdefReplaceRequest {
+    key: Vec<u8>,
+    pub key_type: Option<AuthKeyType>,
+    pub key_number: u8,
+    pub advanced: bool,
+    pub confirm: bool,
+    pub cancel: CancelToken,
+}
+
+impl DesfireNdefReplaceRequest {
+    pub fn new(key: Vec<u8>) -> Self {
+        Self {
+            key,
+            key_type: None,
+            key_number: 0,
+            advanced: false,
+            confirm: false,
+            cancel: CancelToken::new(),
+        }
+    }
+
+    pub fn key_type(mut self, key_type: AuthKeyType) -> Self {
+        self.key_type = Some(key_type);
+        self
+    }
+
+    pub fn key_number(mut self, key_number: u8) -> Self {
+        self.key_number = key_number;
+        self
+    }
+
+    pub fn advanced(mut self, advanced: bool) -> Self {
+        self.advanced = advanced;
+        self
+    }
+
+    pub fn confirm(mut self, confirm: bool) -> Self {
+        self.confirm = confirm;
+        self
+    }
+
+    pub fn cancel(mut self, cancel: CancelToken) -> Self {
+        self.cancel = cancel;
+        self
+    }
+}
+
+/// Verified NDEF Tag Application after a replace.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DesfireNdefReplaceResult {
+    /// Message that the deleted application held before the replace.
+    pub previous: Type4Ndef,
+    pub cc: Type4CapabilityContainer,
+    pub ndef: Type4Ndef,
+}
+
+/// Format the PICC and erase every application.
+///
+/// This is a separate full-reset action, never part of NDEF provisioning. The
+/// key is the PICC master key and stays out of `Debug`.
+pub struct DesfireFormatPiccRequest {
+    key: Vec<u8>,
+    pub key_type: Option<AuthKeyType>,
+    pub key_number: u8,
+    pub advanced: bool,
+    pub confirm: bool,
+    pub cancel: CancelToken,
+}
+
+impl DesfireFormatPiccRequest {
+    pub fn new(key: Vec<u8>) -> Self {
+        Self {
+            key,
+            key_type: None,
+            key_number: 0,
+            advanced: false,
+            confirm: false,
+            cancel: CancelToken::new(),
+        }
+    }
+
+    pub fn key_type(mut self, key_type: AuthKeyType) -> Self {
+        self.key_type = Some(key_type);
+        self
+    }
+
+    pub fn key_number(mut self, key_number: u8) -> Self {
+        self.key_number = key_number;
+        self
+    }
+
+    pub fn advanced(mut self, advanced: bool) -> Self {
+        self.advanced = advanced;
+        self
+    }
+
+    pub fn confirm(mut self, confirm: bool) -> Self {
+        self.confirm = confirm;
+        self
+    }
+
+    pub fn cancel(mut self, cancel: CancelToken) -> Self {
+        self.cancel = cancel;
+        self
+    }
+}
+
+/// Card state after FormatPICC.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DesfireFormatPiccResult {
+    /// Applications that were present before the reset.
+    pub applications_before: Vec<[u8; 3]>,
+    /// Applications read back after the reset; empty on success.
+    pub applications_after: Vec<[u8; 3]>,
+    pub free_memory: u32,
+    pub card: String,
+}
+
 /// Application inventory after deleting the NDEF Tag Application.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DesfireNdefDeleteResult {
@@ -2910,26 +3033,14 @@ impl Service {
         request: DesfireNdefFormatRequest,
     ) -> Result<DesfireNdefFormatResult> {
         let cancel = request.cancel.clone();
-        if !request.advanced {
-            return Err(NfcError::InvalidArgument(
-                "DESFire NDEF formatting requires Advanced mode".to_owned(),
-            ));
-        }
-        if !request.confirm {
-            return Err(NfcError::InvalidArgument(
-                "DESFire NDEF formatting needs explicit confirmation".to_owned(),
-            ));
-        }
-        if request.key_number > 14 {
-            return Err(NfcError::InvalidArgument(
-                "DESFire application key numbers are 0..=14".to_owned(),
-            ));
-        }
-        if let Some(key_type) = request.key_type {
-            key_type.validate_key(&request.key)?;
-        } else {
-            nfc_desfire::AuthKeyType::from_key(&request.key)?;
-        }
+        validate_ndef_request(
+            &request.key,
+            request.key_type,
+            request.key_number,
+            request.advanced,
+            request.confirm,
+            "DESFire NDEF formatting",
+        )?;
         let mut operation = self.begin_operation(OperationKind::Write, cancel.clone())?;
         format_ndef(
             &mut operation,
@@ -2947,14 +3058,69 @@ impl Service {
         request: DesfireNdefDeleteRequest,
     ) -> Result<DesfireNdefDeleteResult> {
         let cancel = request.cancel.clone();
+        validate_ndef_request(
+            &request.key,
+            request.key_type,
+            request.key_number,
+            request.advanced,
+            request.confirm,
+            "deleting the DESFire NDEF application",
+        )?;
+        let mut operation = self.begin_operation(OperationKind::Write, cancel.clone())?;
+        delete_ndef(
+            &mut operation,
+            &request.key,
+            request.key_type,
+            request.key_number,
+            &cancel,
+        )
+    }
+
+    /// Replace the NDEF Tag Application: read the current message, delete the
+    /// application created by this product, and provision it again.
+    ///
+    /// This is a full-card-scope mutation with no byte-for-byte backup. The
+    /// previous NDEF message is returned as the record of what was replaced.
+    pub fn desfire_ndef_replace(
+        &mut self,
+        request: DesfireNdefReplaceRequest,
+    ) -> Result<DesfireNdefReplaceResult> {
+        let cancel = request.cancel.clone();
+        validate_ndef_request(
+            &request.key,
+            request.key_type,
+            request.key_number,
+            request.advanced,
+            request.confirm,
+            "replacing the DESFire NDEF application",
+        )?;
+        let mut operation = self.begin_operation(OperationKind::Write, cancel.clone())?;
+        replace_ndef(
+            &mut operation,
+            &request.key,
+            request.key_type,
+            request.key_number,
+            &cancel,
+        )
+    }
+
+    /// Format the PICC and erase every application.
+    ///
+    /// This is a separate full-reset action; ordinary NDEF provisioning never
+    /// calls it. The PICC master key returns to its factory state.
+    pub fn desfire_format_picc(
+        &mut self,
+        request: DesfireFormatPiccRequest,
+    ) -> Result<DesfireFormatPiccResult> {
+        let cancel = request.cancel.clone();
         if !request.advanced {
             return Err(NfcError::InvalidArgument(
-                "deleting the DESFire NDEF application requires Advanced mode".to_owned(),
+                "DESFire FormatPICC requires Advanced mode".to_owned(),
             ));
         }
         if !request.confirm {
             return Err(NfcError::InvalidArgument(
-                "deleting the DESFire NDEF application needs explicit confirmation".to_owned(),
+                "DESFire FormatPICC needs explicit confirmation".to_owned(),
             ));
         }
         if request.key_number > 14 {
@@ -2968,7 +3134,7 @@ impl Service {
             nfc_desfire::AuthKeyType::from_key(&request.key)?;
         }
         let mut operation = self.begin_operation(OperationKind::Write, cancel.clone())?;
-        delete_ndef(
+        format_picc(
             &mut operation,
             &request.key,
             request.key_type,
@@ -2976,6 +3142,38 @@ impl Service {
             &cancel,
         )
     }
+}
+
+/// Validate the shared PICC-key gates for an NDEF structure mutation.
+fn validate_ndef_request(
+    key: &[u8],
+    key_type: Option<AuthKeyType>,
+    key_number: u8,
+    advanced: bool,
+    confirm: bool,
+    action: &str,
+) -> Result<()> {
+    if !advanced {
+        return Err(NfcError::InvalidArgument(format!(
+            "{action} requires Advanced mode"
+        )));
+    }
+    if !confirm {
+        return Err(NfcError::InvalidArgument(format!(
+            "{action} needs explicit confirmation"
+        )));
+    }
+    if key_number > 14 {
+        return Err(NfcError::InvalidArgument(
+            "DESFire application key numbers are 0..=14".to_owned(),
+        ));
+    }
+    if let Some(key_type) = key_type {
+        key_type.validate_key(key)?;
+    } else {
+        nfc_desfire::AuthKeyType::from_key(key)?;
+    }
+    Ok(())
 }
 
 fn format_ndef(
@@ -3066,14 +3264,7 @@ fn format_ndef(
     }
 }
 
-fn delete_ndef(
-    operation: &mut Operation<'_>,
-    key: &[u8],
-    key_type: Option<AuthKeyType>,
-    key_number: u8,
-    cancel: &CancelToken,
-) -> Result<DesfireNdefDeleteResult> {
-    ensure_iso_dep(operation)?;
+fn require_ndef_application(operation: &mut Operation<'_>, cancel: &CancelToken) -> Result<()> {
     cancel.check()?;
     let inventory = {
         let mut desfire = Desfire::new(operation.reader_mut());
@@ -3088,8 +3279,16 @@ fn delete_ndef(
             "the NDEF application D27600 is not present".to_owned(),
         ));
     }
-    validate_ndef_layout(operation, cancel)?;
-    cancel.check()?;
+    validate_ndef_layout(operation, cancel)
+}
+
+/// Delete an application whose layout [`require_ndef_application`] validated.
+fn delete_validated_ndef(
+    operation: &mut Operation<'_>,
+    key: &[u8],
+    key_type: Option<AuthKeyType>,
+    key_number: u8,
+) -> Result<Vec<[u8; 3]>> {
     {
         let mut desfire = Desfire::new(operation.reader_mut());
         desfire.select_application([0x00; 3])?;
@@ -3105,8 +3304,112 @@ fn delete_ndef(
             "the NDEF application is still present after deletion".to_owned(),
         ));
     }
+    Ok(applications)
+}
+
+fn delete_ndef(
+    operation: &mut Operation<'_>,
+    key: &[u8],
+    key_type: Option<AuthKeyType>,
+    key_number: u8,
+    cancel: &CancelToken,
+) -> Result<DesfireNdefDeleteResult> {
+    ensure_iso_dep(operation)?;
+    require_ndef_application(operation, cancel)?;
+    cancel.check()?;
+    let applications = delete_validated_ndef(operation, key, key_type, key_number)?;
     operation.check_iso_dep_card()?;
     Ok(DesfireNdefDeleteResult { applications })
+}
+
+fn replace_ndef(
+    operation: &mut Operation<'_>,
+    key: &[u8],
+    key_type: Option<AuthKeyType>,
+    key_number: u8,
+    cancel: &CancelToken,
+) -> Result<DesfireNdefReplaceResult> {
+    ensure_iso_dep(operation)?;
+    require_ndef_application(operation, cancel)?;
+    let card = operation.card().clone();
+    let previous = match nfc_type4::read_tag(operation.reader_mut(), &card, cancel) {
+        Ok(read) => read.ndef,
+        Err(error) => {
+            return Err(NfcError::VerificationFailed(format!(
+                "the existing NDEF file could not be read; nothing was deleted: {error}"
+            )));
+        }
+    };
+    cancel.check()?;
+    operation.check_iso_dep_card()?;
+    delete_validated_ndef(operation, key, key_type, key_number)?;
+    operation.check_iso_dep_card()?;
+    let formatted = match format_ndef(operation, key, key_type, key_number, cancel) {
+        Ok(formatted) => formatted,
+        Err(error) => {
+            return Err(NfcError::VerificationFailed(format!(
+                "the NDEF application was deleted and provisioning failed: {error}"
+            )));
+        }
+    };
+    Ok(DesfireNdefReplaceResult {
+        previous,
+        cc: formatted.cc,
+        ndef: formatted.ndef,
+    })
+}
+
+fn format_picc(
+    operation: &mut Operation<'_>,
+    key: &[u8],
+    key_type: Option<AuthKeyType>,
+    key_number: u8,
+    cancel: &CancelToken,
+) -> Result<DesfireFormatPiccResult> {
+    ensure_iso_dep(operation)?;
+    cancel.check()?;
+    let inventory = {
+        let mut desfire = Desfire::new(operation.reader_mut());
+        desfire.inventory()?
+    };
+    cancel.check()?;
+    {
+        let mut desfire = Desfire::new(operation.reader_mut());
+        desfire.select_application([0x00; 3])?;
+        authenticate_key(&mut desfire, key_number, key, key_type)?;
+        cancel.check()?;
+        desfire.format_picc()?;
+    }
+    let readback = (|| -> Result<(Vec<[u8; 3]>, u32)> {
+        let mut desfire = Desfire::new(operation.reader_mut());
+        let applications = desfire.application_ids()?;
+        if !applications.is_empty() {
+            return Err(NfcError::VerificationFailed(format!(
+                "FormatPICC left {} application(s) present",
+                applications.len()
+            )));
+        }
+        let free_memory = desfire.free_memory()?;
+        Ok((applications, free_memory))
+    })();
+    match readback {
+        Ok((applications_after, free_memory)) => {
+            operation.check_iso_dep_card()?;
+            Ok(DesfireFormatPiccResult {
+                applications_before: inventory
+                    .applications
+                    .iter()
+                    .map(|application| application.aid)
+                    .collect(),
+                applications_after,
+                free_memory,
+                card: inventory.version.name().to_owned(),
+            })
+        }
+        Err(error) => Err(NfcError::VerificationFailed(format!(
+            "the PICC was formatted but read-back failed: {error}"
+        ))),
+    }
 }
 
 fn validate_application_aid(aid: [u8; 3]) -> Result<()> {

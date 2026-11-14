@@ -22,7 +22,9 @@ use std::sync::{Mutex, MutexGuard};
 use nfc_app::Service;
 use nfc_app::classic::BackupStore;
 use nfc_app::desfire::{
-    DesfireNdefDeleteRequest, DesfireNdefFormatRequest, NDEF_APPLICATION_AID,
+    ApplicationKeyType, AuthKeyType, DesfireAppCreateRequest, DesfireAppDeleteRequest,
+    DesfireFormatPiccRequest, DesfireNdefDeleteRequest, DesfireNdefFormatRequest,
+    DesfireNdefReplaceRequest, DesfireVerifyKeyRequest, NDEF_APPLICATION_AID,
     NDEF_CAPABILITY_CONTAINER,
 };
 use nfc_app::type4::{Type4Clear, Type4NdefWrite};
@@ -83,6 +85,20 @@ fn format_request(key: [u8; 8], advanced: bool, confirm: bool) -> DesfireNdefFor
 
 fn delete_request(key: [u8; 8]) -> DesfireNdefDeleteRequest {
     DesfireNdefDeleteRequest::new(key.to_vec())
+        .key_number(0)
+        .advanced(true)
+        .confirm(true)
+}
+
+fn replace_request(key: [u8; 8]) -> DesfireNdefReplaceRequest {
+    DesfireNdefReplaceRequest::new(key.to_vec())
+        .key_number(0)
+        .advanced(true)
+        .confirm(true)
+}
+
+fn format_picc_request(key: [u8; 8]) -> DesfireFormatPiccRequest {
+    DesfireFormatPiccRequest::new(key.to_vec())
         .key_number(0)
         .advanced(true)
         .confirm(true)
@@ -174,7 +190,7 @@ fn run(service: &mut Service, backup: &BackupStore) -> Result<()> {
     )?;
     let after_write = service.type4_read(CancelToken::new())?;
     verify(
-        after_write.ndef.state == NdefState::Message(message),
+        after_write.ndef.state == NdefState::Message(message.clone()),
         "the Type 4 read did not return the written message",
     )?;
 
@@ -183,6 +199,26 @@ fn run(service: &mut Service, backup: &BackupStore) -> Result<()> {
     verify(
         cleared.ndef.state == NdefState::Empty,
         "the NDEF file was not restored to empty",
+    )?;
+
+    service.type4_ndef_write(Type4NdefWrite::new(message.clone(), backup))?;
+    let replaced = service.desfire_ndef_replace(replace_request(PICC_KEY))?;
+    verify(
+        replaced.previous.state == NdefState::Message(message.clone()),
+        "the replace did not read the previous NDEF message",
+    )?;
+    verify(
+        replaced.cc.raw() == NDEF_CAPABILITY_CONTAINER.as_slice(),
+        format!("replace CC read back as {:02X?}", replaced.cc.raw()),
+    )?;
+    verify(
+        replaced.ndef.state == NdefState::Empty,
+        "the NDEF file is not empty after the replace",
+    )?;
+    let after_replace = service.type4_read(CancelToken::new())?;
+    verify(
+        after_replace.ndef.state == NdefState::Empty,
+        "the Type 4 read did not return an empty NDEF file after the replace",
     )?;
 
     let deleted = service.desfire_ndef_delete(delete_request(PICC_KEY))?;
@@ -231,4 +267,111 @@ fn formats_writes_restores_and_deletes_the_ndef_application() -> Result<()> {
         }
     }
     result
+}
+
+const SCRATCH_AID: [u8; 3] = [0xF0, 0x0D, 0x21];
+
+#[test]
+#[ignore = "erases every DESFire application; requires NFC_FOUNDRY_HARDWARE_WRITE=yes and NFC_FOUNDRY_HARDWARE_FORMAT=yes"]
+fn format_picc_erases_every_application() -> Result<()> {
+    let _guard = lock_hardware();
+    let conn_string = gate();
+    assert_eq!(
+        env::var("NFC_FOUNDRY_HARDWARE_FORMAT").as_deref(),
+        Ok("yes"),
+        "set NFC_FOUNDRY_HARDWARE_FORMAT=yes to allow the full-card reset"
+    );
+    let mut service = service(&conn_string);
+    let inventory = service.desfire_inventory(CancelToken::new())?;
+    println!("applications before the test: {:?}", inventory.applications);
+    if inventory
+        .applications
+        .iter()
+        .any(|application| application.aid == SCRATCH_AID)
+    {
+        let manifest = env::temp_dir().join("nfc-foundry-format-picc-manifest.json");
+        service.desfire_delete_application(
+            DesfireAppDeleteRequest::new(SCRATCH_AID)
+                .key(PICC_KEY.to_vec())
+                .advanced(true)
+                .confirm(true)
+                .manifest_path(manifest),
+        )?;
+    }
+
+    let gate_error = service
+        .desfire_format_picc(DesfireFormatPiccRequest::new(PICC_KEY.to_vec()))
+        .err()
+        .ok_or_else(|| {
+            NfcError::VerificationFailed("FormatPICC without Advanced mode succeeded".to_owned())
+        })?;
+    verify(
+        gate_error.to_string().contains("Advanced"),
+        format!("unexpected Advanced-mode error: {gate_error}"),
+    )?;
+    let gate_error = service
+        .desfire_format_picc(DesfireFormatPiccRequest::new(PICC_KEY.to_vec()).advanced(true))
+        .err()
+        .ok_or_else(|| {
+            NfcError::VerificationFailed("FormatPICC without confirmation succeeded".to_owned())
+        })?;
+    verify(
+        gate_error.to_string().contains("confirmation"),
+        format!("unexpected confirmation error: {gate_error}"),
+    )?;
+
+    service.desfire_create_application(
+        DesfireAppCreateRequest::new(SCRATCH_AID)
+            .key(PICC_KEY.to_vec())
+            .keys(1)
+            .app_key_type(ApplicationKeyType::Tdes2),
+    )?;
+    let before = service.desfire_inventory(CancelToken::new())?;
+    verify(
+        before
+            .applications
+            .iter()
+            .any(|application| application.aid == SCRATCH_AID),
+        "the scratch application was not created",
+    )?;
+
+    let result = service.desfire_format_picc(format_picc_request(PICC_KEY))?;
+    verify(
+        result.applications_before.contains(&SCRATCH_AID),
+        "the result did not list the erased scratch application",
+    )?;
+    verify(
+        result.applications_after.is_empty(),
+        format!(
+            "applications remain after FormatPICC: {:?}",
+            result.applications_after
+        ),
+    )?;
+    verify(
+        result.free_memory > 0,
+        "FormatPICC reported no free EEPROM bytes",
+    )?;
+    let after = service.desfire_inventory(CancelToken::new())?;
+    verify(
+        after.applications.is_empty(),
+        format!(
+            "applications remain after FormatPICC: {:?}",
+            after.applications
+        ),
+    )?;
+    println!(
+        "formatted {} ({} applications erased, {} bytes free, factory key check)",
+        result.card,
+        result.applications_before.len(),
+        result.free_memory
+    );
+    let factory = service.desfire_verify_key(
+        CancelToken::new(),
+        DesfireVerifyKeyRequest::new([0x00; 3], PICC_KEY.to_vec()),
+    )?;
+    verify(
+        factory.key_type == AuthKeyType::Des,
+        format!("the PICC key family changed to {}", factory.key_type.name()),
+    )?;
+    Ok(())
 }

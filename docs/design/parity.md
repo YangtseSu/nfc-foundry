@@ -102,7 +102,9 @@ original UID if verification fails.
 | Read authenticated UID | `desfire uid --aid --key [--key-type] [--key-number]` | DESFire → Verify → Read UID | R | ACR122U: EV1 CRC32, EV2 CMAC |
 | Read NDEF | `desfire ndef-read [--output]` | DESFire → NDEF → Read NDEF | R | PN532 and ACR122U: CC, file facts, records, extra TLVs |
 | Format NDEF | `desfire format-ndef --key --advanced [--dry-run]` | DESFire → NDEF → Advanced mode → Format NDEF application… → type `FORMAT` | A, C | PN532 and ACR122U |
+| Replace NDEF application | `desfire replace-ndef --key --advanced [--dry-run]` | DESFire → NDEF → Advanced mode → Replace NDEF application… → type `REPLACE` | A, C | PN532: previous message read, empty NDEF read back |
 | Delete NDEF application | `desfire delete-ndef --key --advanced` | DESFire → NDEF → Advanced mode → Delete NDEF application… → type `DELETE` | A, C | PN532 and ACR122U |
+| Format PICC | `desfire format-picc --key --advanced [--dry-run]` | DESFire → Manage → Advanced mode → Format PICC (erase all)… → type `ERASE` | A, C | PN532: scratch application erased, 8192 bytes free, factory key check |
 | Free memory | `desfire memory [--aid] [--key]` | DESFire → Manage → Read free memory | R | ACR122U: 8192 bytes before setup, 7648 after deletes |
 | Create application | `desfire app-create --aid [--key] --keys --app-key-type` | DESFire → Manage → Create application | W | ACR122U: AES `F0 0D 08`, two keys |
 | Delete application | `desfire app-delete --aid [--key] --advanced --yes [--manifest]` | DESFire → Manage → Advanced mode → Delete application… → type `DELETE` | A, C, M | ACR122U: reserved application removed, manifest written |

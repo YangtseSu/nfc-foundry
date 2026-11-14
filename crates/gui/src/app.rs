@@ -24,8 +24,9 @@ use nfc_app::classic::{
 use nfc_app::desfire::{
     ApplicationKeyType, AuthKeyType, CommunicationMode, DesfireAppCreateRequest,
     DesfireAppDeleteRequest, DesfireFileCreateRequest, DesfireFileDeleteRequest,
-    DesfireFileSettingsRequest, DesfireFileSpec, DesfireFreeMemoryRequest, DesfireKeyChangeRequest,
-    DesfireKeySettingsRequest, DesfireNdefDeleteRequest, DesfireNdefFormatRequest,
+    DesfireFileSettingsRequest, DesfireFileSpec, DesfireFormatPiccRequest,
+    DesfireFreeMemoryRequest, DesfireKeyChangeRequest, DesfireKeySettingsRequest,
+    DesfireNdefDeleteRequest, DesfireNdefFormatRequest, DesfireNdefReplaceRequest,
     DesfireReadRequest, DesfireReadResult, DesfireRecordOperation, DesfireRecordRequest,
     DesfireUidRequest, DesfireValueOperation, DesfireValueRequest, DesfireVerifyKeyRequest,
     DesfireWriteRequest, NDEF_APPLICATION_AID, NDEF_CC_FILE, NDEF_CC_SIZE, NDEF_DATA_FILE,
@@ -1141,7 +1142,9 @@ struct DesfireView {
     ndef_key_number: gtk::Entry,
     read_ndef: gtk::Button,
     format_ndef: gtk::Button,
+    replace_ndef: gtk::Button,
     delete_ndef: gtk::Button,
+    format_picc: gtk::Button,
     ndef_status: gtk::Label,
     ndef_output: gtk::Label,
 }
@@ -2123,6 +2126,18 @@ fn build_desfire_view() -> DesfireView {
     manage_status.set_selectable(true);
     manage_status.add_css_class("caption");
     manage_status.add_css_class("dim-label");
+    let format_picc_hint = gtk::Label::new(Some(
+        "Format PICC erases every application and file and returns the PICC master key to \
+         the factory state. It is never part of NDEF provisioning.",
+    ));
+    format_picc_hint.set_xalign(0.0);
+    format_picc_hint.set_wrap(true);
+    format_picc_hint.add_css_class("caption");
+    format_picc_hint.add_css_class("dim-label");
+    let format_picc = gtk::Button::with_label("Format PICC (erase all)");
+    format_picc.add_css_class("destructive-action");
+    let picc_buttons = gtk::Box::new(Orientation::Horizontal, 8);
+    picc_buttons.append(&format_picc);
     let manage_form_scroll = gtk::ScrolledWindow::builder()
         .child(&manage_form)
         .vexpand(true)
@@ -2132,6 +2147,8 @@ fn build_desfire_view() -> DesfireView {
     manage_page.append(&manage_form_scroll);
     manage_page.append(&app_buttons);
     manage_page.append(&file_buttons);
+    manage_page.append(&format_picc_hint);
+    manage_page.append(&picc_buttons);
     manage_page.append(&manage_output_scroll);
     manage_page.append(&manage_status);
 
@@ -2139,8 +2156,9 @@ fn build_desfire_view() -> DesfireView {
 
     let ndef_hint = gtk::Label::new(Some(
         "Read the NDEF Tag Application without authenticating. Formatting creates the \
-         application D27600 with the CC and NDEF files; no full-card backup exists, and \
-         deleting the application is the undo path. Both actions need Advanced mode, \
+         application D27600 with the CC and NDEF files; replacing reads the current message, \
+         deletes the validated application, and creates it again. No full-card backup exists, \
+         and deleting the application is the undo path. These actions need Advanced mode, \
          which is on the Manage tab.",
     ));
     ndef_hint.set_xalign(0.0);
@@ -2194,10 +2212,13 @@ fn build_desfire_view() -> DesfireView {
 
     let format_ndef = gtk::Button::with_label("Format NDEF application");
     format_ndef.add_css_class("destructive-action");
+    let replace_ndef = gtk::Button::with_label("Replace NDEF application");
+    replace_ndef.add_css_class("destructive-action");
     let delete_ndef = gtk::Button::with_label("Delete NDEF application");
     delete_ndef.add_css_class("destructive-action");
     let ndef_buttons = gtk::Box::new(Orientation::Horizontal, 8);
     ndef_buttons.append(&format_ndef);
+    ndef_buttons.append(&replace_ndef);
     ndef_buttons.append(&delete_ndef);
     let ndef_status = gtk::Label::new(None);
     ndef_status.set_xalign(0.0);
@@ -2558,7 +2579,9 @@ fn build_desfire_view() -> DesfireView {
         ndef_key_number,
         read_ndef,
         format_ndef,
+        replace_ndef,
         delete_ndef,
+        format_picc,
         ndef_status,
         ndef_output,
     }
@@ -4000,8 +4023,16 @@ fn connect_signals(ui: &Rc<Ui>) {
         .connect_clicked(move |_| start_desfire_ndef_format(ui2.clone()));
     let ui2 = ui.clone();
     ui.desfire_view
+        .replace_ndef
+        .connect_clicked(move |_| start_desfire_ndef_replace(ui2.clone()));
+    let ui2 = ui.clone();
+    ui.desfire_view
         .delete_ndef
         .connect_clicked(move |_| start_desfire_ndef_delete(ui2.clone()));
+    let ui2 = ui.clone();
+    ui.desfire_view
+        .format_picc
+        .connect_clicked(move |_| start_desfire_format_picc(ui2.clone()));
     let ui2 = ui.clone();
     ui.desfire_view
         .create_app
@@ -7799,6 +7830,316 @@ fn execute_desfire_ndef_delete(
     });
 }
 
+fn start_desfire_ndef_replace(ui: Rc<Ui>) {
+    if ui.busy.get() {
+        return;
+    }
+    if ui.devices.borrow().is_empty() {
+        toast_error(&ui, "No reader selected");
+        return;
+    }
+    if !ui.desfire_view.advanced.is_active() {
+        toast_error(
+            &ui,
+            "Enable Advanced mode before replacing the NDEF application",
+        );
+        return;
+    }
+    let parsed = (|| -> std::result::Result<_, String> {
+        let key = desfire_required_key(&ui.desfire_view.ndef_key.text())?;
+        let key_type = desfire_key_type(&ui.desfire_view.ndef_key_type);
+        let key_number = desfire_key_number(&ui.desfire_view.ndef_key_number.text())?;
+        Ok((key, key_type, key_number))
+    })();
+    let (key, key_type, key_number) = match parsed {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            toast_error(&ui, &error);
+            return;
+        }
+    };
+
+    set_busy(&ui, true);
+    ui.status
+        .set_localized("Checking the DESFire NDEF application…");
+    let service = ui.service.clone();
+    let (sender, receiver) = async_channel::bounded(1);
+    std::thread::spawn(move || {
+        let result = match service.lock() {
+            Ok(mut service) => (|| -> NfcResult<_> {
+                let inventory = service.desfire_inventory(CancelToken::new())?;
+                if !inventory
+                    .applications
+                    .iter()
+                    .any(|application| application.aid == NDEF_APPLICATION_AID)
+                {
+                    return Err(NfcError::InvalidArgument(
+                        "the NDEF application D27600 is not present; use Format NDEF application"
+                            .to_owned(),
+                    ));
+                }
+                service.type4_read(CancelToken::new())
+            })(),
+            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
+        };
+        let _ = sender.send_blocking(result);
+    });
+    glib::spawn_future_local(async move {
+        set_busy(&ui, false);
+        let read = match receiver.recv().await {
+            Ok(Ok(read)) => read,
+            Ok(Err(error)) => {
+                toast_error(&ui, &format!("DESFire NDEF replace: {error}"));
+                return;
+            }
+            Err(_) => {
+                toast_error(&ui, "Reader worker stopped");
+                return;
+            }
+        };
+        let body = format!(
+            "Current NDEF file: {} · CC {}\n\n\
+             Read the current NDEF message, delete only the validated AN11004 application \
+             D27600, and create it again with the same CC and an empty NDEF file.\n\
+             No full-card backup exists; a failure after deletion leaves no NDEF application.\n\n\
+             Type REPLACE to confirm",
+            nfc_app::type4::ndef_label(&read.ndef.state),
+            type2_ui::hex_bytes(read.cc.raw()),
+        );
+        let dialog = typed_confirmation_dialog(
+            "Replace the DESFire NDEF application?",
+            &body,
+            "Replace NDEF",
+            "REPLACE",
+        );
+        ui.pending_desfire_dialog.replace(Some(dialog.clone()));
+        let ui2 = ui.clone();
+        let key = RefCell::new(Some(key));
+        dialog.connect_response(None, move |_, response| {
+            ui2.pending_desfire_dialog.replace(None);
+            if response == "confirm"
+                && let Some(key) = key.borrow_mut().take()
+            {
+                execute_desfire_ndef_replace(ui2.clone(), key, key_type, key_number);
+            }
+        });
+        present_alert(&dialog, &ui.window);
+    });
+}
+
+fn execute_desfire_ndef_replace(
+    ui: Rc<Ui>,
+    key: Vec<u8>,
+    key_type: Option<AuthKeyType>,
+    key_number: u8,
+) {
+    set_busy(&ui, true);
+    ui.status
+        .set_localized("Replacing the DESFire NDEF application…");
+    ui.desfire_view
+        .ndef_status
+        .set_localized("Replacing the NDEF application…");
+    let service = ui.service.clone();
+    let (sender, receiver) = async_channel::bounded(1);
+    std::thread::spawn(move || {
+        let result = match service.lock() {
+            Ok(mut service) => {
+                let mut request = DesfireNdefReplaceRequest::new(key)
+                    .key_number(key_number)
+                    .advanced(true)
+                    .confirm(true);
+                if let Some(key_type) = key_type {
+                    request = request.key_type(key_type);
+                }
+                service.desfire_ndef_replace(request)
+            }
+            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
+        };
+        let _ = sender.send_blocking(result);
+    });
+    glib::spawn_future_local(async move {
+        set_busy(&ui, false);
+        match receiver.recv().await {
+            Ok(Ok(result)) => {
+                ui.desfire_view.ndef_status.set_localized(&format!(
+                    "NDEF application replaced · previous {} · CC {} · {}",
+                    nfc_app::type4::ndef_label(&result.previous.state),
+                    type2_ui::hex_bytes(result.cc.raw()),
+                    nfc_app::type4::ndef_label(&result.ndef.state)
+                ));
+                ui.status.set_localized("DESFire NDEF application replaced");
+                append_log(&ui, "desfire · ndef replace");
+                start_desfire_inventory(ui);
+            }
+            Ok(Err(error)) => {
+                ui.desfire_view
+                    .ndef_status
+                    .set_localized("NDEF replace failed");
+                ui.status.set_localized("DESFire NDEF replace failed");
+                toast_error(&ui, &format!("DESFire NDEF replace: {error}"));
+            }
+            Err(_) => {
+                ui.desfire_view
+                    .ndef_status
+                    .set_localized("NDEF replace failed");
+                toast_error(&ui, "Reader worker stopped");
+            }
+        }
+    });
+}
+
+fn start_desfire_format_picc(ui: Rc<Ui>) {
+    if ui.busy.get() {
+        return;
+    }
+    if ui.devices.borrow().is_empty() {
+        toast_error(&ui, "No reader selected");
+        return;
+    }
+    if !ui.desfire_view.advanced.is_active() {
+        toast_error(&ui, "Enable Advanced mode before formatting the PICC");
+        return;
+    }
+    let parsed = (|| -> std::result::Result<_, String> {
+        let key = desfire_required_key(&ui.desfire_view.manage_key.text())?;
+        let key_type = desfire_key_type(&ui.desfire_view.manage_key_type);
+        let key_number = desfire_key_number(&ui.desfire_view.manage_key_number.text())?;
+        Ok((key, key_type, key_number))
+    })();
+    let (key, key_type, key_number) = match parsed {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            toast_error(&ui, &error);
+            return;
+        }
+    };
+
+    set_busy(&ui, true);
+    ui.status
+        .set_localized("Checking the DESFire applications…");
+    let service = ui.service.clone();
+    let (sender, receiver) = async_channel::bounded(1);
+    std::thread::spawn(move || {
+        let result = match service.lock() {
+            Ok(mut service) => service.desfire_inventory(CancelToken::new()),
+            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
+        };
+        let _ = sender.send_blocking(result);
+    });
+    glib::spawn_future_local(async move {
+        set_busy(&ui, false);
+        let inventory = match receiver.recv().await {
+            Ok(Ok(inventory)) => inventory,
+            Ok(Err(error)) => {
+                toast_error(&ui, &format!("DESFire inventory: {error}"));
+                return;
+            }
+            Err(_) => {
+                toast_error(&ui, "Reader worker stopped");
+                return;
+            }
+        };
+        let mut applications = String::new();
+        if inventory.applications.is_empty() {
+            applications.push_str("Applications: none\n");
+        } else {
+            applications.push_str("Applications to erase:\n");
+            for application in &inventory.applications {
+                applications.push_str(&format!(
+                    "  {} · {} file(s)\n",
+                    type2_ui::hex_bytes(&application.aid),
+                    application.files.len()
+                ));
+            }
+        }
+        let body = format!(
+            "{}\n\nFormatPICC erases every application and file.\n\n{}\n\
+             The PICC master key returns to the factory state. This is a full reset and is \
+             never part of NDEF provisioning.\n\nType ERASE to confirm",
+            inventory.version.name(),
+            applications.trim_end(),
+        );
+        let dialog = typed_confirmation_dialog(
+            "Format the PICC and erase every application?",
+            &body,
+            "Format PICC",
+            "ERASE",
+        );
+        ui.pending_desfire_dialog.replace(Some(dialog.clone()));
+        let ui2 = ui.clone();
+        let key = RefCell::new(Some(key));
+        dialog.connect_response(None, move |_, response| {
+            ui2.pending_desfire_dialog.replace(None);
+            if response == "confirm"
+                && let Some(key) = key.borrow_mut().take()
+            {
+                execute_desfire_format_picc(ui2.clone(), key, key_type, key_number);
+            }
+        });
+        present_alert(&dialog, &ui.window);
+    });
+}
+
+fn execute_desfire_format_picc(
+    ui: Rc<Ui>,
+    key: Vec<u8>,
+    key_type: Option<AuthKeyType>,
+    key_number: u8,
+) {
+    set_busy(&ui, true);
+    ui.status.set_localized("Formatting the DESFire PICC…");
+    ui.desfire_view
+        .manage_status
+        .set_localized("Formatting the PICC…");
+    let service = ui.service.clone();
+    let (sender, receiver) = async_channel::bounded(1);
+    std::thread::spawn(move || {
+        let result = match service.lock() {
+            Ok(mut service) => {
+                let mut request = DesfireFormatPiccRequest::new(key)
+                    .key_number(key_number)
+                    .advanced(true)
+                    .confirm(true);
+                if let Some(key_type) = key_type {
+                    request = request.key_type(key_type);
+                }
+                service.desfire_format_picc(request)
+            }
+            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
+        };
+        let _ = sender.send_blocking(result);
+    });
+    glib::spawn_future_local(async move {
+        set_busy(&ui, false);
+        match receiver.recv().await {
+            Ok(Ok(result)) => {
+                ui.desfire_view.manage_status.set_localized(&format!(
+                    "PICC formatted · {} application(s) erased · {} bytes free",
+                    result.applications_before.len(),
+                    result.free_memory
+                ));
+                ui.status.set_localized("DESFire PICC formatted");
+                append_log(&ui, "desfire · format picc");
+                ui.desfire_view.manage_key.set_text("");
+                start_desfire_inventory(ui);
+            }
+            Ok(Err(error)) => {
+                ui.desfire_view
+                    .manage_status
+                    .set_localized("FormatPICC failed");
+                ui.status.set_localized("DESFire FormatPICC failed");
+                toast_error(&ui, &format!("DESFire FormatPICC: {error}"));
+            }
+            Err(_) => {
+                ui.desfire_view
+                    .manage_status
+                    .set_localized("FormatPICC failed");
+                toast_error(&ui, "Reader worker stopped");
+            }
+        }
+    });
+}
+
 struct DesfireManageKey {
     aid: [u8; 3],
     key: Option<Vec<u8>>,
@@ -8874,7 +9215,9 @@ fn update_desfire_actions(ui: &Ui) {
     ui.desfire_view.read_uid.set_sensitive(sensitive);
     ui.desfire_view.read_ndef.set_sensitive(sensitive);
     ui.desfire_view.format_ndef.set_sensitive(advanced);
+    ui.desfire_view.replace_ndef.set_sensitive(advanced);
     ui.desfire_view.delete_ndef.set_sensitive(advanced);
+    ui.desfire_view.format_picc.set_sensitive(advanced);
     ui.desfire_view.ndef_key.set_sensitive(sensitive);
     ui.desfire_view.ndef_key_number.set_sensitive(sensitive);
     ui.desfire_view.create_app.set_sensitive(sensitive);
@@ -17446,7 +17789,17 @@ mod tests {
             "Read the card to list DESFire applications."
         );
         assert!(!ui.desfire_view.format_ndef.is_sensitive());
+        assert!(!ui.desfire_view.replace_ndef.is_sensitive());
         assert!(!ui.desfire_view.delete_ndef.is_sensitive());
+        assert!(!ui.desfire_view.format_picc.is_sensitive());
+        assert_eq!(
+            ui.desfire_view.replace_ndef.label().as_deref(),
+            Some("Replace NDEF application")
+        );
+        assert_eq!(
+            ui.desfire_view.format_picc.label().as_deref(),
+            Some("Format PICC (erase all)")
+        );
         assert!(!ui.desfire_view.advanced.is_active());
         assert_eq!(
             ui.desfire_view.read_ndef.label().as_deref(),
@@ -17526,7 +17879,9 @@ mod tests {
         assert_eq!(ui.desfire_view.manage_access_rights.text(), "0000");
         ui.desfire_view.advanced.set_active(true);
         assert!(ui.desfire_view.format_ndef.is_sensitive());
+        assert!(ui.desfire_view.replace_ndef.is_sensitive());
         assert!(ui.desfire_view.delete_ndef.is_sensitive());
+        assert!(ui.desfire_view.format_picc.is_sensitive());
         assert!(ui.desfire_view.delete_app.is_sensitive());
         assert!(ui.desfire_view.delete_file.is_sensitive());
         assert!(ui.desfire_view.change_key.is_sensitive());

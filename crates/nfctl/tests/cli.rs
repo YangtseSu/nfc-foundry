@@ -202,6 +202,106 @@ fn desfire_verify_key_fails_once_for_a_wrong_key() {
 }
 
 #[test]
+fn desfire_format_picc_dry_run_lists_applications() {
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:desfire",
+        "desfire",
+        "format-picc",
+        "--key",
+        "0000000000000000",
+        "--dry-run",
+    ]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("erase every application"), "{text}");
+    assert!(text.contains("F0 0D 01 · 1 file(s)"), "{text}");
+    assert!(text.contains("factory state"), "{text}");
+    assert!(!text.contains("formatted"), "the dry run must not format");
+}
+
+#[test]
+fn desfire_format_picc_requires_advanced_and_confirmation() {
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:desfire",
+        "desfire",
+        "format-picc",
+        "--key",
+        "0000000000000000",
+    ]);
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("requires --advanced"),
+        "{}",
+        stderr(&output)
+    );
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:desfire",
+        "desfire",
+        "format-picc",
+        "--key",
+        "0000000000000000",
+        "--advanced",
+    ]);
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("needs confirmation; pass --yes"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn desfire_format_picc_erases_the_mock_applications() {
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:desfire",
+        "desfire",
+        "format-picc",
+        "--key",
+        "0000000000000000",
+        "--advanced",
+        "--yes",
+    ]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("applications erased: 1"), "{text}");
+    assert!(text.contains("application F0 0D 01"), "{text}");
+    assert!(text.contains("applications after: none"), "{text}");
+    assert!(text.contains("free memory: 8192 bytes"), "{text}");
+    assert!(!text.contains("0000000000000000"), "the key is not printed");
+}
+
+#[test]
+fn desfire_replace_ndef_requires_an_existing_application() {
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:desfire",
+        "desfire",
+        "replace-ndef",
+        "--key",
+        "0000000000000000",
+        "--advanced",
+        "--yes",
+    ]);
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("NDEF application D27600 is not present"),
+        "{}",
+        stderr(&output)
+    );
+    assert!(!stdout(&output).contains("replaced"), "{}", stdout(&output));
+}
+
+#[test]
 fn desfire_uid_reports_the_authenticated_uid() {
     let output = nfctl(&[
         "--mock",

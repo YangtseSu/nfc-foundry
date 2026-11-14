@@ -22,9 +22,10 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
 - Workspaces: `Classic` shows `Blocks`, `Details`, `NDEF`, `Keys`, `Recovery`,
   and `Dumps`;
   `Type 2` shows `Pages`, `Protection`, `NDEF`, and `Dumps`; `DESFire` shows
-  `Inventory`, `Read`, `Verify`, and `NDEF` and never moves the shared NDEF
-  view. Reads, key verification, and the authenticated UID read are ungated;
-  NDEF formatting and deletion stay Advanced. `Keys` owns
+  `Inventory`, `Read`, `Verify`, `NDEF`, `Manage`, `Values & records`, and
+  `Keys`. Reads, key verification, and the authenticated UID read are
+  ungated; NDEF formatting, replacement, deletion, and the Manage `Format PICC
+  (erase all)` action stay Advanced. `Keys` owns
   `Key store` / `Key scan`; Classic `Dumps` owns Save/Load plus `Diff` /
   `Restore`; Type 2 `Dumps` owns Save/Load plus Restore. The NDEF view is
   shared and moved into the active workspace; it renders Classic MAD/NDEF for

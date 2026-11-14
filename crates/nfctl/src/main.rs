@@ -17,14 +17,14 @@ use nfc_app::desfire::{
     AccessRight, AccessRights, ApplicationKeyType, AuthKeyType, CommunicationMode,
     DesfireAppCreateRequest, DesfireAppDeleteRequest, DesfireFileCreateRequest,
     DesfireFileDeleteRequest, DesfireFileSettingsRequest, DesfireFileSpec,
-    DesfireFreeMemoryRequest, DesfireKeyChangeRequest, DesfireKeySettingsRequest,
-    DesfireNdefDeleteRequest, DesfireNdefFormatRequest, DesfireReadResult, DesfireRecordOperation,
-    DesfireRecordRequest, DesfireUidRequest, DesfireValueOperation, DesfireValueRequest,
-    DesfireVerifyKeyRequest, NDEF_APPLICATION_AID, NDEF_CAPABILITY_CONTAINER, NDEF_CC_FILE,
-    NDEF_CC_SIZE, NDEF_DATA_FILE, NDEF_DATA_SIZE, NDEF_DF_NAME, app_create_text, app_delete_text,
-    card_uid_text, file_create_text, file_delete_text, file_settings_text, free_memory_text,
-    key_change_text, key_settings_text, key_verification_text, read_protection_text, record_text,
-    value_text,
+    DesfireFormatPiccRequest, DesfireFreeMemoryRequest, DesfireKeyChangeRequest,
+    DesfireKeySettingsRequest, DesfireNdefDeleteRequest, DesfireNdefFormatRequest,
+    DesfireNdefReplaceRequest, DesfireReadResult, DesfireRecordOperation, DesfireRecordRequest,
+    DesfireUidRequest, DesfireValueOperation, DesfireValueRequest, DesfireVerifyKeyRequest,
+    NDEF_APPLICATION_AID, NDEF_CAPABILITY_CONTAINER, NDEF_CC_FILE, NDEF_CC_SIZE, NDEF_DATA_FILE,
+    NDEF_DATA_SIZE, NDEF_DF_NAME, app_create_text, app_delete_text, card_uid_text,
+    file_create_text, file_delete_text, file_settings_text, free_memory_text, key_change_text,
+    key_settings_text, key_verification_text, read_protection_text, record_text, value_text,
 };
 use nfc_app::type2::{
     Type2Auth, Type2Format, Type2Lock, Type2NdefWrite, Type2PageWrite, Type2Password,
@@ -137,7 +137,7 @@ enum Command {
         #[command(subcommand)]
         command: Type2Command,
     },
-    /// DESFire inventory, verification, file read, and NDEF provisioning.
+    /// DESFire inventory, file read/write, management, keys, and NDEF.
     Desfire {
         #[command(subcommand)]
         command: Box<DesfireCommand>,
@@ -451,6 +451,52 @@ enum DesfireCommand {
         /// Required: deleting an application changes the card structure.
         #[arg(long)]
         advanced: bool,
+    },
+    /// Replace an existing AN11004 NDEF Tag Application.
+    ReplaceNdef {
+        /// PICC master key: DES 8, AES/2K3DES 16, 3K3DES 24 bytes.
+        #[arg(
+            long,
+            value_name = "HEX",
+            env = "NFC_FOUNDRY_DESFIRE_KEY",
+            hide_env_values = true
+        )]
+        key: String,
+        /// Explicit key family: des, 2k3des, 3k3des, aes, or ev2.
+        #[arg(long, value_name = "TYPE")]
+        key_type: Option<String>,
+        /// PICC key number, 0..=14.
+        #[arg(long, default_value_t = 0, value_name = "N")]
+        key_number: u8,
+        /// Required: replacing changes the card structure.
+        #[arg(long)]
+        advanced: bool,
+        /// Print the current NDEF state and the plan, then exit without writing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Format the PICC and erase every application.
+    FormatPicc {
+        /// Current PICC master key: DES 8, AES/2K3DES 16, 3K3DES 24 bytes.
+        #[arg(
+            long,
+            value_name = "HEX",
+            env = "NFC_FOUNDRY_DESFIRE_KEY",
+            hide_env_values = true
+        )]
+        key: String,
+        /// Explicit key family: des, 2k3des, 3k3des, aes, or ev2.
+        #[arg(long, value_name = "TYPE")]
+        key_type: Option<String>,
+        /// PICC key number, 0..=14.
+        #[arg(long, default_value_t = 0, value_name = "N")]
+        key_number: u8,
+        /// Required: formatting erases every application and resets the PICC key.
+        #[arg(long)]
+        advanced: bool,
+        /// Print the applications that would be erased, then exit without writing.
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Read the Type 4 NDEF Tag Application and print its records.
     NdefRead {
@@ -2500,6 +2546,109 @@ fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<
             }
             Ok(())
         }
+        DesfireCommand::ReplaceNdef {
+            key,
+            key_type,
+            key_number,
+            advanced,
+            dry_run,
+        } => {
+            let key = parse_hex_bytes(&key, "DESFire key")?;
+            let key_type = key_type.as_deref().map(parse_auth_key_type).transpose()?;
+            if key_number > 14 {
+                return Err(NfcError::InvalidArgument(
+                    "DESFire key numbers are 0..=14".to_owned(),
+                ));
+            }
+            if !advanced && !dry_run {
+                return Err(NfcError::InvalidArgument(
+                    "replacing the DESFire NDEF application requires --advanced".to_owned(),
+                ));
+            }
+            let inventory = service.desfire_inventory(CancelToken::new())?;
+            if !inventory
+                .applications
+                .iter()
+                .any(|application| application.aid == NDEF_APPLICATION_AID)
+            {
+                return Err(NfcError::InvalidArgument(
+                    "the NDEF application D27600 is not present; use format-ndef".to_owned(),
+                ));
+            }
+            let read = service.type4_read(CancelToken::new())?;
+            print_desfire_ndef_replace_plan(key_number, &read);
+            if dry_run {
+                return Ok(());
+            }
+            require_confirmation(cli.yes, "replacing the DESFire NDEF application D27600")?;
+            let mut request = DesfireNdefReplaceRequest::new(key)
+                .key_number(key_number)
+                .advanced(true)
+                .confirm(true);
+            if let Some(key_type) = key_type {
+                request = request.key_type(key_type);
+            }
+            let result = service.desfire_ndef_replace(request)?;
+            println!(
+                "NDEF application D27600 replaced; previous NDEF: {}",
+                nfc_app::type4::ndef_label(&result.previous.state)
+            );
+            println!("CC: {}", hex_bytes(result.cc.raw()));
+            println!(
+                "NDEF file: {}",
+                nfc_app::type4::ndef_label(&result.ndef.state)
+            );
+            Ok(())
+        }
+        DesfireCommand::FormatPicc {
+            key,
+            key_type,
+            key_number,
+            advanced,
+            dry_run,
+        } => {
+            let key = parse_hex_bytes(&key, "DESFire key")?;
+            let key_type = key_type.as_deref().map(parse_auth_key_type).transpose()?;
+            if key_number > 14 {
+                return Err(NfcError::InvalidArgument(
+                    "DESFire key numbers are 0..=14".to_owned(),
+                ));
+            }
+            if !advanced && !dry_run {
+                return Err(NfcError::InvalidArgument(
+                    "DESFire FormatPICC requires --advanced".to_owned(),
+                ));
+            }
+            let inventory = service.desfire_inventory(CancelToken::new())?;
+            print_desfire_format_picc_plan(&inventory, key_number);
+            if dry_run {
+                return Ok(());
+            }
+            require_confirmation(cli.yes, "formatting the PICC and erasing every application")?;
+            let mut request = DesfireFormatPiccRequest::new(key)
+                .key_number(key_number)
+                .advanced(true)
+                .confirm(true);
+            if let Some(key_type) = key_type {
+                request = request.key_type(key_type);
+            }
+            let result = service.desfire_format_picc(request)?;
+            println!("{} formatted", result.card);
+            println!("applications erased: {}", result.applications_before.len());
+            for application in &result.applications_before {
+                println!("  application {}", hex_bytes(application));
+            }
+            if result.applications_after.is_empty() {
+                println!("applications after: none");
+            } else {
+                for application in &result.applications_after {
+                    println!("applications after: {}", hex_bytes(application));
+                }
+            }
+            println!("free memory: {} bytes", result.free_memory);
+            println!("PICC key: factory state");
+            Ok(())
+        }
         DesfireCommand::NdefRead { output } => {
             let read = service.type4_read(CancelToken::new())?;
             print!("{}", type4_read_text(&read));
@@ -3323,6 +3472,50 @@ fn print_desfire_ndef_plan(key_number: u8) {
     println!("  CC content: {}", hex_bytes(&NDEF_CAPABILITY_CONTAINER));
     println!("  PICC key: key {key_number} (session only)");
     println!("No full-card backup exists; deleting the NDEF application is the undo path.");
+}
+
+fn print_desfire_ndef_replace_plan(key_number: u8, read: &nfc_app::type4::Type4ReadResult) {
+    println!(
+        "Replace NDEF Tag Application D27600 (native AID {})",
+        hex_bytes(&NDEF_APPLICATION_AID)
+    );
+    println!(
+        "  current CC: {} · NDEF file: {}",
+        hex_bytes(read.cc.raw()),
+        nfc_app::type4::ndef_label(&read.ndef.state)
+    );
+    println!("  the current NDEF message is read before deletion");
+    println!("  delete only the exact AN11004 layout, then create it again");
+    println!(
+        "  CC: file {:02X} / ISO E103, {NDEF_CC_SIZE} bytes",
+        NDEF_CC_FILE
+    );
+    println!(
+        "  NDEF: file {:02X} / ISO E104, {NDEF_DATA_SIZE} bytes",
+        NDEF_DATA_FILE
+    );
+    println!("  PICC key: key {key_number} (session only)");
+    println!("No full-card backup exists; a failure after deletion leaves no NDEF application.");
+}
+
+fn print_desfire_format_picc_plan(inventory: &nfc_desfire::Inventory, key_number: u8) {
+    println!("Format the PICC: erase every application and file");
+    println!("  card: {}", inventory.version.name());
+    if inventory.applications.is_empty() {
+        println!("  applications: none");
+    } else {
+        println!("  applications to erase:");
+        for application in &inventory.applications {
+            println!(
+                "    {} · {} file(s)",
+                hex_bytes(&application.aid),
+                application.files.len()
+            );
+        }
+    }
+    println!("  PICC key: key {key_number} (session only)");
+    println!("  PICC key after the reset: factory state");
+    println!("FormatPICC is a full reset; it is never part of NDEF provisioning.");
 }
 
 fn type2(cli: &Cli, service: &mut Service, command: Type2Command) -> Result<()> {

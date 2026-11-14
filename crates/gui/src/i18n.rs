@@ -711,14 +711,20 @@ keys! {
         "读取卡片以列出 DESFire 应用。"
     ),
     DesfireNdefHint => (
-        "Read the NDEF Tag Application without authenticating. Formatting creates the application D27600 with the CC and NDEF files; no full-card backup exists, and deleting the application is the undo path. Both actions need Advanced mode, which is on the Manage tab.",
-        "无需认证即可读取 NDEF 标签应用。格式化会创建应用 D27600 以及 CC 和 NDEF 文件；不存在整卡备份，删除该应用是撤销路径。这两个操作都需要管理页中的高级模式。"
+        "Read the NDEF Tag Application without authenticating. Formatting creates the application D27600 with the CC and NDEF files; replacing reads the current message, deletes the validated application, and creates it again. No full-card backup exists, and deleting the application is the undo path. These actions need Advanced mode, which is on the Manage tab.",
+        "无需认证即可读取 NDEF 标签应用。格式化会创建应用 D27600 以及 CC 和 NDEF 文件；替换会先读取当前消息，删除经过验证的应用后再重新创建。不存在整卡备份，删除该应用是撤销路径。这些操作都需要管理页中的高级模式。"
     ),
     DesfirePiccKey => ("PICC master key", "PICC 主密钥"),
     DesfirePiccKeyNumber => ("PICC key number", "PICC 密钥编号"),
     DesfireReadNdef => ("Read NDEF", "读取 NDEF"),
     DesfireFormatNdef => ("Format NDEF application", "格式化 NDEF 应用"),
+    DesfireReplaceNdef => ("Replace NDEF application", "替换 NDEF 应用"),
     DesfireDeleteNdef => ("Delete NDEF application", "删除 NDEF 应用"),
+    DesfireFormatPicc => ("Format PICC (erase all)", "格式化 PICC（擦除全部）"),
+    DesfireFormatPiccHint => (
+        "Format PICC erases every application and file and returns the PICC master key to the factory state. It is never part of NDEF provisioning.",
+        "格式化 PICC 会擦除所有应用和文件，并将 PICC 主密钥恢复到出厂状态。它绝不是 NDEF 配置的一部分。"
+    ),
     DesfireFormatHeading => (
         "Format the DESFire NDEF application?",
         "格式化 DESFire NDEF 应用？"
@@ -727,8 +733,18 @@ keys! {
         "Delete the DESFire NDEF application?",
         "删除 DESFire NDEF 应用？"
     ),
+    DesfireReplaceHeading => (
+        "Replace the DESFire NDEF application?",
+        "替换 DESFire NDEF 应用？"
+    ),
+    DesfirePiccFormatHeading => (
+        "Format the PICC and erase every application?",
+        "格式化 PICC 并擦除所有应用？"
+    ),
     DesfireFormatConfirm => ("Format NDEF", "格式化 NDEF"),
+    DesfireReplaceConfirm => ("Replace NDEF", "替换 NDEF"),
     DesfireDeleteConfirm => ("Delete NDEF", "删除 NDEF"),
+    DesfirePiccFormatConfirm => ("Format PICC", "格式化 PICC"),
     DesfireTypeConfirm => ("Type {} to confirm", "输入 {} 以确认"),
     DesfireFormatPlan => (
         "Create the NDEF Tag Application D27600 with DF name D2760000850101:",
@@ -806,6 +822,48 @@ keys! {
     ),
     DesfireDeleteFailed => ("NDEF delete failed", "NDEF 删除失败"),
     DesfireDeleteFailedStatus => ("DESFire NDEF delete failed", "DESFire NDEF 删除失败"),
+    DesfireAdvancedReplace => (
+        "Enable Advanced mode before replacing the NDEF application",
+        "替换 NDEF 应用前请启用高级模式"
+    ),
+    DesfireAdvancedFormatPicc => (
+        "Enable Advanced mode before formatting the PICC",
+        "格式化 PICC 前请启用高级模式"
+    ),
+    DesfireCheckingApplications => (
+        "Checking the DESFire applications…",
+        "正在检查 DESFire 应用…"
+    ),
+    DesfireReplacing => (
+        "Replacing the DESFire NDEF application…",
+        "正在替换 DESFire NDEF 应用…"
+    ),
+    DesfireReplacingShort => ("Replacing the NDEF application…", "正在替换 NDEF 应用…"),
+    DesfireReplacedLine => (
+        "NDEF application replaced · previous {} · CC {} · {}",
+        "NDEF 应用已替换 · 原 {} · CC {} · {}"
+    ),
+    DesfireReplacedStatus => (
+        "DESFire NDEF application replaced",
+        "DESFire NDEF 应用已替换"
+    ),
+    DesfireReplaceFailed => ("NDEF replace failed", "NDEF 替换失败"),
+    DesfireReplaceFailedStatus => ("DESFire NDEF replace failed", "DESFire NDEF 替换失败"),
+    DesfireFormattingPicc => (
+        "Formatting the DESFire PICC…",
+        "正在格式化 DESFire PICC…"
+    ),
+    DesfireFormattingPiccShort => ("Formatting the PICC…", "正在格式化 PICC…"),
+    DesfirePiccFormattedLine => (
+        "PICC formatted · {} application(s) erased · {} bytes free",
+        "PICC 已格式化 · 已擦除 {} 个应用 · 可用 {} 字节"
+    ),
+    DesfirePiccFormattedStatus => ("DESFire PICC formatted", "DESFire PICC 已格式化"),
+    DesfirePiccFormatFailed => ("FormatPICC failed", "FormatPICC 失败"),
+    DesfirePiccFormatFailedStatus => (
+        "DESFire FormatPICC failed",
+        "DESFire FormatPICC 失败"
+    ),
     DesfireNdefExists => (
         "The NDEF application D27600 already exists; delete it first",
         "NDEF 应用 D27600 已存在；请先删除"

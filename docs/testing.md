@@ -207,6 +207,28 @@ run stopped at `CommitTransaction` with `0x910C` (`NoChanges`); treating that
 status as success, as PM3 does, let the next run pass. The ACR122U row remains
 unrecorded.
 
+Phase 26.12 extends the same test with the replace path: after a second Text
+write it calls `Service::desfire_ndef_replace`, checks that the result holds
+the previous message and an empty NDEF read-back, then deletes the
+application. The same test file also holds
+`format_picc_erases_every_application`, which creates a scratch application,
+calls `Service::desfire_format_picc`, and verifies an empty application list
+and the free-memory total. FormatPICC is a destructive full-card reset and
+requires an additional environment gate; the test is not part of the ordinary
+run:
+
+```sh
+NFC_FOUNDRY_HARDWARE=1 NFC_FOUNDRY_HARDWARE_WRITE=yes \
+NFC_FOUNDRY_HARDWARE_FORMAT=yes NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
+cargo test -p nfctl --features hardware-write \
+  --test hardware_desfire_ndef -- --ignored format_picc_erases
+```
+
+Both tests passed on PN532 UART on 2026-11-14. The service-level tests in
+`crates/nfc-app/tests/desfire_ndef.rs` cover the gates, a missing or foreign
+NDEF application, a failed second copy after the delete, and the non-factory
+key reset without hardware.
+
 ```sh
 NFC_FOUNDRY_HARDWARE=1 NFC_FOUNDRY_HARDWARE_WRITE=yes \
 NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \

@@ -51,7 +51,7 @@ work; their current equivalents are the GTK4 workspaces.
 | 23 | Card-family workspaces and NDEF placement | done |
 | 24 | Parity recovery: verified keys, workbench, UID, reader lifecycle, diagnostics | in progress (S1, S2, S3a, S3b, S4, S6 done) |
 | 25 | Owned-card support: 4K clone, Ultralight EV1, FM11RF08S recovery, DESFire EV3 NDEF, UID NTAG213 | done (PN532; ACR122U rows pending) |
-| 26 | DESFire workbench: read/write, app/file/key management, secure messaging, NDEF | in progress (26.1–26.11 done; 26.12–26.13 pending; 26.10 timer and 26.11 key sets blocked) |
+| 26 | DESFire workbench: read/write, app/file/key management, secure messaging, NDEF | in progress (26.1–26.12 done; 26.13 pending; 26.10 timer and 26.11 key sets blocked) |
 | 27 | NDEF workbench: multi-record editor, RTD forms, `.ndef` load/save, Classic/Type 2 write | done |
 | 28 | ACR122U PC/SC transport (ACR122U only, not generic PC/SC) | pending |
 | 29 | CLI machine contract, cross-process reader ownership, cancellation/tasks, developer raw diagnostics | pending |
@@ -834,14 +834,14 @@ out. The baseline (legacy DES/2K3DES authentication, plain Standard/Backup
 read, CLI and GTK `DESFire` workspace) is complete.
 
 Detailed plan: [26-desfire-workbench.md](26-desfire-workbench.md). Status: in
-progress; 26.1–26.11 are done (baseline, file settings decode, value/record
+progress; 26.1–26.12 are done (baseline, file settings decode, value/record
 read, authentication key families, secure-messaging read, Type 4 NDEF read,
 cryptographic verification, generic write and transactions, application/file
-management, value/record/transaction MAC writes, key management). 26.12 NDEF
-provisioning/format and 26.13 advanced write gates are pending. 26.10's
-Transaction Timer configuration is blocked on the non-public PDCap2.2
-encoding; 26.11's multiple key sets and rolling are blocked on the non-public
-EV2/EV3 key set encoding. The 26.8 writes are recorded on PN532 UART and
-ACR122U; 26.9 is recorded on ACR122U because the DESFire card was not on the
-PN532; 26.10 and 26.11 are recorded on PN532 UART. Each slice adds a spec and
-a note before implementation.
+management, value/record/transaction MAC writes, key management, NDEF replace
+and FormatPICC). 26.13 advanced write gates are pending. 26.10's Transaction
+Timer configuration is blocked on the non-public PDCap2.2 encoding; 26.11's
+multiple key sets and rolling are blocked on the non-public EV2/EV3 key set
+encoding. The 26.8 writes are recorded on PN532 UART and ACR122U; 26.9 is
+recorded on ACR122U because the DESFire card was not on the PN532; 26.10,
+26.11, and 26.12 are recorded on PN532 UART. Each slice adds a spec and a note
+before implementation.

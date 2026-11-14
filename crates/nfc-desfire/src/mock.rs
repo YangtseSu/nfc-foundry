@@ -5,7 +5,9 @@
 //!
 //! The card answers native DESFire APDUs for legacy DES/2K3DES, 3K3DES, and
 //! AES EV1 authentication, GetKeyVersion, GetCardUID, GetFileSettings,
-//! ReadData, WriteData, CommitTransaction, and AbortTransaction. EV2 and
+//! ReadData, WriteData, CommitTransaction, AbortTransaction, and FormatPICC.
+//! It also answers the ISO 7816-4 SELECT, READ BINARY, and UPDATE BINARY
+//! commands that the Type 4 reader sends to the NDEF Tag Application. EV2 and
 //! secure-messaging file writes are not simulated; they return
 //! `IllegalCommand`.
 //!
@@ -29,10 +31,11 @@ use crate::{
     INS_CREATE_APPLICATION, INS_CREATE_BACKUP_DATA_FILE, INS_CREATE_CYCLIC_RECORD_FILE,
     INS_CREATE_LINEAR_RECORD_FILE, INS_CREATE_STD_DATA_FILE, INS_CREATE_TRANSACTION_MAC_FILE,
     INS_CREATE_VALUE_FILE, INS_CREDIT, INS_DEBIT, INS_DELETE_APPLICATION, INS_DELETE_FILE,
-    INS_GET_APPLICATION_IDS, INS_GET_CARD_UID, INS_GET_FILE_IDS, INS_GET_FILE_SETTINGS,
-    INS_GET_FREE_MEMORY, INS_GET_KEY_SETTINGS, INS_GET_KEY_VERSION, INS_GET_VALUE, INS_GET_VERSION,
-    INS_LIMITED_CREDIT, INS_READ_DATA, INS_READ_RECORDS, INS_SELECT_APPLICATION, INS_UPDATE_RECORD,
-    INS_WRITE_DATA, INS_WRITE_RECORD, aes_cbc_decrypt, aes_cbc_encrypt, cbc_decrypt_iv,
+    INS_FORMAT_PICC, INS_GET_APPLICATION_IDS, INS_GET_CARD_UID, INS_GET_FILE_IDS,
+    INS_GET_FILE_SETTINGS, INS_GET_FREE_MEMORY, INS_GET_KEY_SETTINGS, INS_GET_KEY_VERSION,
+    INS_GET_VALUE, INS_GET_VERSION, INS_LIMITED_CREDIT, INS_READ_DATA, INS_READ_RECORDS,
+    INS_SELECT_APPLICATION, INS_UPDATE_RECORD, INS_WRITE_DATA, INS_WRITE_RECORD,
+    NDEF_APPLICATION_AID, NDEF_DF_NAME, aes_cbc_decrypt, aes_cbc_encrypt, cbc_decrypt_iv,
     cbc_encrypt_iv, crc16_a, crc32_desfire, derive_session_key, ev1_cmac, expand_tdes_key,
     last_block, rotate_left,
 };
@@ -81,6 +84,8 @@ struct MockKey {
 struct MockFile {
     settings: Vec<u8>,
     data: Vec<u8>,
+    /// ISO 7816-4 file ID, used by the Type 4 SELECT FILE path.
+    iso_file_id: Option<u16>,
     /// Current value for a Value file, returned by GetValue.
     value: i32,
     /// Value committed by the next CommitTransaction.
@@ -113,7 +118,11 @@ pub struct MockDesfire {
     state: AuthState,
     applications: BTreeMap<[u8; 3], MockApp>,
     selected: [u8; 3],
+    /// ISO 7816-4 file selected by SELECT FILE, used by READ/UPDATE BINARY.
+    iso_file: Option<u16>,
     free_memory: u32,
+    /// EEPROM size restored by FormatPICC.
+    total_memory: u32,
     commit_mac: Option<(u32, [u8; 8])>,
     commands: Vec<Vec<u8>>,
 }
@@ -152,7 +161,9 @@ impl MockDesfire {
             state: AuthState::Idle,
             applications: BTreeMap::new(),
             selected: PICC,
+            iso_file: None,
             free_memory: 8192,
+            total_memory: 8192,
             commit_mac: None,
             commands: Vec::new(),
         }
@@ -169,6 +180,7 @@ impl MockDesfire {
                 MockFile {
                     settings,
                     data,
+                    iso_file_id: None,
                     value: 0,
                     pending_value: None,
                     pending_data: None,
@@ -190,6 +202,7 @@ impl MockDesfire {
                 MockFile {
                     settings,
                     data: Vec::new(),
+                    iso_file_id: None,
                     value,
                     pending_value: None,
                     pending_data: None,
@@ -213,6 +226,7 @@ impl MockDesfire {
             MockFile {
                 settings,
                 data,
+                iso_file_id: None,
                 value: 0,
                 pending_value: None,
                 pending_data: None,
@@ -273,6 +287,17 @@ impl MockDesfire {
             .get(&aid)
             .and_then(|app| app.files.get(&file_id))
             .map(|file| file.settings.as_slice())
+    }
+
+    /// Overwrite a file's content, for corrupt-data and read-back tests.
+    pub fn set_file_data(&mut self, aid: [u8; 3], file_id: u8, data: &[u8]) {
+        if let Some(file) = self
+            .applications
+            .get_mut(&aid)
+            .and_then(|app| app.files.get_mut(&file_id))
+        {
+            file.data = data.to_vec();
+        }
     }
 
     /// Application IDs currently stored on the card.
@@ -384,6 +409,12 @@ impl MockDesfire {
         let Some(ins) = apdu.get(1).copied() else {
             return ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND);
         };
+        if apdu.len() >= 4
+            && apdu[0] == 0x00
+            && let Some(response) = self.handle_iso(apdu)
+        {
+            return response;
+        }
         let body = command_body(apdu);
         match ins {
             INS_SELECT_APPLICATION => self.select_application(body),
@@ -391,6 +422,7 @@ impl MockDesfire {
             INS_GET_APPLICATION_IDS => self.reply_application_ids(ins),
             INS_GET_FILE_IDS => self.reply_file_ids(ins),
             INS_GET_FREE_MEMORY => self.reply_free_memory(ins),
+            INS_FORMAT_PICC => self.format_picc(),
             INS_CREATE_APPLICATION => self.create_application(body),
             INS_DELETE_APPLICATION => self.delete_application(body),
             INS_CREATE_STD_DATA_FILE
@@ -421,6 +453,137 @@ impl MockDesfire {
             command if command == self.key_type.command() => self.begin_authentication(body),
             _ => ApduResponse::new(Vec::new(), STATUS_ILLEGAL_COMMAND),
         }
+    }
+
+    /// Answer the ISO 7816-4 commands the Type 4 adapter sends for the NDEF
+    /// Tag Application, or `None` for a native DESFire command.
+    fn handle_iso(&mut self, apdu: &[u8]) -> Option<ApduResponse> {
+        match apdu[1] {
+            0xA4 => Some(self.iso_select(apdu)),
+            0xB0 => Some(self.iso_read_binary(apdu)),
+            0xD6 => Some(self.iso_update_binary(apdu)),
+            _ => None,
+        }
+    }
+
+    fn iso_select(&mut self, apdu: &[u8]) -> ApduResponse {
+        match (apdu[2], apdu[3]) {
+            (0x04, 0x00) => {
+                let Some(&lc) = apdu.get(4) else {
+                    return ApduResponse::new(Vec::new(), STATUS_PARAMETER_ERROR);
+                };
+                let length = usize::from(lc);
+                if apdu.len() < 5 + length {
+                    return ApduResponse::new(Vec::new(), STATUS_LENGTH_ERROR);
+                }
+                if &apdu[5..5 + length] != NDEF_DF_NAME.as_slice()
+                    || !self.applications.contains_key(&NDEF_APPLICATION_AID)
+                {
+                    return ApduResponse::new(Vec::new(), [0x6A, 0x82]);
+                }
+                self.selected = NDEF_APPLICATION_AID;
+                self.state = AuthState::Idle;
+                self.iso_file = None;
+                ApduResponse::new(Vec::new(), [0x90, 0x00])
+            }
+            (0x00, 0x0C) => {
+                if apdu.len() < 7 || apdu[4] != 0x02 {
+                    return ApduResponse::new(Vec::new(), STATUS_LENGTH_ERROR);
+                }
+                let file_id = u16::from_be_bytes([apdu[5], apdu[6]]);
+                let found = self.selected_files().is_some_and(|files| {
+                    files.values().any(|file| file.iso_file_id == Some(file_id))
+                });
+                if !found {
+                    return ApduResponse::new(Vec::new(), [0x6A, 0x82]);
+                }
+                self.iso_file = Some(file_id);
+                ApduResponse::new(Vec::new(), [0x90, 0x00])
+            }
+            _ => ApduResponse::new(Vec::new(), STATUS_PARAMETER_ERROR),
+        }
+    }
+
+    fn iso_read_binary(&mut self, apdu: &[u8]) -> ApduResponse {
+        let Some(offset) =
+            (apdu.len() >= 5).then(|| usize::from(u16::from_be_bytes([apdu[2], apdu[3]])))
+        else {
+            return ApduResponse::new(Vec::new(), [0x67, 0x00]);
+        };
+        let length = match apdu[4] {
+            0x00 => 256,
+            value => usize::from(value),
+        };
+        let Some(file_id) = self.iso_file_id() else {
+            return ApduResponse::new(Vec::new(), [0x6A, 0x82]);
+        };
+        let Some(file) = self.selected_files().and_then(|files| files.get(&file_id)) else {
+            return ApduResponse::new(Vec::new(), [0x6A, 0x82]);
+        };
+        let end = offset.saturating_add(length);
+        if end > file.data.len() {
+            return ApduResponse::new(Vec::new(), [0x6B, 0x00]);
+        }
+        ApduResponse::new(file.data[offset..end].to_vec(), [0x90, 0x00])
+    }
+
+    fn iso_update_binary(&mut self, apdu: &[u8]) -> ApduResponse {
+        if apdu.len() < 5 {
+            return ApduResponse::new(Vec::new(), [0x67, 0x00]);
+        }
+        let offset = usize::from(u16::from_be_bytes([apdu[2], apdu[3]]));
+        let length = usize::from(apdu[4]);
+        if apdu.len() != 5 + length {
+            return ApduResponse::new(Vec::new(), [0x67, 0x00]);
+        }
+        let Some(file_id) = self.iso_file_id() else {
+            return ApduResponse::new(Vec::new(), [0x6A, 0x82]);
+        };
+        let selected = self.selected;
+        let Some(file) = self
+            .applications
+            .get_mut(&selected)
+            .and_then(|app| app.files.get_mut(&file_id))
+        else {
+            return ApduResponse::new(Vec::new(), [0x6A, 0x82]);
+        };
+        let end = offset.saturating_add(length);
+        if end > file.data.len() {
+            return ApduResponse::new(Vec::new(), [0x6B, 0x00]);
+        }
+        file.data[offset..end].copy_from_slice(&apdu[5..5 + length]);
+        ApduResponse::new(Vec::new(), [0x90, 0x00])
+    }
+
+    fn iso_file_id(&self) -> Option<u8> {
+        let iso_file = self.iso_file?;
+        self.selected_files()?
+            .iter()
+            .find(|(_, file)| file.iso_file_id == Some(iso_file))
+            .map(|(file_id, _)| *file_id)
+    }
+
+    fn format_picc(&mut self) -> ApduResponse {
+        if !self.authenticated() {
+            return ApduResponse::new(Vec::new(), STATUS_PERMISSION_DENIED);
+        }
+        let response = self.secure_reply(INS_FORMAT_PICC, &[], Vec::new());
+        self.applications.clear();
+        self.selected = PICC;
+        self.iso_file = None;
+        self.state = AuthState::Idle;
+        self.free_memory = self.total_memory;
+        self.keys.clear();
+        self.keys.insert(
+            0,
+            MockKey {
+                value: vec![0; self.key_type.key_length()],
+                version: 0,
+            },
+        );
+        self.key_settings = 0x0F;
+        self.max_keys = 1;
+        response
     }
 
     fn select_application(&mut self, body: &[u8]) -> ApduResponse {
@@ -592,11 +755,9 @@ impl MockDesfire {
         if file_id > 0x1F || rest.len() < 3 {
             return Err(STATUS_ILLEGAL_COMMAND);
         }
-        let (settings, required, value) = match ins {
+        let (settings, required, value, iso_file_id) = match ins {
             INS_CREATE_STD_DATA_FILE | INS_CREATE_BACKUP_DATA_FILE => {
-                if rest.len() != 6 {
-                    return Err(STATUS_ILLEGAL_COMMAND);
-                }
+                let (iso_file_id, rest) = split_iso_prefix(rest, 6, 8)?;
                 let size = u24(&rest[3..6]);
                 let mut settings = vec![if ins == INS_CREATE_BACKUP_DATA_FILE {
                     0x01
@@ -604,12 +765,10 @@ impl MockDesfire {
                     0x00
                 }];
                 settings.extend_from_slice(rest);
-                (settings, size, 0)
+                (settings, size, 0, iso_file_id)
             }
             INS_CREATE_VALUE_FILE => {
-                if rest.len() != 16 {
-                    return Err(STATUS_ILLEGAL_COMMAND);
-                }
+                let (iso_file_id, rest) = split_iso_prefix(rest, 16, 18)?;
                 let initial = i32::from_le_bytes(rest[11..15].try_into().expect("value bytes"));
                 // GetFileSettings reports the LimitedCredit amount, not the
                 // current value; the card leaves it at zero after creation.
@@ -617,12 +776,10 @@ impl MockDesfire {
                 settings.extend_from_slice(&rest[..11]);
                 settings.extend_from_slice(&[0, 0, 0, 0]);
                 settings.push(rest[15]);
-                (settings, 13, initial)
+                (settings, 13, initial, iso_file_id)
             }
             INS_CREATE_LINEAR_RECORD_FILE | INS_CREATE_CYCLIC_RECORD_FILE => {
-                if rest.len() != 9 {
-                    return Err(STATUS_ILLEGAL_COMMAND);
-                }
+                let (iso_file_id, rest) = split_iso_prefix(rest, 9, 11)?;
                 let record_size = u24(&rest[3..6]);
                 let max_records = u24(&rest[6..9]);
                 let mut settings = vec![if ins == INS_CREATE_CYCLIC_RECORD_FILE {
@@ -632,7 +789,12 @@ impl MockDesfire {
                 }];
                 settings.extend_from_slice(rest);
                 settings.extend_from_slice(&[0, 0, 0]);
-                (settings, record_size.saturating_mul(max_records), 0)
+                (
+                    settings,
+                    record_size.saturating_mul(max_records),
+                    0,
+                    iso_file_id,
+                )
             }
             INS_CREATE_TRANSACTION_MAC_FILE => {
                 if rest.len() != 21 || rest[3] != 0x02 {
@@ -642,7 +804,7 @@ impl MockDesfire {
                 settings.extend_from_slice(&rest[..3]);
                 settings.push(rest[3]);
                 settings.push(rest[20]);
-                (settings, 18, 0)
+                (settings, 18, 0, None)
             }
             _ => unreachable!("the dispatch selects a create command"),
         };
@@ -667,6 +829,7 @@ impl MockDesfire {
             MockFile {
                 settings,
                 data,
+                iso_file_id,
                 value,
                 pending_value: None,
                 pending_data: None,
@@ -1508,6 +1671,28 @@ fn des_key_version(key: &[u8]) -> u8 {
 
 fn u24(bytes: &[u8]) -> u32 {
     u32::from(bytes[0]) | (u32::from(bytes[1]) << 8) | (u32::from(bytes[2]) << 16)
+}
+
+/// Split a create-file payload into its optional ISO file ID and the rest.
+///
+/// A payload with an ISO file ID carries the two ID bytes in front of the
+/// communication byte; GetFileSettings responses omit them, as on hardware.
+fn split_iso_prefix(
+    rest: &[u8],
+    plain_length: usize,
+    iso_length: usize,
+) -> std::result::Result<(Option<u16>, &[u8]), [u8; 2]> {
+    match rest.len() {
+        length if length == plain_length => Ok((None, rest)),
+        length if length == iso_length => {
+            let iso_file_id = u16::from_le_bytes([rest[0], rest[1]]);
+            if iso_file_id == 0 {
+                return Err(STATUS_PARAMETER_ERROR);
+            }
+            Ok((Some(iso_file_id), &rest[2..]))
+        }
+        _ => Err(STATUS_ILLEGAL_COMMAND),
+    }
 }
 
 fn command_body(apdu: &[u8]) -> &[u8] {
