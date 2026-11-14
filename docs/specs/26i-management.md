@@ -89,6 +89,9 @@ Before a delete:
   typed `DELETE` confirmation for application and file deletion.
 - Deletion output names the manifest path and states that no byte-for-byte
   restore exists. Keys and the Transaction MAC key are never printed.
+- Phase 26.13 later requires Advanced mode and a typed `CHANGE` confirmation
+  for `file-settings`; the current CLI adds `--advanced`/`--dry-run` and the
+  GUI shows the current and requested settings before the command.
 
 ## Verification
 

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use nfc_app::Service;
 use nfc_app::desfire::{AuthKeyType, CommunicationMode, DesfireWriteRequest, write_text};
-use nfc_core::{CancelToken, NfcError};
+use nfc_core::{CancelToken, CardInfo, CardType, NfcError};
 use nfc_desfire::mock::{MockDesfire, MockDesfireTransport};
 
 const AID: [u8; 3] = [0xF0, 0x0D, 0x01];
@@ -153,6 +153,65 @@ fn write_only_file_is_refused_because_it_cannot_be_verified() {
 }
 
 #[test]
+fn write_exports_a_private_json_backup_before_writing() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let (mut service, _transport) = service(free_file(STANDARD_FREE));
+    let directory = tempfile::tempdir().expect("backup directory");
+    let backup_path = directory.path().join("desfire-write.json");
+    let result = service
+        .desfire_write(
+            CancelToken::new(),
+            DesfireWriteRequest::new(AID, FILE, vec![0x11; 8])
+                .offset(4)
+                .backup_path(&backup_path),
+        )
+        .expect("write with a backup");
+    let path = result.backup_path.clone().expect("backup path");
+    assert!(path.starts_with(directory.path()), "{}", path.display());
+    let bytes = std::fs::read(&path).expect("backup file");
+    let value: serde_json::Value = serde_json::from_slice(&bytes).expect("backup JSON");
+    assert_eq!(value["schema"], "nfc-foundry/desfire-file-backup/1");
+    assert_eq!(value["application"], "F00D01");
+    assert_eq!(value["file_id"], "01");
+    assert_eq!(value["file_type"], "standard data");
+    assert_eq!(
+        value["data"].as_str().expect("hex data"),
+        "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+    );
+    assert_eq!(
+        std::fs::metadata(&path)
+            .expect("metadata")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+    assert!(
+        write_text(&result).contains(&format!("backup path: {}", path.display())),
+        "{}",
+        write_text(&result)
+    );
+}
+
+#[test]
+fn an_unwritable_backup_path_aborts_before_the_write() {
+    let (mut service, transport) = service(free_file(STANDARD_FREE));
+    let directory = tempfile::tempdir().expect("temp dir");
+    let blocked = directory.path().join("not-a-directory");
+    std::fs::write(&blocked, b"file").expect("write blocker");
+    let error = service
+        .desfire_write(
+            CancelToken::new(),
+            DesfireWriteRequest::new(AID, FILE, vec![0x11; 8])
+                .backup_path(blocked.join("backup.json")),
+        )
+        .expect_err("the backup path cannot be created");
+    assert!(matches!(error, NfcError::Io(_)), "{error}");
+    assert_eq!(command_count(&transport, 0x3D), 0, "no WriteData");
+}
+
+#[test]
 fn backup_file_commits_then_reads_back() {
     let (mut service, transport) = service(free_file(BACKUP_FREE));
     let payload = [0x5Au8; 6];
@@ -203,4 +262,50 @@ fn read_back_mismatch_after_commit_is_reported() {
         0,
         "a committed write cannot abort"
     );
+}
+
+#[test]
+fn a_cancelled_token_stops_before_any_card_command() {
+    let (mut service, transport) = service(free_file(STANDARD_FREE));
+    let cancel = CancelToken::new();
+    cancel.cancel();
+    let error = service
+        .desfire_write(cancel, DesfireWriteRequest::new(AID, FILE, vec![0x11; 4]))
+        .expect_err("the operation is cancelled");
+    assert!(matches!(error, NfcError::Cancelled), "{error}");
+    assert!(transport.commands().is_empty(), "no card command");
+}
+
+#[test]
+fn a_card_change_is_reported_instead_of_write_success() {
+    let (mut service, transport) = service(free_file(STANDARD_FREE));
+    transport.change_card_after(
+        2,
+        CardInfo::new(
+            vec![0x04, 0x99, 0x88, 0x77, 0x66, 0x55, 0x44],
+            [0x00, 0x44],
+            0x20,
+            CardType::Iso14443,
+        ),
+    );
+    let error = service
+        .desfire_write(
+            CancelToken::new(),
+            DesfireWriteRequest::new(AID, FILE, vec![0x11; 4]),
+        )
+        .expect_err("the card identity changed");
+    assert!(matches!(error, NfcError::CardChanged), "{error}");
+}
+
+#[test]
+fn a_reader_loss_is_reported_as_an_io_error() {
+    let (mut service, transport) = service(free_file(STANDARD_FREE));
+    transport.fail_after_apdus(3);
+    let error = service
+        .desfire_write(
+            CancelToken::new(),
+            DesfireWriteRequest::new(AID, FILE, vec![0x11; 4]),
+        )
+        .expect_err("the reader stops answering");
+    assert!(matches!(error, NfcError::Io(_)), "{error}");
 }

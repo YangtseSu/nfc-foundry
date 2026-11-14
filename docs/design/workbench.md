@@ -24,8 +24,11 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
   `Type 2` shows `Pages`, `Protection`, `NDEF`, and `Dumps`; `DESFire` shows
   `Inventory`, `Read`, `Verify`, `NDEF`, `Manage`, `Values & records`, and
   `Keys`. Reads, key verification, and the authenticated UID read are
-  ungated; NDEF formatting, replacement, deletion, and the Manage `Format PICC
-  (erase all)` action stay Advanced. `Keys` owns
+  ungated; NDEF formatting, replacement, deletion, file settings, application
+  and file deletion, key changes, and the Manage `Format PICC (erase all)`
+  action stay Advanced. Destructive dialogs list the current state, key
+  source, and the planned manifest path; data writes show their JSON backup
+  path. `Keys` owns
   `Key store` / `Key scan`; Classic `Dumps` owns Save/Load plus `Diff` /
   `Restore`; Type 2 `Dumps` owns Save/Load plus Restore. The NDEF view is
   shared and moved into the active workspace; it renders Classic MAD/NDEF for

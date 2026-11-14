@@ -6,9 +6,9 @@ use nfc_app::Service;
 use nfc_app::desfire::{
     AccessRight, AccessRights, ApplicationKeyType, AuthKeyType, CommunicationMode,
     DesfireAppCreateRequest, DesfireAppDeleteRequest, DesfireFileCreateRequest,
-    DesfireFileDeleteRequest, DesfireFileSettingsRequest, DesfireFileSpec,
-    DesfireFreeMemoryRequest, FileContents, FileType, app_create_text, app_delete_text,
-    file_create_text, file_delete_text, file_settings_text, free_memory_text,
+    DesfireFileDeleteRequest, DesfireFileInspectionRequest, DesfireFileSettingsRequest,
+    DesfireFileSpec, DesfireFreeMemoryRequest, FileContents, FileType, app_create_text,
+    app_delete_text, file_create_text, file_delete_text, file_settings_text, free_memory_text,
 };
 use nfc_core::{CancelToken, NfcError};
 use nfc_desfire::mock::{MockDesfire, MockDesfireTransport};
@@ -227,7 +227,9 @@ fn change_settings_applies_and_reads_back() {
                 .communication(CommunicationMode::Enciphered)
                 .access_rights(rights.raw)
                 .key(AES_KEY.to_vec())
-                .key_type(AuthKeyType::Aes),
+                .key_type(AuthKeyType::Aes)
+                .advanced(true)
+                .confirm(true),
         )
         .expect("change settings");
     assert!(result.changed);
@@ -237,6 +239,51 @@ fn change_settings_applies_and_reads_back() {
     assert_eq!(command_count(&transport, 0x5F), 1);
     let text = file_settings_text(&result);
     assert!(text.contains("change: applied"), "{text}");
+}
+
+#[test]
+fn change_settings_needs_advanced_and_confirmation() {
+    let (mut service, transport) = service(MockDesfire::new(KEY, AuthKeyType::Des).with_file_in(
+        AID,
+        0x01,
+        vec![0x00, 0x00, 0xEE, 0xEE, 0x20, 0x00, 0x00],
+        vec![0u8; 32],
+    ));
+    let error = service
+        .desfire_change_file_settings(
+            DesfireFileSettingsRequest::new(AID, 0x01).communication(CommunicationMode::Enciphered),
+        )
+        .expect_err("Advanced mode is required");
+    assert!(error.to_string().contains("Advanced mode"), "{error}");
+    assert!(transport.commands().is_empty(), "no card command");
+
+    let error = service
+        .desfire_change_file_settings(
+            DesfireFileSettingsRequest::new(AID, 0x01)
+                .communication(CommunicationMode::Enciphered)
+                .advanced(true),
+        )
+        .expect_err("confirmation is required");
+    assert!(error.to_string().contains("confirmation"), "{error}");
+    assert!(transport.commands().is_empty(), "no card command");
+}
+
+#[test]
+fn inspect_file_reads_settings_without_changing_them() {
+    let (mut service, transport) = service(MockDesfire::new(KEY, AuthKeyType::Des).with_file_in(
+        AID,
+        0x01,
+        vec![0x00, 0x00, 0xEE, 0xEE, 0x20, 0x00, 0x00],
+        vec![0u8; 32],
+    ));
+    let inspection = service
+        .desfire_inspect_file(DesfireFileInspectionRequest::new(AID, 0x01))
+        .expect("inspect settings");
+    assert_eq!(inspection.file_id, 0x01);
+    assert_eq!(inspection.settings.file_type, FileType::Standard);
+    assert_eq!(inspection.raw_settings.len(), 7);
+    assert_eq!(inspection.settings.access.raw, 0xEEEE);
+    assert_eq!(command_count(&transport, 0x5F), 0, "no settings command");
 }
 
 #[test]
@@ -254,7 +301,9 @@ fn change_settings_rejects_a_non_data_communication_change() {
         .desfire_change_file_settings(
             DesfireFileSettingsRequest::new(AID, 0x02)
                 .communication(CommunicationMode::Maced)
-                .key(KEY.to_vec()),
+                .key(KEY.to_vec())
+                .advanced(true)
+                .confirm(true),
         )
         .expect_err("value files keep their mode");
     assert!(

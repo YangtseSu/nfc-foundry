@@ -1705,8 +1705,11 @@ fn command_body(apdu: &[u8]) -> &[u8] {
 /// Transport that serves one [`MockDesfire`] card.
 pub struct MockDesfireTransport {
     info: DeviceInfo,
-    card: CardInfo,
+    card: Arc<Mutex<CardInfo>>,
     tag: Arc<Mutex<MockDesfire>>,
+    swap: Arc<Mutex<Option<(usize, CardInfo)>>>,
+    fail_after: Arc<Mutex<Option<usize>>>,
+    apdus: Arc<Mutex<usize>>,
 }
 
 impl MockDesfireTransport {
@@ -1718,8 +1721,11 @@ impl MockDesfireTransport {
         let card = CardInfo::new(tag.uid.to_vec(), [0x00, 0x44], 0x20, CardType::Iso14443);
         Self {
             info: DeviceInfo::new("Mock DESFire", "mock:desfire"),
-            card,
+            card: Arc::new(Mutex::new(card)),
             tag: Arc::new(Mutex::new(tag)),
+            swap: Arc::new(Mutex::new(None)),
+            fail_after: Arc::new(Mutex::new(None)),
+            apdus: Arc::new(Mutex::new(0)),
         }
     }
 
@@ -1730,6 +1736,27 @@ impl MockDesfireTransport {
     /// Shared card handle for tests that move the transport into a service.
     pub fn card(&self) -> Arc<Mutex<MockDesfire>> {
         self.tag.clone()
+    }
+
+    /// Present a different card on the next `card_info` call.
+    pub fn set_card(&self, card: CardInfo) {
+        *self.card.lock().unwrap_or_else(PoisonError::into_inner) = card;
+    }
+
+    /// Present a different card after the given number of APDUs.
+    ///
+    /// The card's native state stays in the tag, so the next identity check
+    /// reports a card change while the commands themselves keep answering.
+    pub fn change_card_after(&self, apdus: usize, card: CardInfo) {
+        *self.swap.lock().unwrap_or_else(PoisonError::into_inner) = Some((apdus, card));
+    }
+
+    /// Fail the exchange with an I/O error after the given number of APDUs.
+    pub fn fail_after_apdus(&self, apdus: usize) {
+        *self
+            .fail_after
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(apdus);
     }
 
     pub fn commands(&self) -> Vec<Vec<u8>> {
@@ -1758,6 +1785,9 @@ impl Transport for MockDesfireTransport {
             info: self.info.clone(),
             card: self.card.clone(),
             tag: self.tag.clone(),
+            swap: self.swap.clone(),
+            fail_after: self.fail_after.clone(),
+            apdus: self.apdus.clone(),
             open: false,
         }))
     }
@@ -1765,8 +1795,11 @@ impl Transport for MockDesfireTransport {
 
 struct MockDesfireReader {
     info: DeviceInfo,
-    card: CardInfo,
+    card: Arc<Mutex<CardInfo>>,
     tag: Arc<Mutex<MockDesfire>>,
+    swap: Arc<Mutex<Option<(usize, CardInfo)>>>,
+    fail_after: Arc<Mutex<Option<usize>>>,
+    apdus: Arc<Mutex<usize>>,
     open: bool,
 }
 
@@ -1798,7 +1831,11 @@ impl Reader for MockDesfireReader {
         if !self.open {
             return Err(NfcError::NoReader);
         }
-        Ok(self.card.clone())
+        Ok(self
+            .card
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone())
     }
 
     fn authenticate(&mut self, _block: u8, _key_type: KeyType, _key: Key) -> Result<()> {
@@ -1843,6 +1880,32 @@ impl Reader for MockDesfireReader {
     }
 
     fn transceive_apdu(&mut self, apdu: &[u8]) -> Result<ApduResponse> {
+        let count = {
+            let mut count = self.apdus.lock().unwrap_or_else(PoisonError::into_inner);
+            *count += 1;
+            *count
+        };
+        let fail_after = *self
+            .fail_after
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if fail_after.is_some_and(|limit| count >= limit) {
+            return Err(NfcError::Io("mock reader lost".to_owned()));
+        }
+        let replacement = {
+            let mut swap = self.swap.lock().unwrap_or_else(PoisonError::into_inner);
+            match swap.as_ref() {
+                Some((after, card)) if count >= *after => {
+                    let card = card.clone();
+                    *swap = None;
+                    Some(card)
+                }
+                _ => None,
+            }
+        };
+        if let Some(card) = replacement {
+            *self.card.lock().unwrap_or_else(PoisonError::into_inner) = card;
+        }
         Ok(self
             .tag
             .lock()

@@ -937,16 +937,47 @@ keys! {
         "Deleting the DESFire application…",
         "正在删除 DESFire 应用…"
     ),
+    DesfireCheckingAppPlan => (
+        "Checking the DESFire application…",
+        "正在检查 DESFire 应用…"
+    ),
     DesfireApplicationDeleted => ("DESFire application deleted", "DESFire 应用已删除"),
     DesfireCreatingFile => ("Creating the DESFire file…", "正在创建 DESFire 文件…"),
     DesfireFileCreated => ("DESFire file created", "DESFire 文件已创建"),
     DesfireDeletingFile => ("Deleting the DESFire file…", "正在删除 DESFire 文件…"),
+    DesfireCheckingFile => ("Checking the DESFire file…", "正在检查 DESFire 文件…"),
     DesfireFileDeleted => ("DESFire file deleted", "DESFire 文件已删除"),
     DesfireChangingFileSettings => (
         "Changing the DESFire file settings…",
         "正在更改 DESFire 文件设置…"
     ),
+    DesfireCheckingFileSettings => (
+        "Checking the DESFire file settings…",
+        "正在检查 DESFire 文件设置…"
+    ),
+    DesfireFileSettingsHeading => (
+        "Change the DESFire file settings?",
+        "更改 DESFire 文件设置？"
+    ),
+    DesfireAdvancedFileSettings => (
+        "Enable Advanced mode before changing file settings",
+        "更改文件设置前请启用高级模式"
+    ),
     DesfireFileSettingsChanged => ("DESFire file settings changed", "DESFire 文件设置已更改"),
+    DesfireReadingKeySettings => (
+        "Reading DESFire key settings…",
+        "正在读取 DESFire 密钥设置…"
+    ),
+    DesfireCheckingKeySettings => (
+        "Checking DESFire key settings…",
+        "正在检查 DESFire 密钥设置…"
+    ),
+    DesfireKeySettingsRead => ("Key settings read", "密钥设置已读取"),
+    DesfireChangingKeySettings => (
+        "Changing DESFire KeySettings…",
+        "正在更改 DESFire 密钥设置…"
+    ),
+    DesfireKeySettingsChanged => ("KeySettings changed", "密钥设置已更改"),
     DesfireReadingFreeMemory => (
         "Reading the DESFire free memory…",
         "正在读取 DESFire 可用空间…"

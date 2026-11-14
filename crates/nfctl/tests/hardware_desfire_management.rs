@@ -211,7 +211,9 @@ fn change_standard_settings(service: &mut Service) -> Result<()> {
             .communication(CommunicationMode::Enciphered)
             .access_rights(rights.raw)
             .key(APP_KEY.to_vec())
-            .key_type(AuthKeyType::Aes),
+            .key_type(AuthKeyType::Aes)
+            .advanced(true)
+            .confirm(true),
     )?;
     verify(
         result.changed,

@@ -24,15 +24,16 @@ use nfc_app::classic::{
 use nfc_app::desfire::{
     ApplicationKeyType, AuthKeyType, CommunicationMode, DesfireAppCreateRequest,
     DesfireAppDeleteRequest, DesfireFileCreateRequest, DesfireFileDeleteRequest,
-    DesfireFileSettingsRequest, DesfireFileSpec, DesfireFormatPiccRequest,
-    DesfireFreeMemoryRequest, DesfireKeyChangeRequest, DesfireKeySettingsRequest,
-    DesfireNdefDeleteRequest, DesfireNdefFormatRequest, DesfireNdefReplaceRequest,
-    DesfireReadRequest, DesfireReadResult, DesfireRecordOperation, DesfireRecordRequest,
-    DesfireUidRequest, DesfireValueOperation, DesfireValueRequest, DesfireVerifyKeyRequest,
-    DesfireWriteRequest, NDEF_APPLICATION_AID, NDEF_CC_FILE, NDEF_CC_SIZE, NDEF_DATA_FILE,
-    NDEF_DATA_SIZE, app_create_text, app_delete_text, card_uid_text, file_create_text,
-    file_delete_text, file_settings_text, free_memory_text, key_change_text, key_settings_text,
-    key_verification_text, read_protection_text, record_text, value_text, write_text,
+    DesfireFileInspectionRequest, DesfireFileSettingsRequest, DesfireFileSpec,
+    DesfireFormatPiccRequest, DesfireFreeMemoryRequest, DesfireKeyChangeRequest,
+    DesfireKeySettingsRequest, DesfireNdefDeleteRequest, DesfireNdefFormatRequest,
+    DesfireNdefReplaceRequest, DesfireReadRequest, DesfireReadResult, DesfireRecordOperation,
+    DesfireRecordRequest, DesfireUidRequest, DesfireValueOperation, DesfireValueRequest,
+    DesfireVerifyKeyRequest, DesfireWriteRequest, FileSettings, NDEF_APPLICATION_AID, NDEF_CC_FILE,
+    NDEF_CC_SIZE, NDEF_DATA_FILE, NDEF_DATA_SIZE, app_create_text, app_delete_text, card_uid_text,
+    file_create_text, file_delete_text, file_settings_plan_text, file_settings_text,
+    free_memory_text, key_change_text, key_settings_text, key_verification_text,
+    read_protection_text, record_text, value_text, write_text,
 };
 use nfc_app::type2::{
     Type2Auth, Type2Format, Type2Lock, Type2LockResult, Type2MutationResult, Type2NdefWrite,
@@ -7093,9 +7094,20 @@ fn start_desfire_write(ui: Rc<Ui>) {
             return;
         }
     };
+    let target = format!(
+        "aid {} file {:02X}",
+        type2_ui::hex_bytes(&input.aid),
+        input.file
+    );
+    let backup_path = ui.backup.borrow().plan_path(&format!(
+        "desfire-{}-{:02X}",
+        type2_ui::hex_bytes(&input.aid),
+        input.file
+    ));
     let mut request = DesfireWriteRequest::new(input.aid, input.file, input.data)
         .offset(input.offset)
-        .key_number(input.key_number);
+        .key_number(input.key_number)
+        .backup_path(backup_path);
     if let Some(key) = input.key {
         request = request.key(key);
     }
@@ -7111,7 +7123,12 @@ fn start_desfire_write(ui: Rc<Ui>) {
             Ok(mut service) => service
                 .desfire_write(CancelToken::new(), request)
                 .map(|write| {
-                    let detail = format!("{} bytes", write.written);
+                    let detail = match &write.backup_path {
+                        Some(path) => {
+                            format!("{} bytes · backup {}", write.written, path.display())
+                        }
+                        None => format!("{} bytes", write.written),
+                    };
                     (write_text(&write), detail)
                 }),
             Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
@@ -7120,15 +7137,17 @@ fn start_desfire_write(ui: Rc<Ui>) {
     });
     glib::spawn_future_local(async move {
         match receiver.recv().await {
-            Ok(result) => finish_desfire_write(&ui, result),
-            Err(_) => {
-                finish_desfire_write(&ui, Err(NfcError::Io("reader worker stopped".to_owned())))
-            }
+            Ok(result) => finish_desfire_write(&ui, target, result),
+            Err(_) => finish_desfire_write(
+                &ui,
+                target,
+                Err(NfcError::Io("reader worker stopped".to_owned())),
+            ),
         }
     });
 }
 
-fn finish_desfire_write(ui: &Rc<Ui>, result: NfcResult<(String, String)>) {
+fn finish_desfire_write(ui: &Rc<Ui>, target: String, result: NfcResult<(String, String)>) {
     set_busy(ui, false);
     match result {
         Ok((text, detail)) => {
@@ -7136,12 +7155,15 @@ fn finish_desfire_write(ui: &Rc<Ui>, result: NfcResult<(String, String)>) {
             ui.desfire_view.write_status.set_localized("Write verified");
             ui.status
                 .set_localized(&format!("DESFire write verified · {detail}"));
-            append_log(ui, &format!("desfire · write · {detail}"));
+            append_log(
+                ui,
+                &format!("desfire write · verified · {target} · {detail}"),
+            );
         }
         Err(error) => {
             ui.desfire_view.write_status.set_localized("Write failed");
             ui.status.set_localized("DESFire write failed");
-            toast_error(ui, &format!("DESFire write: {error}"));
+            toast_error(ui, &format!("DESFire write {target}: {error}"));
         }
     }
 }
@@ -7592,7 +7614,8 @@ fn start_desfire_ndef_format(ui: Rc<Ui>) {
         let body = format!(
             "{}\n\nCreate the NDEF Tag Application D27600 with DF name D2760000850101:\n\
              CC: DESFire file {:02X} / ISO E103, {} bytes, read free and write key 0\n\
-             NDEF: DESFire file {:02X} / ISO E104, {} bytes, read and write free\n\n\
+             NDEF: DESFire file {:02X} / ISO E104, {} bytes, read and write free\n\
+             PICC key: key {key_number} (session only)\n\n\
              No full-card backup exists. Delete the application with the same PICC key to undo.\n\n\
              Type FORMAT to confirm",
             inventory.version.name(),
@@ -7663,7 +7686,17 @@ fn execute_desfire_ndef_format(
                 ));
                 ui.status
                     .set_localized("DESFire NDEF application formatted");
-                append_log(&ui, "desfire · ndef format");
+                journal_desfire(
+                    &ui,
+                    "ndef format",
+                    "application D27600",
+                    "succeeded",
+                    Some(&format!(
+                        "CC {} · {}",
+                        type2_ui::hex_bytes(result.cc.raw()),
+                        nfc_app::type4::ndef_label(&result.ndef.state)
+                    )),
+                );
                 start_desfire_inventory(ui);
             }
             Ok(Err(error)) => {
@@ -7671,7 +7704,14 @@ fn execute_desfire_ndef_format(
                     .ndef_status
                     .set_localized("NDEF formatting failed");
                 ui.status.set_localized("DESFire NDEF formatting failed");
-                toast_error(&ui, &format!("DESFire NDEF format: {error}"));
+                journal_desfire(
+                    &ui,
+                    "ndef format",
+                    "application D27600",
+                    "failed",
+                    Some(&error.to_string()),
+                );
+                toast_error_unlogged(&ui, &format!("DESFire NDEF format: {error}"));
             }
             Err(_) => {
                 ui.desfire_view
@@ -7747,6 +7787,7 @@ fn start_desfire_ndef_delete(ui: Rc<Ui>) {
         }
         let body = format!(
             "{}\n\nDelete the NDEF Tag Application D27600 and its CC/NDEF files.\n\
+             PICC key: key {key_number} (session only)\n\
              Only the exact AN11004 layout is deleted. No byte-for-byte restore exists.\n\n\
              Type DELETE to confirm",
             inventory.version.name()
@@ -7805,12 +7846,21 @@ fn execute_desfire_ndef_delete(
     glib::spawn_future_local(async move {
         set_busy(&ui, false);
         match receiver.recv().await {
-            Ok(Ok(_)) => {
+            Ok(Ok(result)) => {
                 ui.desfire_view
                     .ndef_status
                     .set_localized("NDEF application deleted");
                 ui.status.set_localized("DESFire NDEF application deleted");
-                append_log(&ui, "desfire · ndef delete");
+                journal_desfire(
+                    &ui,
+                    "ndef delete",
+                    "application D27600",
+                    "succeeded",
+                    Some(&format!(
+                        "{} application(s) remain",
+                        result.applications.len()
+                    )),
+                );
                 start_desfire_inventory(ui);
             }
             Ok(Err(error)) => {
@@ -7818,7 +7868,14 @@ fn execute_desfire_ndef_delete(
                     .ndef_status
                     .set_localized("NDEF delete failed");
                 ui.status.set_localized("DESFire NDEF delete failed");
-                toast_error(&ui, &format!("DESFire NDEF delete: {error}"));
+                journal_desfire(
+                    &ui,
+                    "ndef delete",
+                    "application D27600",
+                    "failed",
+                    Some(&error.to_string()),
+                );
+                toast_error_unlogged(&ui, &format!("DESFire NDEF delete: {error}"));
             }
             Err(_) => {
                 ui.desfire_view
@@ -7898,7 +7955,8 @@ fn start_desfire_ndef_replace(ui: Rc<Ui>) {
             }
         };
         let body = format!(
-            "Current NDEF file: {} · CC {}\n\n\
+            "Current NDEF file: {} · CC {}\n\
+             PICC key: key {key_number} (session only)\n\n\
              Read the current NDEF message, delete only the validated AN11004 application \
              D27600, and create it again with the same CC and an empty NDEF file.\n\
              No full-card backup exists; a failure after deletion leaves no NDEF application.\n\n\
@@ -7968,7 +8026,18 @@ fn execute_desfire_ndef_replace(
                     nfc_app::type4::ndef_label(&result.ndef.state)
                 ));
                 ui.status.set_localized("DESFire NDEF application replaced");
-                append_log(&ui, "desfire · ndef replace");
+                journal_desfire(
+                    &ui,
+                    "ndef replace",
+                    "application D27600",
+                    "succeeded",
+                    Some(&format!(
+                        "previous {} · CC {} · {}",
+                        nfc_app::type4::ndef_label(&result.previous.state),
+                        type2_ui::hex_bytes(result.cc.raw()),
+                        nfc_app::type4::ndef_label(&result.ndef.state)
+                    )),
+                );
                 start_desfire_inventory(ui);
             }
             Ok(Err(error)) => {
@@ -7976,7 +8045,14 @@ fn execute_desfire_ndef_replace(
                     .ndef_status
                     .set_localized("NDEF replace failed");
                 ui.status.set_localized("DESFire NDEF replace failed");
-                toast_error(&ui, &format!("DESFire NDEF replace: {error}"));
+                journal_desfire(
+                    &ui,
+                    "ndef replace",
+                    "application D27600",
+                    "failed",
+                    Some(&error.to_string()),
+                );
+                toast_error_unlogged(&ui, &format!("DESFire NDEF replace: {error}"));
             }
             Err(_) => {
                 ui.desfire_view
@@ -8054,6 +8130,7 @@ fn start_desfire_format_picc(ui: Rc<Ui>) {
         }
         let body = format!(
             "{}\n\nFormatPICC erases every application and file.\n\n{}\n\
+             PICC key: key {key_number} (session only)\n\
              The PICC master key returns to the factory state. This is a full reset and is \
              never part of NDEF provisioning.\n\nType ERASE to confirm",
             inventory.version.name(),
@@ -8119,7 +8196,17 @@ fn execute_desfire_format_picc(
                     result.free_memory
                 ));
                 ui.status.set_localized("DESFire PICC formatted");
-                append_log(&ui, "desfire · format picc");
+                journal_desfire(
+                    &ui,
+                    "format picc",
+                    "all applications",
+                    "succeeded",
+                    Some(&format!(
+                        "{} application(s) erased · {} bytes free",
+                        result.applications_before.len(),
+                        result.free_memory
+                    )),
+                );
                 ui.desfire_view.manage_key.set_text("");
                 start_desfire_inventory(ui);
             }
@@ -8128,7 +8215,14 @@ fn execute_desfire_format_picc(
                     .manage_status
                     .set_localized("FormatPICC failed");
                 ui.status.set_localized("DESFire FormatPICC failed");
-                toast_error(&ui, &format!("DESFire FormatPICC: {error}"));
+                journal_desfire(
+                    &ui,
+                    "format picc",
+                    "all applications",
+                    "failed",
+                    Some(&error.to_string()),
+                );
+                toast_error_unlogged(&ui, &format!("DESFire FormatPICC: {error}"));
             }
             Err(_) => {
                 ui.desfire_view
@@ -8297,6 +8391,8 @@ fn desfire_manage_file_spec(view: &DesfireView) -> std::result::Result<DesfireFi
 
 fn run_desfire_manage<F>(
     ui: Rc<Ui>,
+    operation: &'static str,
+    target: String,
     busy_status: &'static str,
     success_status: &'static str,
     refresh: bool,
@@ -8323,7 +8419,7 @@ fn run_desfire_manage<F>(
                 ui.desfire_view.manage_output.set_text(&text);
                 ui.desfire_view.manage_status.set_localized(success_status);
                 ui.status.set_localized(success_status);
-                append_log(&ui, "desfire · manage");
+                journal_desfire(&ui, operation, &target, "succeeded", None);
                 update_desfire_actions(&ui);
                 if refresh {
                     start_desfire_inventory(ui);
@@ -8334,7 +8430,8 @@ fn run_desfire_manage<F>(
                     .manage_status
                     .set_localized("DESFire management failed");
                 ui.status.set_localized("DESFire management failed");
-                toast_error(&ui, &format!("DESFire management: {error}"));
+                journal_desfire(&ui, operation, &target, "failed", Some(&error.to_string()));
+                toast_error_unlogged(&ui, &format!("DESFire management: {error}"));
             }
             Err(_) => {
                 ui.desfire_view
@@ -8346,8 +8443,14 @@ fn run_desfire_manage<F>(
     });
 }
 
-fn run_desfire_keys<F>(ui: Rc<Ui>, busy_status: &'static str, success_status: &'static str, task: F)
-where
+fn run_desfire_keys<F>(
+    ui: Rc<Ui>,
+    operation: &'static str,
+    target: String,
+    busy_status: &'static str,
+    success_status: &'static str,
+    task: F,
+) where
     F: FnOnce(&mut Service) -> NfcResult<String> + Send + 'static,
 {
     set_busy(&ui, true);
@@ -8369,7 +8472,7 @@ where
                 ui.desfire_view.keys_output.set_text(&text);
                 ui.desfire_view.keys_status.set_localized(success_status);
                 ui.status.set_localized(success_status);
-                append_log(&ui, "desfire · keys");
+                journal_desfire(&ui, operation, &target, "succeeded", None);
                 update_desfire_actions(&ui);
             }
             Ok(Err(error)) => {
@@ -8377,7 +8480,8 @@ where
                     .keys_status
                     .set_localized("DESFire key operation failed");
                 ui.status.set_localized("DESFire key operation failed");
-                toast_error(&ui, &format!("DESFire key: {error}"));
+                journal_desfire(&ui, operation, &target, "failed", Some(&error.to_string()));
+                toast_error_unlogged(&ui, &format!("DESFire key: {error}"));
             }
             Err(_) => {
                 ui.desfire_view
@@ -8391,6 +8495,8 @@ where
 
 fn run_desfire_mutation<F>(
     ui: Rc<Ui>,
+    operation: &'static str,
+    target: String,
     busy_status: &'static str,
     success_status: &'static str,
     task: F,
@@ -8418,7 +8524,7 @@ fn run_desfire_mutation<F>(
                     .mutation_status
                     .set_localized(success_status);
                 ui.status.set_localized(success_status);
-                append_log(&ui, "desfire · value/record");
+                journal_desfire(&ui, operation, &target, "succeeded", None);
                 update_desfire_actions(&ui);
                 start_desfire_inventory(ui);
             }
@@ -8428,7 +8534,8 @@ fn run_desfire_mutation<F>(
                     .set_localized("DESFire value or record change failed");
                 ui.status
                     .set_localized("DESFire value or record change failed");
-                toast_error(&ui, &format!("DESFire value/record: {error}"));
+                journal_desfire(&ui, operation, &target, "failed", Some(&error.to_string()));
+                toast_error_unlogged(&ui, &format!("DESFire value/record: {error}"));
             }
             Err(_) => {
                 ui.desfire_view
@@ -8549,6 +8656,12 @@ fn start_desfire_mutation(ui: Rc<Ui>) {
         }
         run_desfire_mutation(
             ui,
+            "value change",
+            format!(
+                "application {} value file {:02X}",
+                type2_ui::hex_bytes(&aid),
+                file_id
+            ),
             "Changing the DESFire value…",
             "DESFire value changed",
             move |service| {
@@ -8581,6 +8694,12 @@ fn start_desfire_mutation(ui: Rc<Ui>) {
         }
         run_desfire_mutation(
             ui,
+            "record change",
+            format!(
+                "application {} record file {:02X}",
+                type2_ui::hex_bytes(&aid),
+                file_id
+            ),
             "Changing the DESFire records…",
             "DESFire records changed",
             move |service| {
@@ -8616,6 +8735,8 @@ fn start_desfire_app_create(ui: Rc<Ui>) {
     };
     run_desfire_manage(
         ui,
+        "app create",
+        format!("application {}", type2_ui::hex_bytes(&input.aid)),
         "Creating the DESFire application…",
         "DESFire application created",
         true,
@@ -8656,53 +8777,127 @@ fn start_desfire_app_delete(ui: Rc<Ui>) {
             return;
         }
     };
-    let body = format!(
-        "Delete application {} and every file it contains.\n\
-         A manifest with the file settings is written before the command.\n\
-         No byte-for-byte restore exists.\n\n\
-         Type DELETE to confirm",
-        type2_ui::hex_bytes(&input.aid)
-    );
-    let dialog = typed_confirmation_dialog(
-        "Delete the DESFire application?",
-        &body,
-        "Delete application",
-        "DELETE",
-    );
-    ui.pending_desfire_dialog.replace(Some(dialog.clone()));
-    let ui2 = ui.clone();
-    let input = RefCell::new(Some(input));
-    dialog.connect_response(None, move |_, response| {
-        ui2.pending_desfire_dialog.replace(None);
-        if response != "confirm" {
-            return;
-        }
-        let Some(input) = input.borrow_mut().take() else {
+    let manifest_path = ui
+        .backup
+        .borrow()
+        .plan_path(&format!("desfire-app-{}", type2_ui::hex_bytes(&input.aid)));
+    let aid = input.aid;
+    set_busy(&ui, true);
+    ui.status.set_localized("Checking the DESFire application…");
+    let service = ui.service.clone();
+    let (sender, receiver) = async_channel::bounded(1);
+    std::thread::spawn(move || {
+        let result = match service.lock() {
+            Ok(mut service) => service.desfire_inventory(CancelToken::new()),
+            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
+        };
+        let _ = sender.send_blocking(result);
+    });
+    glib::spawn_future_local(async move {
+        set_busy(&ui, false);
+        let inventory = match receiver.recv().await {
+            Ok(Ok(inventory)) => inventory,
+            Ok(Err(error)) => {
+                toast_error(&ui, &format!("DESFire application delete: {error}"));
+                return;
+            }
+            Err(_) => {
+                toast_error(&ui, "Reader worker stopped");
+                return;
+            }
+        };
+        let Some(application) = inventory
+            .applications
+            .iter()
+            .find(|application| application.aid == aid)
+        else {
+            toast_error(
+                &ui,
+                &format!(
+                    "application {} is not listed on the card",
+                    type2_ui::hex_bytes(&aid)
+                ),
+            );
             return;
         };
-        run_desfire_manage(
-            ui2.clone(),
-            "Deleting the DESFire application…",
-            "DESFire application deleted",
-            true,
-            move |service| {
-                let mut request = DesfireAppDeleteRequest::new(input.aid)
-                    .key_number(input.key_number)
-                    .advanced(true)
-                    .confirm(true);
-                if let Some(key) = input.key {
-                    request = request.key(key);
+        let mut files = String::new();
+        if application.files.is_empty() {
+            files.push_str("files: none visible without authentication\n");
+        } else {
+            files.push_str("files:\n");
+            for file in &application.files {
+                match FileSettings::parse(&file.settings) {
+                    Ok(settings) => {
+                        files.push_str(&format!("  {:02X}: {}\n", file.file_id, settings.summary()))
+                    }
+                    Err(error) => files.push_str(&format!(
+                        "  {:02X}: undecoded ({error}) {}\n",
+                        file.file_id,
+                        type2_ui::hex_bytes(&file.settings)
+                    )),
                 }
-                if let Some(key_type) = input.key_type {
-                    request = request.key_type(key_type);
-                }
-                service
-                    .desfire_delete_application(request)
-                    .map(|result| app_delete_text(&result))
-            },
+            }
+        }
+        let body = format!(
+            "Delete application {} from {} and every file it contains.\n\
+             PICC key: key {}\n\
+             {}\
+             Manifest: {}\n\
+             The manifest records the file settings, not file content.\n\
+             Read-back: application ID list read after deletion.\n\
+             No byte-for-byte restore exists.\n\n\
+             Type DELETE to confirm",
+            type2_ui::hex_bytes(&aid),
+            inventory.version.name(),
+            input.key_number,
+            files,
+            manifest_path.display()
         );
+        let dialog = typed_confirmation_dialog(
+            "Delete the DESFire application?",
+            &body,
+            "Delete application",
+            "DELETE",
+        );
+        ui.pending_desfire_dialog.replace(Some(dialog.clone()));
+        let ui2 = ui.clone();
+        let state = RefCell::new(Some((input, manifest_path)));
+        dialog.connect_response(None, move |_, response| {
+            ui2.pending_desfire_dialog.replace(None);
+            if response != "confirm" {
+                return;
+            }
+            let Some((input, manifest_path)) = state.borrow_mut().take() else {
+                return;
+            };
+            let target = format!("application {}", type2_ui::hex_bytes(&input.aid));
+            run_desfire_manage(
+                ui2.clone(),
+                "app delete",
+                target,
+                "Deleting the DESFire application…",
+                "DESFire application deleted",
+                true,
+                move |service| {
+                    let mut request = DesfireAppDeleteRequest::new(input.aid)
+                        .key_number(input.key_number)
+                        .advanced(true)
+                        .confirm(true)
+                        .manifest_path(manifest_path);
+                    if let Some(key) = input.key {
+                        request = request.key(key);
+                    }
+                    if let Some(key_type) = input.key_type {
+                        request = request.key_type(key_type);
+                    }
+                    service
+                        .desfire_delete_application(request)
+                        .map(|result| app_delete_text(&result))
+                },
+            );
+        });
+        present_alert(&dialog, &ui.window);
     });
-    present_alert(&dialog, &ui.window);
 }
 
 fn desfire_keys_aid(view: &DesfireView) -> std::result::Result<[u8; 3], String> {
@@ -8746,8 +8941,15 @@ fn start_desfire_key_settings(ui: Rc<Ui>, changing: bool) {
         }
     };
     if !changing {
+        let target = if aid == [0x00; 3] {
+            "PICC".to_owned()
+        } else {
+            format!("application {}", type2_ui::hex_bytes(&aid))
+        };
         run_desfire_keys(
             ui,
+            "keys read",
+            target,
             "Reading DESFire key settings…",
             "Key settings read",
             move |service| {
@@ -8773,54 +8975,104 @@ fn start_desfire_key_settings(ui: Rc<Ui>, changing: bool) {
     } else {
         format!("application {}", type2_ui::hex_bytes(&aid))
     };
-    let body = format!(
-        "Change the KeySettings byte of {label} to {new_settings:02X}.
-         This controls who may change keys and the application configuration.
-         The card reads the new byte back after the command.
-
-         Type CHANGE to confirm"
-    );
-    let dialog = typed_confirmation_dialog(
-        "Change DESFire KeySettings?",
-        &body,
-        "Change KeySettings",
-        "CHANGE",
-    );
-    ui.pending_desfire_dialog.replace(Some(dialog.clone()));
-    let ui2 = ui.clone();
-    let parsed = RefCell::new(Some((aid, key, key_type, key_number, new_settings)));
-    dialog.connect_response(None, move |_, response| {
-        ui2.pending_desfire_dialog.replace(None);
-        if response != "confirm" {
-            return;
-        }
-        let Some((aid, key, key_type, key_number, new_settings)) = parsed.borrow_mut().take()
-        else {
-            return;
-        };
-        run_desfire_keys(
-            ui2.clone(),
-            "Changing DESFire KeySettings…",
-            "KeySettings changed",
-            move |service| {
-                let mut request = DesfireKeySettingsRequest::new(aid)
-                    .key_number(key_number)
-                    .new_key_settings(new_settings)
-                    .advanced(true)
-                    .confirm(true);
-                if let Some(key) = key {
+    let read_key = key.clone();
+    set_busy(&ui, true);
+    ui.status.set_localized("Checking DESFire key settings…");
+    let service = ui.service.clone();
+    let (sender, receiver) = async_channel::bounded(1);
+    std::thread::spawn(move || {
+        let result = match service.lock() {
+            Ok(mut service) => {
+                let mut request = DesfireKeySettingsRequest::new(aid).key_number(key_number);
+                if let Some(key) = read_key {
                     request = request.key(key);
                 }
                 if let Some(key_type) = key_type {
                     request = request.key_type(key_type);
                 }
-                service
-                    .desfire_key_settings(request)
-                    .map(|result| key_settings_text(&result))
-            },
-        );
+                service.desfire_key_settings(request)
+            }
+            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
+        };
+        let _ = sender.send_blocking(result);
     });
-    present_alert(&dialog, &ui.window);
+    glib::spawn_future_local(async move {
+        set_busy(&ui, false);
+        let before = match receiver.recv().await {
+            Ok(Ok(result)) => result,
+            Ok(Err(error)) => {
+                toast_error(&ui, &format!("DESFire key settings: {error}"));
+                return;
+            }
+            Err(_) => {
+                toast_error(&ui, "Reader worker stopped");
+                return;
+            }
+        };
+        let key_line = if key.is_some() {
+            format!("Key: key {key_number} (session only)")
+        } else {
+            "Key: none (free access)".to_owned()
+        };
+        let body = format!(
+            "Change the KeySettings byte of {label}.\n\
+             Current KeySettings: {:02X}\n\
+             New KeySettings: {new_settings:02X}\n\
+             {key_line}\n\
+             This controls who may change keys and the application configuration.\n\
+             Read-back: KeySettings read and compared after the command.\n\n\
+             Type CHANGE to confirm",
+            before.before.key_settings
+        );
+        let dialog = typed_confirmation_dialog(
+            "Change DESFire KeySettings?",
+            &body,
+            "Change KeySettings",
+            "CHANGE",
+        );
+        ui.pending_desfire_dialog.replace(Some(dialog.clone()));
+        let ui2 = ui.clone();
+        let parsed = RefCell::new(Some((aid, key, key_type, key_number, new_settings)));
+        dialog.connect_response(None, move |_, response| {
+            ui2.pending_desfire_dialog.replace(None);
+            if response != "confirm" {
+                return;
+            }
+            let Some((aid, key, key_type, key_number, new_settings)) = parsed.borrow_mut().take()
+            else {
+                return;
+            };
+            let target = if aid == [0x00; 3] {
+                "PICC".to_owned()
+            } else {
+                format!("application {}", type2_ui::hex_bytes(&aid))
+            };
+            run_desfire_keys(
+                ui2.clone(),
+                "key settings",
+                target,
+                "Changing DESFire KeySettings…",
+                "KeySettings changed",
+                move |service| {
+                    let mut request = DesfireKeySettingsRequest::new(aid)
+                        .key_number(key_number)
+                        .new_key_settings(new_settings)
+                        .advanced(true)
+                        .confirm(true);
+                    if let Some(key) = key {
+                        request = request.key(key);
+                    }
+                    if let Some(key_type) = key_type {
+                        request = request.key_type(key_type);
+                    }
+                    service
+                        .desfire_key_settings(request)
+                        .map(|result| key_settings_text(&result))
+                },
+            );
+        });
+        present_alert(&dialog, &ui.window);
+    });
 }
 
 fn start_desfire_change_key(ui: Rc<Ui>) {
@@ -8896,42 +9148,77 @@ fn start_desfire_change_key(ui: Rc<Ui>) {
     } else {
         format!("application {}", type2_ui::hex_bytes(&aid))
     };
-    let export_line = match &export_path {
-        Some(path) => format!(
-            "The new key is written to {} (mode 0600) before the change.",
-            path.display()
-        ),
-        None => "The new key is not exported; it must be recorded outside this session.".to_owned(),
+    let session_type = match key_type {
+        Some(key_type) => key_type,
+        None => match AuthKeyType::from_key(&key) {
+            Ok(key_type) => key_type,
+            Err(error) => {
+                toast_error(&ui, &error.to_string());
+                return;
+            }
+        },
     };
-    let body = format!(
-        "Change key {key_number} of {label} to version {new_key_version}.
-         Session key number: {auth_key_number}.
-         {export_line}
-         The card is re-authenticated with the new key and its version is read back.
-         A lost key cannot be recovered.
-
-         Type CHANGE to confirm"
-    );
-    let dialog = typed_confirmation_dialog("Change a DESFire key?", &body, "Change key", "CHANGE");
-    ui.pending_desfire_dialog.replace(Some(dialog.clone()));
-    let ui2 = ui.clone();
-    let parsed = RefCell::new(Some((
-        aid,
-        key,
-        key_type,
-        auth_key_number,
-        key_number,
-        current_key,
-        new_key,
-        new_key_version,
-        export_path,
-    )));
-    dialog.connect_response(None, move |_, response| {
-        ui2.pending_desfire_dialog.replace(None);
-        if response != "confirm" {
-            return;
-        }
-        let Some((
+    let read_key = key.clone();
+    set_busy(&ui, true);
+    ui.status.set_localized("Checking DESFire key settings…");
+    let service = ui.service.clone();
+    let (sender, receiver) = async_channel::bounded(1);
+    std::thread::spawn(move || {
+        let result = match service.lock() {
+            Ok(mut service) => {
+                let request = DesfireKeySettingsRequest::new(aid)
+                    .key(read_key)
+                    .key_type(session_type)
+                    .key_number(auth_key_number);
+                service.desfire_key_settings(request)
+            }
+            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
+        };
+        let _ = sender.send_blocking(result);
+    });
+    glib::spawn_future_local(async move {
+        set_busy(&ui, false);
+        let before = match receiver.recv().await {
+            Ok(Ok(result)) => result,
+            Ok(Err(error)) => {
+                toast_error(&ui, &format!("DESFire key change: {error}"));
+                return;
+            }
+            Err(_) => {
+                toast_error(&ui, "Reader worker stopped");
+                return;
+            }
+        };
+        let current_version = before
+            .key_versions
+            .get(usize::from(key_number))
+            .copied()
+            .flatten()
+            .map_or("unreported".to_owned(), |version| version.to_string());
+        let export_line = match &export_path {
+            Some(path) => format!(
+                "The new key is written to {} (mode 0600) before the change.",
+                path.display()
+            ),
+            None => {
+                "The new key is not exported; it must be recorded outside this session.".to_owned()
+            }
+        };
+        let body = format!(
+            "Change key {key_number} of {label}.\n\
+             Current key version: {current_version}\n\
+             New key version: {new_key_version}\n\
+             Session key number: {auth_key_number}\n\
+             {export_line}\n\
+             The card is re-authenticated with the new key and its version is read back.\n\
+             A lost key cannot be recovered.\n\n\
+             Type CHANGE to confirm"
+        );
+        let dialog =
+            typed_confirmation_dialog("Change a DESFire key?", &body, "Change key", "CHANGE");
+        ui.pending_desfire_dialog.replace(Some(dialog.clone()));
+        let ui2 = ui.clone();
+        let parsed = RefCell::new(Some((
             aid,
             key,
             key_type,
@@ -8941,38 +9228,62 @@ fn start_desfire_change_key(ui: Rc<Ui>) {
             new_key,
             new_key_version,
             export_path,
-        )) = parsed.borrow_mut().take()
-        else {
-            return;
-        };
-        run_desfire_keys(
-            ui2.clone(),
-            "Changing the DESFire key…",
-            "DESFire key changed",
-            move |service| {
-                let mut request = DesfireKeyChangeRequest::new(aid, key_number, new_key)
-                    .key(key)
-                    .auth_key_number(auth_key_number)
-                    .new_key_version(new_key_version)
-                    .advanced(true)
-                    .confirm(true);
-                if let Some(key_type) = key_type {
-                    request = request.key_type(key_type);
-                }
-                if let Some(current_key) = current_key {
-                    request = request.current_key(current_key);
-                }
-                match export_path {
-                    Some(path) => request = request.export_path(path),
-                    None => request = request.acknowledge_unrecorded(true),
-                }
-                service
-                    .desfire_change_key(request)
-                    .map(|result| key_change_text(&result))
-            },
-        );
+        )));
+        dialog.connect_response(None, move |_, response| {
+            ui2.pending_desfire_dialog.replace(None);
+            if response != "confirm" {
+                return;
+            }
+            let Some((
+                aid,
+                key,
+                key_type,
+                auth_key_number,
+                key_number,
+                current_key,
+                new_key,
+                new_key_version,
+                export_path,
+            )) = parsed.borrow_mut().take()
+            else {
+                return;
+            };
+            let target = if aid == [0x00; 3] {
+                format!("PICC key {key_number}")
+            } else {
+                format!("application {} key {key_number}", type2_ui::hex_bytes(&aid))
+            };
+            run_desfire_keys(
+                ui2.clone(),
+                "key change",
+                target,
+                "Changing the DESFire key…",
+                "DESFire key changed",
+                move |service| {
+                    let mut request = DesfireKeyChangeRequest::new(aid, key_number, new_key)
+                        .key(key)
+                        .auth_key_number(auth_key_number)
+                        .new_key_version(new_key_version)
+                        .advanced(true)
+                        .confirm(true);
+                    if let Some(key_type) = key_type {
+                        request = request.key_type(key_type);
+                    }
+                    if let Some(current_key) = current_key {
+                        request = request.current_key(current_key);
+                    }
+                    match export_path {
+                        Some(path) => request = request.export_path(path),
+                        None => request = request.acknowledge_unrecorded(true),
+                    }
+                    service
+                        .desfire_change_key(request)
+                        .map(|result| key_change_text(&result))
+                },
+            );
+        });
+        present_alert(&dialog, &ui.window);
     });
-    present_alert(&dialog, &ui.window);
 }
 
 fn start_desfire_file_create(ui: Rc<Ui>) {
@@ -8995,8 +9306,15 @@ fn start_desfire_file_create(ui: Rc<Ui>) {
             return;
         }
     };
+    let target = format!(
+        "application {} file {:02X}",
+        type2_ui::hex_bytes(&input.aid),
+        spec.file_id()
+    );
     run_desfire_manage(
         ui,
+        "file create",
+        target,
         "Creating the DESFire file…",
         "DESFire file created",
         true,
@@ -9040,49 +9358,111 @@ fn start_desfire_file_delete(ui: Rc<Ui>) {
             return;
         }
     };
-    let body = format!(
-        "Delete file {file_id:02X} from application {}.\n\
-         A manifest with the file settings is written before the command.\n\
-         No byte-for-byte restore exists.\n\n\
-         Type DELETE to confirm",
+    let manifest_path = ui.backup.borrow().plan_path(&format!(
+        "desfire-file-{}-{file_id:02X}",
         type2_ui::hex_bytes(&input.aid)
-    );
-    let dialog =
-        typed_confirmation_dialog("Delete the DESFire file?", &body, "Delete file", "DELETE");
-    ui.pending_desfire_dialog.replace(Some(dialog.clone()));
-    let ui2 = ui.clone();
-    let state = RefCell::new(Some((input, file_id)));
-    dialog.connect_response(None, move |_, response| {
-        ui2.pending_desfire_dialog.replace(None);
-        if response != "confirm" {
-            return;
-        }
-        let Some((input, file_id)) = state.borrow_mut().take() else {
-            return;
-        };
-        run_desfire_manage(
-            ui2.clone(),
-            "Deleting the DESFire file…",
-            "DESFire file deleted",
-            true,
-            move |service| {
-                let mut request = DesfireFileDeleteRequest::new(input.aid, file_id)
-                    .key_number(input.key_number)
-                    .advanced(true)
-                    .confirm(true);
-                if let Some(key) = input.key {
+    ));
+    let key_type = input.key_type;
+    let key_number = input.key_number;
+    let aid = input.aid;
+    let key = input.key.clone();
+
+    set_busy(&ui, true);
+    ui.status.set_localized("Checking the DESFire file…");
+    let service = ui.service.clone();
+    let (sender, receiver) = async_channel::bounded(1);
+    std::thread::spawn(move || {
+        let result = match service.lock() {
+            Ok(mut service) => {
+                let mut request =
+                    DesfireFileInspectionRequest::new(aid, file_id).key_number(key_number);
+                if let Some(key) = key {
                     request = request.key(key);
                 }
-                if let Some(key_type) = input.key_type {
+                if let Some(key_type) = key_type {
                     request = request.key_type(key_type);
                 }
-                service
-                    .desfire_delete_file(request)
-                    .map(|result| file_delete_text(&result))
-            },
-        );
+                service.desfire_inspect_file(request)
+            }
+            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
+        };
+        let _ = sender.send_blocking(result);
     });
-    present_alert(&dialog, &ui.window);
+    glib::spawn_future_local(async move {
+        set_busy(&ui, false);
+        let inspection = match receiver.recv().await {
+            Ok(Ok(inspection)) => inspection,
+            Ok(Err(error)) => {
+                toast_error(&ui, &format!("DESFire file delete: {error}"));
+                return;
+            }
+            Err(_) => {
+                toast_error(&ui, "Reader worker stopped");
+                return;
+            }
+        };
+        let key_line = if input.key.is_some() {
+            format!("key: key {key_number} (session only)")
+        } else {
+            "key: none (free access)".to_owned()
+        };
+        let body = format!(
+            "Delete file {file_id:02X} from application {}.\n\
+             {key_line}\n\
+             current: {}\n\
+             Manifest: {}\n\
+             The manifest records the file settings, not file content.\n\
+             Read-back: file ID list read after deletion.\n\
+             No byte-for-byte restore exists.\n\n\
+             Type DELETE to confirm",
+            type2_ui::hex_bytes(&inspection.aid),
+            inspection.settings.summary(),
+            manifest_path.display()
+        );
+        let dialog =
+            typed_confirmation_dialog("Delete the DESFire file?", &body, "Delete file", "DELETE");
+        ui.pending_desfire_dialog.replace(Some(dialog.clone()));
+        let ui2 = ui.clone();
+        let state = RefCell::new(Some((input, file_id, manifest_path)));
+        dialog.connect_response(None, move |_, response| {
+            ui2.pending_desfire_dialog.replace(None);
+            if response != "confirm" {
+                return;
+            }
+            let Some((input, file_id, manifest_path)) = state.borrow_mut().take() else {
+                return;
+            };
+            let target = format!(
+                "application {} file {file_id:02X}",
+                type2_ui::hex_bytes(&input.aid)
+            );
+            run_desfire_manage(
+                ui2.clone(),
+                "file delete",
+                target,
+                "Deleting the DESFire file…",
+                "DESFire file deleted",
+                true,
+                move |service| {
+                    let mut request = DesfireFileDeleteRequest::new(input.aid, file_id)
+                        .key_number(input.key_number)
+                        .advanced(true)
+                        .confirm(true)
+                        .manifest_path(manifest_path);
+                    if let Some(key) = input.key {
+                        request = request.key(key);
+                    }
+                    if let Some(key_type) = input.key_type {
+                        request = request.key_type(key_type);
+                    }
+                    service
+                        .desfire_delete_file(request)
+                        .map(|result| file_delete_text(&result))
+                },
+            );
+        });
+        present_alert(&dialog, &ui.window);
+    });
 }
 
 fn start_desfire_file_settings(ui: Rc<Ui>) {
@@ -9091,6 +9471,10 @@ fn start_desfire_file_settings(ui: Rc<Ui>) {
     }
     if ui.devices.borrow().is_empty() {
         toast_error(&ui, "No reader selected");
+        return;
+    }
+    if !ui.desfire_view.advanced.is_active() {
+        toast_error(&ui, "Enable Advanced mode before changing file settings");
         return;
     }
     let parsed = (|| -> std::result::Result<_, String> {
@@ -9107,27 +9491,108 @@ fn start_desfire_file_settings(ui: Rc<Ui>) {
             return;
         }
     };
-    run_desfire_manage(
-        ui,
-        "Changing the DESFire file settings…",
-        "DESFire file settings changed",
-        true,
-        move |service| {
-            let mut request = DesfireFileSettingsRequest::new(input.aid, file_id)
-                .key_number(input.key_number)
-                .communication(communication)
-                .access_rights(access_rights);
-            if let Some(key) = input.key {
-                request = request.key(key);
+    let authenticated = input.key.is_some();
+    let key_type = input.key_type;
+    let key_number = input.key_number;
+    let aid = input.aid;
+    let key = input.key.clone();
+
+    set_busy(&ui, true);
+    ui.status
+        .set_localized("Checking the DESFire file settings…");
+    let service = ui.service.clone();
+    let (sender, receiver) = async_channel::bounded(1);
+    std::thread::spawn(move || {
+        let result = match service.lock() {
+            Ok(mut service) => {
+                let mut request =
+                    DesfireFileInspectionRequest::new(aid, file_id).key_number(key_number);
+                if let Some(key) = key {
+                    request = request.key(key);
+                }
+                if let Some(key_type) = key_type {
+                    request = request.key_type(key_type);
+                }
+                service.desfire_inspect_file(request)
             }
-            if let Some(key_type) = input.key_type {
-                request = request.key_type(key_type);
+            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
+        };
+        let _ = sender.send_blocking(result);
+    });
+    glib::spawn_future_local(async move {
+        set_busy(&ui, false);
+        let inspection = match receiver.recv().await {
+            Ok(Ok(inspection)) => inspection,
+            Ok(Err(error)) => {
+                toast_error(&ui, &format!("DESFire file settings: {error}"));
+                return;
             }
-            service
-                .desfire_change_file_settings(request)
-                .map(|result| file_settings_text(&result))
-        },
-    );
+            Err(_) => {
+                toast_error(&ui, "Reader worker stopped");
+                return;
+            }
+        };
+        let body = format!(
+            "{}\nType CHANGE to confirm",
+            file_settings_plan_text(
+                &inspection,
+                Some(communication),
+                Some(access_rights),
+                key_number,
+                authenticated,
+            )
+            .trim_end()
+        );
+        let dialog = typed_confirmation_dialog(
+            "Change the DESFire file settings?",
+            &body,
+            "Change file settings",
+            "CHANGE",
+        );
+        ui.pending_desfire_dialog.replace(Some(dialog.clone()));
+        let ui2 = ui.clone();
+        let state = RefCell::new(Some((input, file_id, communication, access_rights)));
+        dialog.connect_response(None, move |_, response| {
+            ui2.pending_desfire_dialog.replace(None);
+            if response != "confirm" {
+                return;
+            }
+            let Some((input, file_id, communication, access_rights)) = state.borrow_mut().take()
+            else {
+                return;
+            };
+            let target = format!(
+                "application {} file {file_id:02X}",
+                type2_ui::hex_bytes(&input.aid)
+            );
+            run_desfire_manage(
+                ui2.clone(),
+                "file settings",
+                target,
+                "Changing the DESFire file settings…",
+                "DESFire file settings changed",
+                true,
+                move |service| {
+                    let mut request = DesfireFileSettingsRequest::new(input.aid, file_id)
+                        .key_number(input.key_number)
+                        .communication(communication)
+                        .access_rights(access_rights)
+                        .advanced(true)
+                        .confirm(true);
+                    if let Some(key) = input.key {
+                        request = request.key(key);
+                    }
+                    if let Some(key_type) = input.key_type {
+                        request = request.key_type(key_type);
+                    }
+                    service
+                        .desfire_change_file_settings(request)
+                        .map(|result| file_settings_text(&result))
+                },
+            );
+        });
+        present_alert(&dialog, &ui.window);
+    });
 }
 
 fn start_desfire_memory(ui: Rc<Ui>) {
@@ -9159,8 +9624,14 @@ fn start_desfire_memory(ui: Rc<Ui>) {
             return;
         }
     };
+    let target = match aid {
+        Some(aid) => format!("application {}", type2_ui::hex_bytes(&aid)),
+        None => "PICC".to_owned(),
+    };
     run_desfire_manage(
         ui,
+        "free memory",
+        target,
         "Reading the DESFire free memory…",
         "DESFire free memory read",
         false,
@@ -14816,10 +15287,29 @@ fn toast_info(ui: &Rc<Ui>, message: &str) {
 
 fn toast_error(ui: &Rc<Ui>, message: &str) {
     append_log(ui, &format!("error · {message}"));
+    toast_error_unlogged(ui, message);
+}
+
+/// Show an error without adding a second Activity row when the caller already
+/// recorded the operation.
+fn toast_error_unlogged(ui: &Rc<Ui>, message: &str) {
     let toast = adw::Toast::new(&i18n::translate_lines(message));
     #[cfg(test)]
     ui.toasts.borrow_mut().push(toast.clone());
     ui.toast.add_toast(toast);
+}
+
+/// Record one DESFire mutation as a single Activity row.
+///
+/// The detail carries the target and any backup path. Key material is never
+/// passed here.
+fn journal_desfire(ui: &Ui, operation: &str, target: &str, result: &str, detail: Option<&str>) {
+    let mut line = format!("desfire {operation} · {result} · {target}");
+    if let Some(detail) = detail {
+        line.push_str(" · ");
+        line.push_str(detail);
+    }
+    append_log(ui, &line);
 }
 
 fn add_response(dialog: &adw::AlertDialog, id: &str, label: &str) {
@@ -15904,10 +16394,15 @@ mod tests {
         assert!(ui.reader_caps.label().contains("UID write"));
 
         harness.handle.set_card(None);
+        ui.desfire_view.advanced.set_active(true);
         poll_reader_once(ui);
         assert!(ui.live.get(), "one missed poll keeps the image");
         poll_reader_once(ui);
         assert!(!ui.live.get());
+        assert!(
+            !ui.desfire_view.advanced.is_active(),
+            "Advanced mode must reset when the card is removed"
+        );
         assert_eq!(ui.reader_state.label(), "Polling · no card");
         assert_eq!(ui.status.label(), "Card removed · read the card again");
         assert!(!ui.inspector.commit.is_sensitive());
@@ -18074,5 +18569,18 @@ mod tests {
         );
         assert!(text.contains("1. Text"), "{text}");
         assert!(text.contains("NFC Foundry Type 4"), "{text}");
+    }
+
+    #[test]
+    fn desfire_journal_lines_split_into_operation_result_and_detail() {
+        let (operation, result, detail) = split_log_message(
+            "desfire write · verified · aid F0 0D 01 file 01 · 4 bytes · backup /tmp/a.json",
+        );
+        assert_eq!(operation, "desfire write");
+        assert_eq!(result, "verified");
+        assert_eq!(
+            detail,
+            "aid F0 0D 01 file 01 · 4 bytes · backup /tmp/a.json"
+        );
     }
 }

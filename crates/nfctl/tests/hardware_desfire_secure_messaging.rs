@@ -243,11 +243,30 @@ fn service_writes(
         (FULL_FILE, CommunicationMode::Enciphered, false),
         (BACKUP_FILE, CommunicationMode::Plain, true),
     ] {
+        let backup_path = std::env::temp_dir().join(format!(
+            "nfc-foundry-desfire-write-{}-{file_id:02X}.json",
+            std::process::id()
+        ));
         let request = DesfireWriteRequest::new(aid, file_id, WRITE_PAYLOAD.to_vec())
             .offset(WRITE_OFFSET)
             .key(key.to_vec())
-            .key_type(key_type);
+            .key_type(key_type)
+            .backup_path(&backup_path);
         let write = service.desfire_write(CancelToken::new(), request)?;
+        let backup_path = write.backup_path.clone().ok_or_else(|| {
+            NfcError::VerificationFailed(format!(
+                "{} write of file {file_id:02X} has no backup path",
+                key_type.name()
+            ))
+        })?;
+        verify(
+            backup_path.exists(),
+            format!(
+                "{} write backup {} is missing",
+                key_type.name(),
+                backup_path.display()
+            ),
+        )?;
         verify(
             write.communication == mode,
             format!(

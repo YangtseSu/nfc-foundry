@@ -1,11 +1,10 @@
 # Phase 26 plan: DESFire workbench
 
-Status: in progress. 26.1–26.12 are complete; 26.13 is pending. 26.10's
-Transaction Timer configuration and 26.11's multiple key sets are blocked on
-non-public encodings. Hardware: PN532 UART first; ACR122U records after a
-reader is available. 26.8 and 26.9 passed on PN532 UART and ACR122U on
-2026-11-13; 26.10 and 26.11 passed on PN532 UART on 2026-11-14; 26.12 passed
-on PN532 UART on 2026-11-14.
+Status: complete 2026-11-14, with 26.10's Transaction Timer configuration and
+26.11's multiple key sets blocked on non-public encodings. Hardware: PN532 UART
+first; ACR122U records after a reader is available. 26.8 and 26.9 passed on
+PN532 UART and ACR122U on 2026-11-13; 26.10, 26.11, 26.12, and 26.13 passed on
+PN532 UART on 2026-11-14.
 
 ## Goal
 
@@ -343,6 +342,10 @@ PN532 UART on 2026-11-14; the ACR122U row remains unrecorded.
 
 ### 26.13 Advanced write gates and recovery behavior
 
+Status: complete 2026-11-14. See
+[26m-write-gates.md](../notes/26m-write-gates.md) and the
+[26m spec](../specs/26m-write-gates.md).
+
 Deliver:
 
 - A shared `nfc-app` preflight for every write: card identity, selected reader,
@@ -364,6 +367,11 @@ Acceptance:
   values, key source, backup path, and read-back plan before execution.
 - A card change or reader loss aborts and reports the last verified state.
 - CLI and GUI expose the same gates and semantics.
+
+Hardware: the changed application/file management and secure-messaging write
+paths passed on PN532 UART on 2026-11-14; the ACR122U row remains unrecorded.
+The Activity journal remains session-only, and data-write backups are logical
+file exports, not full-card images.
 
 ## Dependencies
 

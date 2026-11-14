@@ -149,6 +149,8 @@ pub struct DesfireWriteRequest {
     pub key: Option<Vec<u8>>,
     pub key_type: Option<AuthKeyType>,
     pub key_number: u8,
+    /// Exact JSON backup path; `None` keeps the export in memory.
+    pub backup_path: Option<std::path::PathBuf>,
 }
 
 impl DesfireWriteRequest {
@@ -161,6 +163,7 @@ impl DesfireWriteRequest {
             key: None,
             key_type: None,
             key_number: 0,
+            backup_path: None,
         }
     }
 
@@ -183,6 +186,11 @@ impl DesfireWriteRequest {
         self.offset = offset;
         self
     }
+
+    pub fn backup_path(mut self, path: impl Into<std::path::PathBuf>) -> Self {
+        self.backup_path = Some(path.into());
+        self
+    }
 }
 
 /// Verified result of one DESFire file write.
@@ -199,6 +207,9 @@ pub struct DesfireWriteResult {
     pub written: usize,
     /// Complete file content exported before the first write.
     pub backup: Vec<u8>,
+    /// JSON file that holds the settings and complete content, when a backup
+    /// path was supplied.
+    pub backup_path: Option<std::path::PathBuf>,
     /// Backup files commit their transaction; Standard files do not need it.
     pub committed: bool,
     /// Written range read back after the write.
@@ -1221,10 +1232,67 @@ pub struct DesfireFileDeleteResult {
     pub files: Vec<u8>,
 }
 
-/// Change a file's communication mode and access rights.
+/// Read one file's settings without changing card state.
+///
+/// The key is optional; it is needed when the file listing or settings are
+/// protected. The request keeps the key out of `Debug`.
+pub struct DesfireFileInspectionRequest {
+    pub aid: [u8; 3],
+    pub file_id: u8,
+    key: Option<Vec<u8>>,
+    pub key_type: Option<AuthKeyType>,
+    pub key_number: u8,
+    pub cancel: CancelToken,
+}
+
+impl DesfireFileInspectionRequest {
+    pub fn new(aid: [u8; 3], file_id: u8) -> Self {
+        Self {
+            aid,
+            file_id,
+            key: None,
+            key_type: None,
+            key_number: 0,
+            cancel: CancelToken::new(),
+        }
+    }
+
+    pub fn key(mut self, key: Vec<u8>) -> Self {
+        self.key = Some(key);
+        self
+    }
+
+    pub fn key_type(mut self, key_type: AuthKeyType) -> Self {
+        self.key_type = Some(key_type);
+        self
+    }
+
+    pub fn key_number(mut self, key_number: u8) -> Self {
+        self.key_number = key_number;
+        self
+    }
+
+    pub fn cancel(mut self, cancel: CancelToken) -> Self {
+        self.cancel = cancel;
+        self
+    }
+}
+
+/// Current settings of one file, read before a mutation plan is shown.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DesfireFileInspection {
+    pub aid: [u8; 3],
+    pub file_id: u8,
+    pub raw_settings: Vec<u8>,
+    pub settings: FileSettings,
+    /// Session family when a key authenticated the read.
+    pub key_type: Option<AuthKeyType>,
+}
+
+/// One file settings change request.
 ///
 /// The key authenticates the application and deliberately stays out of
-/// `Debug`.
+/// `Debug`. A change requires Advanced mode and explicit confirmation.
 pub struct DesfireFileSettingsRequest {
     pub aid: [u8; 3],
     pub file_id: u8,
@@ -1235,6 +1303,8 @@ pub struct DesfireFileSettingsRequest {
     key: Option<Vec<u8>>,
     pub key_type: Option<AuthKeyType>,
     pub key_number: u8,
+    pub advanced: bool,
+    pub confirm: bool,
     pub cancel: CancelToken,
 }
 
@@ -1248,6 +1318,8 @@ impl DesfireFileSettingsRequest {
             key: None,
             key_type: None,
             key_number: 0,
+            advanced: false,
+            confirm: false,
             cancel: CancelToken::new(),
         }
     }
@@ -1274,6 +1346,16 @@ impl DesfireFileSettingsRequest {
 
     pub fn key_number(mut self, key_number: u8) -> Self {
         self.key_number = key_number;
+        self
+    }
+
+    pub fn advanced(mut self, advanced: bool) -> Self {
+        self.advanced = advanced;
+        self
+    }
+
+    pub fn confirm(mut self, confirm: bool) -> Self {
+        self.confirm = confirm;
         self
     }
 
@@ -1505,6 +1587,20 @@ struct DesfireManifest {
 }
 
 #[derive(Serialize)]
+struct DesfireFileBackup {
+    schema: &'static str,
+    generated_unix: u64,
+    uid: String,
+    application: String,
+    file_id: String,
+    file_type: &'static str,
+    summary: String,
+    raw_settings: String,
+    data: String,
+    note: &'static str,
+}
+
+#[derive(Serialize)]
 struct ManifestCard {
     name: String,
     vendor_id: String,
@@ -1610,16 +1706,14 @@ impl Service {
         request: DesfireReadRequest,
     ) -> Result<DesfireReadResult> {
         let mut operation = self.begin_operation(OperationKind::Read, cancel)?;
-        let mut desfire = nfc_desfire::Desfire::new(operation.reader_mut());
-        desfire.select_application(request.aid)?;
-        if let Some(key) = request.key.as_deref() {
-            match request.key_type {
-                Some(key_type) => {
-                    desfire.authenticate(request.key_number, key, key_type)?;
-                }
-                None => desfire.authenticate_legacy(request.key_number, key)?,
-            }
-        }
+        ensure_iso_dep(&operation)?;
+        let mut desfire = begin_file_session(
+            &mut operation,
+            request.aid,
+            request.key_number,
+            request.key.as_deref(),
+            request.key_type,
+        )?;
         let raw = desfire.file_settings(request.file_id)?;
         let settings = FileSettings::parse(&raw)?;
         let communication =
@@ -1778,16 +1872,16 @@ impl Service {
             NfcError::InvalidArgument("the DESFire write does not fit a 32-bit length".to_owned())
         })?;
         let mut operation = self.begin_operation(OperationKind::Write, cancel)?;
-        operation.check_iso_dep_card()?;
+        ensure_iso_dep(&operation)?;
         let cancel = operation.cancel().clone();
-        let mut desfire = Desfire::new(operation.reader_mut());
-        desfire.select_application(request.aid)?;
-        if let Some(key) = request.key.as_deref() {
-            match request.key_type {
-                Some(key_type) => desfire.authenticate(request.key_number, key, key_type)?,
-                None => desfire.authenticate_legacy(request.key_number, key)?,
-            }
-        }
+        let card = operation.card().clone();
+        let mut desfire = begin_file_session(
+            &mut operation,
+            request.aid,
+            request.key_number,
+            request.key.as_deref(),
+            request.key_type,
+        )?;
         let raw = desfire.file_settings(request.file_id)?;
         let settings = FileSettings::parse(&raw)?;
         let size = match settings.contents {
@@ -1833,6 +1927,16 @@ impl Service {
                 backup.len()
             )));
         }
+        let backup_path = match &request.backup_path {
+            Some(path) => {
+                let bytes =
+                    desfire_file_backup(&card, request.aid, request.file_id, &raw, &backup)?;
+                fsutil::write_atomic(path, &bytes)?;
+                Some(path.clone())
+            }
+            None => None,
+        };
+        cancel.check()?;
 
         const MAX_WRITE_CHUNK: usize = 200;
         let backup_file = settings.file_type == FileType::Backup;
@@ -1897,6 +2001,7 @@ impl Service {
             offset: request.offset,
             written,
             backup,
+            backup_path,
             committed,
             read_back,
         })
@@ -1930,12 +2035,14 @@ impl Service {
             ));
         }
         let mut operation = self.begin_operation(OperationKind::Write, request.cancel)?;
-        operation.check_iso_dep_card()?;
-        let mut desfire = Desfire::new(operation.reader_mut());
-        desfire.select_application(request.aid)?;
-        if let Some(key) = request.key.as_deref() {
-            authenticate_key(&mut desfire, request.key_number, key, request.key_type)?;
-        }
+        ensure_iso_dep(&operation)?;
+        let mut desfire = begin_file_session(
+            &mut operation,
+            request.aid,
+            request.key_number,
+            request.key.as_deref(),
+            request.key_type,
+        )?;
         let settings = FileSettings::parse(&desfire.file_settings(request.file_id)?)?;
         let FileContents::Value {
             lower_limit,
@@ -2069,12 +2176,14 @@ impl Service {
             ));
         }
         let mut operation = self.begin_operation(OperationKind::Write, request.cancel.clone())?;
-        operation.check_iso_dep_card()?;
-        let mut desfire = Desfire::new(operation.reader_mut());
-        desfire.select_application(request.aid)?;
-        if let Some(key) = request.key.as_deref() {
-            authenticate_key(&mut desfire, request.key_number, key, request.key_type)?;
-        }
+        ensure_iso_dep(&operation)?;
+        let mut desfire = begin_file_session(
+            &mut operation,
+            request.aid,
+            request.key_number,
+            request.key.as_deref(),
+            request.key_type,
+        )?;
         let settings_before = FileSettings::parse(&desfire.file_settings(request.file_id)?)?;
         let FileContents::Record {
             record_size,
@@ -2300,11 +2409,13 @@ impl Service {
         }
         let mut operation = self.begin_operation(OperationKind::Read, cancel)?;
         ensure_iso_dep(&operation)?;
-        let mut desfire = Desfire::new(operation.reader_mut());
-        desfire.select_application(request.aid.unwrap_or([0x00; 3]))?;
-        if let Some(key) = request.key.as_deref() {
-            authenticate_key(&mut desfire, request.key_number, key, request.key_type)?;
-        }
+        let mut desfire = begin_file_session(
+            &mut operation,
+            request.aid.unwrap_or([0x00; 3]),
+            request.key_number,
+            request.key.as_deref(),
+            request.key_type,
+        )?;
         desfire.free_memory()
     }
 
@@ -2330,12 +2441,13 @@ impl Service {
         }
         let mut operation = self.begin_operation(OperationKind::Write, request.cancel)?;
         ensure_iso_dep(&operation)?;
-        operation.check_iso_dep_card()?;
-        let mut desfire = Desfire::new(operation.reader_mut());
-        desfire.select_application([0x00; 3])?;
-        if let Some(key) = request.key.as_deref() {
-            authenticate_key(&mut desfire, request.key_number, key, request.key_type)?;
-        }
+        let mut desfire = begin_file_session(
+            &mut operation,
+            [0x00; 3],
+            request.key_number,
+            request.key.as_deref(),
+            request.key_type,
+        )?;
         let free_memory_before = desfire.free_memory()?;
         if free_memory_before == 0 {
             return Err(NfcError::InvalidArgument(
@@ -2400,13 +2512,14 @@ impl Service {
         let cancel = request.cancel.clone();
         let mut operation = self.begin_operation(OperationKind::Write, cancel.clone())?;
         ensure_iso_dep(&operation)?;
-        operation.check_iso_dep_card()?;
         let free_memory_before = {
-            let mut desfire = Desfire::new(operation.reader_mut());
-            desfire.select_application([0x00; 3])?;
-            if let Some(key) = request.key.as_deref() {
-                authenticate_key(&mut desfire, request.key_number, key, request.key_type)?;
-            }
+            let mut desfire = begin_file_session(
+                &mut operation,
+                [0x00; 3],
+                request.key_number,
+                request.key.as_deref(),
+                request.key_type,
+            )?;
             desfire.free_memory().ok()
         };
         cancel.check()?;
@@ -2484,12 +2597,13 @@ impl Service {
         }
         let mut operation = self.begin_operation(OperationKind::Write, request.cancel)?;
         ensure_iso_dep(&operation)?;
-        operation.check_iso_dep_card()?;
-        let mut desfire = Desfire::new(operation.reader_mut());
-        desfire.select_application(request.aid)?;
-        if let Some(key) = request.key.as_deref() {
-            authenticate_key(&mut desfire, request.key_number, key, request.key_type)?;
-        }
+        let mut desfire = begin_file_session(
+            &mut operation,
+            request.aid,
+            request.key_number,
+            request.key.as_deref(),
+            request.key_type,
+        )?;
         let files = desfire.file_ids()?;
         if files.contains(&file_id) {
             return Err(NfcError::InvalidArgument(format!(
@@ -2633,12 +2747,13 @@ impl Service {
         let cancel = request.cancel.clone();
         let mut operation = self.begin_operation(OperationKind::Write, cancel.clone())?;
         ensure_iso_dep(&operation)?;
-        operation.check_iso_dep_card()?;
-        let mut desfire = Desfire::new(operation.reader_mut());
-        desfire.select_application(request.aid)?;
-        if let Some(key) = request.key.as_deref() {
-            authenticate_key(&mut desfire, request.key_number, key, request.key_type)?;
-        }
+        let mut desfire = begin_file_session(
+            &mut operation,
+            request.aid,
+            request.key_number,
+            request.key.as_deref(),
+            request.key_type,
+        )?;
         let files = desfire.file_ids()?;
         if !files.contains(&request.file_id) {
             return Err(NfcError::InvalidArgument(format!(
@@ -2693,6 +2808,42 @@ impl Service {
         })
     }
 
+    /// Read one file's settings for a mutation plan without changing state.
+    ///
+    /// The optional key authenticates the application when the file listing or
+    /// settings are protected. No command is sent that changes the card.
+    pub fn desfire_inspect_file(
+        &mut self,
+        request: DesfireFileInspectionRequest,
+    ) -> Result<DesfireFileInspection> {
+        if request.key_number > 14 {
+            return Err(NfcError::InvalidArgument(
+                "DESFire application key numbers are 0..=14".to_owned(),
+            ));
+        }
+        let mut operation = self.begin_operation(OperationKind::Read, request.cancel)?;
+        ensure_iso_dep(&operation)?;
+        let mut desfire = begin_file_session(
+            &mut operation,
+            request.aid,
+            request.key_number,
+            request.key.as_deref(),
+            request.key_type,
+        )?;
+        let raw_settings = desfire.file_settings(request.file_id)?;
+        let settings = FileSettings::parse(&raw_settings)?;
+        let key_type = desfire.session_key_type();
+        drop(desfire);
+        operation.check_iso_dep_card()?;
+        Ok(DesfireFileInspection {
+            aid: request.aid,
+            file_id: request.file_id,
+            raw_settings,
+            settings,
+            key_type,
+        })
+    }
+
     /// Change a file's communication mode and access rights, then read them
     /// back.
     ///
@@ -2702,6 +2853,16 @@ impl Service {
         &mut self,
         request: DesfireFileSettingsRequest,
     ) -> Result<DesfireFileSettingsResult> {
+        if !request.advanced {
+            return Err(NfcError::InvalidArgument(
+                "changing DESFire file settings requires Advanced mode".to_owned(),
+            ));
+        }
+        if !request.confirm {
+            return Err(NfcError::InvalidArgument(
+                "changing DESFire file settings needs explicit confirmation".to_owned(),
+            ));
+        }
         if request.key_number > 14 {
             return Err(NfcError::InvalidArgument(
                 "DESFire application key numbers are 0..=14".to_owned(),
@@ -2714,12 +2875,13 @@ impl Service {
         }
         let mut operation = self.begin_operation(OperationKind::Write, request.cancel)?;
         ensure_iso_dep(&operation)?;
-        operation.check_iso_dep_card()?;
-        let mut desfire = Desfire::new(operation.reader_mut());
-        desfire.select_application(request.aid)?;
-        if let Some(key) = request.key.as_deref() {
-            authenticate_key(&mut desfire, request.key_number, key, request.key_type)?;
-        }
+        let mut desfire = begin_file_session(
+            &mut operation,
+            request.aid,
+            request.key_number,
+            request.key.as_deref(),
+            request.key_type,
+        )?;
         let before = FileSettings::parse(&desfire.file_settings(request.file_id)?)?;
         let communication = request.communication.unwrap_or(before.communication);
         if communication != before.communication
@@ -2840,16 +3002,15 @@ impl Service {
         )?;
         if writing {
             ensure_iso_dep(&operation)?;
-            operation.check_iso_dep_card()?;
         }
-        let mut desfire = Desfire::new(operation.reader_mut());
-        desfire.select_application(request.aid)?;
-        let authenticated = if let Some(key) = request.key.as_deref() {
-            authenticate_key(&mut desfire, request.key_number, key, request.key_type)?;
-            true
-        } else {
-            false
-        };
+        let mut desfire = begin_file_session(
+            &mut operation,
+            request.aid,
+            request.key_number,
+            request.key.as_deref(),
+            request.key_type,
+        )?;
+        let authenticated = request.key.is_some();
         let before = desfire.key_settings()?;
         let mut after = before;
         let mut changed = false;
@@ -2955,11 +3116,14 @@ impl Service {
         let cancel = request.cancel.clone();
         let mut operation = self.begin_operation(OperationKind::Write, cancel.clone())?;
         ensure_iso_dep(&operation)?;
-        operation.check_iso_dep_card()?;
-        let mut desfire = Desfire::new(operation.reader_mut());
-        desfire.select_application(request.aid)?;
+        let mut desfire = begin_file_session(
+            &mut operation,
+            request.aid,
+            request.auth_key_number,
+            Some(auth_key),
+            Some(session_type),
+        )?;
         let version = desfire.get_version()?;
-        desfire.authenticate(request.auth_key_number, auth_key, session_type)?;
         let settings = desfire.key_settings()?;
         if let Some(max_keys) = settings.max_keys
             && request.key_number >= max_keys
@@ -3184,14 +3348,14 @@ fn format_ndef(
     cancel: &CancelToken,
 ) -> Result<DesfireNdefFormatResult> {
     ensure_iso_dep(operation)?;
+    operation.check_iso_dep_card()?;
     ensure_ndef_absent(operation, cancel)?;
     cancel.check()?;
 
     let mut created = false;
     let outcome = (|| -> Result<DesfireNdefFormatResult> {
-        let mut desfire = Desfire::new(operation.reader_mut());
-        desfire.select_application([0x00; 3])?;
-        authenticate_key(&mut desfire, key_number, key, key_type)?;
+        let mut desfire =
+            begin_file_session(operation, [0x00; 3], key_number, Some(key), key_type)?;
         cancel.check()?;
         desfire.create_application(
             NDEF_APPLICATION_AID,
@@ -3290,9 +3454,8 @@ fn delete_validated_ndef(
     key_number: u8,
 ) -> Result<Vec<[u8; 3]>> {
     {
-        let mut desfire = Desfire::new(operation.reader_mut());
-        desfire.select_application([0x00; 3])?;
-        authenticate_key(&mut desfire, key_number, key, key_type)?;
+        let mut desfire =
+            begin_file_session(operation, [0x00; 3], key_number, Some(key), key_type)?;
         desfire.delete_application(NDEF_APPLICATION_AID)?;
     }
     let applications = {
@@ -3315,6 +3478,7 @@ fn delete_ndef(
     cancel: &CancelToken,
 ) -> Result<DesfireNdefDeleteResult> {
     ensure_iso_dep(operation)?;
+    operation.check_iso_dep_card()?;
     require_ndef_application(operation, cancel)?;
     cancel.check()?;
     let applications = delete_validated_ndef(operation, key, key_type, key_number)?;
@@ -3330,6 +3494,7 @@ fn replace_ndef(
     cancel: &CancelToken,
 ) -> Result<DesfireNdefReplaceResult> {
     ensure_iso_dep(operation)?;
+    operation.check_iso_dep_card()?;
     require_ndef_application(operation, cancel)?;
     let card = operation.card().clone();
     let previous = match nfc_type4::read_tag(operation.reader_mut(), &card, cancel) {
@@ -3367,6 +3532,7 @@ fn format_picc(
     cancel: &CancelToken,
 ) -> Result<DesfireFormatPiccResult> {
     ensure_iso_dep(operation)?;
+    operation.check_iso_dep_card()?;
     cancel.check()?;
     let inventory = {
         let mut desfire = Desfire::new(operation.reader_mut());
@@ -3374,9 +3540,8 @@ fn format_picc(
     };
     cancel.check()?;
     {
-        let mut desfire = Desfire::new(operation.reader_mut());
-        desfire.select_application([0x00; 3])?;
-        authenticate_key(&mut desfire, key_number, key, key_type)?;
+        let mut desfire =
+            begin_file_session(operation, [0x00; 3], key_number, Some(key), key_type)?;
         cancel.check()?;
         desfire.format_picc()?;
     }
@@ -3999,8 +4164,12 @@ pub fn write_text(result: &DesfireWriteResult) -> String {
         None => result.integrity.label().to_owned(),
     };
     let end = u64::from(result.offset) + result.written as u64;
+    let backup_path = match &result.backup_path {
+        Some(path) => format!("backup path: {}\n", path.display()),
+        None => String::new(),
+    };
     format!(
-        "settings: {}\nprotection: {}\nwritten: {}..{} ({} bytes)\nbackup: {} bytes\ncommit: {}\nread-back: {} bytes verified\n",
+        "settings: {}\nprotection: {}\nwritten: {}..{} ({} bytes)\nbackup: {} bytes\n{backup_path}commit: {}\nread-back: {} bytes verified\n",
         result.settings.summary(),
         protection,
         result.offset,
@@ -4225,6 +4394,43 @@ pub fn file_settings_text(result: &DesfireFileSettingsResult) -> String {
     )
 }
 
+/// Plan for one file settings change, shared by the CLI dry run and the GTK
+/// confirmation dialog.
+pub fn file_settings_plan_text(
+    inspection: &DesfireFileInspection,
+    communication: Option<CommunicationMode>,
+    access_rights: Option<u16>,
+    key_number: u8,
+    authenticated: bool,
+) -> String {
+    let mut text = format!(
+        "aid {} file {:02X}\ncurrent: {}\n",
+        hex_bytes(&inspection.aid),
+        inspection.file_id,
+        inspection.settings.summary()
+    );
+    if let Some(communication) = communication {
+        text.push_str(&format!("new communication: {}\n", communication.name()));
+    }
+    if let Some(access_rights) = access_rights {
+        text.push_str(&format!(
+            "new access: {:04X} · {}\n",
+            access_rights,
+            AccessRights::from_raw(access_rights).summary()
+        ));
+    }
+    match (authenticated, inspection.key_type) {
+        (true, Some(key_type)) => text.push_str(&format!(
+            "key: key {key_number} · {} (session only)\n",
+            key_type.name()
+        )),
+        (true, None) => text.push_str(&format!("key: key {key_number} (session only)\n")),
+        (false, _) => text.push_str("key: none (free access)\n"),
+    }
+    text.push_str("read-back: GetFileSettings compared with the requested mode and access word\n");
+    text
+}
+
 fn verify_record_bytes(actual: usize, count: u32, record_size: u32) -> Result<()> {
     let expected = u64::from(count) * u64::from(record_size);
     if actual as u64 == expected {
@@ -4256,6 +4462,27 @@ fn authenticate_key(
         Some(key_type) => desfire.authenticate(key_number, key, key_type),
         None => desfire.authenticate_legacy(key_number, key),
     }
+}
+
+/// Shared preflight for a file operation: verify the card identity, select the
+/// application, and optionally authenticate before any file command.
+///
+/// The helper is the single place that decides the session for a file write.
+/// It never logs or returns key material.
+fn begin_file_session<'a>(
+    operation: &'a mut Operation<'_>,
+    aid: [u8; 3],
+    key_number: u8,
+    key: Option<&[u8]>,
+    key_type: Option<AuthKeyType>,
+) -> Result<Desfire<'a>> {
+    operation.check_iso_dep_card()?;
+    let mut desfire = Desfire::new(operation.reader_mut());
+    desfire.select_application(aid)?;
+    if let Some(key) = key {
+        authenticate_key(&mut desfire, key_number, key, key_type)?;
+    }
+    Ok(desfire)
 }
 
 fn ensure_iso_dep(operation: &Operation<'_>) -> Result<()> {
@@ -4528,6 +4755,35 @@ fn hex_bytes(bytes: &[u8]) -> String {
         .map(|byte| format!("{byte:02X}"))
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// Encode the pre-write file settings and complete content as a private JSON
+/// export. The key is never part of the backup.
+fn desfire_file_backup(
+    card: &nfc_core::CardInfo,
+    aid: [u8; 3],
+    file_id: u8,
+    raw_settings: &[u8],
+    data: &[u8],
+) -> Result<Vec<u8>> {
+    let settings = FileSettings::parse(raw_settings)?;
+    let backup = DesfireFileBackup {
+        schema: "nfc-foundry/desfire-file-backup/1",
+        generated_unix: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+        uid: card.uid_hex(),
+        application: hex_compact(&aid),
+        file_id: format!("{file_id:02X}"),
+        file_type: settings.file_type.name(),
+        summary: settings.summary(),
+        raw_settings: hex_bytes(raw_settings),
+        data: hex_bytes(data),
+        note: "logical file export; not a full-card image",
+    };
+    serde_json::to_vec_pretty(&backup)
+        .map_err(|error| NfcError::Io(format!("could not encode the file backup: {error}")))
 }
 
 #[cfg(test)]

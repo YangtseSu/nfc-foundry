@@ -16,15 +16,16 @@ use nfc_app::classic::{
 use nfc_app::desfire::{
     AccessRight, AccessRights, ApplicationKeyType, AuthKeyType, CommunicationMode,
     DesfireAppCreateRequest, DesfireAppDeleteRequest, DesfireFileCreateRequest,
-    DesfireFileDeleteRequest, DesfireFileSettingsRequest, DesfireFileSpec,
-    DesfireFormatPiccRequest, DesfireFreeMemoryRequest, DesfireKeyChangeRequest,
+    DesfireFileDeleteRequest, DesfireFileInspectionRequest, DesfireFileSettingsRequest,
+    DesfireFileSpec, DesfireFormatPiccRequest, DesfireFreeMemoryRequest, DesfireKeyChangeRequest,
     DesfireKeySettingsRequest, DesfireNdefDeleteRequest, DesfireNdefFormatRequest,
     DesfireNdefReplaceRequest, DesfireReadResult, DesfireRecordOperation, DesfireRecordRequest,
     DesfireUidRequest, DesfireValueOperation, DesfireValueRequest, DesfireVerifyKeyRequest,
-    NDEF_APPLICATION_AID, NDEF_CAPABILITY_CONTAINER, NDEF_CC_FILE, NDEF_CC_SIZE, NDEF_DATA_FILE,
-    NDEF_DATA_SIZE, NDEF_DF_NAME, app_create_text, app_delete_text, card_uid_text,
-    file_create_text, file_delete_text, file_settings_text, free_memory_text, key_change_text,
-    key_settings_text, key_verification_text, read_protection_text, record_text, value_text,
+    FileSettings, NDEF_APPLICATION_AID, NDEF_CAPABILITY_CONTAINER, NDEF_CC_FILE, NDEF_CC_SIZE,
+    NDEF_DATA_FILE, NDEF_DATA_SIZE, NDEF_DF_NAME, app_create_text, app_delete_text, card_uid_text,
+    file_create_text, file_delete_text, file_settings_plan_text, file_settings_text,
+    free_memory_text, key_change_text, key_settings_text, key_verification_text,
+    read_protection_text, record_text, value_text,
 };
 use nfc_app::type2::{
     Type2Auth, Type2Format, Type2Lock, Type2NdefWrite, Type2PageWrite, Type2Password,
@@ -913,6 +914,13 @@ enum DesfireCommand {
         /// Application key number, 0..=14.
         #[arg(long, default_value_t = 0, value_name = "N")]
         key_number: u8,
+        /// Required: changing access or communication settings is a
+        /// configuration action.
+        #[arg(long)]
+        advanced: bool,
+        /// Print the current and requested settings and exit without writing.
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Read the key settings and key versions, or change the KeySettings byte.
     KeySettings {
@@ -2797,7 +2805,11 @@ fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<
             }
             let mut request = nfc_app::desfire::DesfireWriteRequest::new(aid, file_id, data)
                 .offset(offset)
-                .key_number(key_number);
+                .key_number(key_number)
+                .backup_path(
+                    backup_store(cli)
+                        .plan_path(&format!("desfire-{}-{file_id:02X}", hex_bytes(&aid))),
+                );
             if let Some(key) = key {
                 request = request.key(parse_hex_bytes(&key, "DESFire key")?);
             }
@@ -2988,6 +3000,39 @@ fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<
                     "deleting a DESFire application requires --advanced".to_owned(),
                 ));
             }
+            let manifest = manifest.unwrap_or_else(|| {
+                backup_store(cli).plan_path(&format!("desfire-app-{}", hex_bytes(&aid)))
+            });
+            let inventory = service.desfire_inventory(CancelToken::new())?;
+            let Some(application) = inventory
+                .applications
+                .iter()
+                .find(|application| application.aid == aid)
+            else {
+                return Err(NfcError::InvalidArgument(format!(
+                    "application {} is not listed on the card",
+                    hex_bytes(&aid)
+                )));
+            };
+            println!("application {}", hex_bytes(&aid));
+            if application.files.is_empty() {
+                println!("files: none visible without authentication");
+            } else {
+                for file in &application.files {
+                    match FileSettings::parse(&file.settings) {
+                        Ok(settings) => {
+                            println!("file {:02X}: {}", file.file_id, settings.summary());
+                        }
+                        Err(error) => println!(
+                            "file {:02X}: undecoded ({error}) {}",
+                            file.file_id,
+                            hex_bytes(&file.settings)
+                        ),
+                    }
+                }
+            }
+            println!("manifest: {}", manifest.display());
+            println!("read-back: application ID list read after deletion");
             require_confirmation(
                 cli.yes,
                 &format!("deleting DESFire application {}", hex_bytes(&aid)),
@@ -2995,15 +3040,13 @@ fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<
             let mut request = DesfireAppDeleteRequest::new(aid)
                 .key_number(key_number)
                 .advanced(true)
-                .confirm(true);
+                .confirm(true)
+                .manifest_path(manifest);
             if let Some(key) = key {
                 request = request.key(parse_hex_bytes(&key, "DESFire key")?);
             }
             if let Some(key_type) = key_type {
                 request = request.key_type(parse_auth_key_type(&key_type)?);
-            }
-            if let Some(manifest) = manifest {
-                request = request.manifest_path(manifest);
             }
             let result = service.desfire_delete_application(request)?;
             print!("{}", app_delete_text(&result));
@@ -3118,6 +3161,29 @@ fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<
                     "deleting a DESFire file requires --advanced".to_owned(),
                 ));
             }
+            let key = key
+                .map(|key| parse_hex_bytes(&key, "DESFire key"))
+                .transpose()?;
+            let key_type = key_type.as_deref().map(parse_auth_key_type).transpose()?;
+            let mut inspection =
+                DesfireFileInspectionRequest::new(aid, file_id).key_number(key_number);
+            if let Some(key) = &key {
+                inspection = inspection.key(key.clone());
+            }
+            if let Some(key_type) = key_type {
+                inspection = inspection.key_type(key_type);
+            }
+            let inspection = service.desfire_inspect_file(inspection)?;
+            let manifest = manifest.unwrap_or_else(|| {
+                backup_store(cli)
+                    .plan_path(&format!("desfire-file-{}-{file_id:02X}", hex_bytes(&aid)))
+            });
+            println!(
+                "aid {} file {file_id:02X}\ncurrent: {}\nmanifest: {}\nread-back: file ID list read after deletion",
+                hex_bytes(&aid),
+                inspection.settings.summary(),
+                manifest.display()
+            );
             require_confirmation(
                 cli.yes,
                 &format!(
@@ -3128,15 +3194,13 @@ fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<
             let mut request = DesfireFileDeleteRequest::new(aid, file_id)
                 .key_number(key_number)
                 .advanced(true)
-                .confirm(true);
+                .confirm(true)
+                .manifest_path(manifest);
             if let Some(key) = key {
-                request = request.key(parse_hex_bytes(&key, "DESFire key")?);
+                request = request.key(key);
             }
             if let Some(key_type) = key_type {
-                request = request.key_type(parse_auth_key_type(&key_type)?);
-            }
-            if let Some(manifest) = manifest {
-                request = request.manifest_path(manifest);
+                request = request.key_type(key_type);
             }
             let result = service.desfire_delete_file(request)?;
             print!("{}", file_delete_text(&result));
@@ -3154,6 +3218,8 @@ fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<
             key,
             key_type,
             key_number,
+            advanced,
+            dry_run,
         } => {
             let aid = parse_hex_array::<3>(&aid, "DESFire AID")?;
             let file_id = parse_hex_array::<1>(&file, "DESFire file ID")?[0];
@@ -3173,7 +3239,42 @@ fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<
                     "give --communication, access rights, or both".to_owned(),
                 ));
             }
-            let mut request = DesfireFileSettingsRequest::new(aid, file_id).key_number(key_number);
+            if !advanced && !dry_run {
+                return Err(NfcError::InvalidArgument(
+                    "changing DESFire file settings requires --advanced".to_owned(),
+                ));
+            }
+            let key = key
+                .map(|key| parse_hex_bytes(&key, "DESFire key"))
+                .transpose()?;
+            let key_type = key_type.as_deref().map(parse_auth_key_type).transpose()?;
+            let mut inspection =
+                DesfireFileInspectionRequest::new(aid, file_id).key_number(key_number);
+            if let Some(key) = &key {
+                inspection = inspection.key(key.clone());
+            }
+            if let Some(key_type) = key_type {
+                inspection = inspection.key_type(key_type);
+            }
+            let inspection = service.desfire_inspect_file(inspection)?;
+            print!(
+                "{}",
+                file_settings_plan_text(
+                    &inspection,
+                    communication,
+                    access_rights,
+                    key_number,
+                    key.is_some(),
+                )
+            );
+            if dry_run {
+                return Ok(());
+            }
+            require_confirmation(cli.yes, "changing the DESFire file settings")?;
+            let mut request = DesfireFileSettingsRequest::new(aid, file_id)
+                .key_number(key_number)
+                .advanced(true)
+                .confirm(true);
             if let Some(communication) = communication {
                 request = request.communication(communication);
             }
@@ -3181,10 +3282,10 @@ fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<
                 request = request.access_rights(access_rights);
             }
             if let Some(key) = key {
-                request = request.key(parse_hex_bytes(&key, "DESFire key")?);
+                request = request.key(key);
             }
             if let Some(key_type) = key_type {
-                request = request.key_type(parse_auth_key_type(&key_type)?);
+                request = request.key_type(key_type);
             }
             let result = service.desfire_change_file_settings(request)?;
             print!("{}", file_settings_text(&result));
@@ -3199,32 +3300,51 @@ fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<
             advanced,
         } => {
             let aid = parse_hex_array::<3>(aid.as_deref().unwrap_or("000000"), "DESFire AID")?;
-            let mut request = DesfireKeySettingsRequest::new(aid).key_number(key_number);
-            if let Some(key) = key {
-                request = request.key(parse_hex_bytes(&key, "DESFire key")?);
-            }
-            if let Some(key_type) = key_type {
-                request = request.key_type(parse_auth_key_type(&key_type)?);
-            }
-            if let Some(new_settings) = new_settings {
-                if !advanced {
-                    return Err(NfcError::InvalidArgument(
-                        "changing DESFire key settings requires --advanced".to_owned(),
-                    ));
+            let key = key
+                .map(|key| parse_hex_bytes(&key, "DESFire key"))
+                .transpose()?;
+            let key_type = key_type.as_deref().map(parse_auth_key_type).transpose()?;
+            let read_request = || {
+                let mut request = DesfireKeySettingsRequest::new(aid).key_number(key_number);
+                if let Some(key) = &key {
+                    request = request.key(key.clone());
                 }
-                require_confirmation(
-                    cli.yes,
-                    &format!(
-                        "changing the KeySettings of DESFire application {}",
-                        hex_bytes(&aid)
-                    ),
-                )?;
-                let new_settings = parse_hex_array::<1>(&new_settings, "DESFire KeySettings")?[0];
-                request = request
-                    .new_key_settings(new_settings)
-                    .advanced(true)
-                    .confirm(true);
+                if let Some(key_type) = key_type {
+                    request = request.key_type(key_type);
+                }
+                request
+            };
+            let Some(new_settings) = new_settings else {
+                let result = service.desfire_key_settings(read_request())?;
+                print!("{}", key_settings_text(&result));
+                return Ok(());
+            };
+            if !advanced {
+                return Err(NfcError::InvalidArgument(
+                    "changing DESFire key settings requires --advanced".to_owned(),
+                ));
             }
+            let new_settings = parse_hex_array::<1>(&new_settings, "DESFire KeySettings")?[0];
+            let before = service.desfire_key_settings(read_request())?;
+            let label = if aid == [0x00; 3] {
+                "PICC".to_owned()
+            } else {
+                format!("application {}", hex_bytes(&aid))
+            };
+            println!("{label}");
+            println!("current KeySettings: {:02X}", before.before.key_settings);
+            println!("new KeySettings: {new_settings:02X}");
+            if let Some(key_type) = key_type {
+                println!("key: key {key_number} · {} (session only)", key_type.name());
+            } else {
+                println!("key: key {key_number} (session only)");
+            }
+            println!("read-back: KeySettings read and compared after the change");
+            require_confirmation(cli.yes, &format!("changing the KeySettings of {label}"))?;
+            let request = read_request()
+                .new_key_settings(new_settings)
+                .advanced(true)
+                .confirm(true);
             let result = service.desfire_key_settings(request)?;
             print!("{}", key_settings_text(&result));
             Ok(())
@@ -3263,7 +3383,27 @@ fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<
                 "changing DESFire key {key_number} on application {} to version {new_key_version}",
                 hex_bytes(&aid)
             );
+            let key = parse_hex_bytes(&key, "DESFire key")?;
+            let key_type = key_type.as_deref().map(parse_auth_key_type).transpose()?;
+            let session_type = match key_type {
+                Some(key_type) => key_type,
+                None => AuthKeyType::from_key(&key)?,
+            };
+            let read = DesfireKeySettingsRequest::new(aid)
+                .key(key.clone())
+                .key_type(session_type)
+                .key_number(auth_key_number);
+            let before = service.desfire_key_settings(read)?;
+            let current_version = before
+                .key_versions
+                .get(usize::from(key_number))
+                .copied()
+                .flatten();
             println!("{action}");
+            println!(
+                "current key version: {}",
+                current_version.map_or("unreported".to_owned(), |version| version.to_string())
+            );
             if let Some(path) = &export {
                 println!(
                     "the new key is written to {} before the change",
@@ -3278,15 +3418,13 @@ fn desfire(cli: &Cli, service: &mut Service, command: DesfireCommand) -> Result<
                 key_number,
                 parse_hex_bytes(&new_key, "new DESFire key")?,
             )
-            .key(parse_hex_bytes(&key, "DESFire key")?)
+            .key(key)
             .auth_key_number(auth_key_number)
             .new_key_version(new_key_version)
             .acknowledge_unrecorded(acknowledge_unrecorded)
             .advanced(true)
-            .confirm(true);
-            if let Some(key_type) = key_type {
-                request = request.key_type(parse_auth_key_type(&key_type)?);
-            }
+            .confirm(true)
+            .key_type(session_type);
             if let Some(current_key) = current_key {
                 request =
                     request.current_key(parse_hex_bytes(&current_key, "current DESFire key")?);

@@ -95,6 +95,7 @@ fn desfire_write_updates_and_reads_back_the_mock_file() {
     let text = stdout(&output);
     assert!(text.contains("written: 4..8 (4 bytes)"), "{text}");
     assert!(text.contains("backup: 32 bytes"), "{text}");
+    assert!(text.contains("backup path: "), "{text}");
     assert!(text.contains("read-back: 4 bytes verified"), "{text}");
 
     let output = nfctl(&[
@@ -438,14 +439,83 @@ fn desfire_management_creates_changes_and_deletes_a_file() {
         "free",
         "--change-access",
         "key1",
+        "--advanced",
+        "--yes",
     ]);
     assert_success(&output);
     let text = stdout(&output);
+    assert!(text.contains("current: standard data · plain"), "{text}");
+    assert!(text.contains("new communication: enciphered"), "{text}");
     assert!(text.contains("before: standard data · plain"), "{text}");
     assert!(text.contains("after: standard data · enciphered"), "{text}");
     assert!(text.contains("read free"), "{text}");
     assert!(text.contains("change key 1"), "{text}");
     assert!(text.contains("change: applied"), "{text}");
+}
+
+#[test]
+fn desfire_file_settings_needs_advanced_confirmation_and_prints_a_plan() {
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:desfire",
+        "desfire",
+        "file-settings",
+        "--aid",
+        "F00D01",
+        "--file",
+        "01",
+        "--communication",
+        "enciphered",
+    ]);
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("requires --advanced"),
+        "{}",
+        stderr(&output)
+    );
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:desfire",
+        "desfire",
+        "file-settings",
+        "--aid",
+        "F00D01",
+        "--file",
+        "01",
+        "--communication",
+        "enciphered",
+        "--advanced",
+    ]);
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("needs confirmation; pass --yes"),
+        "{}",
+        stderr(&output)
+    );
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:desfire",
+        "desfire",
+        "file-settings",
+        "--aid",
+        "F00D01",
+        "--file",
+        "01",
+        "--communication",
+        "enciphered",
+        "--dry-run",
+    ]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("current: standard data · plain"), "{text}");
+    assert!(text.contains("new communication: enciphered"), "{text}");
+    assert!(text.contains("read-back: GetFileSettings"), "{text}");
+    assert!(!text.contains("change: applied"), "dry run must not write");
 }
 
 #[test]

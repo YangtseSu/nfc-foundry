@@ -97,6 +97,7 @@ original UID if verification fails.
 |---|---|---|---|---|
 | Inventory | `desfire info` | DESFire → Inventory | R | PN532 and ACR122U |
 | Read file | `desfire read --aid --file [--key] [--key-type] [--offset] [--length] [--start-record] [--record-count]` | DESFire → Read with the same fields and key-type dropdown | R | PN532 and ACR122U: data, value, linear and cyclic records with legacy DES, 3K3DES/AES EV1, and AES EV2 |
+| Write file | `desfire write --aid --file --data|--data-file [--offset] [--key] [--key-type] [--key-number]` | DESFire → Write with a hex/text payload; the backup directory comes from preferences | W, B | PN532: 3K3DES EV1, AES EV1, and AES EV2 writes with a planned JSON backup path |
 | Explicit authentication family | `--key-type des|2k3des|3k3des|aes|ev2` on read/verify/uid/format/delete | Key type dropdown on Read, Verify, and NDEF tabs | explicit key, R for authentication | PN532 and ACR122U: 3K3DES, AES EV1, AES EV2 |
 | Verify key | `desfire verify-key --aid --key [--key-type] [--key-number]` | DESFire → Verify → Verify key | R | ACR122U: DES, 3K3DES, AES EV1, AES EV2; key version and session reported |
 | Read authenticated UID | `desfire uid --aid --key [--key-type] [--key-number]` | DESFire → Verify → Read UID | R | ACR122U: EV1 CRC32, EV2 CMAC |
@@ -107,18 +108,23 @@ original UID if verification fails.
 | Format PICC | `desfire format-picc --key --advanced [--dry-run]` | DESFire → Manage → Advanced mode → Format PICC (erase all)… → type `ERASE` | A, C | PN532: scratch application erased, 8192 bytes free, factory key check |
 | Free memory | `desfire memory [--aid] [--key]` | DESFire → Manage → Read free memory | R | ACR122U: 8192 bytes before setup, 7648 after deletes |
 | Create application | `desfire app-create --aid [--key] --keys --app-key-type` | DESFire → Manage → Create application | W | ACR122U: AES `F0 0D 08`, two keys |
-| Delete application | `desfire app-delete --aid [--key] --advanced --yes [--manifest]` | DESFire → Manage → Advanced mode → Delete application… → type `DELETE` | A, C, M | ACR122U: reserved application removed, manifest written |
+| Delete application | `desfire app-delete --aid [--key] --advanced --yes [--manifest]` | DESFire → Manage → Advanced mode → Delete application… → files, key, manifest path, read-back → type `DELETE` | A, C, M | PN532 2026-11-14: reserved application removed, planned manifest path shown |
 | Create file | `desfire file-create --aid --file --type …` | DESFire → Manage → Create file with the same type fields | W | ACR122U: Standard, Backup, Value, Linear Record, Cyclic Record, Transaction MAC |
-| Delete file | `desfire file-delete --aid --file [--key] --advanced --yes [--manifest]` | DESFire → Manage → Advanced mode → Delete file… → type `DELETE` | A, C, M | ACR122U: all six files removed, manifests written |
-| Change file settings | `desfire file-settings --aid --file [--communication] [rights] [--key]` | DESFire → Manage → Change file settings | W | ACR122U: Standard file changed to enciphered with new access rights |
+| Delete file | `desfire file-delete --aid --file [--key] --advanced --yes [--manifest]` | DESFire → Manage → Advanced mode → Delete file… → current settings, key, manifest path, read-back → type `DELETE` | A, C, M | PN532 2026-11-14: all six files removed with planned manifests |
+| Change file settings | `desfire file-settings --aid --file [--communication] [rights] [--key] --advanced [--dry-run]` | DESFire → Manage → Advanced mode → Change file settings… → current/requested settings and key → type `CHANGE` | A, C | PN532 2026-11-14: Standard file changed to enciphered with new access rights |
 | Value change | `desfire value --aid --file --credit|--debit|--limited-credit N [--key] [--tmac-key]` | DESFire → Values & records → Value credit/debit/limited credit | W | PN532: credit 20→25, debit 25→22, limited credit 22→25, committed values verified |
 | Record change | `desfire record --aid --file --append|--update|--clear [--data] [--record] [--offset] [--key] [--tmac-key]` | DESFire → Values & records → Record append/update/clear | W | PN532: append, update, and clear read back record by record |
 
 Both surfaces call the same `nfc-app` service and render inventory through
-`inventory_text`. Value and record changes use the same preflight, commit, and
-read-back checks, and a Transaction MAC is labelled verified only after the
-supplied AppTransactionMACKey reproduces the committed value; without the key
-it is labelled UNVERIFIED. Each file shows the decoded type, communication mode,
+`inventory_text`. A data write plans its JSON backup path and aborts if the
+backup cannot be written; an application or file delete plans its manifest
+path and shows it in the confirmation dialog or CLI output before the command.
+Every DESFire mutation appends one Activity row with the operation, target,
+result, and backup/manifest path; key material is never logged. Value and
+record changes use the same preflight, commit, and read-back checks, and a
+Transaction MAC is labelled verified only after the supplied
+AppTransactionMACKey reproduces the committed value; without the key it is
+labelled UNVERIFIED. Each file shows the decoded type, communication mode,
 access rights, capacity or limits, and raw settings; a response that does not
 parse is marked `undecoded` with the raw bytes, never guessed. Reads report
 the effective communication mode, the session key family, and the response

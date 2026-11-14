@@ -229,6 +229,31 @@ Both tests passed on PN532 UART on 2026-11-14. The service-level tests in
 NDEF application, a failed second copy after the delete, and the non-factory
 key reset without hardware.
 
+Phase 26.13 adds the shared session preflight, planned backup and manifest
+paths, the file-settings gate, and the structured Activity entry.
+`crates/nfc-app/tests/desfire_write.rs` covers the JSON backup (content and
+mode 0600), an unwritable backup path before `WriteData`, a pre-cancelled
+token, a card change, and a reader loss. `desfire_management.rs` covers the
+file-settings Advanced/confirmation gates and read-only inspection. The CLI
+tests cover the file-settings dry run, the planned write backup path, and the
+manifest path before deletion. On hardware, the 26.9 management test passed
+with the new gate and the 26.8 secure-messaging write test passed with
+persisted backups on PN532 UART on 2026-11-14:
+
+```sh
+NFC_FOUNDRY_HARDWARE=1 NFC_FOUNDRY_HARDWARE_WRITE=yes \
+NFC_FOUNDRY_HARDWARE_FORMAT=yes NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
+cargo test -p nfctl --features hardware-write \
+  --test hardware_desfire_management -- --ignored
+NFC_FOUNDRY_HARDWARE=1 NFC_FOUNDRY_HARDWARE_WRITE=yes \
+NFC_FOUNDRY_HARDWARE_FORMAT=yes NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
+cargo test -p nfctl --features hardware-write \
+  --test hardware_desfire_secure_messaging -- --ignored
+```
+
+The Activity journal is session-only. A persistent log file and the ACR122U
+row for these gates are not part of this slice.
+
 ```sh
 NFC_FOUNDRY_HARDWARE=1 NFC_FOUNDRY_HARDWARE_WRITE=yes \
 NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \

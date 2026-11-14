@@ -56,12 +56,20 @@ impl BackupStore {
         self.save_bytes(label, &bytes)
     }
 
+    /// Reserve a unique private path for a caller that writes the file itself.
+    ///
+    /// Callers that must show the backup path before executing a write plan
+    /// the path, show it, and pass the exact path to the writer. [`Self::save_bytes`]
+    /// uses the same naming for callers that do not need a pre-planned path.
+    pub fn plan_path(&self, label: &str) -> PathBuf {
+        self.directory
+            .join(format!("{}-{}.json", sanitize(label), unique()))
+    }
+
     /// Writes an already-encoded project snapshot atomically. Type 2 images
     /// use their own JSON project format through this path.
     pub fn save_bytes(&self, label: &str, bytes: &[u8]) -> Result<BackupRecord> {
-        let path = self
-            .directory
-            .join(format!("{}-{}.json", sanitize(label), unique()));
+        let path = self.plan_path(label);
         write_atomic(&path, bytes)?;
         Ok(BackupRecord {
             path,
