@@ -31,6 +31,8 @@ pub struct DeviceManager {
     busy: Cell<bool>,
     /// A release parks the reader until an operation or an explicit selection.
     polling_paused: bool,
+    /// A host disconnect keeps polling and automatic reconnects stopped.
+    disconnected: bool,
     monitor: MonitorState,
 }
 
@@ -55,6 +57,7 @@ impl DeviceManager {
             lock_dir,
             busy: Cell::new(false),
             polling_paused: false,
+            disconnected: false,
             monitor: MonitorState::new(),
         }
     }
@@ -101,7 +104,9 @@ impl DeviceManager {
         if selection_is_gone {
             self.release()?;
             self.selected = None;
-        } else if self.monitor.lifecycle() == crate::reader::ReaderStatus::Error {
+        } else if !self.disconnected
+            && self.monitor.lifecycle() == crate::reader::ReaderStatus::Error
+        {
             self.release()?;
             self.polling_paused = false;
             self.monitor.reset(Instant::now());
@@ -120,6 +125,9 @@ impl DeviceManager {
             )));
         }
         if self.selected.as_deref() == Some(conn_string) {
+            if self.disconnected {
+                return Ok(());
+            }
             if self.polling_paused || self.monitor.lifecycle() == crate::reader::ReaderStatus::Error
             {
                 self.release()?;
@@ -130,14 +138,36 @@ impl DeviceManager {
         }
         self.release()?;
         self.selected = Some(conn_string.to_owned());
+        if !self.disconnected {
+            self.polling_paused = false;
+            self.monitor.reset(Instant::now());
+        }
+        Ok(())
+    }
+
+    /// Close the reader on purpose and stop polling until [`Self::connect`] or
+    /// the next operation. The cross-process lock is released with the reader.
+    pub fn disconnect(&mut self) -> Result<()> {
+        self.disconnected = true;
+        let result = self.release();
+        self.monitor.disconnected();
+        result
+    }
+
+    /// Leave the disconnected state and reopen the selected reader on the next
+    /// poll or operation.
+    pub fn connect(&mut self) -> Result<()> {
+        let result = self.release();
+        self.disconnected = false;
         self.polling_paused = false;
         self.monitor.reset(Instant::now());
-        Ok(())
+        result
     }
 
     /// Close the reader and start a new connection attempt with backoff reset.
     pub fn retry(&mut self) -> Result<()> {
         self.release()?;
+        self.disconnected = false;
         self.polling_paused = false;
         self.monitor.reset(Instant::now());
         Ok(())
@@ -165,6 +195,11 @@ impl DeviceManager {
         cancel: CancelToken,
     ) -> Result<Operation<'_>> {
         cancel.check()?;
+        if self.disconnected {
+            self.disconnected = false;
+            self.polling_paused = false;
+            self.monitor.reset(Instant::now());
+        }
         self.polling_paused = false;
         let selected = self.selected.clone().ok_or(NfcError::NoReader)?;
         if self.reader.is_none()
@@ -217,6 +252,9 @@ impl DeviceManager {
             return self.monitor.update(true, self.selected.clone());
         }
         self.monitor.sync(false);
+        if self.disconnected {
+            return self.monitor.update(false, self.selected.clone());
+        }
         let Some(selected) = self.selected.clone() else {
             return self.monitor.update(false, None);
         };
@@ -425,6 +463,101 @@ mod tests {
         drop(operation);
         assert!(!manager.busy.get());
         assert_eq!(manager.state().status, crate::reader::ReaderStatus::Polling);
+    }
+
+    #[test]
+    fn disconnect_releases_reader_and_lock_until_connect() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let transport = MockTransport::new();
+        let info = DeviceInfo::new("Mock", "mock:0").with_physical_id("test:manager:disconnect");
+        let handle = transport.add(info.clone(), Some(card(1)));
+        let mut manager = DeviceManager::with_transport_and_lock_dir(
+            Arc::new(transport),
+            directory.path().to_path_buf(),
+        );
+        manager.refresh().expect("refresh");
+        manager.select("mock:0").expect("select");
+        let now = Instant::now();
+        manager.poll(now);
+        assert!(handle.is_open());
+        assert!(ReaderLock::acquire_in(directory.path(), &info).is_err());
+
+        manager.disconnect().expect("disconnect");
+        assert_eq!(
+            manager.state().status,
+            crate::reader::ReaderStatus::Disconnected
+        );
+        assert!(!handle.is_open());
+        assert_eq!(handle.open_count(), 1);
+        ReaderLock::acquire_in(directory.path(), &info).expect("lock after disconnect");
+
+        let update = manager.poll(now + std::time::Duration::from_secs(1));
+        assert_eq!(
+            update.snapshot.status,
+            crate::reader::ReaderStatus::Disconnected
+        );
+        assert!(update.events.contains(&ReaderEvent::StatusChanged(
+            crate::reader::ReaderStatus::Disconnected
+        )));
+        assert_eq!(handle.open_count(), 1, "disconnect must stop polling");
+        assert!(!handle.is_open());
+
+        manager.connect().expect("connect");
+        let update = manager.poll(now + std::time::Duration::from_secs(2));
+        assert_eq!(update.snapshot.status, crate::reader::ReaderStatus::Polling);
+        assert_eq!(handle.open_count(), 2);
+        assert!(handle.is_open());
+        assert!(ReaderLock::acquire_in(directory.path(), &info).is_err());
+    }
+
+    #[test]
+    fn operation_reconnects_after_disconnect() {
+        let (mut manager, handle) = manager();
+        manager.poll(Instant::now());
+        manager.disconnect().expect("disconnect");
+        assert!(!handle.is_open());
+
+        let operation = manager
+            .begin_operation(OperationKind::Read, CancelToken::new())
+            .expect("operation");
+        drop(operation);
+        assert_eq!(manager.state().status, crate::reader::ReaderStatus::Polling);
+        assert_eq!(handle.open_count(), 2);
+        assert!(handle.is_open());
+    }
+
+    #[test]
+    fn selection_and_refresh_keep_a_deliberate_disconnect() {
+        let transport = MockTransport::new();
+        let first = transport.add(DeviceInfo::new("Mock A", "mock:0"), Some(card(1)));
+        let second = transport.add(DeviceInfo::new("Mock B", "mock:1"), Some(card(2)));
+        let mut manager = DeviceManager::with_transport(Arc::new(transport));
+        manager.refresh().expect("refresh");
+        manager.select("mock:0").expect("select");
+        manager.poll(Instant::now());
+        manager.disconnect().expect("disconnect");
+        assert_eq!(
+            manager.state().status,
+            crate::reader::ReaderStatus::Disconnected
+        );
+
+        manager.refresh().expect("refresh");
+        manager.select("mock:1").expect("select");
+        assert_eq!(
+            manager.state().status,
+            crate::reader::ReaderStatus::Disconnected
+        );
+        assert_eq!(manager.state().selected.as_deref(), Some("mock:1"));
+        manager.poll(Instant::now() + std::time::Duration::from_secs(1));
+        assert_eq!(first.open_count(), 1);
+        assert_eq!(second.open_count(), 0);
+        assert!(!first.is_open());
+
+        manager.connect().expect("connect");
+        let update = manager.poll(Instant::now() + std::time::Duration::from_secs(2));
+        assert_eq!(update.snapshot.status, crate::reader::ReaderStatus::Polling);
+        assert_eq!(second.open_count(), 1);
+        assert!(second.is_open());
     }
 
     #[test]

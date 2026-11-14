@@ -13,13 +13,19 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
   while a system page is shown. The reader selector is not duplicated in the
   header.
 - Left rail (fixed start pane, `GtkPaned`): reader menu with refresh,
-  connection status, and capability profile, card identity/size/readability,
+  `Connect` / `Disconnect`, connection status, and capability profile, card
+  identity/size/readability,
   key-store status, and selected block. Refresh selects the first enumerated
   reader and shows its transport name and exact connstring.
 - The reader monitor polls through `nfc-app` with one exclusive operation
   lease. Removing the card, presenting a different card, or losing the reader
   invalidates the live image, resets Advanced mode, and disables writes while
   the inspected bytes stay visible.
+- `Disconnect` closes the reader, releases its cross-process lock, clears the
+  live flag, resets Advanced mode, and stops polling in `Disconnected`. The
+  inspected bytes stay visible under `Inspection only · read the card again`.
+  `Connect` or `Read card` reopens the selected reader, reacquires the lock,
+  and resumes polling; the old image stays inspection-only until a new read.
 - Opening a reader also claims its cross-process lock. When another NFC Foundry
   process owns the reader, the panel shows `Error: reader busy: …`, the device
   is not opened, and no write path becomes available.
@@ -63,7 +69,8 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
   - warnings for unknown bytes, unknown access bytes, and invalid access-bit
     complements.
 - Empty state before a read: "No card loaded", reader + Read hint.
-- Busy state: spinner, disabled reader menu and Read, disabled writes.
+- Busy state: spinner, disabled reader menu and Read, disabled Connect and
+  Disconnect, disabled writes.
 
 ## Details
 

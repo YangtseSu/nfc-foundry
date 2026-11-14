@@ -1,8 +1,9 @@
 # Phase 29 plan: CLI contract and reader ownership
 
 Status: in progress 2026-11-14. 29.1 (CLI machine contract), 29.2
-(cross-process reader lock), and 29.3 (device selection) are done; 29.4-29.7
-remain. Decisions from the parity review:
+(cross-process reader lock), 29.3 (device selection), and 29.4 (GUI
+connect/disconnect) are done; 29.5-29.7 remain. Decisions from the parity
+review:
 
 - complete the old `nfctl` machine contract in one phase;
 - GUI and CLI share a cross-process reader lock;
@@ -133,6 +134,10 @@ Done 2026-11-14. Spec:
 - Tests: env precedence, single/multiple/zero readers, invalid env target.
 
 ### 29.4 GUI Connect / Disconnect
+
+Done 2026-11-14. Spec:
+[29d-gui-connect-disconnect.md](../specs/29d-gui-connect-disconnect.md). Note:
+[29d-gui-connect-disconnect.md](../notes/29d-gui-connect-disconnect.md).
 
 - Add explicit Connect and Disconnect controls to the reader rail or reader
   menu. The current reader dropdown/refresh remains.

@@ -81,6 +81,18 @@ impl Service {
         self.devices.release()
     }
 
+    /// Close the selected reader, release its cross-process lock, and stop
+    /// polling until [`Self::connect_reader`] or the next card operation.
+    pub fn disconnect_reader(&mut self) -> Result<()> {
+        self.devices.disconnect()
+    }
+
+    /// Reopen the selected reader after a disconnect. The next poll or
+    /// operation claims the cross-process lock again.
+    pub fn connect_reader(&mut self) -> Result<()> {
+        self.devices.connect()
+    }
+
     /// Close the selected reader and start a fresh connection attempt. A
     /// monitor in `Error` also retries on re-selecting the same reader.
     pub fn retry_reader(&mut self) -> Result<()> {
@@ -660,6 +672,30 @@ mod tests {
 
         service.scan().expect("scan after release");
         assert_eq!(handle.open_count(), 2);
+    }
+
+    #[test]
+    fn disconnect_stops_polling_and_the_next_read_reconnects() {
+        let (mut service, handle) = service_with_card(card(1));
+        service.scan().expect("scan");
+        assert_eq!(handle.open_count(), 1);
+
+        service.disconnect_reader().expect("disconnect");
+        assert_eq!(
+            service.reader_state().status,
+            crate::ReaderStatus::Disconnected
+        );
+        assert!(!handle.is_open());
+        let update = service.poll_reader_at(Instant::now() + std::time::Duration::from_secs(1));
+        assert_eq!(update.snapshot.status, crate::ReaderStatus::Disconnected);
+        assert_eq!(handle.open_count(), 1, "a disconnect must stop polling");
+
+        assert_eq!(
+            service.scan().expect("scan after disconnect").uid,
+            vec![1; 4]
+        );
+        assert_eq!(handle.open_count(), 2);
+        assert_eq!(service.reader_state().status, crate::ReaderStatus::Polling);
     }
 
     #[test]

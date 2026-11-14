@@ -120,8 +120,11 @@ a full restore runs under one preflight token, verifies the restored sector 0,
 and only then writes the target UID. It is hardware-validated on PN532 UART and
 ACR122U with an owned Gen1A Classic 1K. S4 (reader lifecycle and capability
 model) is complete: `nfc-app` polls card presence with a bounded removal
-tolerance, reports connecting/polling/busy/recovering/error state, reconnects
-with exponential backoff, and holds one exclusive operation lease. Drivers
+tolerance, reports connecting/polling/busy/recovering/error/disconnected state,
+reconnects with exponential backoff, and holds one exclusive operation lease.
+The reader rail offers explicit Connect and Disconnect: Disconnect closes the
+reader, releases the cross-process lock, and keeps the inspected bytes
+inspection-only until the next read. Drivers
 publish their capabilities; UID writes and explicit active recovery strategies
 fail closed on a reader without the matching capability, and card removal
 invalidates the GUI image and disables writes. S6 adds Type 2 authenticated
@@ -497,7 +500,8 @@ still pending because no ACR122U was connected.
 ## GUI
 
 The GTK4 workbench lives in `crates/gui`. It includes the shell, real reader
-selection with live connection state and capabilities, Classic
+selection with live connection state, capabilities, and explicit
+Connect/Disconnect, Classic
 read/table/inspector, a Details tab with the shared card health model, verified
 block write, dump save/load
 with format selection, Keys, Key scan, Recovery, Diff, Restore, a family-aware

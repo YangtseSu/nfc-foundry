@@ -2016,6 +2016,13 @@ keys! {
     ReaderRecoveringDetail => ("Recovering: {}", "恢复中：{}"),
     ReaderError => ("Error", "错误"),
     ReaderErrorDetail => ("Error: {}", "错误：{}"),
+    ReaderDisconnected => ("Disconnected", "已断开"),
+    ReaderDisconnectedStatus => ("Reader disconnected", "读卡器已断开"),
+    ReaderConnected => ("Reader connected", "读卡器已连接"),
+    ReaderRecoveringStatus => ("Reader recovering", "读卡器恢复中"),
+    ReaderErrorStatus => ("Reader error", "读卡器错误"),
+    ReaderConnect => ("Connect", "连接"),
+    ReaderDisconnect => ("Disconnect", "断开连接"),
     ReaderCapabilities => ("Capabilities", "读卡器能力"),
     ReaderNotOpened => ("not opened", "未打开"),
     ReaderCapsFull => (

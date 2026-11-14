@@ -34,6 +34,9 @@ pub enum ReaderStatus {
     Recovering,
     /// A non-retryable reader error stopped polling.
     Error,
+    /// The host released the reader on purpose. Polling stays stopped until
+    /// `connect` or an operation reopens it.
+    Disconnected,
 }
 
 impl ReaderStatus {
@@ -45,6 +48,7 @@ impl ReaderStatus {
             Self::Busy => "busy",
             Self::Recovering => "recovering",
             Self::Error => "error",
+            Self::Disconnected => "disconnected",
         }
     }
 }
@@ -177,11 +181,14 @@ impl MonitorState {
     }
 
     /// Drop card state after an explicit reader release or device removal.
+    /// A deliberate disconnect keeps its own lifecycle.
     pub(crate) fn forget_card(&mut self) {
         self.misses = 0;
         self.next_poll = None;
         self.reconnect_at = None;
-        self.lifecycle = ReaderStatus::Connecting;
+        if self.lifecycle != ReaderStatus::Disconnected {
+            self.lifecycle = ReaderStatus::Connecting;
+        }
         if let Some(card) = self.card.take() {
             self.events.push_back(ReaderEvent::CardRemoved(card));
         }
@@ -190,6 +197,23 @@ impl MonitorState {
     pub(crate) fn opened(&mut self, capabilities: ReaderCapabilities, firmware: Option<String>) {
         self.capabilities = capabilities;
         self.firmware = firmware;
+    }
+
+    /// Park the monitor after a host-initiated disconnect. The reader is
+    /// already closed; this clears the connection facts and stops polling
+    /// until an explicit connect or the next operation.
+    pub(crate) fn disconnected(&mut self) {
+        self.lifecycle = ReaderStatus::Disconnected;
+        self.misses = 0;
+        self.error = None;
+        self.capabilities = ReaderCapabilities::default();
+        self.firmware = None;
+        self.next_poll = None;
+        self.reconnect_at = None;
+        if let Some(card) = self.card.take() {
+            self.events.push_back(ReaderEvent::CardRemoved(card));
+        }
+        self.sync(false);
     }
 
     pub(crate) fn begin_operation(&mut self) {
@@ -213,10 +237,13 @@ impl MonitorState {
         }
     }
 
-    /// Whether a poll may run now. An `Error` state waits for an explicit
-    /// selection or refresh instead of retrying a known-bad reader.
+    /// Whether a poll may run now. `Error` and `Disconnected` wait for an
+    /// explicit selection, connect, or operation instead of retrying.
     pub(crate) fn poll_due(&self, now: Instant) -> bool {
-        if self.lifecycle == ReaderStatus::Error {
+        if matches!(
+            self.lifecycle,
+            ReaderStatus::Error | ReaderStatus::Disconnected
+        ) {
             return false;
         }
         if let Some(at) = self.reconnect_at

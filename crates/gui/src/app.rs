@@ -350,11 +350,19 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
     reader_caps.set_selectable(true);
     reader_caps.add_css_class("caption");
     reader_caps.add_css_class("dim-label");
+    let reader_connect = gtk::Button::with_label("Connect");
+    let reader_disconnect = gtk::Button::with_label("Disconnect");
+    reader_connect.set_sensitive(false);
+    reader_disconnect.set_sensitive(false);
+    let reader_actions = gtk::Box::new(Orientation::Horizontal, 8);
+    reader_actions.append(&reader_connect);
+    reader_actions.append(&reader_disconnect);
     reader_body.append(&reader_combo);
     reader_body.append(&reader_value);
     reader_body.append(&reader_state);
     reader_body.append(&reader_card_info);
     reader_body.append(&reader_caps);
+    reader_body.append(&reader_actions);
 
     let (card_card, _, card_body) = rail_card("CARD");
     let card_title = gtk::Label::new(Some("No card"));
@@ -482,6 +490,8 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
         reader_state,
         reader_card_info,
         reader_caps,
+        reader_connect,
+        reader_disconnect,
         reader_snapshot: RefCell::new(ReaderSnapshot {
             status: ReaderStatus::Connecting,
             selected: None,
@@ -932,6 +942,8 @@ struct Ui {
     reader_state: gtk::Label,
     reader_card_info: gtk::Label,
     reader_caps: gtk::Label,
+    reader_connect: gtk::Button,
+    reader_disconnect: gtk::Button,
     reader_snapshot: RefCell<ReaderSnapshot>,
     card_title: gtk::Label,
     card_detail: gtk::Label,
@@ -4422,6 +4434,13 @@ fn connect_signals(ui: &Rc<Ui>) {
         });
 
     let ui2 = ui.clone();
+    ui.reader_disconnect
+        .connect_clicked(move |_| disconnect_reader(&ui2));
+    let ui2 = ui.clone();
+    ui.reader_connect
+        .connect_clicked(move |_| connect_reader(&ui2));
+
+    let ui2 = ui.clone();
     ui.reader_combo.connect_selected_notify(move |dropdown| {
         if ui2.reader_selection_updating.get() {
             return;
@@ -4457,6 +4476,7 @@ fn select_reader_device(ui: &Rc<Ui>, device: &DeviceInfo, log: &str, status: Opt
     };
     match result {
         Ok(()) => {
+            let snapshot = ui.service.lock().map(|service| service.reader_state()).ok();
             ui.live.set(false);
             reset_advanced(ui);
             render_type2(ui);
@@ -4467,8 +4487,64 @@ fn select_reader_device(ui: &Rc<Ui>, device: &DeviceInfo, log: &str, status: Opt
             if let Some(status) = status {
                 ui.status.set_localized(status);
             }
+            if let Some(snapshot) = snapshot {
+                ui.reader_snapshot.replace(snapshot);
+            }
             render_reader_panel(ui);
             append_log(ui, &format!("{log} · {id}"));
+        }
+        Err(error) => toast_error(ui, &error.to_string()),
+    }
+}
+
+/// Release the reader and its cross-process lock. The inspected bytes stay on
+/// screen for reading and staging; writing them needs a new card read.
+fn disconnect_reader(ui: &Rc<Ui>) {
+    let result = match ui.service.lock() {
+        Ok(mut service) => service.disconnect_reader(),
+        Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
+    };
+    match result {
+        Ok(()) => {
+            poll_reader_once(ui);
+            ui.live.set(false);
+            reset_advanced(ui);
+            render_type2(ui);
+            update_inspector(ui);
+            update_card(ui);
+            update_ndef_actions(ui);
+            update_type2_actions(ui);
+            update_restore_sensitivity(ui);
+            let inspected = ui.dump.borrow().is_some() || ui.type2.borrow().is_some();
+            ui.status.set_localized(if inspected {
+                "Inspection only · read the card again"
+            } else {
+                "Reader disconnected"
+            });
+            append_log(ui, "reader · disconnected");
+        }
+        Err(error) => toast_error(ui, &error.to_string()),
+    }
+}
+
+/// Reopen the selected reader after a disconnect. The next poll claims the
+/// reader and its cross-process lock.
+fn connect_reader(ui: &Rc<Ui>) {
+    let result = match ui.service.lock() {
+        Ok(mut service) => service.connect_reader(),
+        Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
+    };
+    match result {
+        Ok(()) => {
+            append_log(ui, "reader · connect");
+            ui.status.set_localized("Connecting…");
+            poll_reader_once(ui);
+            match ui.reader_snapshot.borrow().status {
+                ReaderStatus::Polling => ui.status.set_localized("Reader connected"),
+                ReaderStatus::Recovering => ui.status.set_localized("Reader recovering"),
+                ReaderStatus::Error => ui.status.set_localized("Reader error"),
+                ReaderStatus::Connecting | ReaderStatus::Busy | ReaderStatus::Disconnected => {}
+            }
         }
         Err(error) => toast_error(ui, &error.to_string()),
     }
@@ -6777,6 +6853,7 @@ fn render_reader_panel(ui: &Ui) {
             Some(error) => format!("Error: {error}"),
             None => "Error".to_owned(),
         },
+        ReaderStatus::Disconnected => "Disconnected".to_owned(),
     };
     ui.reader_state.set_localized(&status);
     match snapshot.selected.as_deref() {
@@ -6810,6 +6887,20 @@ fn render_reader_panel(ui: &Ui) {
     }
     ui.reader_caps
         .set_localized(&capability_text(snapshot.capabilities));
+    update_reader_actions(ui);
+}
+
+/// Connect applies only to an explicit disconnect; Disconnect applies to any
+/// reader the service may still consider connected.
+fn update_reader_actions(ui: &Ui) {
+    let snapshot = ui.reader_snapshot.borrow();
+    let selected = snapshot.selected.is_some();
+    let disconnected = snapshot.status == ReaderStatus::Disconnected;
+    let idle = !ui.busy.get();
+    ui.reader_connect
+        .set_sensitive(selected && disconnected && idle);
+    ui.reader_disconnect
+        .set_sensitive(selected && !disconnected && idle);
 }
 
 /// Transport name used when a selected connstring is no longer in the device
@@ -15366,6 +15457,7 @@ fn set_busy(ui: &Ui, busy: bool) {
     }
     ui.read_button.set_sensitive(!busy);
     ui.reader_combo.set_sensitive(!busy);
+    update_reader_actions(ui);
     update_inspector(ui);
     update_restore_sensitivity(ui);
     update_ndef_actions(ui);
@@ -16022,6 +16114,7 @@ mod tests {
         reader_refresh_invalidates(&harness);
         reader_resolution_is_visible(&harness);
         reader_monitor_invalidates(&harness);
+        reader_disconnect_and_reconnect(&harness);
         workbench_stage_undo_revert_and_write(&harness);
         identity_refusal_is_visible(&harness);
         restore_cancel_then_confirm(&harness);
@@ -16527,6 +16620,61 @@ mod tests {
         poll_reader_once(ui);
         assert_eq!(ui.reader_state.label(), "Polling · card present");
         assert!(!ui.live.get(), "the old image stays inspection-only");
+    }
+
+    fn reader_disconnect_and_reconnect(harness: &Harness) {
+        reset(harness);
+        let ui = &harness.ui;
+        poll_reader_once(ui);
+        assert_eq!(ui.reader_state.label(), "Polling · card present");
+        assert!(ui.reader_disconnect.is_sensitive());
+        assert!(!ui.reader_connect.is_sensitive());
+
+        show_dump(ui);
+        ui.selection.set_selected(4);
+        ui.inspector
+            .hex
+            .set_text(&classic::hex_with_mask(&changed_block(), u16::MAX));
+        update_write_sensitivity(ui);
+        assert!(ui.inspector.write.is_sensitive());
+        stage_edit(ui.clone());
+        assert!(ui.inspector.commit.is_sensitive());
+        let open_count = harness.handle.open_count();
+
+        ui.reader_disconnect.emit_clicked();
+        assert_eq!(ui.reader_state.label(), "Disconnected");
+        assert_eq!(ui.status.label(), "Inspection only · read the card again");
+        assert!(!ui.live.get());
+        assert!(!ui.inspector.commit.is_sensitive());
+        assert!(ui.reader_connect.is_sensitive());
+        assert!(!ui.reader_disconnect.is_sensitive());
+        assert!(!harness.handle.is_open());
+        assert_eq!(
+            ui.service.lock().expect("service").reader_state().status,
+            ReaderStatus::Disconnected
+        );
+
+        poll_reader_once(ui);
+        assert_eq!(ui.reader_state.label(), "Disconnected");
+        assert_eq!(
+            harness.handle.open_count(),
+            open_count,
+            "a disconnected reader must not be polled"
+        );
+        assert!(!ui.live.get(), "no poll makes the inspected bytes live");
+
+        ui.reader_connect.emit_clicked();
+        assert_eq!(ui.reader_state.label(), "Polling · card present");
+        assert_eq!(ui.status.label(), "Reader connected");
+        assert!(harness.handle.is_open());
+        assert!(harness.handle.open_count() > open_count);
+        assert!(
+            !ui.live.get(),
+            "reconnecting does not make stale bytes live"
+        );
+        assert!(!ui.inspector.commit.is_sensitive());
+        assert!(ui.reader_disconnect.is_sensitive());
+        assert!(!ui.reader_connect.is_sensitive());
     }
 
     fn workbench_stage_undo_revert_and_write(harness: &Harness) {

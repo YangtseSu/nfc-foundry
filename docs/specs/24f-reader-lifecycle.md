@@ -13,7 +13,8 @@ fail closed.
 
 `nfc_app::reader` defines the public lifecycle types:
 
-- `ReaderStatus`: `Connecting`, `Polling`, `Busy`, `Recovering`, `Error`.
+- `ReaderStatus`: `Connecting`, `Polling`, `Busy`, `Recovering`, `Error`,
+  `Disconnected`.
 - `ReaderEvent`: `CardAppeared(CardInfo)`, `CardRemoved(CardInfo)`,
   `StatusChanged(ReaderStatus)`.
 - `ReaderSnapshot`: current status, selected connstring, card, capabilities,
@@ -42,7 +43,9 @@ Behavior:
   with the backoff reset.
 - The monitor polls only while a reader is selected and polling is not paused.
   An explicit `Service::release_reader` parks the monitor; the next operation or
-  selection opens the reader again.
+  selection opens the reader again. `Service::disconnect_reader` parks it in
+  `Disconnected` and releases the cross-process lock; `Service::connect_reader`
+  or the next operation resets polling and reopens the reader.
 
 `Service::poll_reader` steps the monitor with the wall clock.
 `Service::poll_reader_at` accepts the host clock for deterministic schedulers
