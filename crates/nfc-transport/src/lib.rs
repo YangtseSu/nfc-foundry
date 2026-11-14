@@ -168,6 +168,24 @@ pub trait Reader: Send {
         let _ = expected_bits;
         self.transceive_parity(data, parity)
     }
+
+    /// Native command console for developer diagnostics. Only readers that
+    /// compile one return it; release builds leave the channel out entirely.
+    #[cfg(feature = "developer-tools")]
+    fn raw_console(&mut self) -> Option<&mut dyn RawConsole> {
+        None
+    }
+}
+
+/// Developer-only native command channel.
+///
+/// A console at this level talks to the reader protocol, not to a card, so it
+/// can run before a tag is present. Driver framing, acknowledgement, and
+/// response validation still apply; card workflows do not.
+#[cfg(feature = "developer-tools")]
+pub trait RawConsole: Reader {
+    /// Send one native command frame and return the native reply body.
+    fn raw_command(&mut self, command: &[u8]) -> Result<Vec<u8>>;
 }
 
 /// A driver factory. Enumeration returns exact connstrings; opening a

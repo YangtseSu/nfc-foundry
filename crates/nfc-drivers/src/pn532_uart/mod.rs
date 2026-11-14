@@ -296,6 +296,18 @@ impl Reader for Pn532Uart {
         self.protocol()?
             .transceive_parity_expect(data, parity, expected_bits)
     }
+
+    #[cfg(feature = "developer-tools")]
+    fn raw_console(&mut self) -> Option<&mut dyn nfc_transport::RawConsole> {
+        Some(self)
+    }
+}
+
+#[cfg(feature = "developer-tools")]
+impl nfc_transport::RawConsole for Pn532Uart {
+    fn raw_command(&mut self, command: &[u8]) -> Result<Vec<u8>> {
+        self.protocol()?.raw_command(command)
+    }
 }
 
 impl TrailerWriter for Pn532Uart {

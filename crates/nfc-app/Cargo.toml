@@ -19,6 +19,9 @@ rustix.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+[features]
+developer-tools = ["nfc-transport/developer-tools"]
+
 [dev-dependencies]
 nfc-desfire = { workspace = true, features = ["mock-card"] }
 tempfile = "3"

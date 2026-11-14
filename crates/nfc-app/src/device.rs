@@ -244,6 +244,42 @@ impl DeviceManager {
         Ok(Operation::new(kind, reader.as_mut(), card, cancel, busy))
     }
 
+    /// Open the selected reader if needed and return the exclusive lease for a
+    /// developer diagnostic session. No card is selected; the lease holds the
+    /// busy state until it drops.
+    #[cfg(feature = "developer-tools")]
+    pub fn begin_diagnostics(
+        &mut self,
+        cancel: CancelToken,
+    ) -> Result<crate::developer::DiagnosticLease<'_>> {
+        cancel.check()?;
+        if self.disconnected {
+            self.disconnected = false;
+            self.polling_paused = false;
+            self.monitor.reset(Instant::now());
+        }
+        self.polling_paused = false;
+        let selected = self.selected.clone().ok_or(NfcError::NoReader)?;
+        if self.reader.is_none()
+            && let Err(error) = self.ensure_open(&selected)
+        {
+            self.record_open_failure(&error);
+            return Err(error);
+        }
+        self.busy.set(true);
+        self.monitor.begin_operation();
+        if self.reader.is_none() {
+            self.fail_operation();
+            return Err(NfcError::NoReader);
+        }
+        let reader = self.reader.as_mut().ok_or(NfcError::NoReader)?;
+        Ok(crate::developer::DiagnosticLease::new(
+            reader.as_mut(),
+            &self.busy,
+            cancel,
+        ))
+    }
+
     /// Step the monitor with the host clock. Card and status transitions are
     /// returned as events; transport errors are state, not returned errors.
     pub fn poll(&mut self, now: Instant) -> ReaderUpdate {

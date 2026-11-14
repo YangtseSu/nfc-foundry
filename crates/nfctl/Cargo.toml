@@ -28,6 +28,7 @@ signal-hook.workspace = true
 [features]
 default = ["acr122-pcsc"]
 acr122-pcsc = ["nfc-drivers/acr122-pcsc"]
+developer-tools = ["nfc-app/developer-tools", "nfc-drivers/developer-tools"]
 hardware = []
 hardware-write = ["hardware"]
 

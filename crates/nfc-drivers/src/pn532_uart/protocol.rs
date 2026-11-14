@@ -437,6 +437,19 @@ impl Pn532Protocol {
         split_apdu_response(data, "PN532")
     }
 
+    /// Send one native PN532 command frame and return the reply body. Framing,
+    /// acknowledgement, and response-code validation match every other
+    /// command; the command code and parameters are the caller's.
+    #[cfg(feature = "developer-tools")]
+    pub(crate) fn raw_command(&mut self, command: &[u8]) -> Result<Vec<u8>> {
+        if command.is_empty() {
+            return Err(NfcError::InvalidArgument(
+                "a PN532 command needs at least one byte".to_owned(),
+            ));
+        }
+        self.command(command, self.config.command_timeout, Retry::No)
+    }
+
     /// Run a Type 2 command in raw framing and restore the previous mode.
     fn with_raw<T>(&mut self, action: impl FnOnce(&mut Self) -> Result<T>) -> Result<T> {
         let was_raw = self.raw_mode;

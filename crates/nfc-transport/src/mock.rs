@@ -8,6 +8,8 @@ use nfc_core::{
     TYPE2_VERSION_SIZE,
 };
 
+#[cfg(feature = "developer-tools")]
+use crate::RawConsole;
 use crate::{
     ApduCapabilities, ApduResponse, DeviceInfo, ManufacturerWriter, Reader, ReaderCapabilities,
     TrailerWriter, Transport,
@@ -284,6 +286,12 @@ struct MockState {
     /// Selection succeeds but every MIFARE authentication times out, as on a
     /// phone-emulated UID-only card.
     mifare_unsupported: bool,
+    /// Native commands received through the developer console.
+    #[cfg(feature = "developer-tools")]
+    raw_commands: Vec<Vec<u8>>,
+    /// Scripted reply of a native console exchange.
+    #[cfg(feature = "developer-tools")]
+    raw_response: Vec<u8>,
 }
 
 impl Default for MockState {
@@ -316,6 +324,10 @@ impl Default for MockState {
             block_zero_writable: true,
             type2_uid_writable: false,
             mifare_unsupported: false,
+            #[cfg(feature = "developer-tools")]
+            raw_commands: Vec::new(),
+            #[cfg(feature = "developer-tools")]
+            raw_response: Vec::new(),
         }
     }
 }
@@ -515,6 +527,18 @@ impl MockHandle {
 
     pub fn is_raw_mode(&self) -> bool {
         self.lock().raw_mode
+    }
+
+    /// Script the reply of a developer console exchange.
+    #[cfg(feature = "developer-tools")]
+    pub fn set_raw_response(&self, response: impl Into<Vec<u8>>) {
+        self.lock().raw_response = response.into();
+    }
+
+    /// Native commands the developer console sent.
+    #[cfg(feature = "developer-tools")]
+    pub fn raw_commands(&self) -> Vec<Vec<u8>> {
+        self.lock().raw_commands.clone()
     }
 
     pub fn is_open(&self) -> bool {
@@ -810,6 +834,20 @@ impl Reader for MockReader {
     fn manufacturer_writer(&mut self) -> Option<&mut dyn ManufacturerWriter> {
         let available = self.state.lock().capabilities.manufacturer_write;
         if available { Some(self) } else { None }
+    }
+
+    #[cfg(feature = "developer-tools")]
+    fn raw_console(&mut self) -> Option<&mut dyn RawConsole> {
+        Some(self)
+    }
+}
+
+#[cfg(feature = "developer-tools")]
+impl RawConsole for MockReader {
+    fn raw_command(&mut self, command: &[u8]) -> Result<Vec<u8>> {
+        let mut state = self.state.lock();
+        state.raw_commands.push(command.to_vec());
+        Ok(state.raw_response.clone())
     }
 }
 

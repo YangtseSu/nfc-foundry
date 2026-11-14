@@ -5,6 +5,8 @@
 
 pub mod classic;
 pub mod desfire;
+#[cfg(feature = "developer-tools")]
+pub mod developer;
 pub mod device;
 pub mod diagnostics;
 pub mod event;

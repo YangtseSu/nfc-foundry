@@ -604,6 +604,16 @@ impl Service {
     ) -> Result<Operation<'_>> {
         self.devices.begin_operation(kind, cancel)
     }
+
+    /// Exclusive reader lease for a developer diagnostic session. Compiled
+    /// only with `developer-tools`; no card is selected.
+    #[cfg(feature = "developer-tools")]
+    pub fn begin_diagnostics(
+        &mut self,
+        cancel: CancelToken,
+    ) -> Result<crate::developer::DiagnosticLease<'_>> {
+        self.devices.begin_diagnostics(cancel)
+    }
 }
 
 #[cfg(test)]

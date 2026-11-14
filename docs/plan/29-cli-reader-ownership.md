@@ -1,9 +1,10 @@
 # Phase 29 plan: CLI contract and reader ownership
 
-Status: in progress 2026-11-14. 29.1 (CLI machine contract), 29.2
+Status: in progress 2026-11-15. 29.1 (CLI machine contract), 29.2
 (cross-process reader lock), 29.3 (device selection), 29.4 (GUI
-connect/disconnect), and 29.5 (cancellation and unified tasks) are done;
-29.6-29.7 remain. Decisions from the parity review:
+connect/disconnect), 29.5 (cancellation and unified tasks), and 29.6
+(developer-only raw diagnostics) are done; 29.7 remains. Decisions from the
+parity review:
 
 - complete the old `nfctl` machine contract in one phase;
 - GUI and CLI share a cross-process reader lock;
@@ -181,6 +182,10 @@ Done 2026-11-14. Spec:
 - Tests: cancel read, keyscan, recovery, NDEF write, restore; UI state and log.
 
 ### 29.6 Developer-only raw diagnostics
+
+Done 2026-11-15. Spec:
+[29f-developer-tools.md](../specs/29f-developer-tools.md). Note:
+[29f-developer-tools.md](../notes/29f-developer-tools.md).
 
 - Add a non-default Cargo feature `developer-tools`; release packages and AUR
   builds do not enable it.

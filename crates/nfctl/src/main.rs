@@ -214,6 +214,19 @@ enum Command {
         #[command(subcommand)]
         command: RecoveryCommand,
     },
+    /// Raw PN532 command console (developer diagnostic).
+    #[cfg(feature = "developer-tools")]
+    Pn532 {
+        #[command(subcommand)]
+        command: Pn532Command,
+    },
+    /// Send one raw ISO 7816-4 APDU (developer diagnostic).
+    #[cfg(feature = "developer-tools")]
+    Apdu {
+        /// Complete command APDU as hexadecimal bytes.
+        #[arg(long, value_name = "HEX")]
+        raw: String,
+    },
     /// Run the self-check.
     Diag,
 }
@@ -1121,6 +1134,13 @@ enum RecoveryCommand {
     },
 }
 
+#[cfg(feature = "developer-tools")]
+#[derive(Clone, Debug, Subcommand)]
+enum Pn532Command {
+    /// Interactive raw command console.
+    Shell,
+}
+
 fn main() -> ExitCode {
     let args: Vec<std::ffi::OsString> = std::env::args_os().collect();
     let mode = runtime::prescan_mode(&args);
@@ -1245,6 +1265,12 @@ fn dispatch(run: &mut Run<'_>, service: &mut Service, command: Command) -> CliRe
         Command::Desfire { command } => desfire(run, service, *command),
         Command::Ndef { command } => ndef(run, service, command),
         Command::Recover { command } => recovery(run, service, command),
+        #[cfg(feature = "developer-tools")]
+        Command::Pn532 { command } => match command {
+            Pn532Command::Shell => pn532_shell(run, service),
+        },
+        #[cfg(feature = "developer-tools")]
+        Command::Apdu { raw } => apdu_raw(run, service, &raw),
         Command::Diag => {
             run.out.set_command("diag");
             diag(run, service)
@@ -1330,6 +1356,12 @@ impl Command {
                 RecoveryCommand::HardNested { .. } => "recover.hardnested",
                 RecoveryCommand::Fm11rf08s { .. } => "recover.fm11rf08s",
             },
+            #[cfg(feature = "developer-tools")]
+            Self::Pn532 { command } => match command {
+                Pn532Command::Shell => "pn532.shell",
+            },
+            #[cfg(feature = "developer-tools")]
+            Self::Apdu { .. } => "apdu.raw",
             Self::Diag => "diag",
         }
     }
@@ -6552,6 +6584,94 @@ fn recovery_strategy_name(strategy: RecoveryStrategy) -> &'static str {
         RecoveryStrategy::HardNested => "hardnested",
         RecoveryStrategy::Fm11rf08s => "FM11RF08S",
     }
+}
+
+/// Developer-only raw PN532 console.
+///
+/// Compiled with `developer-tools` only and never exposed by the GUI. Each
+/// line is one native command frame; the session does not select a card or run
+/// any workflow.
+#[cfg(feature = "developer-tools")]
+fn pn532_shell(run: &mut Run<'_>, service: &mut Service) -> CliResult<Value> {
+    if !run.out.mode().is_human() {
+        return Err(CliError::Usage(
+            "`pn532 shell` is interactive and does not support --json or --jsonl".to_owned(),
+        ));
+    }
+    prepare(run, service)?;
+    warn!(
+        run.out,
+        "developer console: raw PN532 commands bypass card workflows and can leave the reader in an unknown state"
+    );
+    say!(run.out, "Hex command bytes, `help`, or `quit`.");
+    let mut lease = service.begin_diagnostics(run.cancel.clone())?;
+    let interactive = io::stdin().is_terminal();
+    loop {
+        run.cancel.check()?;
+        if interactive {
+            say_inline!(run.out, "pn532> ");
+            io::stdout().flush()?;
+        }
+        let mut line = String::new();
+        if io::stdin().read_line(&mut line)? == 0 {
+            break;
+        }
+        let input = line.trim();
+        match input {
+            "" => continue,
+            "quit" | "exit" => break,
+            "help" | "?" => {
+                say!(
+                    run.out,
+                    "one line is one native command frame; quit or exit leaves the console"
+                );
+                continue;
+            }
+            _ => {}
+        }
+        let command = match parse_hex_bytes(input, "command") {
+            Ok(command) => command,
+            Err(error) => {
+                note!(run.out, "error: {}", error.message());
+                continue;
+            }
+        };
+        match lease.raw_command(&command) {
+            Ok(response) if response.is_empty() => say!(run.out, "response: (empty)"),
+            Ok(response) => say!(run.out, "response: {}", hex_bytes(&response)),
+            Err(error) => note!(run.out, "error: {error}"),
+        }
+    }
+    Ok(json!({}))
+}
+
+/// Developer-only raw APDU exchange. The request is never echoed: an
+/// experimental APDU may carry key material, and the envelope must not export
+/// it.
+#[cfg(feature = "developer-tools")]
+fn apdu_raw(run: &mut Run<'_>, service: &mut Service, raw: &str) -> CliResult<Value> {
+    let apdu = parse_hex_bytes(raw, "APDU")?;
+    prepare(run, service)?;
+    warn!(
+        run.out,
+        "raw APDU is a developer diagnostic, not a safe write path"
+    );
+    let mut lease = service.begin_diagnostics(run.cancel.clone())?;
+    let (card, response) = lease.raw_apdu(&apdu)?;
+    run.out.set_card(&card);
+    let data = compact_hex(&response.data);
+    let sw = format!("{:02X}{:02X}", response.sw[0], response.sw[1]);
+    if data.is_empty() {
+        say!(run.out, "data: (none)");
+    } else {
+        say!(run.out, "data: {data}");
+    }
+    say!(run.out, "sw: {sw}");
+    Ok(json!({
+        "data": data,
+        "sw": sw,
+        "statusOk": response.is_ok(),
+    }))
 }
 
 fn list(run: &mut Run<'_>, service: &mut Service) -> CliResult<Value> {

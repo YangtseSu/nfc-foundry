@@ -202,6 +202,8 @@ Machine output never contains:
 - Type 2 PWD/PACK values (`type2 password`);
 - DESFire key material (`desfire change-key`, `desfire verify-key`,
   `desfire uid`);
+- the request frame of `pn532 shell` and the request APDU of `apdu --raw`,
+  because a diagnostic exchange can carry key material;
 - raw dump or file payloads from `classic dump`, `type2 dump`, or DESFire
   backups. `desfire read` returns the data it was asked to read.
 
@@ -279,7 +281,60 @@ recover.static_nested
 recover.hardnested
 recover.fm11rf08s
 diag
+# developer-tools builds only:
+pn532.shell
+apdu.raw
 ```
+
+## Developer commands
+
+`pn532 shell` and `apdu --raw` exist only in a build with the non-default
+`developer-tools` Cargo feature. Release packages and AUR builds do not enable
+it, so the commands are absent from their help, parser, and command names.
+They are diagnostics, not supported card paths, and the GUI has no entry for
+either.
+
+```sh
+cargo build -p nfctl --features developer-tools
+```
+
+### `pn532 shell`
+
+Interactive native command console for a PN532 UART reader. It resolves the
+reader like every other command and holds one exclusive diagnostic lease for
+the session; no card is required.
+
+- One input line is one native command frame: hexadecimal command code and
+  parameters, with spaces or `:` allowed.
+- `help` or `?` prints the one-line usage; `quit`, `exit`, and EOF end the
+  session.
+- Replies print as space-separated hexadecimal, `(empty)` for an empty body,
+  and a failed command prints `error: …` without ending the session.
+- The session prints
+  `warning: developer console: raw PN532 commands bypass card workflows and can leave the reader in an unknown state`.
+- Only human output is supported. `--json` and `--jsonl` exit 2; `--dry-run`
+  is rejected.
+
+The console keeps the command timeout, ACK, framing, and response validation of
+the driver. It never prints key material, Type 2 credentials, or the request
+frame. ACR122U readers have no native command console.
+
+### `apdu --raw <HEX>`
+
+Selects the card and sends one complete ISO 7816-4 command APDU, with no
+retry. The card must be ISO/IEC 14443-4.
+
+- Warning in human mode and in the envelope `warnings`:
+  `raw APDU is a developer diagnostic, not a safe write path`.
+- Human result: `data: <hex>` or `data: (none)`, then `sw: XXXX`.
+- JSON result: `data`, `sw`, and `statusOk`; the envelope `card` carries the
+  selected card identity.
+- The request APDU is never echoed; an experimental APDU can carry key
+  material.
+
+`data` is the comma-free compact hex of the response data. A malformed APDU is
+a usage error (2); a non-ISO-DEP card or a reader without APDU support is an
+unsupported/hardware error (4).
 
 ## Result shapes
 
@@ -378,6 +433,14 @@ A file settings object is `{type, communication, access, contents}`.
 (or only `keyType` for a single-target attack). Key values are never in the
 envelope.
 
+### Developer diagnostics
+
+| Command | `result` fields |
+|---|---|
+| `apdu.raw` | `data`, `sw`, `statusOk` |
+
+`pn532.shell` is interactive and produces no machine result.
+
 ## Device and file side effects
 
 - `classic dump` writes the image and, when keys were verified, a paired `.dic`
@@ -391,8 +454,8 @@ envelope.
 
 ## Compatibility
 
-- `nfctl pn532 shell` and `nfctl apdu --raw` arrive with the `developer-tools`
-  feature (`29.6`) and are absent from release builds.
+- `nfctl pn532 shell` and `nfctl apdu --raw` exist only in a `developer-tools`
+  build. Release builds and packages do not compile or advertise them.
 - The GUI and CLI share one cross-process lock per physical reader. A second
   process on the same reader exits 4 with `reader_busy`; the lock is released
   when the holder closes the reader or exits.

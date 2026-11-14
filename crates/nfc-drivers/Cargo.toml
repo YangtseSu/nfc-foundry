@@ -15,6 +15,7 @@ serialport.workspace = true
 [features]
 default = ["acr122-pcsc"]
 acr122-pcsc = ["dep:pcsc"]
+developer-tools = ["nfc-transport/developer-tools"]
 hardware = []
 hardware-write = ["hardware"]
 

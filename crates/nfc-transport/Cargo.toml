@@ -8,5 +8,8 @@ rust-version.workspace = true
 [dependencies]
 nfc-core.workspace = true
 
+[features]
+developer-tools = []
+
 [lints]
 workspace = true
