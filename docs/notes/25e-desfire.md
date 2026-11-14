@@ -1,8 +1,8 @@
 # Note: phase 25.5 DESFire EV3 8K NDEF enablement
 
 Status: inventory, factory-key authentication, NDEF provisioning, undo, CLI,
-GTK surfaces, and the PN532 UART format/write/delete hardware record complete
-2026-11-12. The ACR122U row remains unrecorded.
+GTK surfaces, and the PN532 UART and ACR122U format/write/delete hardware
+records complete 2026-11-12.
 Plan: [25-card-support.md](../plan/25-card-support.md). Spec:
 [25e-desfire.md](../specs/25e-desfire.md).
 
@@ -81,7 +81,8 @@ NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
 cargo test -p nfc-desfire --features hardware --test hardware_legacy -- --ignored
 ```
 
-The ACR122U row remains unrecorded.
+`hardware_legacy` also passed on ACR122U `acr122_usb:001:002` on 2026-11-14,
+with the same reserved AID and cleanup.
 
 ## CLI read diagnostic
 
@@ -211,8 +212,10 @@ applications: none
 
 `desfire info` prints the native AID bytes (`00 76 D2`); the logical
 application ID is `D27600`. The test and the CLI cycle both left the card with
-no applications, matching the pre-format state. The ACR122U row remains
-unrecorded.
+no applications, matching the pre-format state. ACR122U
+`acr122_usb:001:002` (`pcscd` stopped) passed the same provisioning,
+Type 4 write/read/clear, guarded delete, and CLI read cycle on 2026-11-12; the
+ACR122U row is validated.
 
 ## To continue
 

@@ -1,8 +1,7 @@
 # Note: DESFire write gates and recovery behavior (26.13)
 
-Status: complete 2026-11-14 on PN532 UART for the changed write paths. The
-ACR122U row remains unrecorded. Plan:
-[26-desfire-workbench.md](../plan/26-desfire-workbench.md). Spec:
+Status: complete 2026-11-14 on PN532 UART and ACR122U for the changed write
+paths. Plan: [26-desfire-workbench.md](../plan/26-desfire-workbench.md). Spec:
 [26m-write-gates.md](../specs/26m-write-gates.md).
 
 ## Implementation
@@ -106,12 +105,42 @@ The NDEF replace/FormatPICC hardware record from 26.12 is unchanged. The CLI
 and GUI file-settings plans were exercised on the scripted card; the hardware
 run exercises the same service gate.
 
+## ACR122U hardware record
+
+Recorded 2026-11-14 on `acr122_usb:001:002` with `pcscd` stopped, owned EV3
+8K.
+
+- `hardware_desfire_management` passed with the new file-settings
+  Advanced/confirmation gate and planned manifest paths. It created AES
+  `F0 0D 08`, created all six file types, changed file `01` to enciphered,
+  read every setting back, and removed every file and the application.
+- `hardware_desfire_secure_messaging` passed under 3K3DES EV1, AES EV1, and
+  AES EV2 with a planned JSON backup path for every write; each backup file
+  existed before the write was reported verified, and both applications were
+  removed.
+- The CLI gate cycle passed: `file-settings --dry-run` showed the current and
+  requested settings, `file-settings --advanced --yes` applied the change,
+  `file-delete` and `app-delete` printed the exact manifest path before
+  deletion, and `format-picc` restored 8192 free bytes.
+
+```text
+aid F0 0D 21 file 01
+current: standard data · plain · ...
+new communication: enciphered
+key: key 0 · AES (session only)
+read-back: GetFileSettings compared with the requested mode and access word
+...
+change: applied
+...
+manifest: /tmp/nfc-foundry-acr-file.json
+application F0 0D 21 deleted
+applications: none
+```
+
 ## Residual notes
 
 - The Activity journal is session-only by the phase 19d contract. A persistent
   journal file was not added; `nfctl` prints the same fields for its single
   operation.
-- The ACR122U has no record for the new gate paths. The service and CLI code
-  are reader-independent; a run is pending a reader session.
 - The data-write backup is a logical file export, not a full-card image, and
   cannot restore application keys or file structure.

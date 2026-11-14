@@ -842,6 +842,5 @@ management, NDEF replace and FormatPICC, and the shared write gates and
 Activity journal. 26.10's Transaction Timer configuration is blocked on the
 non-public PDCap2.2 encoding; 26.11's multiple key sets and rolling are
 blocked on the non-public EV2/EV3 key set encoding. The 26.8 writes are
-recorded on PN532 UART and ACR122U; 26.9 is recorded on ACR122U because the
-DESFire card was not on the PN532; 26.10–26.13 are recorded on PN532 UART.
+recorded on PN532 UART and ACR122U; 26.9–26.13 are recorded on both readers.
 Each slice adds a spec and a note before implementation.

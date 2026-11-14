@@ -204,8 +204,9 @@ CC and empty NDEF file through Type 4, wrote/read/cleared one Text record, and
 removed the application; the final list was empty. The CLI
 `format-ndef`/`info`/`delete-ndef` cycle passed on the same card. The first
 run stopped at `CommitTransaction` with `0x910C` (`NoChanges`); treating that
-status as success, as PM3 does, let the next run pass. The ACR122U row remains
-unrecorded.
+status as success, as PM3 does, let the next run pass. ACR122U
+`acr122_usb:001:002` (`pcscd` stopped) passed the same provisioning/write/
+delete test and the CLI read cycle on 2026-11-12.
 
 Phase 26.12 extends the same test with the replace path: after a second Text
 write it calls `Service::desfire_ndef_replace`, checks that the result holds
@@ -224,7 +225,8 @@ cargo test -p nfctl --features hardware-write \
   --test hardware_desfire_ndef -- --ignored format_picc_erases
 ```
 
-Both tests passed on PN532 UART on 2026-11-14. The service-level tests in
+Both tests passed on PN532 UART and ACR122U `acr122_usb:001:002` (`pcscd`
+stopped) on 2026-11-14. The service-level tests in
 `crates/nfc-app/tests/desfire_ndef.rs` cover the gates, a missing or foreign
 NDEF application, a failed second copy after the delete, and the non-factory
 key reset without hardware.
@@ -251,8 +253,10 @@ cargo test -p nfctl --features hardware-write \
   --test hardware_desfire_secure_messaging -- --ignored
 ```
 
-The Activity journal is session-only. A persistent log file and the ACR122U
-row for these gates are not part of this slice.
+The Activity journal is session-only. A persistent log file is not part of
+this slice. Both tests also passed on ACR122U `acr122_usb:001:002` with
+`pcscd` stopped on 2026-11-14; the CLI file-settings and manifest gate cycle
+passed on the same reader.
 
 ```sh
 NFC_FOUNDRY_HARDWARE=1 NFC_FOUNDRY_HARDWARE_WRITE=yes \
@@ -343,10 +347,10 @@ NFC_FOUNDRY_HARDWARE=1 NFC_FOUNDRY_HARDWARE_WRITE=yes NFC_FOUNDRY_DEVICE=pn532_u
   --test hardware_value_record -- --ignored
 ```
 
-It passed on PN532 UART on 2026-11-14 under AES EV1 and AES EV2. Set
+It passed on PN532 UART and ACR122U `acr122_usb:001:002` (`pcscd` stopped) on
+2026-11-14 under AES EV1 and AES EV2. Set
 `NFC_FOUNDRY_HARDWARE_KEY_TYPE=ev2` for the EV2 run and
-`NFC_FOUNDRY_HARDWARE_FORMAT=yes` to erase DESFire tombstones first. The ACR122U
-row is not recorded because the card was not in that reader's field.
+`NFC_FOUNDRY_HARDWARE_FORMAT=yes` to erase DESFire tombstones first.
 
 The phase 26.3 read path remains covered by unit
 tests for the `GetValue` command shape and the `ReadRecords` payload, plus the
@@ -388,8 +392,9 @@ reserved value flags, record-count inconsistency, and an unknown file type.
 summarized, an undecodable entry is marked `undecoded`, and raw settings are
 kept in both cases. On 2026-11-12 the NDEF application's `E103`/`E104`
 standard files were decoded on PN532 UART through `nfctl desfire info`; the
-Value, Record, and Transaction MAC layouts have unit vectors only. The
-ACR122U row is not recorded.
+Value, Record, and Transaction MAC layouts have unit vectors only. ACR122U
+`acr122_usb:001:002` decoded the phase 26.5 standard and value fixture
+settings.
 
 The phase 10 Classic NDEF tests are hardware-free. `nfc-classic-ndef` covers
 MAD1/MAD2 and CRC vectors, NFC AIDs, contiguity, GPB mapping version and
@@ -436,7 +441,10 @@ The read and write tests passed on 2026-11-12 on PN532 UART
 (`pn532_uart:/dev/ttyUSB0`) with an NTAG 424 DNA `04 86 40 42 22 17 90`:
 CC 2.0, 23 bytes, MLe 256, MLc 255, NDEF file `E104` with 256-byte capacity and
 an empty state. A Text record was written, read back, cleared, and the empty
-state re-read. The ACR122U path is not recorded. Type 4 writes on a
+state re-read. ACR122U `acr122_usb:001:002` (`pcscd` stopped) passed the same
+tests on 2026-11-14 against a DESFire EV3 with the AN11004 `D27600`
+application: CC 2.0 (15 bytes), MLe 59, MLc 52, NDEF file `E104` 255 bytes;
+Text write/read and restore to empty passed. Type 4 writes on a
 random-UID DESFire compare ATQA, SAK, and the stable last four UID bytes
 instead of the full UID.
 

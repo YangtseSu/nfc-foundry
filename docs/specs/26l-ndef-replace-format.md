@@ -118,4 +118,4 @@ Advanced and confirmation flags.
 | Refuse provisioning when a valid NDEF application exists | `ensure_ndef_absent`; repeated format test |
 | FormatPICC is not used for ordinary provisioning | replace test asserts zero `0xFC` commands; mock test asserts the NDEF app remains |
 | No formatting by read or inventory | read/inventory methods contain no `0xFC` call; command-count tests |
-| Hardware record | PN532 UART 2026-11-14: NDEF format/write/clear/replace/delete and FormatPICC with `NFC_FOUNDRY_HARDWARE_FORMAT=yes`; CLI cycle recorded in the note |
+| Hardware record | PN532 UART and ACR122U 2026-11-14: NDEF format/write/clear/replace/delete and FormatPICC with `NFC_FOUNDRY_HARDWARE_FORMAT=yes`; CLI cycle recorded in the note |

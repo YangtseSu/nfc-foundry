@@ -121,10 +121,14 @@ other reserved applications.
 
 ## ACR122U record
 
-Not recorded. The reader was present as `acr122_usb:001:002` with `pcscd`
-stopped, but the card was physically in the PN532 field, so the hardware test
-reported `NoCard`. The same test can be rerun as soon as a card is placed on
-the ACR122U.
+Recorded 2026-11-14 on `acr122_usb:001:002` with `pcscd` stopped. The
+environment-gated `hardware_value_record` test passed under AES EV1 and again
+under AES EV2 (`NFC_FOUNDRY_HARDWARE_KEY_TYPE=ev2`). It created reserved
+`F0 0D 0A`, ran the value credit/debit/limited-credit and record
+append/update/clear mutations, cross-checked every Transaction MAC with the
+supplied key, deleted the application, and left `applications: none`. The same
+test had previously recorded the PN532 UART row; the card is now available on
+the ACR122U and the row is validated on both readers.
 
 ## Transaction Timer blocker
 

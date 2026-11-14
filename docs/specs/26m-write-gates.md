@@ -118,5 +118,5 @@ the same fields for its single operation. No persistent journal file is added.
   and the Activity row split.
 - Hardware: the 26.9 management test with the new file-settings gate and the
   26.8 secure-messaging write test with persisted backups passed on PN532 UART
-  on 2026-11-14. The 26.12 NDEF tests remain recorded in
+  and ACR122U on 2026-11-14. The 26.12 NDEF tests are recorded in
   [26l](../notes/26l-ndef-replace-format.md).

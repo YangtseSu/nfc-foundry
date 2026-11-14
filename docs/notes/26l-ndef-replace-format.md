@@ -1,7 +1,6 @@
 # Note: DESFire NDEF replace and FormatPICC (26.12)
 
-Status: complete 2026-11-14 on PN532 UART. The ACR122U row remains
-unrecorded. Plan:
+Status: complete 2026-11-14 on PN532 UART and ACR122U. Plan:
 [26-desfire-workbench.md](../plan/26-desfire-workbench.md). Spec:
 [26l-ndef-replace-format.md](../specs/26l-ndef-replace-format.md).
 
@@ -106,6 +105,25 @@ nfctl ... desfire format-picc --key 0000000000000000 --advanced
 After the cycle `desfire info` reported no applications. The replace run had an
 empty previous message; the hardware test above covered a non-empty previous
 message.
+
+## ACR122U hardware record
+
+Recorded 2026-11-14 on `acr122_usb:001:002` with `pcscd` stopped, owned EV3
+8K. Both gated tests passed:
+
+- `formats_writes_restores_and_deletes_the_ndef_application` formatted
+  `D27600`, wrote/cleared/re-wrote a Text record, replaced the application
+  with the previous message read back, verified an empty NDEF through Type 4,
+  deleted it, and compared the final application list with the pre-format
+  list.
+- `format_picc_erases_every_application` ran with
+  `NFC_FOUNDRY_HARDWARE_FORMAT=yes`, created scratch `F0 0D 21`, erased every
+  application, read back 8192 free bytes, and verified the factory DES PICC
+  key.
+
+The CLI `format-ndef`/`ndef-read`/`replace-ndef`/`delete-ndef`/`format-picc`
+cycle passed on the same reader, leaving `applications: none` and 8192 free
+bytes.
 
 ## Free-memory behavior
 

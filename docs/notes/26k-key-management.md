@@ -100,9 +100,24 @@ reserved test card.
 
 ## ACR122U record
 
-Not recorded. The card was in the PN532 field when the ACR122U was checked;
-the same hardware test can be rerun with `NFC_FOUNDRY_DEVICE=acr122_usb:001:002`
-as soon as a card is placed on that reader.
+Recorded 2026-11-14 on `acr122_usb:001:002` with `pcscd` stopped.
+`hardware_keys` passed under AES EV1 and EV2: it created reserved AES
+`F0 0D 0B` and DES `F0 0D 0C`, changed key 1 as key 0 and key 0 as key 0,
+re-authenticated with every new key, read each version back, toggled and
+restored the KeySettings free-list bit, and deleted both applications. The CLI
+cycle also passed on ACR122U:
+
+```text
+application F0 0D 22 created · keys: 2 · AES
+changing DESFire key 1 on application F0 0D 22 to version 1
+current key version: 0
+application F00D22 · key 1 · AES · key version 0 -> 1
+re-authenticated with the new key · version read back 1
+new key exported: /tmp/nfc-foundry-acr-key.json (mode 0600)
+application F0 0D 22 deleted · applications: none
+```
+
+The PICC master key was not changed.
 
 ## Blockers
 

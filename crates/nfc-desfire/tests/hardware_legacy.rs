@@ -92,9 +92,10 @@ fn run(desfire: &mut Desfire<'_>) -> Result<()> {
         PAYLOAD.len() as u32,
         nfc_desfire::CommunicationMode::Plain,
     )?;
-    if read != PAYLOAD {
+    if read.data.as_slice() != PAYLOAD {
         return Err(NfcError::VerificationFailed(format!(
-            "read {read:02X?}, expected {PAYLOAD:02X?}"
+            "read {:02X?}, expected {PAYLOAD:02X?}",
+            read.data
         )));
     }
     Ok(())

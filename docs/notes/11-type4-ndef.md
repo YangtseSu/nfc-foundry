@@ -132,8 +132,11 @@ The read and write tests passed on 2026-11-12 on PN532 UART
 (`pn532_uart:/dev/ttyUSB0`) with an NTAG 424 DNA `04 86 40 42 22 17 90`:
 CC 2.0, 23 bytes, MLe 256, MLc 255, NDEF file `E104` with 256-byte capacity and
 an empty state. The read reported the NDEF file as writable, a Text record was
-written and read back, and the empty state was restored and re-read. The
-ACR122U path is not recorded. The tests are in
+written and read back, and the empty state was restored and re-read. ACR122U
+`acr122_usb:001:002` (`pcscd` stopped) passed the same tests on 2026-11-14
+against a DESFire EV3 with the AN11004 `D27600` application: CC 2.0 (15
+bytes), MLe 59, MLc 52, NDEF file `E104` 255 bytes; Text write/read and
+restore to empty passed. The tests are in
 `crates/nfctl/tests/hardware_type4.rs` and are ignored by default.
 
 Read-only (a Type 4 card on either supported reader):

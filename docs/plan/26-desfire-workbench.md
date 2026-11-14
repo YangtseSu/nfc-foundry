@@ -1,10 +1,9 @@
 # Phase 26 plan: DESFire workbench
 
 Status: complete 2026-11-14, with 26.10's Transaction Timer configuration and
-26.11's multiple key sets blocked on non-public encodings. Hardware: PN532 UART
-first; ACR122U records after a reader is available. 26.8 and 26.9 passed on
-PN532 UART and ACR122U on 2026-11-13; 26.10, 26.11, 26.12, and 26.13 passed on
-PN532 UART on 2026-11-14.
+26.11's multiple key sets blocked on non-public encodings. Hardware: 26.8 and
+26.9 passed on PN532 UART and ACR122U on 2026-11-13; 26.10–26.13 passed on both
+PN532 UART and ACR122U on 2026-11-14.
 
 ## Goal
 
@@ -338,7 +337,7 @@ Acceptance:
 - No formatting is performed by a read or inventory operation.
 
 Hardware: the replace round trip and a separate `FormatPICC` reset passed on
-PN532 UART on 2026-11-14; the ACR122U row remains unrecorded.
+PN532 UART and ACR122U on 2026-11-14.
 
 ### 26.13 Advanced write gates and recovery behavior
 
@@ -369,9 +368,9 @@ Acceptance:
 - CLI and GUI expose the same gates and semantics.
 
 Hardware: the changed application/file management and secure-messaging write
-paths passed on PN532 UART on 2026-11-14; the ACR122U row remains unrecorded.
-The Activity journal remains session-only, and data-write backups are logical
-file exports, not full-card images.
+paths passed on PN532 UART and ACR122U on 2026-11-14. The Activity journal
+remains session-only, and data-write backups are logical file exports, not
+full-card images.
 
 ## Dependencies
 
@@ -393,7 +392,9 @@ file exports, not full-card images.
 - The owned EV3 8K is factory DES; AES/EV2, key-management, and
   secure-messaging tests need a reserved test application with known test keys
   or a separate test card.
-- The ACR122U row remains unrecorded until a reader is available.
+- The ACR122U `acr122_usb:001:002` ran the same reserved-application tests
+  with `pcscd` stopped; the PN532 UART remains the first reader for new
+  records.
 
 ## Out of scope
 

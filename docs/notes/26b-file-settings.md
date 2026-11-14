@@ -78,7 +78,9 @@ application 00 76 D2
 
 The NDEF application was then deleted, leaving `applications: none`. This
 validates Standard-file decoding on hardware; Value, Record, and Transaction
-MAC responses still have unit vectors only. The ACR122U row is not recorded.
+MAC responses still have unit vectors only. ACR122U `acr122_usb:001:002`
+(`pcscd` stopped) decoded the phase 26.5 standard and value fixture settings on
+2026-11-12; the ACR122U row is validated.
 
 ## Verification
 

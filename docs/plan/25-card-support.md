@@ -1,7 +1,8 @@
 # Phase 25 plan: owned-card support
 
 Status: complete 2026-11-12 on PN532 UART. 25.1–25.5 are implemented and
-recorded; the ACR122U hardware rows for 25.2–25.5 remain unrecorded.
+recorded; 25.5 also has an ACR122U record. The ACR122U hardware rows for
+25.2–25.4 remain unrecorded.
 Hardware:
 PN532 UART first; ACR122U records after a reader is available. This phase
 covers the five cards already owned for the project: Fudan FM11RN32N
@@ -217,7 +218,7 @@ Acceptance:
 
 ### 25.5: DESFire EV3 8K NDEF enablement
 
-Status: complete 2026-11-12 on PN532 UART. Inventory, factory-key
+Status: complete 2026-11-12 on PN532 UART and ACR122U. Inventory, factory-key
 authentication, NDEF provisioning, the `DeleteApplication` undo, CLI commands,
 GUI surfaces, and the Type 4 write/read/clear round trip are recorded. See
 [25e-desfire.md](../notes/25e-desfire.md).

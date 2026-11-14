@@ -117,7 +117,8 @@ unverified configuration byte is written. See the phase note for the evidence.
   MAC files, verifies every commit's TMV, and deletes the application. It needs
   `NFC_FOUNDRY_HARDWARE=1`, `NFC_FOUNDRY_HARDWARE_WRITE=yes`, and
   `NFC_FOUNDRY_DEVICE`; `NFC_FOUNDRY_HARDWARE_KEY_TYPE=ev2` runs it under EV2,
-  and `NFC_FOUNDRY_HARDWARE_FORMAT=yes` erases tombstones first.
+  and `NFC_FOUNDRY_HARDWARE_FORMAT=yes` erases tombstones first. It passed on
+  PN532 UART and ACR122U under EV1 and EV2 on 2026-11-14.
 
 ## Out of scope
 

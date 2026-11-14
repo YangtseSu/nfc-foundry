@@ -1,7 +1,7 @@
 # Spec: phase 26.9 DESFire application and file management
 
-Status: complete 2026-11-13; ACR122U recorded, PN532 UART not run (the DESFire
-card was on the ACR122U). Plan:
+Status: complete 2026-11-13; PN532 UART and ACR122U recorded (the PN532 repeat
+with the 26.13 file-settings gate ran on 2026-11-14). Plan:
 [26-desfire-workbench.md](../plan/26-desfire-workbench.md). Note:
 [26i-management.md](../notes/26i-management.md).
 

@@ -116,7 +116,9 @@ removal, reader change, and workspace reset.
 - A PICC master key change between key families (for example DES to AES) is
   refused. Only same-family changes are sent; cross-family frame rules cannot
   be validated without a dedicated test card.
-- The ACR122U hardware row is not recorded for this slice.
+- The ACR122U hardware row is recorded for same-family key changes:
+  `hardware_keys` passed under AES EV1 and EV2, and the CLI key cycle changed
+  key 1 as key 0 on 2026-11-14. The PICC master key was not changed.
 
 ## Acceptance mapping
 
