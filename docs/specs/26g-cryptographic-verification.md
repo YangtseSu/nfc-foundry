@@ -22,7 +22,10 @@ The slice is read-only: it changes no key, file, or application.
 - GetCardUID is available only after authentication. Under EV1 and EV2 secure
   messaging the command returns an encrypted response; the UID is returned only
   after CRC32/padding or CMAC/padding verification. A legacy DES/2K3DES session
-  has no response encryption and reports `no response MAC`.
+  may return a 16-byte response encrypted with single DES using the first eight
+  bytes of the session key (CBC, zero IV): the UID and its CRC16_A are verified
+  before the UID is returned. A 7-byte plain response is accepted and reports
+  `no response MAC`.
 - Every file read reports the effective communication mode, the session key
   family, and the check that passed: EV1 CMAC, EV1 CRC32, EV2 CMAC, or no
   response MAC.

@@ -517,6 +517,8 @@ pub enum IntegrityCheck {
     Ev1Cmac,
     /// EV1 enciphered response: CRC32 and zero padding.
     Ev1Crc32,
+    /// Legacy DES/2K3DES enciphered UID: CRC16_A and zero padding.
+    LegacyCrc16,
     /// 8-byte truncated EV2 CMAC over the response.
     Ev2Cmac,
 }
@@ -527,6 +529,7 @@ impl IntegrityCheck {
             Self::None => "no response MAC",
             Self::Ev1Cmac => "EV1 CMAC verified",
             Self::Ev1Crc32 => "EV1 CRC32 verified",
+            Self::LegacyCrc16 => "CRC16 verified",
             Self::Ev2Cmac => "EV2 CMAC verified",
         }
     }
@@ -2182,6 +2185,30 @@ impl<'a> Desfire<'a> {
             .is_some_and(Session::uses_secure_messaging);
         if !secure {
             let (body, integrity) = self.command_verified(INS_GET_CARD_UID, &[])?;
+            if body.len() == 7 {
+                return self.uid_result(body, integrity);
+            }
+            // EV3 cards return a 16-byte encrypted UID even on a legacy
+            // DES/2K3DES session: single DES with the first eight bytes of the
+            // session key (CBC, zero IV), then UID, CRC16_A, and zero padding.
+            if body.len() == 16 {
+                let session = self
+                    .session
+                    .as_ref()
+                    .expect("the caller checked the session");
+                let block_key = session.enc_key.get(..8).ok_or_else(|| {
+                    NfcError::VerificationFailed(
+                        "the legacy session key is shorter than one DES block".to_owned(),
+                    )
+                })?;
+                let key = expand_tdes_key(block_key)?;
+                let plain = cbc_decrypt_iv(&key, &[0u8; 8], &body)?;
+                let uid = verify_legacy_uid_plaintext(&plain)?;
+                return Ok(CardUid {
+                    uid,
+                    integrity: IntegrityCheck::LegacyCrc16,
+                });
+            }
             return self.uid_result(body, integrity);
         }
         let read = self.read_command(INS_GET_CARD_UID, &[], CommunicationMode::Enciphered, 7)?;
@@ -3535,6 +3562,31 @@ fn ev2_command_iv(enc_key: &[u8], ti: &[u8; 4], counter: u16) -> Result<Vec<u8>>
         .map_err(|_| NfcError::InvalidArgument("invalid AES-128 key".to_owned()))?;
     cipher.encrypt_block((&mut input).into());
     Ok(input.to_vec())
+}
+
+/// Legacy DES/2K3DES enciphered UID payload: the seven-byte UID, a two-byte
+/// ISO/IEC 14443-3 CRC_A over the UID, then zero padding to 16 bytes.
+fn verify_legacy_uid_plaintext(plain: &[u8]) -> Result<[u8; 7]> {
+    if plain.len() != 16 {
+        return Err(NfcError::VerificationFailed(format!(
+            "the legacy GetCardUID response decrypted to {} bytes, expected 16",
+            plain.len()
+        )));
+    }
+    let uid: [u8; 7] = plain[..7]
+        .try_into()
+        .expect("the response has at least seven bytes");
+    if plain[7..9] != crc16_a(&uid) {
+        return Err(NfcError::VerificationFailed(
+            "the legacy GetCardUID CRC16 does not verify".to_owned(),
+        ));
+    }
+    if plain[9..].iter().any(|byte| *byte != 0) {
+        return Err(NfcError::VerificationFailed(
+            "the legacy GetCardUID response has non-zero padding".to_owned(),
+        ));
+    }
+    Ok(uid)
 }
 
 /// EV1 enciphered payload: data, a four-byte CRC32, then zero padding to the
@@ -4936,6 +4988,52 @@ mod tests {
         assert_eq!(result.integrity, IntegrityCheck::None);
         drop(desfire);
         assert_eq!(reader.commands, [vec![0x90, 0x51, 0x00, 0x00, 0x00]]);
+    }
+
+    #[test]
+    fn legacy_card_uid_decrypts_the_sixteen_byte_response() {
+        let uid = [0x04, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26];
+        for (key_type, key) in [
+            (AuthKeyType::Des, vec![0x11u8; 8]),
+            (AuthKeyType::Tdes2, vec![0x11u8; 16]),
+        ] {
+            let mut plain = uid.to_vec();
+            plain.extend_from_slice(&crc16_a(&uid));
+            plain.resize(16, 0);
+            let block_key = expand_tdes_key(&key[..8]).expect("DES block key");
+            let cipher = cbc_encrypt_iv(&block_key, &[0u8; 8], &plain).expect("CBC");
+            let mut reader =
+                ScriptedReader::with_responses(vec![ApduResponse::new(cipher, [0x91, 0x00])]);
+            let mut desfire = Desfire::new(&mut reader);
+            desfire.session = Some(ev1_session(key_type, &key, Vec::new()));
+            let result = desfire.card_uid().expect("legacy encrypted UID");
+            assert_eq!(result.uid, uid);
+            assert_eq!(result.integrity, IntegrityCheck::LegacyCrc16);
+        }
+    }
+
+    #[test]
+    fn legacy_card_uid_rejects_a_bad_crc16_or_padding() {
+        let uid = [0x04, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26];
+        let mut plain = uid.to_vec();
+        plain.extend_from_slice(&crc16_a(&uid));
+        plain.resize(16, 0);
+        assert!(verify_legacy_uid_plaintext(&plain).is_ok());
+        plain[7] ^= 0x01;
+        assert!(matches!(
+            verify_legacy_uid_plaintext(&plain),
+            Err(NfcError::VerificationFailed(_))
+        ));
+        plain[7] ^= 0x01;
+        plain[10] = 0x01;
+        assert!(matches!(
+            verify_legacy_uid_plaintext(&plain),
+            Err(NfcError::VerificationFailed(_))
+        ));
+        assert!(matches!(
+            verify_legacy_uid_plaintext(&plain[..15]),
+            Err(NfcError::VerificationFailed(_))
+        ));
     }
 
     #[test]

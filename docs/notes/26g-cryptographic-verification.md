@@ -46,11 +46,18 @@ Sorting the command as plain, the response as enciphered, and verifying the CRC
 before returning the UID fixed it. EV2 uses the same encrypted response shape
 with an 8-byte response CMAC.
 
+The PN532 UART run then found the legacy path: a DES/2K3DES session also gets
+a 16-byte encrypted response, but it is single-DES CBC (zero IV) using the
+first eight bytes of the session key, and the payload is the UID plus a
+two-byte ISO/IEC 14443-3 CRC_A and zero padding. The 7-byte plain fallback is
+kept for cards that return the short form.
+
 ## Tests
 
 - `nfc-desfire` unit tests add EV1 encrypted UID and tampered ciphertext,
-  EV2 CMAC UID, legacy plain UID, and GetKeyVersion parsing/refusal. Existing
-  read tests now assert the integrity label.
+  EV2 CMAC UID, legacy plain UID, the legacy 16-byte single-DES response under
+  DES and 2K3DES keys, CRC16/padding rejection, and GetKeyVersion
+  parsing/refusal. Existing read tests now assert the integrity label.
 - `nfc-app/tests/desfire_verification.rs` covers legacy DES and AES EV1 verify
   key, AES response-MAC verification, wrong-key single-attempt behavior, UID
   decryption, corrupt-ciphertext rejection, and pre-reader key validation.
@@ -114,8 +121,52 @@ response: EV2 CMAC verified
 ```
 
 The fixtures were removed with a normal test run. `nfctl desfire info` then
-reported `applications: none`. The PN532 UART reader was enumerated, but no
-card was present on it during this run.
+reported `applications: none`.
+
+## PN532 UART record
+
+Recorded 2026-11-14 on `pn532_uart:/dev/ttyUSB0`, owned EV3 8K. The
+`hardware_desfire_auth` test passed with `NFC_FOUNDRY_HARDWARE_FORMAT=yes`:
+
+```text
+formatted the PICC; free memory 8192
+card info UID [04, 4D, 09, A2, BB, 17, 90]
+3K3DES verify_key
+3K3DES card_uid
+AES verify_key
+AES card_uid
+EV2 verify_key
+EV2 card_uid
+test authenticates_with_3k3des_aes_and_ev2_keys ... ok
+```
+
+The CLI then passed `verify-key` and `uid` for DES, 2K3DES, AES EV1, and AES
+EV2 on a reserved DES application `F0 0D 31` and AES application `F0 0D 32`:
+
+```text
+aid F0 0D 31 · key 0 · DES
+uid: 04 4D 09 A2 BB 17 90
+response: CRC16 verified
+
+aid F0 0D 31 · key 0 · 2K3DES
+uid: 04 4D 09 A2 BB 17 90
+response: CRC16 verified
+
+aid F0 0D 32 · key 0 · AES
+uid: 04 4D 09 A2 BB 17 90
+response: EV1 CRC32 verified
+
+aid F0 0D 32 · key 0 · AES EV2
+uid: 04 4D 09 A2 BB 17 90
+response: EV2 CMAC verified
+```
+
+The DES/2K3DES path initially failed with `GetCardUID returned 16 bytes,
+expected 7`; the card encrypts the UID with single DES (first eight bytes of
+the session key), CBC zero IV, UID + CRC16_A + zero padding. The library now
+decrypts and verifies that form before returning the UID. Both applications
+were deleted and the PICC was formatted; `applications: none`, 8192 free
+bytes.
 
 ## Next
 

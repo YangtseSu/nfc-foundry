@@ -194,6 +194,10 @@ Acceptance:
   protocol-level cryptographic check.
 - Wrong keys and invalid MACs fail once and are not retried.
 
+Hardware: the ACR122U record is from 2026-11-13; PN532 UART repeated the
+authentication, verify-key, and UID checks on 2026-11-14, including the legacy
+DES/2K3DES single-DES CRC16 UID response.
+
 ### 26.8 Generic data write and transactions (done)
 
 Status: complete 2026-11-13. See

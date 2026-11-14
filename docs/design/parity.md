@@ -98,9 +98,9 @@ original UID if verification fails.
 | Inventory | `desfire info` | DESFire → Inventory | R | PN532 and ACR122U |
 | Read file | `desfire read --aid --file [--key] [--key-type] [--offset] [--length] [--start-record] [--record-count]` | DESFire → Read with the same fields and key-type dropdown | R | PN532 and ACR122U: data, value, linear and cyclic records with legacy DES, 3K3DES/AES EV1, and AES EV2 |
 | Write file | `desfire write --aid --file --data|--data-file [--offset] [--key] [--key-type] [--key-number]` | DESFire → Write with a hex/text payload; the backup directory comes from preferences | W, B | PN532 and ACR122U: 3K3DES EV1, AES EV1, and AES EV2 writes with a planned JSON backup path |
-| Explicit authentication family | `--key-type des|2k3des|3k3des|aes|ev2` on read/verify/uid/format/delete | Key type dropdown on Read, Verify, and NDEF tabs | explicit key, R for authentication | PN532 and ACR122U: 3K3DES, AES EV1, AES EV2 |
-| Verify key | `desfire verify-key --aid --key [--key-type] [--key-number]` | DESFire → Verify → Verify key | R | ACR122U: DES, 3K3DES, AES EV1, AES EV2; key version and session reported |
-| Read authenticated UID | `desfire uid --aid --key [--key-type] [--key-number]` | DESFire → Verify → Read UID | R | ACR122U: EV1 CRC32, EV2 CMAC |
+| Explicit authentication family | `--key-type des|2k3des|3k3des|aes|ev2` on read/verify/uid/format/delete | Key type dropdown on Read, Verify, and NDEF tabs | explicit key, R for authentication | PN532 and ACR122U: DES, 2K3DES, 3K3DES, AES EV1, AES EV2 |
+| Verify key | `desfire verify-key --aid --key [--key-type] [--key-number]` | DESFire → Verify → Verify key | R | PN532 and ACR122U: DES, 2K3DES, 3K3DES, AES EV1, AES EV2; key version and session reported |
+| Read authenticated UID | `desfire uid --aid --key [--key-type] [--key-number]` | DESFire → Verify → Read UID | R | PN532 and ACR122U: legacy CRC16, EV1 CRC32, EV2 CMAC |
 | Read NDEF | `desfire ndef-read [--output]` | DESFire → NDEF → Read NDEF | R | PN532 and ACR122U: CC, file facts, records, extra TLVs |
 | Format NDEF | `desfire format-ndef --key --advanced [--dry-run]` | DESFire → NDEF → Advanced mode → Format NDEF application… → type `FORMAT` | A, C | PN532 and ACR122U |
 | Replace NDEF application | `desfire replace-ndef --key --advanced [--dry-run]` | DESFire → NDEF → Advanced mode → Replace NDEF application… → type `REPLACE` | A, C | PN532 and ACR122U: previous message read, empty NDEF read back |
