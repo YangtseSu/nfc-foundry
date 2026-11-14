@@ -17,6 +17,8 @@ pub enum CliError {
     Service(NfcError),
     /// A validation finding assembled by the CLI from a card or dump check.
     Validation(String),
+    /// No supported reader was enumerated and none was selected.
+    NoReader(String),
     /// A broken invariant or a serialization failure in the CLI itself.
     Internal(String),
 }
@@ -32,6 +34,7 @@ impl CliError {
             Self::Usage(message) | Self::Validation(message) | Self::Internal(message) => {
                 message.clone()
             }
+            Self::NoReader(message) => message.clone(),
             Self::Service(error) => error.to_string(),
         }
     }
@@ -81,6 +84,7 @@ pub fn classify(error: &CliError, deadline_expired: bool) -> Classification {
     match error {
         CliError::Usage(_) => Classification::new("usage", 2),
         CliError::Validation(_) => Classification::new("validation", 3),
+        CliError::NoReader(_) => Classification::new("no_reader", 4),
         CliError::Internal(_) => Classification::new("internal", 7),
         CliError::Service(error) => classify_service(error, deadline_expired),
     }
@@ -153,6 +157,10 @@ mod tests {
         assert_eq!(
             classified(CliError::Validation("x".into())),
             ("validation", 3)
+        );
+        assert_eq!(
+            classified(CliError::NoReader("none found".into())),
+            ("no_reader", 4)
         );
         assert_eq!(classified(CliError::Internal("x".into())), ("internal", 7));
     }

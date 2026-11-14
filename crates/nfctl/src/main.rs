@@ -56,9 +56,11 @@ use serde_json::{Value, json};
 mod error;
 mod output;
 mod runtime;
+mod select;
 
 use error::CliError;
 use output::{Mode, Output, compact_hex};
+use select::{SelectionError, resolve_device};
 
 type CliResult<T> = std::result::Result<T, CliError>;
 
@@ -116,8 +118,13 @@ struct Cli {
     /// Print the plan and stop without writing. Mutation commands only.
     #[arg(long, global = true)]
     dry_run: bool,
-    /// Exact reader connstring.
-    #[arg(long, global = true, value_name = "CONNSTRING")]
+    /// Exact reader connstring. Overrides NFC_FOUNDRY_DEVICE and auto-selection.
+    #[arg(
+        long,
+        global = true,
+        value_name = "CONNSTRING",
+        value_parser = clap::builder::NonEmptyStringValueParser::new()
+    )]
     device: Option<String>,
     /// Candidate Classic key as 12 hexadecimal digits. May be repeated.
     #[arg(long, global = true, value_name = "HEX")]
@@ -6571,17 +6578,21 @@ fn list(run: &mut Run<'_>, service: &mut Service) -> CliResult<Value> {
 }
 
 fn prepare(run: &mut Run<'_>, service: &mut Service) -> CliResult<()> {
+    let environment = environment_device()?;
     service.refresh_devices()?;
-    let conn_string = run.cli.device.as_deref().ok_or_else(|| {
-        CliError::Usage("pass --device <connstring> to select a reader".to_owned())
-    })?;
+    let conn_string = resolve_device(
+        run.cli.device.as_deref(),
+        environment.as_deref(),
+        service.devices(),
+    )
+    .map_err(selection_error)?;
     service
-        .select_device(conn_string)
+        .select_device(&conn_string)
         .map_err(|error| match error {
             NfcError::InvalidArgument(message) => CliError::Usage(message),
             other => CliError::Service(other),
         })?;
-    run.out.set_device(conn_string);
+    run.out.set_device(&conn_string);
     let snapshot = service.reader_state();
     run.out.verbose(format_args!(
         "reader: {conn_string} · {} · {}",
@@ -6592,6 +6603,33 @@ fn prepare(run: &mut Run<'_>, service: &mut Service) -> CliResult<()> {
         run.out.verbose(format_args!("firmware: {firmware}"));
     }
     Ok(())
+}
+
+/// Reads `NFC_FOUNDRY_DEVICE`. An unset or empty value leaves selection to
+/// auto-selection; a non-Unicode value is a usage error because it can never
+/// match an enumerated connstring.
+fn environment_device() -> CliResult<Option<String>> {
+    match std::env::var_os(select::DEVICE_ENV) {
+        None => Ok(None),
+        Some(value) => match value.into_string() {
+            Ok(value) if value.is_empty() => Ok(None),
+            Ok(value) => Ok(Some(value)),
+            Err(_) => Err(CliError::Usage(format!(
+                "{} must be valid UTF-8",
+                select::DEVICE_ENV
+            ))),
+        },
+    }
+}
+
+fn selection_error(error: SelectionError) -> CliError {
+    let message = error.message();
+    match error {
+        SelectionError::NoReaders => CliError::NoReader(message),
+        SelectionError::Ambiguous { .. } | SelectionError::Unknown { .. } => {
+            CliError::Usage(message)
+        }
+    }
 }
 
 fn watch_card(run: &mut Run<'_>, service: &mut Service) -> CliResult<()> {

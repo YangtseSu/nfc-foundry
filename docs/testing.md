@@ -109,6 +109,17 @@ reader: the loser exits 4 with `reader_busy`, and the reader is usable after
 the holder is stopped. Every CLI sandbox sets `XDG_RUNTIME_DIR` so lock files
 stay inside the test directory. See [29b-reader-lock.md](specs/29b-reader-lock.md).
 
+The phase 29.3 device-selection tests are hardware-free. Unit tests in
+`crates/nfctl/src/select.rs` cover flag precedence, environment selection,
+single-reader auto-selection, an empty environment value, zero readers,
+several readers with named choices, and unknown values from each source.
+`cli_contract.rs` runs the built binary with an isolated environment:
+`NFC_FOUNDRY_DEVICE` selects a mock reader, `--device` overrides an invalid
+environment value, an invalid environment target exits 2 with `usage`, and the
+default multi-reader mock exits 2 instead of guessing. The GTK scenario
+refreshes readers and asserts the selected name and exact connstring in the
+reader panel. See [29c-device-selection.md](specs/29c-device-selection.md).
+
 The phase 08 NDEF tests are hardware-free. `nfc-ndef` has deterministic tests
 for the Text RTD example, short/normal/chunked record layouts, all 36 URI
 prefixes, TLV length forms through 65,535 octets, unknown TLV and padding

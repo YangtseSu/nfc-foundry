@@ -52,7 +52,11 @@ impl Sandbox {
     }
 
     fn json(&self, arguments: &[&str]) -> (Value, Output) {
-        let output = self.command(arguments);
+        self.json_env(arguments, &[])
+    }
+
+    fn json_env(&self, arguments: &[&str], environment: &[(&str, &str)]) -> (Value, Output) {
+        let output = self.command_env(arguments, environment);
         let value = serde_json::from_slice(&output.stdout).unwrap_or_else(|error| {
             panic!(
                 "stdout is not JSON: {error}\nstdout: {}\nstderr: {}",
@@ -61,6 +65,14 @@ impl Sandbox {
             )
         });
         (value, output)
+    }
+
+    fn command_env(&self, arguments: &[&str], environment: &[(&str, &str)]) -> Output {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_nfctl"));
+        self.configure(&mut command);
+        command.envs(environment.iter().copied());
+        command.args(arguments);
+        command.output().expect("run nfctl")
     }
 }
 
@@ -111,6 +123,56 @@ fn list_json_is_a_stable_envelope() {
         assert!(device["name"].is_string());
         assert!(device["connString"].is_string());
     }
+}
+
+#[test]
+fn the_environment_selects_a_reader_without_the_flag() {
+    let sandbox = Sandbox::new();
+    let (value, output) = sandbox.json_env(
+        &["--mock", "scan", "--json"],
+        &[("NFC_FOUNDRY_DEVICE", "mock:classic-1k")],
+    );
+    assert_eq!(code(&output), 0);
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["device"], "mock:classic-1k");
+    assert_eq!(value["card"]["uid"], "04A2248A");
+}
+
+#[test]
+fn the_device_flag_beats_the_environment() {
+    let sandbox = Sandbox::new();
+    let (value, output) = sandbox.json_env(
+        &["--mock", "--device", "mock:ntag215", "scan", "--json"],
+        &[("NFC_FOUNDRY_DEVICE", "mock:missing")],
+    );
+    assert_eq!(code(&output), 0, "an overridden environment is not read");
+    assert_eq!(value["device"], "mock:ntag215");
+}
+
+#[test]
+fn an_invalid_environment_target_is_a_usage_error() {
+    let sandbox = Sandbox::new();
+    let (value, output) = sandbox.json_env(
+        &["--mock", "scan", "--json"],
+        &[("NFC_FOUNDRY_DEVICE", "mock:missing")],
+    );
+    assert_eq!(code(&output), 2);
+    assert_eq!(error_code(&value), "usage");
+    let message = value["error"]["message"].as_str().expect("message");
+    assert!(message.contains("NFC_FOUNDRY_DEVICE"), "{message}");
+    assert!(message.contains("mock:missing"), "{message}");
+}
+
+#[test]
+fn several_readers_require_an_explicit_selection() {
+    let sandbox = Sandbox::new();
+    let (value, output) = sandbox.json(&["--mock", "scan", "--json"]);
+    assert_eq!(code(&output), 2);
+    assert_eq!(error_code(&value), "usage");
+    let message = value["error"]["message"].as_str().expect("message");
+    assert!(message.contains("multiple readers"), "{message}");
+    assert!(message.contains("mock:classic-1k"), "{message}");
+    assert!(message.contains("--device"), "{message}");
 }
 
 #[test]

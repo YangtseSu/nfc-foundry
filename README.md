@@ -275,6 +275,8 @@ nfctl --device pn532_uart:/dev/ttyUSB0 classic keyscan --jsonl
   `error`, and a command-specific `result`.
 - `--jsonl` streams compact progress events and one terminal result.
 - `--timeout 30s` bounds the whole operation; `--verbose` adds reader detail.
+- Reader selection is `--device`, then `NFC_FOUNDRY_DEVICE`, then the only
+  enumerated reader; several readers without a choice exit 2.
 - Stable exit codes: 0 success, 1 operation, 2 usage, 3 validation, 4
   hardware/permission/busy, 5 reserved, 6 cancelled, 7 internal.
 - Keys, Type 2 PWD/PACK, DESFire key material, and dump payloads never appear
@@ -368,15 +370,20 @@ entries from different sources collapse to one key.
 
 ## Hardware reader
 
-Device selection is always an exact connstring. `nfctl list` reports serial
-ports as `pn532_uart:` candidates, with USB serial adapters first and legacy
-`/dev/ttyS*` nodes without detected hardware skipped, because a UART adapter
-cannot be identified without opening it. Opening validates the PN532 firmware:
+Device selection uses an exact connstring, taken from `--device`,
+`NFC_FOUNDRY_DEVICE`, or the only enumerated reader. `nfctl list` reports
+serial ports as `pn532_uart:` candidates, with USB serial adapters first and
+legacy `/dev/ttyS*` nodes without detected hardware skipped, because a UART
+adapter cannot be identified without opening it. Several readers require an
+explicit choice rather than a guess. Opening validates the PN532 firmware:
 
 ```sh
 cargo run -p nfctl -- list
 cargo run -p nfctl -- --device pn532_uart:/dev/ttyUSB0 scan
+NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 cargo run -p nfctl -- scan
 ```
+
+`LIBNFC_DEVICE` is not read; set `NFC_FOUNDRY_DEVICE` instead.
 
 Card workflow example:
 

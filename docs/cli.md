@@ -18,7 +18,7 @@ Options may appear before or after the subcommand.
 | `--timeout <duration>` | total operation deadline: `500ms`, `30s`, `5m`, `1h`, or a sum such as `1m30s` |
 | `--verbose` | reader and driver detail on stderr |
 | `--dry-run` | print the plan and stop; mutation commands only |
-| `--device <connstring>` | exact reader selection |
+| `--device <connstring>` | exact reader selection; overrides `NFC_FOUNDRY_DEVICE` and auto-selection |
 | `--mock` | scripted in-memory readers instead of hardware |
 | `--yes` | confirm destructive or active operations |
 | `--key`, `--key-file`, `--key-store`, `--backup-dir` | key candidates, key files, key store, and backup directory |
@@ -45,7 +45,18 @@ Ctrl-C terminates the process immediately.
 
 ## Reader selection
 
-`--device` is the exact connstring reported by `list`:
+A reader command resolves its reader in this order:
+
+1. `--device <connstring>`;
+2. the `NFC_FOUNDRY_DEVICE` environment variable;
+3. the only enumerated supported reader;
+4. no readers: exit 4 with `code: "no_reader"`;
+5. several readers: exit 2 with `code: "usage"` and the candidate connstrings.
+
+Only the first present source participates. An invalid `--device` or
+`NFC_FOUNDRY_DEVICE` value exits 2 instead of falling back to auto-selection;
+an empty environment value counts as unset. `--device` is the exact connstring
+reported by `list`:
 
 ```text
 pn532_uart:/dev/ttyUSB0
@@ -54,10 +65,14 @@ acr122_pcsc:ACS ACR122U 00 00
 mock:classic-1k
 ```
 
-`29.3` adds `NFC_FOUNDRY_DEVICE` and single-reader auto-selection. Until then a
-reader command without `--device` exits 2 with a usage error, and an unknown
-connstring also exits 2. Reader enumeration failures, a missing card, and
-reader timeouts exit 4.
+`LIBNFC_DEVICE` is not read. The migration is a rename:
+
+```sh
+LIBNFC_DEVICE=pn532_uart:/dev/ttyUSB0 ...
+NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 ...
+```
+
+Reader enumeration failures, a missing card, and reader timeouts exit 4.
 
 The GUI and CLI take one exclusive advisory lock per physical reader, under
 `$XDG_RUNTIME_DIR/nfc-foundry` (or a per-user temporary directory when the
@@ -100,7 +115,7 @@ The error envelope carries one stable `code` and the numeric `exitCode`.
 | `cancelled` | 6 | `NfcError::Cancelled` from a user interrupt |
 | `deadline_exceeded` | 1 | `NfcError::Cancelled` after `--timeout` expiry |
 | `no_card` | 4 | `NfcError::NoCard` |
-| `no_reader` | 4 | `NfcError::NoReader` |
+| `no_reader` | 4 | `NfcError::NoReader`, or no enumerated reader during selection |
 | `reader_busy` | 4 | `NfcError::ReaderBusy` from the cross-process reader lock |
 | `timeout` | 4 | `NfcError::Timeout` from a reader exchange |
 | `unsupported` | 4 | `NfcError::Unsupported` |
@@ -381,4 +396,3 @@ envelope.
 - The GUI and CLI share one cross-process lock per physical reader. A second
   process on the same reader exits 4 with `reader_busy`; the lock is released
   when the holder closes the reader or exits.
-- `LIBNFC_DEVICE` is not supported.

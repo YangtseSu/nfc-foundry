@@ -550,6 +550,7 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
         pending_type2_format_dialog: RefCell::new(None),
         pending_desfire_dialog: RefCell::new(None),
         devices: RefCell::new(Vec::new()),
+        reader_selection_updating: Cell::new(false),
         keyscan_cancel: RefCell::new(None),
         keyscan_result: RefCell::new(None),
         keyscan_run: Cell::new(0),
@@ -992,6 +993,8 @@ struct Ui {
     pending_type2_format_dialog: RefCell<Option<adw::AlertDialog>>,
     pending_desfire_dialog: RefCell<Option<adw::AlertDialog>>,
     devices: RefCell<Vec<DeviceInfo>>,
+    /// Set while a programmatic combo change must not run the user handler.
+    reader_selection_updating: Cell<bool>,
     keyscan_cancel: RefCell<Option<CancelToken>>,
     keyscan_result: RefCell<Option<ClassicKeyscanResult>>,
     keyscan_run: Cell<u64>,
@@ -4420,6 +4423,9 @@ fn connect_signals(ui: &Rc<Ui>) {
 
     let ui2 = ui.clone();
     ui.reader_combo.connect_selected_notify(move |dropdown| {
+        if ui2.reader_selection_updating.get() {
+            return;
+        }
         let index = dropdown.selected();
         if index == gtk::INVALID_LIST_POSITION {
             return;
@@ -4431,29 +4437,41 @@ fn connect_signals(ui: &Rc<Ui>) {
             };
             device.clone()
         };
-        let id = device.conn_string.clone();
-        let result = match ui2.service.lock() {
-            Ok(mut service) => service.select_device(&id),
-            Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
-        };
-        match result {
-            Ok(()) => {
-                ui2.live.set(false);
-                reset_advanced(&ui2);
-                render_type2(&ui2);
-                update_inspector(&ui2);
-                update_card(&ui2);
-                update_restore_sensitivity(&ui2);
-                update_ndef_actions(&ui2);
-                ui2.status
-                    .set_localized("Reader changed · read the card again");
-                ui2.reader_value
-                    .set_localized(&format!("{}\n{}", device.name, device.conn_string));
-                append_log(&ui2, &format!("reader selected · {id}"));
-            }
-            Err(error) => toast_error(&ui2, &error.to_string()),
-        }
+        select_reader_device(
+            &ui2,
+            &device,
+            "reader selected",
+            Some("Reader changed · read the card again"),
+        );
     });
+}
+
+/// Point the service at one enumerated reader and invalidate the live image.
+/// The refresh path and the user's combo change share this so an unchanged
+/// combo index cannot leave the service on a stale reader.
+fn select_reader_device(ui: &Rc<Ui>, device: &DeviceInfo, log: &str, status: Option<&str>) {
+    let id = device.conn_string.clone();
+    let result = match ui.service.lock() {
+        Ok(mut service) => service.select_device(&id),
+        Err(_) => Err(NfcError::Io("reader service lock was poisoned".to_owned())),
+    };
+    match result {
+        Ok(()) => {
+            ui.live.set(false);
+            reset_advanced(ui);
+            render_type2(ui);
+            update_inspector(ui);
+            update_card(ui);
+            update_restore_sensitivity(ui);
+            update_ndef_actions(ui);
+            if let Some(status) = status {
+                ui.status.set_localized(status);
+            }
+            render_reader_panel(ui);
+            append_log(ui, &format!("{log} · {id}"));
+        }
+        Err(error) => toast_error(ui, &error.to_string()),
+    }
 }
 
 fn build_actions_menu(ui: &Rc<Ui>, button: &gtk::MenuButton) {
@@ -6564,7 +6582,6 @@ fn refresh_devices(ui: &Rc<Ui>) {
     ui.reader_model
         .splice(0, ui.reader_model.n_items(), &labels);
     if devices.is_empty() {
-        ui.reader_value.set_localized("No supported reader found");
         ui.reader_combo.set_sensitive(false);
         ui.reader_snapshot.replace(ReaderSnapshot {
             status: ReaderStatus::Connecting,
@@ -6575,6 +6592,7 @@ fn refresh_devices(ui: &Rc<Ui>) {
             error: None,
         });
         render_reader_panel(ui);
+        ui.reader_value.set_localized("No supported reader found");
         append_log(ui, "refresh · no supported reader");
         ui.status.set_localized("No reader found");
         render_diagnostics(ui);
@@ -6582,8 +6600,10 @@ fn refresh_devices(ui: &Rc<Ui>) {
     }
 
     ui.reader_combo.set_sensitive(!ui.busy.get());
+    ui.reader_selection_updating.set(true);
     ui.reader_combo.set_selected(0);
-    let first = &devices[0];
+    ui.reader_selection_updating.set(false);
+    let first = devices[0].clone();
     append_log(
         ui,
         &format!(
@@ -6593,6 +6613,10 @@ fn refresh_devices(ui: &Rc<Ui>) {
         ),
     );
     render_diagnostics(ui);
+    // Set the selection explicitly: a programmatic combo change emits no
+    // signal when the index is already 0, which would leave the service on a
+    // reader that is no longer first in the refreshed list.
+    select_reader_device(ui, &first, "reader auto-selected", None);
     poll_reader_once(ui);
 }
 
@@ -6755,6 +6779,22 @@ fn render_reader_panel(ui: &Ui) {
         },
     };
     ui.reader_state.set_localized(&status);
+    match snapshot.selected.as_deref() {
+        Some(selected) => {
+            let name = ui
+                .devices
+                .borrow()
+                .iter()
+                .find(|device| device.conn_string == selected)
+                .map_or_else(
+                    || reader_transport_label(selected).to_owned(),
+                    |device| device.name.clone(),
+                );
+            ui.reader_value
+                .set_localized(&format!("{name}\n{selected}"));
+        }
+        None => ui.reader_value.set_localized("No reader selected"),
+    }
     match &snapshot.card {
         Some(card) => ui.reader_card_info.set_localized(&format!(
             "Card: {} · UID {}{}",
@@ -6770,6 +6810,22 @@ fn render_reader_panel(ui: &Ui) {
     }
     ui.reader_caps
         .set_localized(&capability_text(snapshot.capabilities));
+}
+
+/// Transport name used when a selected connstring is no longer in the device
+/// list, for example between an unplug and the next refresh.
+fn reader_transport_label(conn_string: &str) -> &'static str {
+    if conn_string.starts_with("pn532_uart:") {
+        "PN532 UART"
+    } else if conn_string.starts_with("acr122_usb:") {
+        "ACR122U USB"
+    } else if conn_string.starts_with("acr122_pcsc:") {
+        "ACR122U PC/SC"
+    } else if conn_string.starts_with("mock:") {
+        "Mock reader"
+    } else {
+        "Reader"
+    }
 }
 
 fn capability_text(capabilities: ReaderCapabilities) -> String {
@@ -15964,6 +16020,7 @@ mod tests {
         selection_updates_inspector(&harness);
         write_gates_follow_state(&harness);
         reader_refresh_invalidates(&harness);
+        reader_resolution_is_visible(&harness);
         reader_monitor_invalidates(&harness);
         workbench_stage_undo_revert_and_write(&harness);
         identity_refusal_is_visible(&harness);
@@ -16397,6 +16454,22 @@ mod tests {
             .set_text(&classic::hex_with_mask(&changed_block(), u16::MAX));
         update_write_sensitivity(&harness.ui);
         assert!(!harness.ui.inspector.write.is_sensitive());
+    }
+
+    fn reader_resolution_is_visible(harness: &Harness) {
+        refresh_devices(&harness.ui);
+        assert_eq!(harness.ui.reader_combo.selected(), 0);
+        let text = harness.ui.reader_value.label();
+        assert!(text.contains("Mock Classic"), "{text}");
+        assert!(text.contains("mock:classic"), "{text}");
+        let selected = harness
+            .ui
+            .service
+            .lock()
+            .expect("service")
+            .selected_device()
+            .map(str::to_owned);
+        assert_eq!(selected.as_deref(), Some("mock:classic"));
     }
 
     fn reader_refresh_invalidates(harness: &Harness) {
@@ -18625,5 +18698,19 @@ mod tests {
             detail,
             "aid F0 0D 01 file 01 · 4 bytes · backup /tmp/a.json"
         );
+    }
+
+    #[test]
+    fn reader_transport_labels_cover_the_supported_links() {
+        assert_eq!(
+            reader_transport_label("pn532_uart:/dev/ttyUSB0"),
+            "PN532 UART"
+        );
+        assert_eq!(reader_transport_label("acr122_usb:001:005"), "ACR122U USB");
+        assert_eq!(
+            reader_transport_label("acr122_pcsc:ACS ACR122U 00 00"),
+            "ACR122U PC/SC"
+        );
+        assert_eq!(reader_transport_label("mock:classic"), "Mock reader");
     }
 }

@@ -14,7 +14,8 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
   header.
 - Left rail (fixed start pane, `GtkPaned`): reader menu with refresh,
   connection status, and capability profile, card identity/size/readability,
-  key-store status, and selected block.
+  key-store status, and selected block. Refresh selects the first enumerated
+  reader and shows its transport name and exact connstring.
 - The reader monitor polls through `nfc-app` with one exclusive operation
   lease. Removing the card, presenting a different card, or losing the reader
   invalidates the live image, resets Advanced mode, and disables writes while

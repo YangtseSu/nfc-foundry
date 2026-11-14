@@ -1,8 +1,8 @@
 # Phase 29 plan: CLI contract and reader ownership
 
-Status: in progress 2026-11-14. 29.1 (CLI machine contract) and 29.2
-(cross-process reader lock) are done; 29.3-29.7 remain. Decisions from the
-parity review:
+Status: in progress 2026-11-14. 29.1 (CLI machine contract), 29.2
+(cross-process reader lock), and 29.3 (device selection) are done; 29.4-29.7
+remain. Decisions from the parity review:
 
 - complete the old `nfctl` machine contract in one phase;
 - GUI and CLI share a cross-process reader lock;
@@ -116,6 +116,10 @@ Note: [29b-reader-lock.md](../notes/29b-reader-lock.md).
   exit; GUI/CLI simulated contention; disconnect releases the lock.
 
 ### 29.3 Device selection
+
+Done 2026-11-14. Spec:
+[29c-device-selection.md](../specs/29c-device-selection.md). Note:
+[29c-device-selection.md](../notes/29c-device-selection.md).
 
 - Resolution order for `nfctl`:
   1. explicit `--device`;
