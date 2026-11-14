@@ -831,8 +831,8 @@ fn encode_mct(dump: &Dump) -> Result<Vec<u8>> {
             .layout
             .blocks_in_sector(sector)
             .expect("sector within the layout");
-        for block in first..first + count {
-            text.push_str(&encode_hex(&dump.blocks[block].data));
+        for block in dump.blocks.iter().skip(first).take(count) {
+            text.push_str(&encode_hex(&block.data));
             text.push('\n');
         }
     }
