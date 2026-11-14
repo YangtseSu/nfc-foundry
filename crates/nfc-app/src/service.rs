@@ -113,7 +113,13 @@ impl Service {
     }
 
     pub fn scan(&mut self) -> Result<CardInfo> {
-        let operation = self.begin_operation(OperationKind::Scan, CancelToken::new())?;
+        self.scan_with(CancelToken::new())
+    }
+
+    /// Cancellation-aware scan. The token is checked before the reader opens
+    /// and before card selection.
+    pub fn scan_with(&mut self, cancel: CancelToken) -> Result<CardInfo> {
+        let operation = self.begin_operation(OperationKind::Scan, cancel)?;
         Ok(operation.card().clone())
     }
 
@@ -142,7 +148,12 @@ impl Service {
     }
 
     pub fn card_info(&mut self) -> Result<CardInfo> {
-        let operation = self.begin_operation(OperationKind::CardInfo, CancelToken::new())?;
+        self.card_info_with(CancelToken::new())
+    }
+
+    /// Cancellation-aware card read. The token is checked before I/O.
+    pub fn card_info_with(&mut self, cancel: CancelToken) -> Result<CardInfo> {
+        let operation = self.begin_operation(OperationKind::CardInfo, cancel)?;
         Ok(operation.card().clone())
     }
 

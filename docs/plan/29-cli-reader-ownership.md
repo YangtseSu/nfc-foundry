@@ -1,6 +1,7 @@
 # Phase 29 plan: CLI contract and reader ownership
 
-Status: pending 2026-11-12. Decisions from the parity review:
+Status: in progress 2026-11-14. 29.1 (CLI machine contract) is done; 29.2-29.7
+remain. Decisions from the parity review:
 
 - complete the old `nfctl` machine contract in one phase;
 - GUI and CLI share a cross-process reader lock;
@@ -20,6 +21,10 @@ race the GUI for the same reader.
 ## Slices
 
 ### 29.1 CLI machine contract
+
+Done 2026-11-14. Spec: [29a-cli-machine-contract.md](../specs/29a-cli-machine-contract.md).
+Note: [29a-cli-machine-contract.md](../notes/29a-cli-machine-contract.md).
+Contract: [cli.md](../cli.md).
 
 - Add global flags, applicable before or after the subcommand:
   - `--json`;

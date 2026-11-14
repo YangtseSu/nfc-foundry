@@ -90,6 +90,16 @@ transport with per-sector key rules, ignored writes, failing writes, and
 cancellation hooks. `nfctl` integration tests run the built binary against the
 mock Classic image.
 
+The phase 29.1 CLI contract tests are hardware-free and run the built binary in
+an isolated `HOME`/`XDG_CONFIG_HOME`/`XDG_DATA_HOME`. `crates/nfctl/tests/cli_contract.rs`
+covers the exact envelope key set, card facts, typed results for every command
+family, key redaction, export refusal, exit codes, JSONL progress plus one
+terminal result, deadline expiry, dry-run rejection and planning, human
+stdout/stderr separation, and sandboxed backup paths. Unit tests in
+`error.rs`/`runtime.rs` cover the exhaustive `NfcError` classification, the
+deadline flag, durations, and output-mode pre-scan. See
+[cli.md](cli.md) for the contract.
+
 The phase 08 NDEF tests are hardware-free. `nfc-ndef` has deterministic tests
 for the Text RTD example, short/normal/chunked record layouts, all 36 URI
 prefixes, TLV length forms through 65,535 octets, unknown TLV and padding

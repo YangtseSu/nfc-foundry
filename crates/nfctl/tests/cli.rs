@@ -53,7 +53,7 @@ fn help_and_errors_stay_english_under_a_chinese_locale() {
     let output = nfctl_chinese_locale(&["--mock", "--device", "mock:missing", "scan"]);
     assert!(!output.status.success());
     let text = stderr(&output);
-    assert!(text.contains("invalid argument"), "{text}");
+    assert!(text.contains("is not in the device list"), "{text}");
     assert!(!text.contains('读'), "{text}");
 }
 
@@ -755,7 +755,7 @@ fn destructive_actions_require_confirmation() {
         "--data",
         "00000000000000000000000000000000",
     ]);
-    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(output.status.code(), Some(4));
     assert!(stderr(&output).contains("manufacturer block 0"));
 
     let output = nfctl(&[
@@ -769,7 +769,7 @@ fn destructive_actions_require_confirmation() {
         "--data",
         "FFFFFFFFFFFF FF0780 69 FFFFFFFFFFFF",
     ]);
-    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(output.status.code(), Some(3));
     assert!(stderr(&output).contains("explicit confirmation"));
 
     let directory = tempfile::tempdir().expect("temp dir");
@@ -1685,7 +1685,7 @@ fn restore_dry_run_blocks_and_changes_only_share_the_plan() {
         "--changes-only",
         "--yes",
     ]);
-    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(output.status.code(), Some(3));
     assert!(
         stderr(&output).contains("no changed blocks"),
         "{}",
@@ -1965,7 +1965,11 @@ fn diag_json_is_a_stable_self_check_without_card_material() {
     let output = nfctl(&["--mock", "diag", "--json"]);
     assert_success(&output);
     let text = stdout(&output);
-    let value: serde_json::Value = serde_json::from_str(&text).expect("self-check JSON");
+    let envelope: serde_json::Value = serde_json::from_str(&text).expect("diag envelope");
+    assert_eq!(envelope["ok"], true);
+    assert_eq!(envelope["command"], "diag");
+    assert_eq!(envelope["error"], serde_json::Value::Null);
+    let value = &envelope["result"];
     let object = value.as_object().expect("object");
     assert_eq!(
         object.keys().cloned().collect::<Vec<_>>(),

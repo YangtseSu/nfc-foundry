@@ -259,9 +259,34 @@ selector is in Settings; `nfctl` stays English under every locale.
 Hardware tests never run by default. They require an explicit feature and
 environment variable; see `docs/testing.md`.
 
+## CLI machine output
+
+`nfctl` keeps human output on stdout and diagnostics on stderr. For scripts:
+
+```sh
+nfctl --mock list --json
+nfctl --device pn532_uart:/dev/ttyUSB0 scan --json
+nfctl --device pn532_uart:/dev/ttyUSB0 classic read --block 4 --json \
+  | jq -r .result.hex
+nfctl --device pn532_uart:/dev/ttyUSB0 classic keyscan --jsonl
+```
+
+- `--json` writes one envelope: `ok`, `command`, `device`, `card`, `warnings`,
+  `error`, and a command-specific `result`.
+- `--jsonl` streams compact progress events and one terminal result.
+- `--timeout 30s` bounds the whole operation; `--verbose` adds reader detail.
+- Stable exit codes: 0 success, 1 operation, 2 usage, 3 validation, 4
+  hardware/permission/busy, 5 reserved, 6 cancelled, 7 internal.
+- Keys, Type 2 PWD/PACK, DESFire key material, and dump payloads never appear
+  in machine output. `classic keys export` requires `--output` with `--json` or
+  `--jsonl`.
+
+Read [docs/cli.md](docs/cli.md) for every command name, result shape, error
+code, and JSONL event.
+
 ## Mock reader
 
-The CLI can run without hardware against two scripted readers:
+The CLI can run without hardware against scripted readers:
 
 ```sh
 cargo run -p nfctl -- --mock list
@@ -493,6 +518,7 @@ application.
 
 - [Architecture](docs/architecture.md)
 - [Plan](docs/plan/README.md)
+- [CLI contract](docs/cli.md)
 - [Hardware](docs/hardware.md)
 - [Recovery](docs/recovery.md)
 - [NDEF](docs/ndef.md)

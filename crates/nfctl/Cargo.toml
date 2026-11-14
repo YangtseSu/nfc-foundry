@@ -22,6 +22,8 @@ nfc-type4.workspace = true
 nfc-drivers = { workspace = true, default-features = false }
 nfc-desfire = { workspace = true, features = ["mock-card"] }
 nfc-transport.workspace = true
+serde_json.workspace = true
+signal-hook.workspace = true
 
 [features]
 default = ["acr122-pcsc"]
