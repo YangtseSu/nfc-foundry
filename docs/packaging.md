@@ -117,9 +117,9 @@ relative to the executable.
 Extract and run without installing:
 
 ```sh
-tar -xzf nfc-foundry-0.1.0-x86_64.tar.gz
-./nfc-foundry-0.1.0-x86_64/bin/nfctl diag
-./nfc-foundry-0.1.0-x86_64/bin/nfc-foundry
+tar -xzf nfc-foundry-0.2.0-x86_64.tar.gz
+./nfc-foundry-0.2.0-x86_64/bin/nfctl diag
+./nfc-foundry-0.2.0-x86_64/bin/nfc-foundry
 ```
 
 For a system-wide unpack, copy `bin/` into `/usr/bin`, the udev rule into
@@ -188,7 +188,7 @@ of the checkout:
 
 ```sh
 cd packaging/local-git
-NFC_FOUNDRY_GIT_SRC=/path/to/nfc-foundry-rs makepkg -f
+NFC_FOUNDRY_GIT_SRC=/path/to/nfc-foundry makepkg -f
 ```
 
 It uses the same build, check, and install paths as the AUR package and
@@ -206,8 +206,8 @@ desktop-file-validate resources/nfc-foundry.desktop
 After a package build:
 
 ```sh
-namcap nfc-foundry-0.1.0-1-x86_64.pkg.tar.zst
-pacman -Qlp nfc-foundry-0.1.0-1-x86_64.pkg.tar.zst
+namcap nfc-foundry-0.2.0-1-x86_64.pkg.tar.zst
+pacman -Qlp nfc-foundry-0.2.0-1-x86_64.pkg.tar.zst
 ```
 
 The file list must contain only the documented paths. Start the installed

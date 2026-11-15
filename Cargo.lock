@@ -957,7 +957,7 @@ dependencies = [
 
 [[package]]
 name = "nfc-app"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "nfc-classic",
  "nfc-classic-ndef",
@@ -976,7 +976,7 @@ dependencies = [
 
 [[package]]
 name = "nfc-classic"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "nfc-core",
  "proptest",
@@ -986,7 +986,7 @@ dependencies = [
 
 [[package]]
 name = "nfc-classic-ndef"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "nfc-classic",
  "nfc-core",
@@ -996,14 +996,14 @@ dependencies = [
 
 [[package]]
 name = "nfc-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "thiserror",
 ]
 
 [[package]]
 name = "nfc-desfire"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aes",
  "cipher",
@@ -1017,7 +1017,7 @@ dependencies = [
 
 [[package]]
 name = "nfc-drivers"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "nfc-core",
  "nfc-transport",
@@ -1029,7 +1029,7 @@ dependencies = [
 
 [[package]]
 name = "nfc-foundry"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-channel",
  "glib",
@@ -1052,7 +1052,7 @@ dependencies = [
 
 [[package]]
 name = "nfc-ndef"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "nfc-core",
  "proptest",
@@ -1060,7 +1060,7 @@ dependencies = [
 
 [[package]]
 name = "nfc-recover"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "lz4_flex",
  "nfc-classic",
@@ -1071,14 +1071,14 @@ dependencies = [
 
 [[package]]
 name = "nfc-transport"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "nfc-core",
 ]
 
 [[package]]
 name = "nfc-type2"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "nfc-core",
  "nfc-ndef",
@@ -1089,7 +1089,7 @@ dependencies = [
 
 [[package]]
 name = "nfc-type4"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "nfc-core",
  "nfc-ndef",
@@ -1101,7 +1101,7 @@ dependencies = [
 
 [[package]]
 name = "nfctl"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "nfc-app",

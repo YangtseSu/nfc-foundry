@@ -1,12 +1,12 @@
 # Maintainer: Yangtse Su <yangtsesu at gmail dot com>
-# Upstream: https://github.com/YangtseSu/nfc-foundry-rs
+# Upstream: https://github.com/YangtseSu/nfc-foundry
 
 pkgname=nfc-foundry
-pkgver=0.1.0
+pkgver=0.2.0
 pkgrel=1
 pkgdesc='NFC reader workbench for MIFARE Classic and NFC Forum Type 2/NDEF cards'
 arch=('x86_64')
-url='https://github.com/YangtseSu/nfc-foundry-rs'
+url='https://github.com/YangtseSu/nfc-foundry'
 license=('GPL-3.0-or-later')
 # Runtime libraries: glibc, libgcc, libudev (systemd-libs), and libpcsclite for
 # the reader backends.

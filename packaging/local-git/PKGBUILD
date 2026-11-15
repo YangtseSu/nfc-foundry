@@ -1,13 +1,13 @@
 # Maintainer: Yangtse Su <yangtsesu at gmail dot com>
 # Local checkout build; not for the AUR. Set NFC_FOUNDRY_GIT_SRC to the
-# absolute path of the nfc-foundry-rs checkout before running makepkg.
+# absolute path of the nfc-foundry checkout before running makepkg.
 
 pkgname=nfc-foundry-git
 pkgver=r1.2446335
 pkgrel=1
 pkgdesc='NFC reader workbench for MIFARE Classic and NFC Forum Type 2/NDEF cards'
 arch=('x86_64')
-url='https://github.com/YangtseSu/nfc-foundry-rs'
+url='https://github.com/YangtseSu/nfc-foundry'
 license=('GPL-3.0-or-later')
 depends=(
   glibc
@@ -19,7 +19,7 @@ depends=(
   systemd-libs
 )
 makedepends=(cargo git pkgconf rust)
-_repo="${NFC_FOUNDRY_GIT_SRC:-/path/to/nfc-foundry-rs}"
+_repo="${NFC_FOUNDRY_GIT_SRC:-/path/to/nfc-foundry}"
 source=("$pkgname::git+file://$_repo")
 sha256sums=('SKIP')
 conflicts=('nfc-foundry')

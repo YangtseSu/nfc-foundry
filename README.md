@@ -5,7 +5,7 @@ Forum Type 2 / NDEF cards, written in Rust.
 
 ## Status
 
-**Release 0.1.0: the AUR source package, GitHub CI binary tarball, source
+**Release 0.2.0: the AUR source package, GitHub CI binary tarball, source
 archive, and hardware matrix are in place.** PN532 UART passed every operation
 in its certified scope. The ACR122U passed its certified scope: selection,
 Classic reads, Type 2 reads, raw REQA, Gen1A same-value block 0 write,
@@ -229,8 +229,8 @@ makepkg -sri
 Binary tarball from the GitHub release:
 
 ```sh
-tar -xzf nfc-foundry-0.1.0-x86_64.tar.gz
-./nfc-foundry-0.1.0-x86_64/bin/nfctl diag
+tar -xzf nfc-foundry-0.2.0-x86_64.tar.gz
+./nfc-foundry-0.2.0-x86_64/bin/nfctl diag
 ```
 
 The package and tarball install `nfc-foundry` and `nfctl`, the ACR122U udev

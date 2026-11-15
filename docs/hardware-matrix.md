@@ -4,7 +4,7 @@ This is the release certificate. A row is `validated` only when a phase note
 contains the run and the exact reader record below. An operation marked `not
 recorded` is implemented but is not advertised as hardware-validated.
 
-Release: `0.1.0`.
+Release: `0.2.0`.
 
 ## Reader records
 

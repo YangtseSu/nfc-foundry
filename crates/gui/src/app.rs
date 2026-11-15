@@ -4955,7 +4955,7 @@ fn show_about(ui: &Rc<Ui>) {
         .developer_name("NFC Foundry contributors")
         .version(env!("CARGO_PKG_VERSION"))
         .license_type(gtk::License::Gpl30)
-        .website("https://github.com/YangtseSu/nfc-foundry-rs")
+        .website("https://github.com/YangtseSu/nfc-foundry")
         .build();
     dialog.present(Some(&ui.window));
 }
