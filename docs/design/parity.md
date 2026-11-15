@@ -17,7 +17,7 @@ Hardware status is the release claim from
 | Enumerate readers | `nfctl list` | rail reader list with connection state and capabilities; ☰ → Refresh readers; ☰ → Diagnostics | none | PN532, ACR122U |
 | Select and read card | `nfctl scan` | header → Read card | R | PN532, ACR122U |
 | Card information | `nfctl card info` | rail card facts; Blocks inspector; Type 2 summary | R | PN532, ACR122U |
-| China T-Union public data | `nfctl tunion read` | China T-Union workspace → Read card → masked card facts, balance, transactions, travel records | R | PN532; ACR n/r |
+| China T-Union public data | `nfctl tunion read` | China T-Union workspace → Read card → masked card facts, balance, transactions, travel records | R | PN532, ACR122U PC/SC; direct USB n/r |
 | Card details and health | `nfctl card health --input` | Classic → Details tab; source, completeness, validation, key coverage, dirty blocks | R | file only |
 | MIFARE Mini identity | `card info` reports `MIFARE Mini`; every Classic read/write refuses it | rail card line and Details report `MIFARE Mini`; every Classic write is unavailable | identity only | n/r |
 | Watch for card changes | `nfctl scan --watch` | rail reader monitor; removal, reader change, and reader failure invalidate the live image | R | n/r |

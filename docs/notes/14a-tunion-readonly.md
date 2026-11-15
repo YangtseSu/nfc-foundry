@@ -56,9 +56,19 @@ stops at the first all-zero record.
   result was complete. No transaction log entry required authentication.
 - No write, credit, purchase, PIN, or other mutation command was sent.
 
-ACR122U is not recorded for this card. During the run the ACR122U held a
-different ISO-DEP card, so no cross-reader claim is made. The `nfctl`
-`--mock` path is the hardware-free test surface.
+2026-11-15, ACR122U PC/SC `acr122_pcsc:ACS ACR122U 00 00`, PC/SC direct
+mode, `pcscd` active:
+
+- The same T-Union card answered with the same UID, ATQA, SAK, AID, and
+  record counts.
+- The hardware test completed in 61.17 s; the PC/SC link spends most of that
+  time on per-command round trips, not on card waiting.
+- No write, credit, purchase, PIN, or other mutation command was sent.
+
+ACR122U direct USB is not recorded for this card because `pcscd` holds the
+CCID interface. Stopping `pcscd` and repeating the same hardware test with
+`acr122_usb:001:002` is the remaining transport row. The `nfctl --mock` path
+is the hardware-free test surface.
 
 ## Tested
 
@@ -71,6 +81,8 @@ different ISO-DEP card, so no cross-reader claim is made. The `nfctl`
 - Hardware: `NFC_FOUNDRY_HARDWARE=1
   NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 cargo test -p nfctl --features
   hardware --test hardware_tunion -- --ignored`.
+- Hardware: the same command with
+  `NFC_FOUNDRY_DEVICE='acr122_pcsc:ACS ACR122U 00 00'` passed in 61.17 s.
 
 New tests cover TLV parsing, FCI/PPSE parsing, metadata and record decoding,
 mock reads, partial reads, cancellation, CLI human/JSON output, card-number
@@ -82,7 +94,8 @@ masking, the non-ISO-DEP refusal, and the GTK workspace/report.
   remain phase 14 follow-ups. Type B adapters still need phase 13.
 - Chinese resident ID is phase 16, blocked on an authorized SAM and written
   authorization. It is not part of this adapter.
-- The ACR122U row is pending.
+- The ACR122U PC/SC row is validated; the ACR122U direct USB row is pending
+  because `pcscd` owns the CCID interface.
 - Cards that protect the log files with application authentication will show
   the public balance and a partial record set with warnings; no key recovery or
   authentication path is added.

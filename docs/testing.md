@@ -83,7 +83,9 @@ cargo test -p nfctl --features hardware --test hardware_tunion -- --ignored
 It selects the PPSE and `A000000632010105`, reads the balance and record files,
 and asserts the result is complete with at least one transaction and one travel
 record. The test prints counts only; the card number, terminal IDs, and balance
-are not in its output.
+are not in its output. The same test runs on ACR122U PC/SC with
+`NFC_FOUNDRY_DEVICE='acr122_pcsc:ACS ACR122U 00 00'`; the direct USB transport
+needs `pcscd` stopped first.
 
 The phase 02 hardware record covers firmware identification, Classic 1K
 selection/authentication/read, Type 2 selection/read, and a raw 7-bit REQA with
