@@ -16191,7 +16191,12 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicU32, Ordering};
     use std::time::{Duration, Instant};
+
+    /// Each GTK harness registers a D-Bus application. A unique ID per
+    /// harness avoids an export conflict when one process builds more than one.
+    static NEXT_APP_ID: AtomicU32 = AtomicU32::new(0);
 
     use nfc_app::ReaderMonitorConfig;
     use nfc_classic::{DumpKey, DumpMetadata, Layout, bcc_for_uid};
@@ -16452,7 +16457,10 @@ mod tests {
         gtk::init().expect("GTK display");
         adw::init().expect("libadwaita");
         let app = adw::Application::builder()
-            .application_id("io.github.nfc_foundry.NfcFoundry.GuiTest")
+            .application_id(format!(
+                "io.github.nfc_foundry.NfcFoundry.GuiTest{}",
+                NEXT_APP_ID.fetch_add(1, Ordering::Relaxed)
+            ))
             .build();
         app.register(None::<&gio::Cancellable>)
             .expect("register app");
@@ -19385,6 +19393,10 @@ mod tests {
 
     #[test]
     fn desfire_workspace_switches_and_parses_inputs() {
+        if std::env::var_os("NFC_FOUNDRY_GUI_TESTS").is_none() {
+            eprintln!("skipping GTK UI tests; set NFC_FOUNDRY_GUI_TESTS=1 under Xvfb");
+            return;
+        }
         let harness = harness();
         let ui = &harness.ui;
         let item = find_button(

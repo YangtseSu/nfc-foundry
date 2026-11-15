@@ -798,6 +798,10 @@ env -u WAYLAND_DISPLAY NFC_FOUNDRY_GUI_TESTS=1 \
   cargo test -p nfc-foundry gtk_workbench_scenarios
 ```
 
+The DESFire workspace test also builds the GTK harness and uses the same gate.
+GTK initializes once per process, so CI runs each GTK test in its own Xvfb
+process. `cargo test --workspace` skips both on a headless host.
+
 Without `NFC_FOUNDRY_GUI_TESTS=1` the test takes its skip branch so
 `cargo test --workspace` still passes on a machine without a display. The same
 gate covers the phase 19e language scenario: it switches to `zh-CN`, asserts

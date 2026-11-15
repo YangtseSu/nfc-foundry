@@ -38,7 +38,12 @@ jobs:
         run: |
           env -u WAYLAND_DISPLAY NFC_FOUNDRY_GUI_TESTS=1 \
             xvfb-run -a env GDK_BACKEND=x11 \
-            cargo test -p nfc-foundry gtk_workbench_scenarios
+            cargo test -p nfc-foundry --bin nfc-foundry \
+            app::tests::desfire_workspace_switches_and_parses_inputs -- --exact
+          env -u WAYLAND_DISPLAY NFC_FOUNDRY_GUI_TESTS=1 \
+            xvfb-run -a env GDK_BACKEND=x11 \
+            cargo test -p nfc-foundry --bin nfc-foundry \
+            app::tests::gtk_workbench_scenarios -- --exact
       - name: Desktop entry
         run: desktop-file-validate resources/nfc-foundry.desktop
       - name: REUSE
