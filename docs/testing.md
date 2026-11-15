@@ -72,6 +72,19 @@ A missing card fails with an instruction to place one; it is not skipped. Never
 write a card by default. A test that cannot run must report the missing gate,
 not skip silently in release validation.
 
+The China T-Union read is read-only and needs no write gate:
+
+```sh
+NFC_FOUNDRY_HARDWARE=1 \
+NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
+cargo test -p nfctl --features hardware --test hardware_tunion -- --ignored
+```
+
+It selects the PPSE and `A000000632010105`, reads the balance and record files,
+and asserts the result is complete with at least one transaction and one travel
+record. The test prints counts only; the card number, terminal IDs, and balance
+are not in its output.
+
 The phase 02 hardware record covers firmware identification, Classic 1K
 selection/authentication/read, Type 2 selection/read, and a raw 7-bit REQA with
 a 16-bit ATQA response on a PN532 (CH340 UART, firmware 1.6). Wrong-reader and
@@ -798,9 +811,10 @@ env -u WAYLAND_DISPLAY NFC_FOUNDRY_GUI_TESTS=1 \
   cargo test -p nfc-foundry gtk_workbench_scenarios
 ```
 
-The DESFire workspace test also builds the GTK harness and uses the same gate.
-GTK initializes once per process, so CI runs each GTK test in its own Xvfb
-process. `cargo test --workspace` skips both on a headless host.
+The DESFire workspace test and the China T-Union workspace test also build
+the GTK harness and use the same gate. GTK initializes once per process, so CI
+runs each GTK test in its own Xvfb process. `cargo test --workspace` skips
+them on a headless host.
 
 Without `NFC_FOUNDRY_GUI_TESTS=1` the test takes its skip branch so
 `cargo test --workspace` still passes on a machine without a display. The same

@@ -34,7 +34,7 @@ work; their current equivalents are the GTK4 workspaces.
 | 11 | Type 4 / ISO-DEP NDEF adapter | optional; PN532 validated 2026-11-12, ACR122U pending |
 | 12 | Packaging, CI, hardware certification, release | done |
 | 13 | RF and transport completion: Type B, high rate, auto-poll, diagnostics | pending |
-| 14 | Read-only protocol adapters: Type 4B/Type 3, EMV, T-Union, FMCOS/Calypso | optional |
+| 14 | Read-only protocol adapters: Type 4B/Type 3, EMV, T-Union, FMCOS/Calypso | in progress (14a T-Union; Type 4B/Type 3/EMV/FMCOS pending) |
 | 15 | Read-only eMRTD reader (passport, compatible permits) | optional |
 | 16 | Chinese resident ID read-only (authorized SAM) | blocked |
 | 17 | Amiibo / NTAG215 read, decrypt, encrypt, write (user keys/data) | done (PN532 UART; ACR122U pending) |
@@ -56,7 +56,7 @@ work; their current equivalents are the GTK4 workspaces.
 | 28 | ACR122U PC/SC transport (ACR122U only, not generic PC/SC) | done |
 | 29 | CLI machine contract, cross-process reader ownership, cancellation/tasks, developer raw diagnostics | done (29.1-29.7) |
 | 30 | Workbench/file parity: sector grouping/ASCII, dump sidecars, export all candidates | done (30.1-30.4) |
-| 31 | Conditional scope register: card emulation, Jewel/Topaz | conditional |
+| 31 | Conditional scope register: card emulation, Jewel/Topaz, ST25R3916 I2C backend | conditional |
 | 33 | UFUID support: Gen1A probe, guarded UID writes, irreversible seal | done (PN532 UID and seal applied; delayed verification fixed; clean seal rerun n/r) |
 
 ## Rules
@@ -68,8 +68,9 @@ work; their current equivalents are the GTK4 workspaces.
   non-default features and never ship in release packages.
 - Phase 29 drops `OpenCommandTerminal`: the GUI has no command terminal,
   private runtime, external engine bundle, or shell launch.
-- Phase 31 records conditional directions only; neither card emulation nor
-  Jewel/Topaz is in the support matrix until a phase is accepted.
+- Phase 31 records conditional directions only; none of card emulation,
+  Jewel/Topaz, or the ST25R3916 I2C backend is in the support matrix until a
+  phase is accepted.
 - One phase at a time unless work is genuinely independent.
 - A CLI operation is incomplete until the GUI exposes the same operation with
   the same safety rules.
@@ -79,8 +80,9 @@ work; their current equivalents are the GTK4 workspaces.
 - No driver or card family is advertised until its hardware test is recorded.
 - `cargo test --workspace` must never touch hardware.
 - Do not add an external recovery engine to the shipped product.
-- Phase 13 is the pending RF/transport prerequisite. It is not optional:
-  phases 14 and 15 depend on its Type B and high-rate paths.
+- Phase 13 is the pending RF/transport prerequisite. It is not optional for
+  the Type B and high-rate parts of phases 14 and 15. The Type 4A T-Union
+  slice (14a) does not depend on it.
 - Phases 14 and 15 are optional read-only work. Phase 14 exposes no write,
   credit, purchase, PIN, or cloning operation; phase 15 only reads eMRTD data.
   Phase 16 is blocked and read-only if it ever starts.
@@ -473,6 +475,12 @@ Acceptance:
 
 ### 14: Read-only protocol adapters (optional)
 
+Status: in progress 2026-11-15. Slice 14a implements the China T-Union Type
+4A read-only profile on PN532 UART, exposed by `nfctl tunion read` and the GTK
+`China T-Union` workspace. Type 4B, Type 3 / FeliCa, EMV, FMCOS, Calypso,
+CIPURSE, and ITSO remain pending. Type B and high-rate items still depend on
+phase 13.
+
 Goal: add read-only application and NDEF adapters on top of the phase 13
 transport. No adapter in this phase performs a transaction, credit, purchase,
 PIN, or card write.
@@ -487,10 +495,13 @@ Deliver:
     decoding.
   - Type A and Type B contactless cards.
   - PAN, expiry, and cardholder data redaction in logs and default output.
-- China T-Union reader:
+- China T-Union reader: implemented in 14a.
   - Type 4A selection and AID `A000000632010105`.
   - Balance, up to 10 transaction records (file `0x18`), and up to 30 travel
-    records (file `0x1E`), matching the Proxmark3 `read-t-union.py` behavior.
+    records (file `0x1E`), matching the Proxmark3 `read_t-union.py` behavior.
+  - PN532 UART hardware record in
+    [14a-tunion-readonly.md](../notes/14a-tunion-readonly.md); ACR122U
+    pending.
 - FMCOS read-only: `info`, balance, and history for cards that expose the
   FMCOS file system. No credit, purchase, key write, or file write.
 - Calypso, CIPURSE, and ITSO read-only adapters are optional follow-ups in
@@ -508,6 +519,7 @@ Acceptance:
   RF path.
 - One owned EMV card and one owned T-Union card are read on at least one
   supported reader; both readers are targeted for the release matrix.
+  T-Union is validated on PN532 UART; EMV is pending.
 - EMV, T-Union, and FMCOS output is read-only and redacted by default.
 - No EMV transaction, PIN, online authorization, T-Union credit, T-Union
   purchase, FMCOS financial operation, or card mutation exists.

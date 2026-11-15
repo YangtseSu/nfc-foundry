@@ -51,6 +51,7 @@ use nfc_core::{
 use nfc_desfire::mock::{MockDesfire, MockDesfireTransport};
 use nfc_drivers::DriverRegistry;
 use nfc_ndef::{NdefMessage, NdefRecord, TextRecord, UriRecord, WifiRecord};
+use nfc_pboc::mock::MockTUnionTransport;
 use nfc_recover::auto::RecoveryStrategy;
 use nfc_recover::{RecoveryProgress, RecoveryRequest};
 use nfc_transport::mock::{MockTransport, MockType4Tag};
@@ -215,6 +216,11 @@ enum Command {
     Type2 {
         #[command(subcommand)]
         command: Type2Command,
+    },
+    /// China T-Union transit card read-only operations.
+    Tunion {
+        #[command(subcommand)]
+        command: TunionCommand,
     },
     /// Amiibo / NTAG215 decrypt, encrypt, and controlled write operations.
     Amiibo {
@@ -496,6 +502,12 @@ enum Type2Command {
         #[arg(long)]
         advanced: bool,
     },
+}
+
+#[derive(Clone, Debug, Subcommand)]
+enum TunionCommand {
+    /// Read the T-Union application, balance, and record files.
+    Read,
 }
 
 #[derive(Clone, Debug, Subcommand)]
@@ -1331,6 +1343,7 @@ fn dispatch(run: &mut Run<'_>, service: &mut Service, command: Command) -> CliRe
         },
         Command::Classic { command } => classic(run, service, command),
         Command::Type2 { command } => type2(run, service, command),
+        Command::Tunion { command } => tunion(run, service, command),
         Command::Amiibo { command } => amiibo(run, service, command),
         Command::Desfire { command } => desfire(run, service, *command),
         Command::Ndef { command } => ndef(run, service, command),
@@ -1397,6 +1410,9 @@ impl Command {
                 Type2Command::Lock { .. } => "type2.lock",
                 Type2Command::Password { .. } => "type2.password",
                 Type2Command::Uid { .. } => "type2.uid",
+            },
+            Self::Tunion { command } => match command {
+                TunionCommand::Read => "tunion.read",
             },
             Self::Desfire { command } => match command.as_ref() {
                 DesfireCommand::Info => "desfire.info",
@@ -5552,6 +5568,124 @@ fn print_amiibo_identity(out: &mut Output, identity: AmiiboIdentity) {
     );
 }
 
+fn tunion(run: &mut Run<'_>, service: &mut Service, command: TunionCommand) -> CliResult<Value> {
+    match command {
+        TunionCommand::Read => tunion_read(run, service),
+    }
+}
+
+fn tunion_read(run: &mut Run<'_>, service: &mut Service) -> CliResult<Value> {
+    run.out.set_command("tunion.read");
+    prepare(run, service)?;
+    let result = service.tunion_read(run.cancel.clone())?;
+    run.out.set_card(&result.card);
+    print_card(run.out, &result.card);
+    let data = result.data;
+    for warning in &data.warnings {
+        warn!(run.out, "{warning}");
+    }
+    say!(run.out, "aid: {}", data.aid_hex());
+    say!(run.out, "label: {}", data.label);
+    if let Some(version) = data.app_version_hex() {
+        say!(run.out, "app version: {version}");
+    }
+    say!(run.out, "card type: {}", data.card_type.label());
+    say!(run.out, "city: {}", data.city_id);
+    say!(run.out, "card: {}", data.masked_card_number());
+    if let Some(issued) = data.issued {
+        say!(run.out, "issued: {issued}");
+    }
+    if let Some(expires) = data.expires {
+        say!(run.out, "expires: {expires}");
+    }
+    say!(
+        run.out,
+        "balance: {}",
+        nfc_pboc::format_cny(data.balance_cents)
+    );
+    say!(run.out, "transactions: {}", data.transactions.len());
+    for transaction in &data.transactions {
+        let timestamp = transaction
+            .timestamp
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "invalid".to_owned());
+        say!(
+            run.out,
+            "  #{} · {timestamp} · {} · {} · terminal {}",
+            transaction.sequence,
+            nfc_pboc::format_cny(transaction.amount_cents),
+            transaction.kind.label(),
+            transaction.terminal_id
+        );
+    }
+    say!(run.out, "travels: {}", data.travels.len());
+    for travel in &data.travels {
+        let timestamp = travel
+            .timestamp
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "invalid".to_owned());
+        say!(
+            run.out,
+            "  {} · {timestamp} · {} · balance {} · station {} · terminal {}",
+            travel.kind.label(),
+            nfc_pboc::format_cny(travel.amount_cents),
+            nfc_pboc::format_cny(travel.balance_cents),
+            travel.station_id,
+            travel.terminal_id
+        );
+    }
+    if !data.complete {
+        warn!(run.out, "the T-Union read is incomplete");
+    }
+    let transactions: Vec<Value> = data
+        .transactions
+        .iter()
+        .map(|transaction| {
+            json!({
+                "sequence": transaction.sequence,
+                "amountCents": transaction.amount_cents,
+                "kind": transaction.kind.label(),
+                "kindCode": transaction.kind.code(),
+                "terminalId": transaction.terminal_id,
+                "timestamp": transaction.timestamp.map(|value| value.to_string()),
+            })
+        })
+        .collect();
+    let travels: Vec<Value> = data
+        .travels
+        .iter()
+        .map(|travel| {
+            json!({
+                "kind": travel.kind.label(),
+                "kindCode": travel.kind.code(),
+                "terminalId": travel.terminal_id,
+                "subType": travel.sub_type,
+                "stationId": travel.station_id,
+                "amountCents": travel.amount_cents,
+                "balanceCents": travel.balance_cents,
+                "timestamp": travel.timestamp.map(|value| value.to_string()),
+                "cityId": travel.city_id,
+                "institutionId": travel.institution_id,
+            })
+        })
+        .collect();
+    Ok(json!({
+        "aid": data.aid_hex(),
+        "label": data.label,
+        "appVersion": data.app_version_hex(),
+        "cardType": data.card_type.label(),
+        "cityId": data.city_id,
+        "cardNumber": data.masked_card_number(),
+        "issued": data.issued.map(|value| value.to_string()),
+        "expires": data.expires.map(|value| value.to_string()),
+        "balanceCents": data.balance_cents,
+        "currency": "CNY",
+        "complete": data.complete,
+        "transactions": transactions,
+        "travels": travels,
+    }))
+}
+
 fn amiibo(run: &mut Run<'_>, service: &mut Service, command: AmiiboCommand) -> CliResult<Value> {
     match command {
         AmiiboCommand::Read { output } => {
@@ -6659,20 +6793,23 @@ fn mock_service() -> Service {
     Service::with_transport(Arc::new(MockDevices {
         standard: transport,
         desfire,
+        tunion: MockTUnionTransport::new(),
     }))
 }
 
-/// Routes the scripted Classic/Type 2/Type 4 devices and the DESFire card
-/// through one mock transport.
+/// Routes the scripted Classic/Type 2/Type 4 devices, the DESFire card, and the
+/// T-Union card through one mock transport.
 struct MockDevices {
     standard: MockTransport,
     desfire: MockDesfireTransport,
+    tunion: MockTUnionTransport,
 }
 
 impl Transport for MockDevices {
     fn enumerate(&self) -> Result<Vec<DeviceInfo>> {
         let mut devices = self.standard.enumerate()?;
         devices.extend(self.desfire.enumerate()?);
+        devices.extend(self.tunion.enumerate()?);
         Ok(devices)
     }
 
@@ -6683,10 +6820,17 @@ impl Transport for MockDevices {
             .iter()
             .any(|device| device.conn_string == conn_string);
         if is_desfire {
-            self.desfire.open(conn_string)
-        } else {
-            self.standard.open(conn_string)
+            return self.desfire.open(conn_string);
         }
+        let is_tunion = self
+            .tunion
+            .enumerate()?
+            .iter()
+            .any(|device| device.conn_string == conn_string);
+        if is_tunion {
+            return self.tunion.open(conn_string);
+        }
+        self.standard.open(conn_string)
     }
 }
 

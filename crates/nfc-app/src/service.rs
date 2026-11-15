@@ -179,6 +179,16 @@ impl Service {
         Ok(operation.card().clone())
     }
 
+    /// Read the China T-Union application on the selected ISO-DEP card.
+    ///
+    /// The command sequence is read-only: PPSE/application selection, balance,
+    /// and record files. No credit, purchase, or write path exists.
+    pub fn tunion_read(&mut self, cancel: CancelToken) -> Result<crate::tunion::TUnionReadResult> {
+        let mut operation = self.begin_operation(OperationKind::Read, cancel)?;
+        let cancel = operation.cancel().clone();
+        crate::tunion::read(&mut operation, &cancel)
+    }
+
     /// Reads whichever supported card family is selected: a full Classic dump
     /// or a Type 2 image. The card is selected once for the whole read.
     pub fn read_card(

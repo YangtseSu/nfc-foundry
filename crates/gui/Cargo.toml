@@ -19,6 +19,7 @@ nfc-classic.workspace = true
 nfc-core.workspace = true
 nfc-drivers = { workspace = true, default-features = false }
 nfc-ndef.workspace = true
+nfc-pboc.workspace = true
 nfc-recover.workspace = true
 nfc-transport.workspace = true
 nfc-type2.workspace = true

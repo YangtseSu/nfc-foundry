@@ -992,6 +992,7 @@ dependencies = [
  "nfc-core",
  "nfc-desfire",
  "nfc-ndef",
+ "nfc-pboc",
  "nfc-recover",
  "nfc-transport",
  "nfc-type2",
@@ -1070,6 +1071,7 @@ dependencies = [
  "nfc-core",
  "nfc-drivers",
  "nfc-ndef",
+ "nfc-pboc",
  "nfc-recover",
  "nfc-transport",
  "nfc-type2",
@@ -1085,6 +1087,14 @@ version = "0.2.0"
 dependencies = [
  "nfc-core",
  "proptest",
+]
+
+[[package]]
+name = "nfc-pboc"
+version = "0.2.0"
+dependencies = [
+ "nfc-core",
+ "nfc-transport",
 ]
 
 [[package]]
@@ -1141,6 +1151,7 @@ dependencies = [
  "nfc-desfire",
  "nfc-drivers",
  "nfc-ndef",
+ "nfc-pboc",
  "nfc-recover",
  "nfc-transport",
  "nfc-type2",

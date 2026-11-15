@@ -255,6 +255,7 @@ type2.restore
 type2.lock
 type2.password
 type2.uid
+tunion.read
 amiibo.read
 amiibo.decrypt
 amiibo.encrypt
@@ -404,6 +405,39 @@ NDEF objects use `state` (`unformatted`, `empty`, `message`, or `invalid`),
 `capacity`, `messageBytes`, `readOnly`, and `records`. A record is
 `{index, tnf, type, payload}` plus decoded `kind` (`text`, `uri`, `wifi`) and
 its fields when the payload matches a standard record.
+
+### China T-Union
+
+`nfctl tunion read` selects the PPSE, selects `A000000632010105`, reads the
+electronic purse balance, and reads up to ten transaction records (SFI `0x18`)
+and thirty travel records (SFI `0x1E`). The command is read-only: it has no
+credit, purchase, top-up, PIN, key, or write path, and `--dry-run` is
+rejected.
+
+Human output prints the card facts, AID, label, application version, card
+type, city, masked card number, issue/expiry dates, balance, and one line per
+record. `--json` result keys:
+
+| Key | Meaning |
+|---|---|
+| `aid` | Selected application AID, uppercase hex |
+| `label` | Application label from the FCI or PPSE |
+| `appVersion` | `9F08` value, uppercase hex, or `null` |
+| `cardType` | `normal`, `student`, `elder`, `test`, `soldier`, or `unknown` |
+| `cityId` | City ID, uppercase hex |
+| `cardNumber` | Card number masked to the last four digits |
+| `issued`, `expires` | `YYYY-MM-DD` or `null` |
+| `balanceCents` | Electronic purse balance in CNY cents |
+| `currency` | `CNY` |
+| `complete` | `false` when a record file stopped early or a record failed to decode |
+| `transactions[]` | `sequence`, `amountCents`, `kind`, `kindCode`, `terminalId`, `timestamp` |
+| `travels[]` | `kind`, `kindCode`, `terminalId`, `subType`, `stationId`, `amountCents`, `balanceCents`, `timestamp`, `cityId`, `institutionId` |
+
+Timestamps are `YYYY-MM-DD HH:MM:SS` or `null` when the BCD field is invalid.
+A non-ISO-DEP card exits 4 with `unsupported`; a non-T-Union ISO-DEP card
+exits 4 with a message that the T-Union application is absent. The full card
+number, balance, terminal IDs, and records are never written to logs or
+project files.
 
 ### Amiibo
 

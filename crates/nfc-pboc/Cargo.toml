@@ -1,0 +1,13 @@
+[package]
+name = "nfc-pboc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+nfc-core.workspace = true
+nfc-transport.workspace = true
+
+[lints]
+workspace = true

@@ -48,12 +48,13 @@ use nfc_app::type2::{
 use nfc_app::{
     AmiiboKeys, CardReadResult, ClassicNdefInfo, ClassicNdefState, DriverInfo, PcscInfo,
     ReaderDevice, ReaderEvent, ReaderSnapshot, ReaderStatus, ReaderUpdate, SelfCheck, Service,
-    classic_health, load_keys,
+    TUnionReadResult, classic_health, load_keys,
 };
 use nfc_classic::{Dump, DumpFormat, DumpLoad, diff, exchange};
 use nfc_core::{CancelToken, CardInfo, CardType, Key, NfcError, Result as NfcResult};
 use nfc_drivers::DriverRegistry;
 use nfc_ndef::{LeAddressType, LeRole, NdefMessage, SmartPosterAction, TextEncoding, TextRecord};
+use nfc_pboc::format_cny;
 use nfc_recover::auto::RecoveryStrategy;
 use nfc_recover::{ProgressSink, RecoveryProgress, RecoveryRequest, RecoveryResult};
 use nfc_transport::{DeviceInfo, ReaderCapabilities};
@@ -296,6 +297,7 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
     let restore_view = build_restore_view();
     let type2_view = build_type2_view();
     let desfire_view = build_desfire_view();
+    let tunion_view = build_tunion_view();
     let diagnostics_view = build_diagnostics_view();
     let activity_view = build_activity_view();
     let settings_view = build_settings_view(&preferences);
@@ -353,6 +355,7 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
     views.add_named(&classic_root, Some("classic"));
     views.add_named(&type2_view.root, Some("type2"));
     views.add_named(&desfire_view.root, Some("desfire"));
+    views.add_named(&tunion_view.root, Some("tunion"));
     views.add_named(&system_group, Some("system"));
     views.set_visible_child_name("classic");
     let center = gtk::Box::new(Orientation::Vertical, 0);
@@ -558,6 +561,8 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
         restore_view,
         type2_view,
         desfire_view,
+        tunion_view,
+        tunion: RefCell::new(None),
         diagnostics_view,
         activity_view,
         settings_view,
@@ -887,6 +892,7 @@ enum Workspace {
     Classic,
     Type2,
     Desfire,
+    Tunion,
 }
 
 impl Workspace {
@@ -895,6 +901,7 @@ impl Workspace {
             Self::Classic => "classic",
             Self::Type2 => "type2",
             Self::Desfire => "desfire",
+            Self::Tunion => "tunion",
         }
     }
 
@@ -903,6 +910,7 @@ impl Workspace {
             Self::Classic => "MIFARE Classic",
             Self::Type2 => "NFC Forum Type 2",
             Self::Desfire => "DESFire",
+            Self::Tunion => "China T-Union",
         }
     }
 }
@@ -1130,6 +1138,8 @@ struct Ui {
     restore_view: RestoreView,
     type2_view: Type2View,
     desfire_view: DesfireView,
+    tunion_view: TunionView,
+    tunion: RefCell<Option<TUnionReadResult>>,
     diagnostics_view: DiagnosticsView,
     activity_view: ActivityView,
     settings_view: SettingsView,
@@ -1365,6 +1375,18 @@ struct DesfireView {
     format_picc: gtk::Button,
     ndef_status: gtk::Label,
     ndef_output: gtk::Label,
+}
+
+struct TunionView {
+    root: gtk::Box,
+    switcher: gtk::StackSwitcher,
+    summary: gtk::Label,
+    balance: gtk::Label,
+    meta: gtk::Box,
+    transactions: gtk::ListBox,
+    travels: gtk::ListBox,
+    warnings: gtk::Label,
+    status: gtk::Label,
 }
 
 struct Type2Editor {
@@ -2820,6 +2842,229 @@ fn build_desfire_view() -> DesfireView {
         ndef_status,
         ndef_output,
     }
+}
+
+fn build_tunion_view() -> TunionView {
+    let root = gtk::Box::new(Orientation::Vertical, 10);
+    root.set_margin_top(12);
+    root.set_margin_bottom(12);
+    root.set_margin_start(12);
+    root.set_margin_end(12);
+
+    let title = gtk::Label::new(Some("China T-Union"));
+    title.set_xalign(0.0);
+    title.add_css_class("title-2");
+    let summary = gtk::Label::new(Some("Read the card to show balance and transit records."));
+    summary.set_xalign(0.0);
+    summary.set_wrap(true);
+    summary.set_selectable(true);
+    summary.add_css_class("caption");
+    summary.add_css_class("dim-label");
+
+    let balance_caption = gtk::Label::new(Some("Balance"));
+    balance_caption.set_xalign(0.0);
+    balance_caption.add_css_class("caption");
+    balance_caption.add_css_class("dim-label");
+    let balance = gtk::Label::new(Some("—"));
+    balance.set_xalign(0.0);
+    balance.add_css_class("title-1");
+
+    let meta = gtk::Box::new(Orientation::Vertical, 4);
+    let transactions_title = gtk::Label::new(Some("Transactions"));
+    transactions_title.set_xalign(0.0);
+    transactions_title.add_css_class("title-3");
+    let transactions = gtk::ListBox::new();
+    transactions.set_selection_mode(gtk::SelectionMode::None);
+    transactions.add_css_class("boxed-list");
+    let travels_title = gtk::Label::new(Some("Travel records"));
+    travels_title.set_xalign(0.0);
+    travels_title.add_css_class("title-3");
+    let travels = gtk::ListBox::new();
+    travels.set_selection_mode(gtk::SelectionMode::None);
+    travels.add_css_class("boxed-list");
+    let warnings = gtk::Label::new(None);
+    warnings.set_xalign(0.0);
+    warnings.set_wrap(true);
+    warnings.set_selectable(true);
+    warnings.add_css_class("caption");
+    let status = gtk::Label::new(None);
+    status.set_xalign(0.0);
+    status.add_css_class("caption");
+    status.add_css_class("dim-label");
+
+    let content = gtk::Box::new(Orientation::Vertical, 12);
+    content.append(&title);
+    content.append(&summary);
+    content.append(&balance_caption);
+    content.append(&balance);
+    content.append(&meta);
+    content.append(&transactions_title);
+    content.append(&transactions);
+    content.append(&travels_title);
+    content.append(&travels);
+    content.append(&warnings);
+    content.append(&status);
+    let scroll = gtk::ScrolledWindow::builder()
+        .child(&content)
+        .vexpand(true)
+        .hexpand(true)
+        .build();
+    root.append(&scroll);
+
+    TunionView {
+        root,
+        switcher: gtk::StackSwitcher::new(),
+        summary,
+        balance,
+        meta,
+        transactions,
+        travels,
+        warnings,
+        status,
+    }
+}
+
+fn tunion_meta_row(label: &str, value: &str) -> gtk::Box {
+    let row = gtk::Box::new(Orientation::Horizontal, 8);
+    let key = gtk::Label::new(None);
+    key.set_localized(label);
+    key.set_xalign(0.0);
+    key.set_width_chars(14);
+    key.add_css_class("caption");
+    key.add_css_class("dim-label");
+    let value = gtk::Label::new(Some(value));
+    value.set_xalign(0.0);
+    value.set_selectable(true);
+    value.set_wrap(true);
+    row.append(&key);
+    row.append(&value);
+    row
+}
+
+fn tunion_list_row(text: &str) -> gtk::Label {
+    let label = gtk::Label::new(Some(text));
+    label.set_xalign(0.0);
+    label.set_wrap(true);
+    label.set_selectable(true);
+    label.set_margin_top(4);
+    label.set_margin_bottom(4);
+    label.set_margin_start(8);
+    label.set_margin_end(8);
+    label
+}
+
+fn clear_tunion_box(container: &gtk::Box) {
+    while let Some(child) = container.first_child() {
+        child.unparent();
+    }
+}
+
+fn clear_tunion_list(list: &gtk::ListBox) {
+    while let Some(child) = list.first_child() {
+        list.remove(&child);
+    }
+}
+
+fn render_tunion(ui: &Ui) {
+    let view = &ui.tunion_view;
+    clear_tunion_box(&view.meta);
+    clear_tunion_list(&view.transactions);
+    clear_tunion_list(&view.travels);
+    view.warnings.set_text("");
+    let session = ui.tunion.borrow();
+    let Some(result) = session.as_ref() else {
+        view.summary
+            .set_localized("Read the card to show balance and transit records.");
+        view.balance.set_text("—");
+        view.status.set_text("");
+        return;
+    };
+    let data = &result.data;
+    view.summary.set_text(&format!(
+        "{} · {} · UID {}",
+        data.label,
+        data.aid_hex(),
+        result.card.uid_hex()
+    ));
+    view.balance.set_text(&format_cny(data.balance_cents));
+    view.meta.append(&tunion_meta_row(
+        "Application",
+        &format!("{} ({})", data.label, data.aid_hex()),
+    ));
+    view.meta.append(&tunion_meta_row(
+        "App version",
+        &data.app_version_hex().unwrap_or_else(|| "—".to_owned()),
+    ));
+    view.meta
+        .append(&tunion_meta_row("Card type", data.card_type.label()));
+    view.meta.append(&tunion_meta_row("City", &data.city_id));
+    view.meta
+        .append(&tunion_meta_row("Card number", &data.masked_card_number()));
+    view.meta.append(&tunion_meta_row(
+        "Issued",
+        &data
+            .issued
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "—".to_owned()),
+    ));
+    view.meta.append(&tunion_meta_row(
+        "Expires",
+        &data
+            .expires
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "—".to_owned()),
+    ));
+    if data.transactions.is_empty() {
+        let row = tunion_list_row("No transaction records.");
+        row.set_localized("No transaction records.");
+        view.transactions.append(&row);
+    } else {
+        for transaction in &data.transactions {
+            let timestamp = transaction
+                .timestamp
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "invalid".to_owned());
+            view.transactions.append(&tunion_list_row(&format!(
+                "#{} · {timestamp} · {} · {} · terminal {}",
+                transaction.sequence,
+                format_cny(transaction.amount_cents),
+                transaction.kind.label(),
+                transaction.terminal_id
+            )));
+        }
+    }
+    if data.travels.is_empty() {
+        let row = tunion_list_row("No travel records.");
+        row.set_localized("No travel records.");
+        view.travels.append(&row);
+    } else {
+        for travel in &data.travels {
+            let timestamp = travel
+                .timestamp
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "invalid".to_owned());
+            view.travels.append(&tunion_list_row(&format!(
+                "{} · {timestamp} · {} · balance {} · station {} · terminal {}",
+                travel.kind.label(),
+                format_cny(travel.amount_cents),
+                format_cny(travel.balance_cents),
+                travel.station_id,
+                travel.terminal_id
+            )));
+        }
+    }
+    if data.warnings.is_empty() {
+        view.warnings.set_text("");
+    } else {
+        view.warnings.set_text(&data.warnings.join("\n"));
+    }
+    let partial = if data.complete { "" } else { " · partial" };
+    view.status.set_localized(&format!(
+        "{} transactions · {} travel records{}",
+        data.transactions.len(),
+        data.travels.len(),
+        partial
+    ));
 }
 
 fn build_type2_view() -> Type2View {
@@ -5158,13 +5403,19 @@ fn active_switcher(ui: &Ui) -> gtk::StackSwitcher {
         Workspace::Classic => ui.classic_switcher.clone(),
         Workspace::Type2 => ui.type2_view.switcher.clone(),
         Workspace::Desfire => ui.desfire_view.switcher.clone(),
+        Workspace::Tunion => ui.tunion_view.switcher.clone(),
     }
 }
 
 fn build_workspace_menu(ui: &Rc<Ui>, button: &gtk::MenuButton) {
     let popover = gtk::Popover::new();
     let menu = gtk::Box::new(Orientation::Vertical, 2);
-    for workspace in [Workspace::Classic, Workspace::Type2, Workspace::Desfire] {
+    for workspace in [
+        Workspace::Classic,
+        Workspace::Type2,
+        Workspace::Desfire,
+        Workspace::Tunion,
+    ] {
         let item = menu_button(workspace.label());
         let ui = ui.clone();
         let popover = popover.clone();
@@ -5192,10 +5443,13 @@ fn switch_workspace(ui: &Rc<Ui>, workspace: Workspace) {
     match workspace {
         Workspace::Classic => ui.classic_ndef_slot.append(&ui.ndef_view.root),
         Workspace::Type2 => ui.type2_view.ndef_slot.append(&ui.ndef_view.root),
-        Workspace::Desfire => {}
+        Workspace::Desfire | Workspace::Tunion => {}
     }
     update_ndef(ui);
     update_ndef_actions(ui);
+    if workspace == Workspace::Tunion {
+        render_tunion(ui);
+    }
     update_card(ui);
 }
 
@@ -5538,6 +5792,28 @@ fn update_workbench_actions(ui: &Ui) {
 }
 
 fn update_card(ui: &Ui) {
+    if ui.workspace.get() == Workspace::Tunion {
+        ui.card_title.set_localized("China T-Union");
+        let detail = match ui.tunion.borrow().as_ref() {
+            Some(result) => format!(
+                "UID {}\n{} · balance {}\n{} transactions · {} travel records{}",
+                result.card.uid_hex(),
+                result.data.label,
+                format_cny(result.data.balance_cents),
+                result.data.transactions.len(),
+                result.data.travels.len(),
+                if result.data.complete {
+                    ""
+                } else {
+                    " · partial"
+                }
+            ),
+            None => "Read the card to show balance and transit records.".to_owned(),
+        };
+        ui.card_detail.set_localized(&detail);
+        ui.detail.set_localized("T-Union · read-only");
+        return;
+    }
     if ui.workspace.get() == Workspace::Desfire {
         ui.card_title.set_localized("DESFire");
         ui.card_detail
@@ -10452,8 +10728,56 @@ fn update_desfire_actions(ui: &Ui) {
     ui.desfire_view.change_key.set_sensitive(advanced);
 }
 
+fn start_tunion_read(ui: Rc<Ui>) {
+    if ui.busy.get() {
+        return;
+    }
+    if ui.devices.borrow().is_empty() {
+        toast_error(&ui, "No reader selected");
+        return;
+    }
+    set_busy(&ui, true);
+    ui.status.set_localized("Reading the T-Union card…");
+    ui.tunion_view.status.set_localized("Reading…");
+    run_service_task(
+        &ui,
+        "T-Union read",
+        move |service, cancel| service.tunion_read(cancel),
+        finish_tunion_read,
+    );
+}
+
+fn finish_tunion_read(ui: &Rc<Ui>, result: NfcResult<TUnionReadResult>) {
+    set_busy(ui, false);
+    match result {
+        Ok(read) => {
+            let uid = read.card.uid_hex();
+            ui.tunion.replace(Some(read));
+            switch_workspace(ui, Workspace::Tunion);
+            ui.tunion_view.status.set_localized("Read complete");
+            ui.status
+                .set_localized(&format!("T-Union read · UID {uid}"));
+            append_log(ui, &format!("tunion · read · UID {uid}"));
+        }
+        Err(NfcError::Cancelled) => {
+            ui.tunion_view.status.set_localized("Read cancelled");
+            ui.status.set_localized("T-Union read cancelled");
+            append_log(ui, "tunion · read cancelled");
+        }
+        Err(error) => {
+            ui.tunion_view.status.set_localized("Read failed");
+            ui.status.set_localized("T-Union read failed");
+            toast_error(ui, &format!("T-Union read: {error}"));
+        }
+    }
+}
+
 fn start_read(ui: Rc<Ui>) {
     if ui.busy.get() {
+        return;
+    }
+    if ui.workspace.get() == Workspace::Tunion {
+        start_tunion_read(ui);
         return;
     }
     if ui.workspace.get() == Workspace::Desfire {
@@ -17724,6 +18048,8 @@ mod tests {
         ui.inspector.uid.set_text("");
         ui.type2.replace(None);
         ui.type2_restore.replace(None);
+        ui.tunion.replace(None);
+        render_tunion(ui);
         ui.amiibo_keys.replace(None);
         ui.amiibo_source.replace(None);
         ui.amiibo_raw.replace(None);
@@ -21034,6 +21360,43 @@ mod tests {
         assert_eq!(count, nfc_app::classic::COMMON_KEYS.len());
         assert_eq!(text.lines().count(), count);
         assert_eq!(*ui.keys.borrow(), before);
+    }
+
+    #[test]
+    fn tunion_workspace_renders_balance_and_records() {
+        if std::env::var_os("NFC_FOUNDRY_GUI_TESTS").is_none() {
+            eprintln!("skipping GTK UI tests; set NFC_FOUNDRY_GUI_TESTS=1 under Xvfb");
+            return;
+        }
+        let harness = harness();
+        reset(&harness);
+        let ui = &harness.ui;
+        switch_workspace(ui, Workspace::Tunion);
+        assert_eq!(ui.workspace.get(), Workspace::Tunion);
+        assert_eq!(ui.views.visible_child_name().as_deref(), Some("tunion"));
+        assert_eq!(ui.read_button.label().as_deref(), Some("Read card"));
+        assert_eq!(ui.tunion_view.balance.text(), "—");
+        assert!(widget_contains_text(
+            &ui.tunion_view.root,
+            "Read the card to show balance and transit records."
+        ));
+
+        let mut reader =
+            nfc_pboc::mock::MockTUnionReader::new(nfc_pboc::mock::MockTUnionCard::default());
+        let data = nfc_pboc::tunion::read(&mut reader, &CancelToken::new()).expect("read");
+        let card = nfc_transport::Reader::card_info(&mut reader).expect("card");
+        finish_tunion_read(&harness.ui, Ok(TUnionReadResult { card, data }));
+        assert!(!ui.busy.get());
+        assert_eq!(ui.workspace.get(), Workspace::Tunion);
+        assert_eq!(ui.tunion_view.balance.text(), "¥50.00");
+        assert_eq!(ui.tunion_view.transactions.observe_children().n_items(), 2);
+        assert_eq!(ui.tunion_view.travels.observe_children().n_items(), 2);
+        assert!(widget_contains_text(
+            &ui.tunion_view.meta,
+            "***************0001"
+        ));
+        assert!(widget_contains_text(&ui.tunion_view.meta, "2022-01-02"));
+        assert!(ui.card_detail.label().contains("¥50.00"));
     }
 
     #[test]

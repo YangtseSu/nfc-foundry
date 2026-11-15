@@ -8,8 +8,8 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
 
 - One window, 1360×880 default, resizable.
 - Header: `NFC Foundry` title, workspace selector (`MIFARE Classic` /
-  `NFC Forum Type 2` / `DESFire`), primary `Read card` (`Refresh card` on
-  DESFire), and a `☰` main menu. A `←` back button appears only
+  `NFC Forum Type 2` / `DESFire` / `China T-Union`), primary `Read card`
+  (`Refresh card` on DESFire), and a `☰` main menu. A `←` back button appears only
   while a system page is shown. The reader selector is not duplicated in the
   header.
 - Left rail (fixed start pane, `GtkPaned`): reader menu with refresh,
@@ -33,8 +33,9 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
   and `Dumps`;
   `Type 2` shows `Pages`, `Protection`, `NDEF`, and `Dumps`; `DESFire` shows
   `Inventory`, `Read`, `Verify`, `NDEF`, `Manage`, `Values & records`, and
-  `Keys`. Reads, key verification, and the authenticated UID read are
-  ungated; NDEF formatting, replacement, deletion, file settings, application
+  `Keys`; `China T-Union` shows one read-only report with application facts,
+  balance, transactions, and travel records. Reads, key verification, and the
+  authenticated UID read are ungated; NDEF formatting, replacement, deletion, file settings, application
   and file deletion, key changes, and the Manage `Format PICC (erase all)`
   action stay Advanced. Destructive dialogs list the current state, key
   source, and the planned manifest path; data writes show their JSON backup
@@ -46,7 +47,9 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
 - `Read card` detects a Classic or Type 2 card, selects the matching workspace,
   and selects the card or pages tab. On the DESFire workspace the same button
   is labelled `Refresh card` and only refreshes the unauthenticated inventory.
-  The header selector switches manually for file-only work.
+  On the China T-Union workspace the same button reads the T-Union
+  application; the workspace is selected manually. The header selector
+  switches manually for file-only work.
 - `Diagnostics`, `Activity`, and `Settings` are not workspace tabs. The `☰`
   menu opens a hidden `System` page at the requested sub-tab; `←` returns to
   the last workspace. `About NFC Foundry` opens `AdwAboutDialog`.
@@ -89,6 +92,20 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
   dump key count, dirty blocks, and validation errors/warnings.
 - No card I/O and no key material. The model is shared with
   `nfctl card health`.
+
+## China T-Union
+
+- The workspace is read-only. It has no NDEF page, Advanced mode, mutation
+  button, or transaction action.
+- `Read card` selects `2PAY.SYS.DDF01`, then `A000000632010105`, reads the
+  electronic purse balance, and reads the transaction and travel record files.
+- The report shows the application label/AID/version, card type, city, masked
+  card number, issue and expiry dates, balance, one line per transaction, and
+  one line per travel record.
+- Record warnings and an incomplete read stay visible. The full card number is
+  never shown; it is masked to the last four digits.
+- A non-ISO-DEP card or a card without the T-Union application reports an
+  unsupported error and leaves the previous report in place.
 
 ## Type 2
 
@@ -337,11 +354,12 @@ the active workspace and renders the active card family's NDEF facts.
 ## Workspace selector
 
 The header selector is a compact `MenuButton` labelled `MIFARE Classic`,
-`NFC Forum Type 2`, or `DESFire`. It switches the workspace stack and moves the
-shared NDEF view into the Classic or Type 2 workspace. Reading a Classic or
-Type 2 card selects the matching workspace automatically; DESFire is selected
-manually and reads through its own application/file form. The manual selector
-also covers loading dumps and inspecting pages without a live card.
+`NFC Forum Type 2`, `DESFire`, or `China T-Union`. It switches the workspace
+stack and moves the shared NDEF view into the Classic or Type 2 workspace.
+Reading a Classic or Type 2 card selects the matching workspace automatically;
+DESFire and China T-Union are selected manually and read through their own
+forms. The manual selector also covers loading dumps and inspecting pages
+without a live card.
 
 ## Main menu
 

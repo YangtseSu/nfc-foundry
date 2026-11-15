@@ -12,6 +12,7 @@ members = [
     "crates/nfc-amiibo",
     "crates/nfc-type4",
     "crates/nfc-desfire",
+    "crates/nfc-pboc",
     "crates/nfc-app",
     "crates/nfctl",
     "crates/gui",
@@ -28,6 +29,7 @@ default-members = [
     "crates/nfc-amiibo",
     "crates/nfc-type4",
     "crates/nfc-desfire",
+    "crates/nfc-pboc",
     "crates/nfc-app",
     "crates/nfctl",
     "crates/gui",
@@ -52,6 +54,7 @@ nfc-classic-ndef = { path = "crates/nfc-classic-ndef" }
 nfc-amiibo = { path = "crates/nfc-amiibo" }
 nfc-type4 = { path = "crates/nfc-type4" }
 nfc-desfire = { path = "crates/nfc-desfire" }
+nfc-pboc = { path = "crates/nfc-pboc" }
 nfc-app = { path = "crates/nfc-app" }
 
 aes = "0.9"

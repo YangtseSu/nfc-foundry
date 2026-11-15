@@ -2861,6 +2861,36 @@ keys! {
         "amiibo write · preflight cancelled",
         "Amiibo 写入 · 预检已取消"
     ),
+    TunionTitle => ("China T-Union", "中国交通联合"),
+    TunionHint => (
+        "Read the card to show balance and transit records.",
+        "读取卡片以显示余额和乘车记录。"
+    ),
+    TunionBalance => ("Balance", "余额"),
+    TunionTransactions => ("Transactions", "交易记录"),
+    TunionTravels => ("Travel records", "行程记录"),
+    TunionApplication => ("Application", "应用"),
+    TunionAppVersion => ("App version", "应用版本"),
+    TunionCardType => ("Card type", "卡种"),
+    TunionCity => ("City", "城市"),
+    TunionCardNumber => ("Card number", "卡号"),
+    TunionIssued => ("Issued", "签发日期"),
+    TunionExpires => ("Expires", "有效期至"),
+    TunionNoTransactions => ("No transaction records.", "没有交易记录。"),
+    TunionNoTravels => ("No travel records.", "没有行程记录。"),
+    TunionReading => ("Reading the T-Union card…", "正在读取交通联合卡…"),
+    TunionReadingShort => ("Reading…", "读取中…"),
+    TunionReadComplete => ("Read complete", "读取完成"),
+    TunionReadCancelled => ("Read cancelled", "读取已取消"),
+    TunionReadFailed => ("Read failed", "读取失败"),
+    TunionReadCancelledStatus => ("T-Union read cancelled", "交通联合卡读取已取消"),
+    TunionReadFailedStatus => ("T-Union read failed", "交通联合卡读取失败"),
+    TunionReadOnly => ("T-Union · read-only", "交通联合 · 只读"),
+    TunionRecordStatus => (
+        "{} transactions · {} travel records{}",
+        "{} 条交易记录 · {} 条行程记录{}"
+    ),
+    TunionPartial => (" · partial", " · 部分"),
 }
 
 #[cfg(test)]

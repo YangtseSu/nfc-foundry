@@ -19,6 +19,7 @@ pub mod reader;
 mod reader_lock;
 pub mod recovery;
 pub mod service;
+pub mod tunion;
 pub mod type2;
 pub mod type4;
 
@@ -56,6 +57,7 @@ pub use reader::{
     ReaderSnapshot, ReaderStatus, ReaderUpdate,
 };
 pub use service::{CardReadResult, Service};
+pub use tunion::TUnionReadResult;
 pub use type2::{
     Type2Auth, Type2Format, Type2Lock, Type2LockResult, Type2MutationResult, Type2NdefResult,
     Type2NdefWrite, Type2PageResult, Type2PageWrite, Type2Password, Type2ReadRequest,

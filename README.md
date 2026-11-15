@@ -171,6 +171,11 @@ Two first-class domains:
    implemented and validated on PN532 UART, with the ACR122U path pending and
    no CLI or GUI surface yet.
 
+A read-only China T-Union adapter is available separately from the two
+domains: `nfctl tunion read` and the GTK `China T-Union` workspace show the
+application, masked card number, balance, and transaction/travel records. No
+credit, purchase, or write path exists.
+
 Amiibo is an application on the Type 2 path: read and decrypt with user key
 files, encrypt a user dump, and write a re-signed image to an owned unlocked
 magic NTAG215. No Nintendo keys or Amiibo data ship with the product.
@@ -188,10 +193,13 @@ telemetry, a browser-first UI, and a GUI command terminal or shell launch.
 Post-release work is listed in the phase plan: phase 13 is the pending RF and
 transport prerequisite; phases 14-16 are optional read-only work covering
 Type 3/4B NDEF, EMV public data, China T-Union, FMCOS/Calypso, and ICAO 9303
-eMRTD. Phase 17 is the controlled Amiibo path with user-supplied keys and
-data. The read-only phases add no write or transaction path; Amiibo writes are
-Advanced, user-key/user-data only, and limited to owned unlocked magic NTAG215
-tags. No hardware support is claimed until validated.
+eMRTD. Phase 14a (China T-Union) is implemented and validated on PN532 UART;
+the ACR122U row is pending. The rest of phase 14 and the Type B paths still
+need phase 13. Phase 16 remains blocked on an authorized SAM. Phase 17 is the
+controlled Amiibo path with user-supplied keys and data. The read-only phases
+add no write or transaction path; Amiibo writes are Advanced,
+user-key/user-data only, and limited to owned unlocked magic NTAG215 tags. No
+hardware support is claimed until validated.
 
 ## Technical stack
 
@@ -223,6 +231,8 @@ crates/
   nfc-amiibo          # Amiibo key records, crypto, NTAG215 image, UID rebinding
   nfc-classic-ndef    # MAD / Classic NDEF adapter
   nfc-type4           # ISO-DEP/APDU CC and NDEF file read/write
+  nfc-desfire         # DESFire native commands, secure messaging, mock card
+  nfc-pboc            # read-only ISO 7816-4 public data; T-Union profile
   nfc-app             # device manager, services, workflows, events
   nfctl               # CLI
 ```
@@ -231,7 +241,7 @@ Dependency direction:
 
 ```text
 nfctl -> nfc-app -> nfc-recover / nfc-classic / nfc-type2 / nfc-classic-ndef
-      -> nfc-amiibo / nfc-ndef -> nfc-core
+      -> nfc-amiibo / nfc-desfire / nfc-pboc / nfc-ndef -> nfc-core
 nfc-drivers -> nfc-transport
 ```
 
