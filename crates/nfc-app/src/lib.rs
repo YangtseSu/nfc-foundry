@@ -10,6 +10,7 @@ pub mod desfire;
 pub mod developer;
 pub mod device;
 pub mod diagnostics;
+pub mod emv;
 pub mod event;
 mod fsutil;
 pub mod health;
@@ -46,6 +47,7 @@ pub use diagnostics::{
     APP_NAME, AppInfo, CapabilityReport, DriverInfo, PcscInfo, PlatformInfo, ReaderDevice,
     ReaderListing, SelfCheck, TablesStatus,
 };
+pub use emv::EmvReadResult;
 pub use health::{CardHealth, CardIdentityHealth, KeyCoverage, classic_health};
 pub use nfc_amiibo::{AmiiboIdentity, AmiiboKeys};
 pub use nfc_classic_ndef::{

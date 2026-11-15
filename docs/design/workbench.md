@@ -8,7 +8,7 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
 
 - One window, 1360×880 default, resizable.
 - Header: `NFC Foundry` title, workspace selector (`MIFARE Classic` /
-  `NFC Forum Type 2` / `DESFire` / `China T-Union`), primary `Read card`
+  `NFC Forum Type 2` / `DESFire` / `China T-Union` / `Bank card`), primary `Read card`
   (`Refresh card` on DESFire), and a `☰` main menu. A `←` back button appears only
   while a system page is shown. The reader selector is not duplicated in the
   header.
@@ -33,7 +33,7 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
   and `Dumps`;
   `Type 2` shows `Pages`, `Protection`, `NDEF`, and `Dumps`; `DESFire` shows
   `Inventory`, `Read`, `Verify`, `NDEF`, `Manage`, `Values & records`, and
-  `Keys`; `China T-Union` shows one read-only report with application facts,
+  `Keys`; `China T-Union` and `Bank card` show one read-only report with application facts,
   balance, transactions, and travel records. Reads, key verification, and the
   authenticated UID read are ungated; NDEF formatting, replacement, deletion, file settings, application
   and file deletion, key changes, and the Manage `Format PICC (erase all)`
@@ -48,7 +48,8 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
   and selects the card or pages tab. On the DESFire workspace the same button
   is labelled `Refresh card` and only refreshes the unauthenticated inventory.
   On the China T-Union workspace the same button reads the T-Union
-  application; the workspace is selected manually. The header selector
+  application; on the Bank card workspace it reads the EMV payment application.
+  Both workspaces are selected manually. The header selector
   switches manually for file-only work.
 - `Diagnostics`, `Activity`, and `Settings` are not workspace tabs. The `☰`
   menu opens a hidden `System` page at the requested sub-tab; `←` returns to
@@ -105,6 +106,23 @@ This is the current screen contract for `crates/gui`. GTK4-rs (`gtk4` +
 - Record warnings and an incomplete read stay visible. The full card number is
   never shown; it is masked to the last four digits.
 - A non-ISO-DEP card or a card without the T-Union application reports an
+  unsupported error and leaves the previous report in place.
+
+## Bank card
+
+- The workspace is read-only. It has no NDEF page, Advanced mode, payment
+  button, or mutation action.
+- `Read card` selects `2PAY.SYS.DDF01`, selects the highest-priority
+  application, sends Get Processing Options with a zero amount, and reads the
+  AFL records.
+- The report shows the application list, selected label/AID/priority/version,
+  masked card number, cardholder name when present, expiry and effective
+  dates, PAN sequence, service code, AIP/ATC, issuer country, application
+  usage, and record count.
+- Warnings and an incomplete read stay visible. The full card number is never
+  shown; it is masked to the last four digits.
+- The card may return an application cryptogram during GPO; it is discarded.
+  A non-ISO-DEP card or a card without a PPSE/application reports an
   unsupported error and leaves the previous report in place.
 
 ## Type 2
@@ -354,11 +372,11 @@ the active workspace and renders the active card family's NDEF facts.
 ## Workspace selector
 
 The header selector is a compact `MenuButton` labelled `MIFARE Classic`,
-`NFC Forum Type 2`, `DESFire`, or `China T-Union`. It switches the workspace
-stack and moves the shared NDEF view into the Classic or Type 2 workspace.
-Reading a Classic or Type 2 card selects the matching workspace automatically;
-DESFire and China T-Union are selected manually and read through their own
-forms. The manual selector also covers loading dumps and inspecting pages
+`NFC Forum Type 2`, `DESFire`, `China T-Union`, or `Bank card`. It switches
+the workspace stack and moves the shared NDEF view into the Classic or Type 2
+workspace. Reading a Classic or Type 2 card selects the matching workspace
+automatically; DESFire, China T-Union, and Bank card are selected manually and
+read through their own forms. The manual selector also covers loading dumps and inspecting pages
 without a live card.
 
 ## Main menu

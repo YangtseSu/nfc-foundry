@@ -2891,6 +2891,28 @@ keys! {
         "{} 条交易记录 · {} 条行程记录{}"
     ),
     TunionPartial => (" · partial", " · 部分"),
+    EmvTitle => ("Bank card", "银行卡"),
+    EmvHint => (
+        "Read the card to show the payment application, masked number, and expiry.",
+        "读取卡片以显示支付应用、掩码卡号和有效期。"
+    ),
+    EmvApplications => ("Applications", "应用"),
+    EmvPriority => ("Priority", "优先级"),
+    EmvCardholder => ("Cardholder", "持卡人"),
+    EmvEffective => ("Effective", "生效日期"),
+    EmvPanSequence => ("PAN sequence", "卡号序号"),
+    EmvServiceCode => ("Service code", "服务代码"),
+    EmvAip => ("AIP", "AIP"),
+    EmvAtc => ("ATC", "ATC"),
+    EmvIssuerCountry => ("Issuer country", "发卡国家"),
+    EmvApplicationUsage => ("Application usage", "应用用途"),
+    EmvRecords => ("Records", "记录"),
+    EmvSelected => (" · selected", " · 已选"),
+    EmvReading => ("Reading the payment card…", "正在读取银行卡…"),
+    EmvReadCancelledStatus => ("Bank card read cancelled", "银行卡读取已取消"),
+    EmvReadFailedStatus => ("Bank card read failed", "银行卡读取失败"),
+    EmvReadLog => ("Bank card read · UID {}", "银行卡已读取 · UID {}"),
+    EmvReadOnly => ("Payment card · read-only", "支付卡 · 只读"),
 }
 
 #[cfg(test)]

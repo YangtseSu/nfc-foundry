@@ -51,7 +51,7 @@ use nfc_core::{
 use nfc_desfire::mock::{MockDesfire, MockDesfireTransport};
 use nfc_drivers::DriverRegistry;
 use nfc_ndef::{NdefMessage, NdefRecord, TextRecord, UriRecord, WifiRecord};
-use nfc_pboc::mock::MockTUnionTransport;
+use nfc_pboc::mock::{MockEmvTransport, MockTUnionTransport};
 use nfc_recover::auto::RecoveryStrategy;
 use nfc_recover::{RecoveryProgress, RecoveryRequest};
 use nfc_transport::mock::{MockTransport, MockType4Tag};
@@ -221,6 +221,11 @@ enum Command {
     Tunion {
         #[command(subcommand)]
         command: TunionCommand,
+    },
+    /// EMV payment-card read-only operations.
+    Emv {
+        #[command(subcommand)]
+        command: EmvCommand,
     },
     /// Amiibo / NTAG215 decrypt, encrypt, and controlled write operations.
     Amiibo {
@@ -507,6 +512,12 @@ enum Type2Command {
 #[derive(Clone, Debug, Subcommand)]
 enum TunionCommand {
     /// Read the T-Union application, balance, and record files.
+    Read,
+}
+
+#[derive(Clone, Debug, Subcommand)]
+enum EmvCommand {
+    /// Read the payment application, masked PAN, expiry, and records.
     Read,
 }
 
@@ -1344,6 +1355,7 @@ fn dispatch(run: &mut Run<'_>, service: &mut Service, command: Command) -> CliRe
         Command::Classic { command } => classic(run, service, command),
         Command::Type2 { command } => type2(run, service, command),
         Command::Tunion { command } => tunion(run, service, command),
+        Command::Emv { command } => emv(run, service, command),
         Command::Amiibo { command } => amiibo(run, service, command),
         Command::Desfire { command } => desfire(run, service, *command),
         Command::Ndef { command } => ndef(run, service, command),
@@ -1413,6 +1425,9 @@ impl Command {
             },
             Self::Tunion { command } => match command {
                 TunionCommand::Read => "tunion.read",
+            },
+            Self::Emv { command } => match command {
+                EmvCommand::Read => "emv.read",
             },
             Self::Desfire { command } => match command.as_ref() {
                 DesfireCommand::Info => "desfire.info",
@@ -5686,6 +5701,143 @@ fn tunion_read(run: &mut Run<'_>, service: &mut Service) -> CliResult<Value> {
     }))
 }
 
+fn emv(run: &mut Run<'_>, service: &mut Service, command: EmvCommand) -> CliResult<Value> {
+    match command {
+        EmvCommand::Read => emv_read(run, service),
+    }
+}
+
+fn emv_read(run: &mut Run<'_>, service: &mut Service) -> CliResult<Value> {
+    run.out.set_command("emv.read");
+    prepare(run, service)?;
+    let result = service.emv_read(run.cancel.clone())?;
+    run.out.set_card(&result.card);
+    print_card(run.out, &result.card);
+    let data = result.data;
+    for warning in &data.warnings {
+        warn!(run.out, "{warning}");
+    }
+    say!(run.out, "application: {} ({})", data.label, data.aid_hex());
+    say!(
+        run.out,
+        "priority: {}",
+        data.priority
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "—".to_owned())
+    );
+    if let Some(version) = data.app_version_hex() {
+        say!(run.out, "app version: {version}");
+    }
+    say!(
+        run.out,
+        "card: {}",
+        data.pan_masked.as_deref().unwrap_or("—")
+    );
+    say!(
+        run.out,
+        "cardholder: {}",
+        data.cardholder_name.as_deref().unwrap_or("—")
+    );
+    say!(
+        run.out,
+        "expires: {}",
+        data.expires
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "—".to_owned())
+    );
+    say!(
+        run.out,
+        "effective: {}",
+        data.effective
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "—".to_owned())
+    );
+    say!(
+        run.out,
+        "PAN sequence: {}",
+        data.pan_sequence
+            .map(|value| format!("{value:02}"))
+            .unwrap_or_else(|| "—".to_owned())
+    );
+    say!(
+        run.out,
+        "service code: {}",
+        data.service_code_text().unwrap_or_else(|| "—".to_owned())
+    );
+    say!(
+        run.out,
+        "AIP: {} ({})",
+        data.aip_hex(),
+        data.aip_capabilities().join(", ")
+    );
+    say!(
+        run.out,
+        "ATC: {}",
+        data.atc
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "—".to_owned())
+    );
+    say!(
+        run.out,
+        "issuer country: {}",
+        data.issuer_country_hex().unwrap_or_else(|| "—".to_owned())
+    );
+    say!(
+        run.out,
+        "application usage: {}",
+        data.application_usage_hex()
+            .unwrap_or_else(|| "—".to_owned())
+    );
+    say!(run.out, "applications: {}", data.applications.len());
+    for application in &data.applications {
+        say!(
+            run.out,
+            "  {} ({}) · priority {}",
+            application.display_label(),
+            application.aid_hex(),
+            application
+                .priority
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "—".to_owned())
+        );
+    }
+    say!(run.out, "records: {}", data.records_read);
+    if !data.complete {
+        warn!(run.out, "the EMV read is incomplete");
+    }
+    let applications: Vec<Value> = data
+        .applications
+        .iter()
+        .map(|application| {
+            json!({
+                "aid": application.aid_hex(),
+                "label": application.label,
+                "priority": application.priority,
+            })
+        })
+        .collect();
+    Ok(json!({
+        "aid": data.aid_hex(),
+        "label": &data.label,
+        "priority": data.priority,
+        "appVersion": data.app_version_hex(),
+        "pan": data.pan_masked.as_deref(),
+        "cardholderName": data.cardholder_name.as_deref(),
+        "expires": data.expires.map(|value| value.to_string()),
+        "effective": data.effective.map(|value| value.to_string()),
+        "panSequence": data.pan_sequence,
+        "serviceCode": data.service_code_text(),
+        "aip": data.aip_hex(),
+        "aipCapabilities": data.aip_capabilities(),
+        "atc": data.atc,
+        "issuerCountry": data.issuer_country_hex(),
+        "applicationUsage": data.application_usage_hex(),
+        "recordsRead": data.records_read,
+        "complete": data.complete,
+        "applications": applications,
+    }))
+}
+
 fn amiibo(run: &mut Run<'_>, service: &mut Service, command: AmiiboCommand) -> CliResult<Value> {
     match command {
         AmiiboCommand::Read { output } => {
@@ -6794,15 +6946,17 @@ fn mock_service() -> Service {
         standard: transport,
         desfire,
         tunion: MockTUnionTransport::new(),
+        emv: MockEmvTransport::new(),
     }))
 }
 
-/// Routes the scripted Classic/Type 2/Type 4 devices, the DESFire card, and the
-/// T-Union card through one mock transport.
+/// Routes the scripted Classic/Type 2/Type 4 devices, the DESFire card, the
+/// T-Union card, and the EMV payment card through one mock transport.
 struct MockDevices {
     standard: MockTransport,
     desfire: MockDesfireTransport,
     tunion: MockTUnionTransport,
+    emv: MockEmvTransport,
 }
 
 impl Transport for MockDevices {
@@ -6810,6 +6964,7 @@ impl Transport for MockDevices {
         let mut devices = self.standard.enumerate()?;
         devices.extend(self.desfire.enumerate()?);
         devices.extend(self.tunion.enumerate()?);
+        devices.extend(self.emv.enumerate()?);
         Ok(devices)
     }
 
@@ -6829,6 +6984,14 @@ impl Transport for MockDevices {
             .any(|device| device.conn_string == conn_string);
         if is_tunion {
             return self.tunion.open(conn_string);
+        }
+        let is_emv = self
+            .emv
+            .enumerate()?
+            .iter()
+            .any(|device| device.conn_string == conn_string);
+        if is_emv {
+            return self.emv.open(conn_string);
         }
         self.standard.open(conn_string)
     }

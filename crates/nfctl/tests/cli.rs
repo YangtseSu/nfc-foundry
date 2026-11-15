@@ -2468,6 +2468,61 @@ fn tunion_read_json_keeps_the_envelope_and_masks_the_card_number() {
 }
 
 #[test]
+fn emv_read_reports_the_mock_application_and_masks_the_pan() {
+    let output = nfctl(&["--mock", "--device", "mock:emv", "emv", "read"]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(
+        text.contains("application: Mock Payment (A000000333010101)"),
+        "{text}"
+    );
+    assert!(text.contains("card: **************0001"), "{text}");
+    assert!(text.contains("expires: 2030-12-31"), "{text}");
+    assert!(text.contains("AIP: 7C00 (SDA, DDA"), "{text}");
+    assert!(text.contains("records: 1"), "{text}");
+    assert!(!text.contains("622908000000000001"), "{text}");
+}
+
+#[test]
+fn emv_read_json_keeps_the_envelope_and_masks_the_pan() {
+    let output = nfctl(&["--mock", "--device", "mock:emv", "--json", "emv", "read"]);
+    assert_success(&output);
+    let envelope: serde_json::Value = serde_json::from_str(&stdout(&output)).expect("json");
+    assert_eq!(envelope["ok"], true);
+    assert_eq!(envelope["command"], "emv.read");
+    assert_eq!(envelope["device"], "mock:emv");
+    assert_eq!(envelope["card"]["type"], "iso14443a");
+    assert_eq!(envelope["warnings"], serde_json::json!([]));
+    let result = &envelope["result"];
+    assert_eq!(result["aid"], "A000000333010101");
+    assert_eq!(result["label"], "Mock Payment");
+    assert_eq!(result["pan"], "**************0001");
+    assert_eq!(result["expires"], "2030-12-31");
+    assert_eq!(result["aip"], "7C00");
+    assert_eq!(result["atc"], 17);
+    assert_eq!(result["recordsRead"], 1);
+    assert_eq!(result["complete"], true);
+    assert_eq!(
+        result["applications"]
+            .as_array()
+            .expect("applications")
+            .len(),
+        1
+    );
+    let serialized = serde_json::to_string(&envelope).expect("serialize");
+    assert!(!serialized.contains("622908000000000001"), "{serialized}");
+}
+
+#[test]
+fn emv_read_refuses_a_non_iso_dep_card() {
+    let output = nfctl(&["--mock", "--device", "mock:classic-1k", "emv", "read"]);
+    assert!(!output.status.success());
+    assert_eq!(output.status.code(), Some(4));
+    let text = stderr(&output);
+    assert!(text.contains("not an ISO/IEC 14443-4 card"), "{text}");
+}
+
+#[test]
 fn tunion_read_refuses_a_non_iso_dep_card() {
     let output = nfctl(&["--mock", "--device", "mock:classic-1k", "tunion", "read"]);
     assert!(!output.status.success());

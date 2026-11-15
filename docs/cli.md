@@ -256,6 +256,7 @@ type2.lock
 type2.password
 type2.uid
 tunion.read
+emv.read
 amiibo.read
 amiibo.decrypt
 amiibo.encrypt
@@ -438,6 +439,46 @@ A non-ISO-DEP card exits 4 with `unsupported`; a non-T-Union ISO-DEP card
 exits 4 with a message that the T-Union application is absent. The full card
 number, balance, terminal IDs, and records are never written to logs or
 project files.
+
+### EMV payment card
+
+`nfctl emv read` selects `2PAY.SYS.DDF01`, selects the highest-priority
+application, sends Get Processing Options with a zero amount, and reads the
+records named by the AFL. It prints the card facts, application list, selected
+AID/label, masked PAN, expiry, cardholder name when present, AIP/ATC facts, and
+record count. The command is read-only: it has no GENERATE AC, PIN, balance,
+statement, top-up, purchase, or write path, and `--dry-run` is rejected.
+
+The card may include an application cryptogram in its GPO response and may
+advance its ATC; the cryptogram is discarded and never sent to an issuer. The
+full PAN and Track 2 bytes are never printed or persisted.
+
+`--json` result keys:
+
+| Key | Meaning |
+|---|---|
+| `aid` | Selected application AID, uppercase hex |
+| `label` | Application label from the FCI or PPSE |
+| `priority` | PPSE priority byte, or `null` |
+| `appVersion` | `9F08` value, uppercase hex, or `null` |
+| `applications[]` | Every PPSE entry: `aid`, `label`, `priority` |
+| `pan` | Primary account number masked to the last four digits, or `null` |
+| `cardholderName` | `5F20` printable name, or `null` |
+| `expires`, `effective` | `YYYY-MM-DD` or `YYYY-MM` for month-only expiry, or `null` |
+| `panSequence` | `5F34` value, or `null` |
+| `serviceCode` | Three-digit Track 2 service code, or `null` |
+| `aip` | AIP uppercase hex |
+| `aipCapabilities` | Decoded AIP labels |
+| `atc` | Application transaction counter, or `null` |
+| `issuerCountry` | `5F28` uppercase hex, or `null` |
+| `applicationUsage` | `9F07` uppercase hex, or `null` |
+| `recordsRead` | Number of AFL records read |
+| `complete` | `false` when a record read or the PAN is missing |
+
+A non-ISO-DEP card exits 4 with `unsupported`; a card without a PPSE or a
+payment application also exits 4. Warnings stay in the envelope and on stderr.
+The masked PAN and cardholder name are cardholder data; do not add them to
+logs or project files.
 
 ### Amiibo
 

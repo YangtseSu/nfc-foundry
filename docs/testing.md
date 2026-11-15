@@ -87,6 +87,21 @@ are not in its output. The same test runs on ACR122U PC/SC with
 `NFC_FOUNDRY_DEVICE='acr122_pcsc:ACS ACR122U 00 00'`; the direct USB transport
 needs `pcscd` stopped first.
 
+The EMV payment-card read is also read-only:
+
+```sh
+NFC_FOUNDRY_HARDWARE=1 \
+NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
+cargo test -p nfctl --features hardware --test hardware_emv -- --ignored
+```
+
+It selects the PPSE, selects the highest-priority application, sends GPO with
+a zero amount, and reads the AFL records. It asserts a masked PAN, an expiry,
+at least one advertised application, and a complete read, and prints only the
+label, masked PAN, expiry, record count, and ATC. The same test runs on
+ACR122U direct USB with `NFC_FOUNDRY_DEVICE=acr122_usb:001:002`; ACR122U PC/SC
+is not yet recorded for EMV. No GENERATE AC or write command is sent.
+
 The phase 02 hardware record covers firmware identification, Classic 1K
 selection/authentication/read, Type 2 selection/read, and a raw 7-bit REQA with
 a 16-bit ATQA response on a PN532 (CH340 UART, firmware 1.6). Wrong-reader and

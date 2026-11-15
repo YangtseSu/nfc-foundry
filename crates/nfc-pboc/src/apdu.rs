@@ -89,7 +89,7 @@ pub fn status_hex(sw: [u8; 2]) -> String {
     format!("{:02X}{:02X}", sw[0], sw[1])
 }
 
-fn exchange(
+pub(crate) fn exchange(
     reader: &mut dyn Reader,
     apdu: &[u8],
     context: &str,

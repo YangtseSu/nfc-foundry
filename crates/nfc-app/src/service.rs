@@ -189,6 +189,18 @@ impl Service {
         crate::tunion::read(&mut operation, &cancel)
     }
 
+    /// Read the highest-priority EMV payment application on the selected
+    /// ISO-DEP card.
+    ///
+    /// The command sequence is read-only: PPSE/application selection, Get
+    /// Processing Options with a zero amount, and AFL record reads. No
+    /// GENERATE AC, balance, transaction-history, or write path exists.
+    pub fn emv_read(&mut self, cancel: CancelToken) -> Result<crate::emv::EmvReadResult> {
+        let mut operation = self.begin_operation(OperationKind::Read, cancel)?;
+        let cancel = operation.cancel().clone();
+        crate::emv::read(&mut operation, &cancel)
+    }
+
     /// Reads whichever supported card family is selected: a full Classic dump
     /// or a Type 2 image. The card is selected once for the whole read.
     pub fn read_card(

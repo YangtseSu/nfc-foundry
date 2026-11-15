@@ -470,7 +470,7 @@ fn decode_date(
     valid_date(year, month, day)
 }
 
-fn valid_date(year: u16, month: u8, day: u8) -> Option<CardDate> {
+pub(crate) fn valid_date(year: u16, month: u8, day: u8) -> Option<CardDate> {
     if !(1900..=2199).contains(&year) || !(1..=12).contains(&month) {
         return None;
     }
@@ -591,7 +591,7 @@ fn decode_datetime(data: &[u8], offset: usize) -> Option<CardDateTime> {
     })
 }
 
-fn bcd_u8(byte: u8) -> Option<u8> {
+pub(crate) fn bcd_u8(byte: u8) -> Option<u8> {
     let high = byte >> 4;
     let low = byte & 0x0F;
     if high > 9 || low > 9 {
@@ -600,7 +600,7 @@ fn bcd_u8(byte: u8) -> Option<u8> {
     Some(high * 10 + low)
 }
 
-fn bcd_u16(bytes: [u8; 2]) -> Option<u16> {
+pub(crate) fn bcd_u16(bytes: [u8; 2]) -> Option<u16> {
     Some(u16::from(bcd_u8(bytes[0])?) * 100 + u16::from(bcd_u8(bytes[1])?))
 }
 

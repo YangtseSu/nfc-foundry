@@ -34,7 +34,7 @@ work; their current equivalents are the GTK4 workspaces.
 | 11 | Type 4 / ISO-DEP NDEF adapter | optional; PN532 validated 2026-11-12, ACR122U pending |
 | 12 | Packaging, CI, hardware certification, release | done |
 | 13 | RF and transport completion: Type B, high rate, auto-poll, diagnostics | pending |
-| 14 | Read-only protocol adapters: Type 4B/Type 3, EMV, T-Union, FMCOS/Calypso | in progress (14a T-Union; Type 4B/Type 3/EMV/FMCOS pending) |
+| 14 | Read-only protocol adapters: Type 4B/Type 3, EMV, T-Union, FMCOS/Calypso | in progress (14a T-Union, 14b EMV; Type 4B/Type 3/FMCOS pending) |
 | 15 | Read-only eMRTD reader (passport, compatible permits) | optional |
 | 16 | Chinese resident ID read-only (authorized SAM) | blocked |
 | 17 | Amiibo / NTAG215 read, decrypt, encrypt, write (user keys/data) | done (PN532 UART; ACR122U pending) |
@@ -85,7 +85,7 @@ work; their current equivalents are the GTK4 workspaces.
 - Do not add an external recovery engine to the shipped product.
 - Phase 13 is the pending RF/transport prerequisite. It is not optional for
   the Type B and high-rate parts of phases 14 and 15. The Type 4A T-Union
-  slice (14a) does not depend on it.
+  slice (14a) and the Type A EMV slice (14b) do not depend on it.
 - Phases 14 and 15 are optional read-only work. Phase 14 exposes no write,
   credit, purchase, PIN, or cloning operation; phase 15 only reads eMRTD data.
   Phase 16 is blocked and read-only if it ever starts.
@@ -479,10 +479,12 @@ Acceptance:
 ### 14: Read-only protocol adapters (optional)
 
 Status: in progress 2026-11-15. Slice 14a implements the China T-Union Type
-4A read-only profile on PN532 UART, ACR122U direct USB, and ACR122U PC/SC,
-exposed by `nfctl tunion read` and the GTK `China T-Union` workspace. Type 4B,
-Type 3 / FeliCa, EMV, FMCOS, Calypso, CIPURSE, and ITSO remain pending. Type B
-and high-rate items still depend on phase 13.
+4A read-only profile on PN532 UART, ACR122U direct USB, and ACR122U PC/SC.
+Slice 14b implements the EMV payment-card public-data profile on PN532 UART
+and ACR122U direct USB. Both are exposed by `nfctl tunion read` /
+`nfctl emv read` and the GTK `China T-Union` / `Bank card` workspaces. Type 4B,
+Type 3 / FeliCa, FMCOS, Calypso, CIPURSE, and ITSO remain pending. Type B and
+high-rate items still depend on phase 13.
 
 Goal: add read-only application and NDEF adapters on top of the phase 13
 transport. No adapter in this phase performs a transaction, credit, purchase,
@@ -493,11 +495,14 @@ Deliver:
 - Type 4B NDEF read: the existing Type 4 adapter over the Type B transport.
 - Type 3 / FeliCa NDEF read: PN532 first; ACR122U only after its FeliCa path
   is validated. Report an unsupported reader instead of guessing.
-- EMV public-data reader:
-  - PPSE/PSE selection, application selection, GPO, READ RECORD, and TLV
-    decoding.
-  - Type A and Type B contactless cards.
-  - PAN, expiry, and cardholder data redaction in logs and default output.
+- EMV public-data reader: implemented in 14b.
+  - PPSE selection, highest-priority application selection, GPO with a
+    zero amount, READ RECORD, and TLV decoding on Type A cards.
+  - Masked PAN, expiry, cardholder name when present, AIP/AFL/ATC facts, and
+    an application list.
+  - PN532 UART and ACR122U direct USB records in
+    [14b-emv-readonly.md](../notes/14b-emv-readonly.md); ACR122U PC/SC is
+    pending. Type B depends on phase 13.
 - China T-Union reader: implemented in 14a.
   - Type 4A selection and AID `A000000632010105`.
   - Balance, up to 10 transaction records (file `0x18`), and up to 30 travel
@@ -522,7 +527,8 @@ Acceptance:
   RF path.
 - One owned EMV card and one owned T-Union card are read on at least one
   supported reader; both readers are targeted for the release matrix.
-  T-Union is validated on PN532 UART and both ACR122U transports; EMV is pending.
+  T-Union is validated on PN532 UART and both ACR122U transports. EMV is
+  validated on PN532 UART and ACR122U direct USB; ACR122U PC/SC is pending.
 - EMV, T-Union, and FMCOS output is read-only and redacted by default.
 - No EMV transaction, PIN, online authorization, T-Union credit, T-Union
   purchase, FMCOS financial operation, or card mutation exists.

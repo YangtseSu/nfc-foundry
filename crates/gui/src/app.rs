@@ -46,9 +46,9 @@ use nfc_app::type2::{
     Type2Restore, Type2UidExecution, Type2UidPlan, Type2UidResult, parse_uid_hex,
 };
 use nfc_app::{
-    AmiiboKeys, CardReadResult, ClassicNdefInfo, ClassicNdefState, DriverInfo, PcscInfo,
-    ReaderDevice, ReaderEvent, ReaderSnapshot, ReaderStatus, ReaderUpdate, SelfCheck, Service,
-    TUnionReadResult, classic_health, load_keys,
+    AmiiboKeys, CardReadResult, ClassicNdefInfo, ClassicNdefState, DriverInfo, EmvReadResult,
+    PcscInfo, ReaderDevice, ReaderEvent, ReaderSnapshot, ReaderStatus, ReaderUpdate, SelfCheck,
+    Service, TUnionReadResult, classic_health, load_keys,
 };
 use nfc_classic::{Dump, DumpFormat, DumpLoad, diff, exchange};
 use nfc_core::{CancelToken, CardInfo, CardType, Key, NfcError, Result as NfcResult};
@@ -298,6 +298,7 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
     let type2_view = build_type2_view();
     let desfire_view = build_desfire_view();
     let tunion_view = build_tunion_view();
+    let emv_view = build_emv_view();
     let diagnostics_view = build_diagnostics_view();
     let activity_view = build_activity_view();
     let settings_view = build_settings_view(&preferences);
@@ -356,6 +357,7 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
     views.add_named(&type2_view.root, Some("type2"));
     views.add_named(&desfire_view.root, Some("desfire"));
     views.add_named(&tunion_view.root, Some("tunion"));
+    views.add_named(&emv_view.root, Some("emv"));
     views.add_named(&system_group, Some("system"));
     views.set_visible_child_name("classic");
     let center = gtk::Box::new(Orientation::Vertical, 0);
@@ -563,6 +565,8 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
         desfire_view,
         tunion_view,
         tunion: RefCell::new(None),
+        emv_view,
+        emv: RefCell::new(None),
         diagnostics_view,
         activity_view,
         settings_view,
@@ -893,6 +897,7 @@ enum Workspace {
     Type2,
     Desfire,
     Tunion,
+    Emv,
 }
 
 impl Workspace {
@@ -902,6 +907,7 @@ impl Workspace {
             Self::Type2 => "type2",
             Self::Desfire => "desfire",
             Self::Tunion => "tunion",
+            Self::Emv => "emv",
         }
     }
 
@@ -911,6 +917,7 @@ impl Workspace {
             Self::Type2 => "NFC Forum Type 2",
             Self::Desfire => "DESFire",
             Self::Tunion => "China T-Union",
+            Self::Emv => "Bank card",
         }
     }
 }
@@ -1140,6 +1147,8 @@ struct Ui {
     desfire_view: DesfireView,
     tunion_view: TunionView,
     tunion: RefCell<Option<TUnionReadResult>>,
+    emv_view: EmvView,
+    emv: RefCell<Option<EmvReadResult>>,
     diagnostics_view: DiagnosticsView,
     activity_view: ActivityView,
     settings_view: SettingsView,
@@ -1385,6 +1394,16 @@ struct TunionView {
     meta: gtk::Box,
     transactions: gtk::ListBox,
     travels: gtk::ListBox,
+    warnings: gtk::Label,
+    status: gtk::Label,
+}
+
+struct EmvView {
+    root: gtk::Box,
+    switcher: gtk::StackSwitcher,
+    summary: gtk::Label,
+    meta: gtk::Box,
+    applications: gtk::ListBox,
     warnings: gtk::Label,
     status: gtk::Label,
 }
@@ -2924,7 +2943,7 @@ fn build_tunion_view() -> TunionView {
     }
 }
 
-fn tunion_meta_row(label: &str, value: &str) -> gtk::Box {
+fn meta_row(label: &str, value: &str) -> gtk::Box {
     let row = gtk::Box::new(Orientation::Horizontal, 8);
     let key = gtk::Label::new(None);
     key.set_localized(label);
@@ -2941,7 +2960,7 @@ fn tunion_meta_row(label: &str, value: &str) -> gtk::Box {
     row
 }
 
-fn tunion_list_row(text: &str) -> gtk::Label {
+fn list_row(text: &str) -> gtk::Label {
     let label = gtk::Label::new(Some(text));
     label.set_xalign(0.0);
     label.set_wrap(true);
@@ -2953,13 +2972,13 @@ fn tunion_list_row(text: &str) -> gtk::Label {
     label
 }
 
-fn clear_tunion_box(container: &gtk::Box) {
+fn clear_box(container: &gtk::Box) {
     while let Some(child) = container.first_child() {
         child.unparent();
     }
 }
 
-fn clear_tunion_list(list: &gtk::ListBox) {
+fn clear_list(list: &gtk::ListBox) {
     while let Some(child) = list.first_child() {
         list.remove(&child);
     }
@@ -2967,9 +2986,9 @@ fn clear_tunion_list(list: &gtk::ListBox) {
 
 fn render_tunion(ui: &Ui) {
     let view = &ui.tunion_view;
-    clear_tunion_box(&view.meta);
-    clear_tunion_list(&view.transactions);
-    clear_tunion_list(&view.travels);
+    clear_box(&view.meta);
+    clear_list(&view.transactions);
+    clear_list(&view.travels);
     view.warnings.set_text("");
     let session = ui.tunion.borrow();
     let Some(result) = session.as_ref() else {
@@ -2987,27 +3006,27 @@ fn render_tunion(ui: &Ui) {
         result.card.uid_hex()
     ));
     view.balance.set_text(&format_cny(data.balance_cents));
-    view.meta.append(&tunion_meta_row(
+    view.meta.append(&meta_row(
         "Application",
         &format!("{} ({})", data.label, data.aid_hex()),
     ));
-    view.meta.append(&tunion_meta_row(
+    view.meta.append(&meta_row(
         "App version",
         &data.app_version_hex().unwrap_or_else(|| "—".to_owned()),
     ));
     view.meta
-        .append(&tunion_meta_row("Card type", data.card_type.label()));
-    view.meta.append(&tunion_meta_row("City", &data.city_id));
+        .append(&meta_row("Card type", data.card_type.label()));
+    view.meta.append(&meta_row("City", &data.city_id));
     view.meta
-        .append(&tunion_meta_row("Card number", &data.masked_card_number()));
-    view.meta.append(&tunion_meta_row(
+        .append(&meta_row("Card number", &data.masked_card_number()));
+    view.meta.append(&meta_row(
         "Issued",
         &data
             .issued
             .map(|value| value.to_string())
             .unwrap_or_else(|| "—".to_owned()),
     ));
-    view.meta.append(&tunion_meta_row(
+    view.meta.append(&meta_row(
         "Expires",
         &data
             .expires
@@ -3015,7 +3034,7 @@ fn render_tunion(ui: &Ui) {
             .unwrap_or_else(|| "—".to_owned()),
     ));
     if data.transactions.is_empty() {
-        let row = tunion_list_row("No transaction records.");
+        let row = list_row("No transaction records.");
         row.set_localized("No transaction records.");
         view.transactions.append(&row);
     } else {
@@ -3024,7 +3043,7 @@ fn render_tunion(ui: &Ui) {
                 .timestamp
                 .map(|value| value.to_string())
                 .unwrap_or_else(|| "invalid".to_owned());
-            view.transactions.append(&tunion_list_row(&format!(
+            view.transactions.append(&list_row(&format!(
                 "#{} · {timestamp} · {} · {} · terminal {}",
                 transaction.sequence,
                 format_cny(transaction.amount_cents),
@@ -3034,7 +3053,7 @@ fn render_tunion(ui: &Ui) {
         }
     }
     if data.travels.is_empty() {
-        let row = tunion_list_row("No travel records.");
+        let row = list_row("No travel records.");
         row.set_localized("No travel records.");
         view.travels.append(&row);
     } else {
@@ -3043,7 +3062,7 @@ fn render_tunion(ui: &Ui) {
                 .timestamp
                 .map(|value| value.to_string())
                 .unwrap_or_else(|| "invalid".to_owned());
-            view.travels.append(&tunion_list_row(&format!(
+            view.travels.append(&list_row(&format!(
                 "{} · {timestamp} · {} · balance {} · station {} · terminal {}",
                 travel.kind.label(),
                 format_cny(travel.amount_cents),
@@ -3065,6 +3084,186 @@ fn render_tunion(ui: &Ui) {
         data.travels.len(),
         partial
     ));
+}
+
+fn build_emv_view() -> EmvView {
+    let root = gtk::Box::new(Orientation::Vertical, 10);
+    root.set_margin_top(12);
+    root.set_margin_bottom(12);
+    root.set_margin_start(12);
+    root.set_margin_end(12);
+
+    let title = gtk::Label::new(Some("Bank card"));
+    title.set_xalign(0.0);
+    title.add_css_class("title-2");
+    let summary = gtk::Label::new(Some(
+        "Read the card to show the payment application, masked number, and expiry.",
+    ));
+    summary.set_xalign(0.0);
+    summary.set_wrap(true);
+    summary.set_selectable(true);
+    summary.add_css_class("caption");
+    summary.add_css_class("dim-label");
+
+    let meta = gtk::Box::new(Orientation::Vertical, 4);
+    let applications_title = gtk::Label::new(Some("Applications"));
+    applications_title.set_xalign(0.0);
+    applications_title.add_css_class("title-3");
+    let applications = gtk::ListBox::new();
+    applications.set_selection_mode(gtk::SelectionMode::None);
+    applications.add_css_class("boxed-list");
+    let warnings = gtk::Label::new(None);
+    warnings.set_xalign(0.0);
+    warnings.set_wrap(true);
+    warnings.set_selectable(true);
+    warnings.add_css_class("caption");
+    let status = gtk::Label::new(None);
+    status.set_xalign(0.0);
+    status.add_css_class("caption");
+    status.add_css_class("dim-label");
+
+    let content = gtk::Box::new(Orientation::Vertical, 12);
+    content.append(&title);
+    content.append(&summary);
+    content.append(&meta);
+    content.append(&applications_title);
+    content.append(&applications);
+    content.append(&warnings);
+    content.append(&status);
+    let scroll = gtk::ScrolledWindow::builder()
+        .child(&content)
+        .vexpand(true)
+        .hexpand(true)
+        .build();
+    root.append(&scroll);
+
+    EmvView {
+        root,
+        switcher: gtk::StackSwitcher::new(),
+        summary,
+        meta,
+        applications,
+        warnings,
+        status,
+    }
+}
+
+fn render_emv(ui: &Ui) {
+    let view = &ui.emv_view;
+    clear_box(&view.meta);
+    clear_list(&view.applications);
+    view.warnings.set_text("");
+    let session = ui.emv.borrow();
+    let Some(result) = session.as_ref() else {
+        view.summary.set_localized(
+            "Read the card to show the payment application, masked number, and expiry.",
+        );
+        view.status.set_text("");
+        return;
+    };
+    let data = &result.data;
+    view.summary.set_text(&format!(
+        "{} · {} · UID {}",
+        data.label,
+        data.aid_hex(),
+        result.card.uid_hex()
+    ));
+    view.meta.append(&meta_row(
+        "Application",
+        &format!("{} ({})", data.label, data.aid_hex()),
+    ));
+    view.meta.append(&meta_row(
+        "Priority",
+        &data
+            .priority
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "—".to_owned()),
+    ));
+    view.meta.append(&meta_row(
+        "App version",
+        &data.app_version_hex().unwrap_or_else(|| "—".to_owned()),
+    ));
+    view.meta.append(&meta_row(
+        "Card number",
+        data.pan_masked.as_deref().unwrap_or("—"),
+    ));
+    view.meta.append(&meta_row(
+        "Cardholder",
+        data.cardholder_name.as_deref().unwrap_or("—"),
+    ));
+    view.meta.append(&meta_row(
+        "Expires",
+        &data
+            .expires
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "—".to_owned()),
+    ));
+    view.meta.append(&meta_row(
+        "Effective",
+        &data
+            .effective
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "—".to_owned()),
+    ));
+    view.meta.append(&meta_row(
+        "PAN sequence",
+        &data
+            .pan_sequence
+            .map(|value| format!("{value:02}"))
+            .unwrap_or_else(|| "—".to_owned()),
+    ));
+    view.meta.append(&meta_row(
+        "Service code",
+        &data.service_code_text().unwrap_or_else(|| "—".to_owned()),
+    ));
+    view.meta.append(&meta_row(
+        "AIP",
+        &format!(
+            "{} ({})",
+            data.aip_hex(),
+            data.aip_capabilities().join(", ")
+        ),
+    ));
+    view.meta.append(&meta_row(
+        "ATC",
+        &data
+            .atc
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "—".to_owned()),
+    ));
+    view.meta.append(&meta_row(
+        "Issuer country",
+        &data.issuer_country_hex().unwrap_or_else(|| "—".to_owned()),
+    ));
+    view.meta.append(&meta_row(
+        "Application usage",
+        &data
+            .application_usage_hex()
+            .unwrap_or_else(|| "—".to_owned()),
+    ));
+    view.meta
+        .append(&meta_row("Records", &data.records_read.to_string()));
+    for application in &data.applications {
+        let selected = application.aid == data.aid;
+        let priority = application
+            .priority
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "—".to_owned());
+        let suffix = if selected { " · selected" } else { "" };
+        view.applications.append(&list_row(&format!(
+            "{} ({}) · priority {priority}{suffix}",
+            application.display_label(),
+            application.aid_hex()
+        )));
+    }
+    if data.warnings.is_empty() {
+        view.warnings.set_text("");
+    } else {
+        view.warnings.set_text(&data.warnings.join("\n"));
+    }
+    let partial = if data.complete { "" } else { " · partial" };
+    view.status
+        .set_localized(&format!("{} records{}", data.records_read, partial));
 }
 
 fn build_type2_view() -> Type2View {
@@ -5404,6 +5603,7 @@ fn active_switcher(ui: &Ui) -> gtk::StackSwitcher {
         Workspace::Type2 => ui.type2_view.switcher.clone(),
         Workspace::Desfire => ui.desfire_view.switcher.clone(),
         Workspace::Tunion => ui.tunion_view.switcher.clone(),
+        Workspace::Emv => ui.emv_view.switcher.clone(),
     }
 }
 
@@ -5415,6 +5615,7 @@ fn build_workspace_menu(ui: &Rc<Ui>, button: &gtk::MenuButton) {
         Workspace::Type2,
         Workspace::Desfire,
         Workspace::Tunion,
+        Workspace::Emv,
     ] {
         let item = menu_button(workspace.label());
         let ui = ui.clone();
@@ -5443,12 +5644,15 @@ fn switch_workspace(ui: &Rc<Ui>, workspace: Workspace) {
     match workspace {
         Workspace::Classic => ui.classic_ndef_slot.append(&ui.ndef_view.root),
         Workspace::Type2 => ui.type2_view.ndef_slot.append(&ui.ndef_view.root),
-        Workspace::Desfire | Workspace::Tunion => {}
+        Workspace::Desfire | Workspace::Tunion | Workspace::Emv => {}
     }
     update_ndef(ui);
     update_ndef_actions(ui);
     if workspace == Workspace::Tunion {
         render_tunion(ui);
+    }
+    if workspace == Workspace::Emv {
+        render_emv(ui);
     }
     update_card(ui);
 }
@@ -5812,6 +6016,33 @@ fn update_card(ui: &Ui) {
         };
         ui.card_detail.set_localized(&detail);
         ui.detail.set_localized("T-Union · read-only");
+        return;
+    }
+    if ui.workspace.get() == Workspace::Emv {
+        ui.card_title.set_localized("Bank card");
+        let detail = match ui.emv.borrow().as_ref() {
+            Some(result) => format!(
+                "UID {}\n{} · {}\nexpires {} · {} records{}",
+                result.card.uid_hex(),
+                result.data.label,
+                result.data.pan_masked.as_deref().unwrap_or("—"),
+                result
+                    .data
+                    .expires
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "—".to_owned()),
+                result.data.records_read,
+                if result.data.complete {
+                    ""
+                } else {
+                    " · partial"
+                }
+            ),
+            None => "Read the card to show the payment application, masked number, and expiry."
+                .to_owned(),
+        };
+        ui.card_detail.set_localized(&detail);
+        ui.detail.set_localized("Payment card · read-only");
         return;
     }
     if ui.workspace.get() == Workspace::Desfire {
@@ -10772,12 +11003,60 @@ fn finish_tunion_read(ui: &Rc<Ui>, result: NfcResult<TUnionReadResult>) {
     }
 }
 
+fn start_emv_read(ui: Rc<Ui>) {
+    if ui.busy.get() {
+        return;
+    }
+    if ui.devices.borrow().is_empty() {
+        toast_error(&ui, "No reader selected");
+        return;
+    }
+    set_busy(&ui, true);
+    ui.status.set_localized("Reading the payment card…");
+    ui.emv_view.status.set_localized("Reading…");
+    run_service_task(
+        &ui,
+        "Bank card read",
+        move |service, cancel| service.emv_read(cancel),
+        finish_emv_read,
+    );
+}
+
+fn finish_emv_read(ui: &Rc<Ui>, result: NfcResult<EmvReadResult>) {
+    set_busy(ui, false);
+    match result {
+        Ok(read) => {
+            let uid = read.card.uid_hex();
+            ui.emv.replace(Some(read));
+            switch_workspace(ui, Workspace::Emv);
+            ui.emv_view.status.set_localized("Read complete");
+            ui.status
+                .set_localized(&format!("Bank card read · UID {uid}"));
+            append_log(ui, &format!("emv · read · UID {uid}"));
+        }
+        Err(NfcError::Cancelled) => {
+            ui.emv_view.status.set_localized("Read cancelled");
+            ui.status.set_localized("Bank card read cancelled");
+            append_log(ui, "emv · read · cancelled");
+        }
+        Err(error) => {
+            ui.emv_view.status.set_localized("Read failed");
+            ui.status.set_localized("Bank card read failed");
+            toast_error(ui, &format!("Bank card read: {error}"));
+        }
+    }
+}
+
 fn start_read(ui: Rc<Ui>) {
     if ui.busy.get() {
         return;
     }
     if ui.workspace.get() == Workspace::Tunion {
         start_tunion_read(ui);
+        return;
+    }
+    if ui.workspace.get() == Workspace::Emv {
+        start_emv_read(ui);
         return;
     }
     if ui.workspace.get() == Workspace::Desfire {
@@ -18050,6 +18329,8 @@ mod tests {
         ui.type2_restore.replace(None);
         ui.tunion.replace(None);
         render_tunion(ui);
+        ui.emv.replace(None);
+        render_emv(ui);
         ui.amiibo_keys.replace(None);
         ui.amiibo_source.replace(None);
         ui.amiibo_raw.replace(None);
@@ -21397,6 +21678,44 @@ mod tests {
         ));
         assert!(widget_contains_text(&ui.tunion_view.meta, "2022-01-02"));
         assert!(ui.card_detail.label().contains("¥50.00"));
+    }
+
+    #[test]
+    fn emv_workspace_renders_masked_number_and_expiry() {
+        if std::env::var_os("NFC_FOUNDRY_GUI_TESTS").is_none() {
+            eprintln!("skipping GTK UI tests; set NFC_FOUNDRY_GUI_TESTS=1 under Xvfb");
+            return;
+        }
+        let harness = harness();
+        reset(&harness);
+        let ui = &harness.ui;
+        switch_workspace(ui, Workspace::Emv);
+        assert_eq!(ui.workspace.get(), Workspace::Emv);
+        assert_eq!(ui.views.visible_child_name().as_deref(), Some("emv"));
+        assert_eq!(ui.read_button.label().as_deref(), Some("Read card"));
+        assert!(widget_contains_text(
+            &ui.emv_view.root,
+            "Read the card to show the payment application, masked number, and expiry."
+        ));
+
+        let mut reader = nfc_pboc::mock::MockEmvReader::new(nfc_pboc::mock::MockEmvCard::default());
+        let data = nfc_pboc::emv::read(&mut reader, &CancelToken::new()).expect("read");
+        let card = nfc_transport::Reader::card_info(&mut reader).expect("card");
+        finish_emv_read(&harness.ui, Ok(EmvReadResult { card, data }));
+        assert!(!ui.busy.get());
+        assert_eq!(ui.workspace.get(), Workspace::Emv);
+        assert!(widget_contains_text(
+            &ui.emv_view.meta,
+            "**************0001"
+        ));
+        assert!(widget_contains_text(&ui.emv_view.meta, "2030-12-31"));
+        assert!(widget_contains_text(
+            &ui.emv_view.meta,
+            "Mock Payment (A000000333010101)"
+        ));
+        assert_eq!(ui.emv_view.applications.observe_children().n_items(), 1);
+        assert!(ui.card_detail.label().contains("**************0001"));
+        assert!(!ui.card_detail.label().contains("622908"));
     }
 
     #[test]

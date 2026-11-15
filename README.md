@@ -171,11 +171,17 @@ Two first-class domains:
    implemented and validated on PN532 UART, with the ACR122U path pending and
    no CLI or GUI surface yet.
 
-A read-only China T-Union adapter is available separately from the two
-domains: `nfctl tunion read` and the GTK `China T-Union` workspace show the
-application, masked card number, balance, and transaction/travel records on
-PN532 UART and both ACR122U transports. No credit, purchase, or write path
-exists.
+Read-only ISO-DEP adapters are available separately from the two domains:
+
+- `nfctl tunion read` and the GTK `China T-Union` workspace show the
+  application, masked card number, balance, and transaction/travel records on
+  PN532 UART and both ACR122U transports.
+- `nfctl emv read` and the GTK `Bank card` workspace show the PPSE application
+  list, selected AID/label, masked PAN, expiry, cardholder name when present,
+  AIP/AFL/ATC facts, and record count on PN532 UART and ACR122U direct USB.
+
+Neither adapter has a credit, purchase, top-up, PIN, or write path. EMV
+application cryptograms are discarded and never sent to an issuer.
 
 Amiibo is an application on the Type 2 path: read and decrypt with user key
 files, encrypt a user dump, and write a re-signed image to an owned unlocked
@@ -195,8 +201,9 @@ Post-release work is listed in the phase plan: phase 13 is the pending RF and
 transport prerequisite; phases 14-16 are optional read-only work covering
 Type 3/4B NDEF, EMV public data, China T-Union, FMCOS/Calypso, and ICAO 9303
 eMRTD. Phase 14a (China T-Union) is implemented and validated on PN532 UART
-and both ACR122U transports. The rest of phase 14 and the Type B paths still
-need phase 13. Phase 16 remains blocked on an authorized SAM. Phase 17 is the
+and both ACR122U transports; phase 14b (EMV public data) is validated on
+PN532 UART and ACR122U direct USB. The rest of phase 14 and the Type B paths
+still need phase 13. Phase 16 remains blocked on an authorized SAM. Phase 17 is the
 controlled Amiibo path with user-supplied keys and data. The read-only phases
 add no write or transaction path; Amiibo writes are Advanced,
 user-key/user-data only, and limited to owned unlocked magic NTAG215 tags. No
@@ -233,7 +240,7 @@ crates/
   nfc-classic-ndef    # MAD / Classic NDEF adapter
   nfc-type4           # ISO-DEP/APDU CC and NDEF file read/write
   nfc-desfire         # DESFire native commands, secure messaging, mock card
-  nfc-pboc            # read-only ISO 7816-4 public data; T-Union profile
+  nfc-pboc            # read-only ISO 7816-4 public data; T-Union and EMV profiles
   nfc-app             # device manager, services, workflows, events
   nfctl               # CLI
 ```

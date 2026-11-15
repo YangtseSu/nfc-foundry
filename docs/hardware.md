@@ -20,8 +20,9 @@ not part of the advertised scope until a Type 4 read/write record is added to
 command APDU because the ACR122U pseudo-APDU wrapper leaves that much room.
 
 Post-release work in plan phases 13-16 uses the same two readers for ISO
-14443B, high-rate ISO-DEP, Type 3/4B NDEF, EMV public data, China T-Union,
-FMCOS/Calypso, and ICAO 9303 eMRTD. Phase 13 is the pending RF/transport
+14443B, high-rate ISO-DEP, Type 3/4B NDEF, China T-Union, FMCOS/Calypso, and
+ICAO 9303 eMRTD. The EMV public-data profile is implemented on Type A; Type B
+EMV still depends on phase 13. Phase 13 is the pending RF/transport
 prerequisite; phases 14-16 are optional. Phase 17 implements the Amiibo /
 NTAG215 workflow on the existing Type 2 path; its file path is validated and
 its write path is Advanced and limited to owned magic NTAG215 tags. PN532 UART

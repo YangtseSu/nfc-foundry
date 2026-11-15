@@ -27,6 +27,8 @@ pub struct Application {
     pub version: Option<Vec<u8>>,
     /// Application metadata from `9F0C`.
     pub meta: Option<Vec<u8>>,
+    /// Processing options data object list from `9F38`.
+    pub pdol: Option<Vec<u8>>,
 }
 
 /// Parse an application FCI that starts with the `6F` template.
@@ -39,16 +41,20 @@ pub fn parse_application(fci: &[u8]) -> Result<Application> {
         lossy_error
             .unwrap_or_else(|| NfcError::Io("the application FCI has no 84 DF name".to_owned()))
     })?;
-    let label = first(&fields, 0x50).and_then(|value| String::from_utf8(value).ok());
+    let label = first(&fields, 0x50)
+        .or_else(|| first(&fields, 0x9F12))
+        .and_then(|value| String::from_utf8(value).ok());
     let priority = first(&fields, 0x87).and_then(|value| value.first().copied());
     let version = first(&fields, 0x9F08);
     let meta = first(&fields, 0x9F0C);
+    let pdol = first(&fields, 0x9F38);
     Ok(Application {
         df_name,
         label,
         priority,
         version,
         meta,
+        pdol,
     })
 }
 

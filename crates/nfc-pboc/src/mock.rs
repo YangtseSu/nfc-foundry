@@ -396,3 +396,282 @@ mod tests {
         assert_eq!(card.balance, 5000u32.to_be_bytes());
     }
 }
+
+/// Synthetic EMV application used by the mock card.
+pub const MOCK_EMV_AID: [u8; 8] = [0xA0, 0x00, 0x00, 0x03, 0x33, 0x01, 0x01, 0x01];
+/// Synthetic primary account number. Never a real card number.
+pub const MOCK_EMV_PAN: &str = "622908000000000001";
+/// Synthetic BCD primary account number.
+pub const MOCK_EMV_PAN_BCD: &[u8] = &[0x62, 0x29, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01];
+/// Synthetic BCD Track 2 equivalent data (PAN, D, expiry 3012, service 220).
+pub const MOCK_EMV_TRACK2: &[u8] = &[
+    0x62, 0x29, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0xD3, 0x01, 0x22, 0x20, 0x00, 0x00, 0x00,
+    0x00, 0x00,
+];
+
+/// Scripted EMV payment card state.
+#[derive(Clone, Debug)]
+pub struct MockEmvCard {
+    /// Whether SELECT PPSE succeeds.
+    pub present: bool,
+    /// Application label returned by the PPSE and FCI.
+    pub label: String,
+    /// Application PDOL bytes.
+    pub pdol: Vec<u8>,
+    /// Return `6985` from Get Processing Options.
+    pub refuse_gpo: bool,
+    /// Return `6D00` for this SFI 3 record number.
+    pub fail_record: Option<u8>,
+    /// SFI 3 records. Missing records end with `6A83`.
+    pub records: Vec<Vec<u8>>,
+}
+
+impl Default for MockEmvCard {
+    fn default() -> Self {
+        Self {
+            present: true,
+            label: "Mock Payment".to_owned(),
+            pdol: unionpay_pdol(),
+            refuse_gpo: false,
+            fail_record: None,
+            records: vec![mock_emv_record()],
+        }
+    }
+}
+
+impl MockEmvCard {
+    /// PPSE FCI with one payment application.
+    pub fn ppse(&self) -> Vec<u8> {
+        let entry = wrap(
+            &[0x61],
+            &[
+                wrap(&[0x4F], &MOCK_EMV_AID),
+                wrap(&[0x50], self.label.as_bytes()),
+                wrap(&[0x87], &[0x01]),
+            ]
+            .concat(),
+        );
+        let directory = wrap(&[0xBF, 0x0C], &entry);
+        wrap(
+            &[0x6F],
+            &[wrap(&[0x84], b"2PAY.SYS.DDF01"), wrap(&[0xA5], &directory)].concat(),
+        )
+    }
+
+    /// Application FCI with the current label and PDOL.
+    pub fn fci(&self) -> Vec<u8> {
+        let proprietary = wrap(
+            &[0xA5],
+            &[
+                wrap(&[0x50], self.label.as_bytes()),
+                wrap(&[0x87], &[0x01]),
+                wrap(&[0x9F, 0x08], &[0x00, 0x30]),
+                wrap(&[0x9F, 0x38], &self.pdol),
+                wrap(&[0x5F, 0x2D], &[0x7A, 0x68]),
+                wrap(&[0x9F, 0x11], &[0x01]),
+            ]
+            .concat(),
+        );
+        wrap(
+            &[0x6F],
+            &[wrap(&[0x84], &MOCK_EMV_AID), proprietary].concat(),
+        )
+    }
+
+    /// Get Processing Options response with inline Track 2 and an AFL.
+    pub fn gpo(&self) -> Vec<u8> {
+        let body = [
+            wrap(&[0x82], &[0x7C, 0x00]),
+            wrap(&[0x94], &[0x18, 0x01, 0x02, 0x00]),
+            wrap(&[0x9F, 0x36], &[0x00, 0x11]),
+            wrap(&[0x57], MOCK_EMV_TRACK2),
+            wrap(&[0x5F, 0x34], &[0x01]),
+            wrap(&[0x9F, 0x26], &[0x11; 8]),
+            wrap(&[0x9F, 0x27], &[0x80]),
+            wrap(&[0x9F, 0x10], &[0x06, 0x12, 0x0A, 0x03, 0xA0, 0x00, 0x00]),
+        ]
+        .concat();
+        wrap(&[0x77], &body)
+    }
+}
+
+/// One scripted EMV reader. Each open gets an independent copy of the fixture.
+pub struct MockEmvReader {
+    card: MockEmvCard,
+    device: DeviceInfo,
+    /// Last Get Processing Options command APDU, for builder tests.
+    pub gpo_request: Option<Vec<u8>>,
+}
+
+impl MockEmvReader {
+    pub fn new(card: MockEmvCard) -> Self {
+        Self {
+            card,
+            device: DeviceInfo::new("Mock EMV payment card", "mock:emv"),
+            gpo_request: None,
+        }
+    }
+}
+
+impl Reader for MockEmvReader {
+    fn device(&self) -> &DeviceInfo {
+        &self.device
+    }
+
+    fn open(&mut self, _conn_string: &str) -> Result<()> {
+        Ok(())
+    }
+
+    fn close(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    fn card_info(&mut self) -> Result<CardInfo> {
+        Ok(CardInfo::new(
+            vec![0x04, 0xE1, 0xE2, 0xE3],
+            [0x00, 0x08],
+            0x28,
+            CardType::Iso14443,
+        ))
+    }
+
+    fn authenticate(
+        &mut self,
+        _block: u8,
+        _key_type: nfc_core::KeyType,
+        _key: nfc_core::Key,
+    ) -> Result<()> {
+        Err(NfcError::Unsupported(
+            "the mock EMV card has no MIFARE authentication",
+        ))
+    }
+
+    fn read_block(&mut self, _block: u8) -> Result<[u8; BLOCK_SIZE]> {
+        Err(NfcError::Unsupported(
+            "the mock EMV card has no MIFARE blocks",
+        ))
+    }
+
+    fn write_block(&mut self, _block: u8, _data: [u8; BLOCK_SIZE]) -> Result<()> {
+        Err(NfcError::Unsupported(
+            "the mock EMV card has no MIFARE blocks",
+        ))
+    }
+
+    fn transceive_bytes(&mut self, _tx: &[u8]) -> Result<Vec<u8>> {
+        Err(NfcError::Unsupported(
+            "the mock EMV card only accepts ISO 7816 APDUs",
+        ))
+    }
+
+    fn transceive_bits(&mut self, _tx: &[u8], _tx_bits: usize) -> Result<(Vec<u8>, usize)> {
+        Err(NfcError::Unsupported(
+            "the mock EMV card only accepts ISO 7816 APDUs",
+        ))
+    }
+
+    fn set_raw_mode(&mut self, _enabled: bool) -> Result<()> {
+        Ok(())
+    }
+
+    fn apdu_capabilities(&self) -> ApduCapabilities {
+        ApduCapabilities {
+            supported: true,
+            max_command: 247,
+        }
+    }
+
+    fn transceive_apdu(&mut self, apdu: &[u8]) -> Result<ApduResponse> {
+        if apdu == crate::apdu::select_apdu(crate::emv::PPSE_NAME)? {
+            if !self.card.present {
+                return Ok(ApduResponse::new(Vec::new(), [0x6A, 0x82]));
+            }
+            return Ok(ApduResponse::new(self.card.ppse(), [0x90, 0x00]));
+        }
+        if apdu == crate::apdu::select_apdu(&MOCK_EMV_AID)? {
+            if !self.card.present {
+                return Ok(ApduResponse::new(Vec::new(), [0x6A, 0x82]));
+            }
+            return Ok(ApduResponse::new(self.card.fci(), [0x90, 0x00]));
+        }
+        if apdu.len() >= 5 && apdu[..4] == [0x80, 0xA8, 0x00, 0x00] {
+            self.gpo_request = Some(apdu.to_vec());
+            if self.card.refuse_gpo {
+                return Ok(ApduResponse::new(Vec::new(), [0x69, 0x85]));
+            }
+            return Ok(ApduResponse::new(self.card.gpo(), [0x90, 0x00]));
+        }
+        if apdu.len() == 5 && apdu[..2] == [0x00, 0xB2] && apdu[3] == 0x1C {
+            let record = apdu[2];
+            if self.card.fail_record == Some(record) {
+                return Ok(ApduResponse::new(Vec::new(), [0x6D, 0x00]));
+            }
+            if let Some(data) = self.card.records.get(usize::from(record).saturating_sub(1)) {
+                return Ok(ApduResponse::new(data.clone(), [0x90, 0x00]));
+            }
+            return Ok(ApduResponse::new(Vec::new(), [0x6A, 0x83]));
+        }
+        Ok(ApduResponse::new(Vec::new(), [0x6D, 0x00]))
+    }
+}
+
+/// Transport that opens one scripted EMV reader.
+#[derive(Clone, Debug)]
+pub struct MockEmvTransport {
+    card: MockEmvCard,
+}
+
+impl MockEmvTransport {
+    pub fn new() -> Self {
+        Self {
+            card: MockEmvCard::default(),
+        }
+    }
+
+    pub fn with_card(card: MockEmvCard) -> Self {
+        Self { card }
+    }
+}
+
+impl Default for MockEmvTransport {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Transport for MockEmvTransport {
+    fn enumerate(&self) -> Result<Vec<DeviceInfo>> {
+        Ok(vec![DeviceInfo::new("Mock EMV payment card", "mock:emv")])
+    }
+
+    fn open(&self, conn_string: &str) -> Result<Box<dyn Reader>> {
+        if conn_string != "mock:emv" {
+            return Err(NfcError::Unsupported(
+                "the mock EMV transport only opens mock:emv",
+            ));
+        }
+        Ok(Box::new(MockEmvReader::new(self.card.clone())))
+    }
+}
+
+fn unionpay_pdol() -> Vec<u8> {
+    vec![
+        0x9F, 0x66, 0x04, 0x9F, 0x02, 0x06, 0x9F, 0x03, 0x06, 0x9F, 0x1A, 0x02, 0x95, 0x05, 0x5F,
+        0x2A, 0x02, 0x9A, 0x03, 0x9C, 0x01, 0x9F, 0x37, 0x04, 0xDF, 0x60, 0x01, 0xDF, 0x69, 0x01,
+    ]
+}
+
+fn mock_emv_record() -> Vec<u8> {
+    let body = [
+        wrap(&[0x5A], MOCK_EMV_PAN_BCD),
+        wrap(&[0x5F, 0x24], &[0x30, 0x12, 0x31]),
+        wrap(&[0x5F, 0x20], b"TEST/CARDHOLDER"),
+        wrap(&[0x5F, 0x34], &[0x01]),
+        wrap(&[0x5F, 0x28], &[0x01, 0x56]),
+        wrap(&[0x9F, 0x07], &[0xFF, 0x00]),
+        wrap(&[0x5F, 0x25], &[0x20, 0x01, 0x01]),
+        wrap(&[0x9F, 0x08], &[0x00, 0x30]),
+    ]
+    .concat();
+    wrap(&[0x70], &body)
+}
