@@ -42,7 +42,7 @@ tested, and no read, write, restore, or recovery operation is claimed for it.
 | Classic 4K read/write | validated | not recorded | 2026-11-12: PN532 UART, FM11RF32N `59 98 C9 C5`; 256/256 blocks, 40/40 sectors, key scan 40/40; block 4 write/restore, final dump diff 0 changed, 0 trailer changes. ACR122U 4K not tested. |
 | Raw 7-bit REQA with 16-bit ATQA | validated | validated | phase 02, phase 05 |
 | Gen1A manufacturer block 0 same-value write | not recorded | validated | phase 05: magic Classic 1K, reselect and read-back |
-| Classic UID change through the guarded `nfc-app` service | validated | validated | 2026-11-11: Gen1A magic Classic 1K, UID `FA B9 CF F4` -> `FA B9 CF F5`, reselect and full block 0/BCC verified, original UID restored. PN532 used the ordinary backend; ACR122U used Gen1A. |
+| Classic UID change through the guarded `nfc-app` service | validated | validated | 2026-11-11: Gen1A magic Classic 1K, UID `FA B9 CF F4` -> `FA B9 CF F5`, reselect and full block 0/BCC verified, original UID restored. PN532 used the ordinary backend; ACR122U used Gen1A. 2026-11-15: PN532 UART, CUID/Gen2 Classic 1K `6A 31 5E 28` -> `6A 31 5E 29`, Gen1A refused and the ordinary backend wrote block 0, reselect and full block 0/BCC verified, original UID restored; the gated hardware test passed. |
 | UFUID seal through the guarded `nfc-app` service | applied; automated rerun n/r | not recorded | 2026-11-15: PN532 UART, UFUID `47 D5 87 A9`. The preflight and dry run passed, then `seals_a_ufuid_permanently` applied the seal. Immediate verification returned a false negative while the backdoor still answered; afterward `40(7)` no longer answered, a 64/64-block dump and block 0 were unchanged, and a new seal preflight was refused. Verification now polls for two consecutive negative probes, covered by a delayed-probe test. The card is permanently sealed, so a clean automated rerun needs another UFUID. |
 | Classic full restore with UID through the guarded `nfc-app` service | validated | validated | phase 24d, 2026-11-11: full dump with one changed data block, UID `FA B9 CF F4` -> `FA B9 CF F5`, full read verified, original data and UID restored and diffed byte for byte on both readers. PN532 used the ordinary backend; ACR122U used Gen1A. |
 | Type 2 page read | validated | validated | phase 02, phase 05. PN532 2026-11-12: Ultralight EV1 MF0UL11 `04 43 47 4A 75 22 91`, 20/20 pages including EV1 configuration. |
@@ -101,7 +101,7 @@ through `acr122_pcsc:ACS ACR122U 00 00` on 2026-11-14 with `pcscd` active.
 | Card | UID | Readers | Operations |
 |---|---|---|---|
 | MIFARE Classic 1K | `FA B9 CF F4` | PN532, ACR122U | select, read, raw REQA, recovery; ACR122U dump, data-block/trailer writes, UID, restore, Classic NDEF |
-| MIFARE Classic 1K | `6A 31 5E 28` | PN532 | selection, Classic NDEF format/write/restore |
+| CUID/Gen2 Classic 1K | `6A 31 5E 28` | PN532 | 64/64-block read with Key B `FFFFFFFFFFFF`; UID change/restore through the ordinary block-0 backend; Classic NDEF format/write/restore |
 | Fudan FM11RF08S | `9C 81 95 D4` | PN532 | static encrypted profile, backdoor recovery, 32/32 keys, 16/16 read verification |
 | FM11RN32N (FM11RF32N, 4K) | `59 98 C9 C5` | PN532 | 4K select/read, 40-sector key scan, data-block write/restore, Classic NDEF format/write/restore |
 | NTAG215 | `04 52 F5 67 D3 2A 81` | PN532 | 135-page read, NDEF write/read/restore |

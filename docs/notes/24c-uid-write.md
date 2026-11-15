@@ -1,6 +1,7 @@
 # Note: phase 24c standalone UID / block-0 write
 
-Status: complete 2026-11-11; PN532 UART and ACR122U hardware validated. Plan:
+Status: complete 2026-11-11; PN532 UART and ACR122U hardware validated.
+CUID/Gen2 ordinary backend validated on PN532 UART 2026-11-15. Plan:
 [24-parity-recovery.md](../plan/24-parity-recovery.md). Spec:
 [24c-uid-write.md](../specs/24c-uid-write.md).
 
@@ -118,7 +119,7 @@ stale, so it cannot share the ordinary block-write path.
   plan confirmation, write, and automatic re-read.
 - Environment-gated `nfctl` hardware test changes the UID and restores the
   original block 0 on an owned magic card. It passed on PN532 UART on
-  2026-11-11.
+  2026-11-11 with a Gen1A card and on 2026-11-15 with a CUID/Gen2 card.
 
 ## Commands run
 
@@ -150,6 +151,26 @@ reselect verified the complete block 0, BCC, and trailer, then restored UID
 `FA B9 CF F4` and the original block 0. The read-only PN532 suite also passed
 (`classic_1k`, 15/16 sectors readable, 15 verified keys) after the driver
 change.
+
+Hardware, 2026-11-15, PN532 UART `pn532_uart:/dev/ttyUSB0`, CUID/Gen2
+Classic 1K UID `6A 31 5E 28`, sector-0 Key B `FFFFFFFFFFFF`:
+
+```sh
+NFC_FOUNDRY_HARDWARE=1 \
+NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
+NFC_FOUNDRY_HARDWARE_KEY=FFFFFFFFFFFF \
+NFC_FOUNDRY_HARDWARE_WRITE=yes \
+NFC_FOUNDRY_HARDWARE_UID_CONFIRM=yes \
+NFC_FOUNDRY_HARDWARE_BACKUP_DIR=/tmp/nfc-uid-cuid \
+cargo test -p nfctl --features hardware-write --test hardware_classic \
+  -- --ignored changes_and_restores_the_card_uid --nocapture
+```
+
+The plan listed `[Gen1a, Standard]`. The card refused the Gen1A unlock, so the
+ordinary backend changed `6A 31 5E 28` to `6A 31 5E 29`, reselected, verified
+the complete block 0 and BCC, and restored the original UID and block 0. The
+gated test passed. A `classic dump` also read 64/64 blocks with the sector-0
+Key B.
 
 The `hardware-write` feature build was also checked:
 
@@ -187,8 +208,9 @@ result's `.data` field, so the hardware suite compiles again.
   passed on `acr122_usb:001:002` with a Gen1A magic Classic 1K: it selected
   Gen1A, changed `FA B9 CF F4` to `FA B9 CF F5`, reselected and verified block
   0/BCC, then restored the original UID. The ACR122U service path is now
-  validated. The ordinary CUID/Gen2 backend remains covered by scripted tests
-  only.
+  validated. On 2026-11-15 the ordinary CUID/Gen2 backend passed the same test
+  on PN532 UART with card `6A 31 5E 28`; the Gen1A probe was refused and
+  `Standard` changed and restored block 0.
 
 ## Next
 

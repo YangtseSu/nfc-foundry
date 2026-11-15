@@ -116,9 +116,10 @@ Classic 1K magic cards, prefers the Gen1A protected writer on ACR122U and
 PN532 UART, falls back to an ordinary CUID/Gen2 block-0 write, and reselects
 and verifies the complete block 0, BCC, and sector trailer after every attempt.
 The path is hardware-validated on PN532 UART and ACR122U with an owned Gen1A
-card, and on PN532 UART with an owned UFUID. UFUID sealing is implemented as a
-separate irreversible Advanced operation: it proves the Gen1A backdoor, backs
-up sector 0, writes the canonical seal configuration, and requires the
+card, on PN532 UART with an owned CUID/Gen2 card through the ordinary block-0
+backend, and on PN532 UART with an owned UFUID. UFUID sealing is implemented
+as a separate irreversible Advanced operation: it proves the Gen1A backdoor,
+backs up sector 0, writes the canonical seal configuration, and requires the
 backdoor to stop answering while the UID and sector data stay unchanged. The
 seal command was applied on the owned UFUID with owner approval; the card is
 now permanently sealed. The first automated verification returned a false negative while the backdoor

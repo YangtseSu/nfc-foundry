@@ -157,9 +157,11 @@ by reselection and read-back. A physical unplug/replug was not exercised;
 disconnect mapping is covered by scripted transport tests. See
 `docs/notes/05-acr122-usb.md`. Phase 24c adds a guarded application service over
 the same Gen1A primitive and an ordinary CUID/Gen2 path. The service path is
-validated on both PN532 UART and ACR122U; phase 24d adds restore with UID,
-also validated on both. Classic data-block and sector-trailer writes, full
-dumps, and Classic NDEF format/write/read/restore are validated on ACR122U.
+validated on both PN532 UART and ACR122U, and the ordinary block-0 backend is
+validated on PN532 UART with a CUID/Gen2 Classic 1K card; phase 24d adds
+restore with UID, also validated on both. Classic data-block and
+sector-trailer writes, full dumps, and Classic NDEF format/write/read/restore
+are validated on ACR122U.
 
 ### Type 2 write and NDEF status
 
