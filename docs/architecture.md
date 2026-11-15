@@ -242,6 +242,14 @@ layer owns file paths, sidecars, and backup policy.
   the complete manufacturer block, BCC, and unchanged sector trailer. An
   ordinary immutable card refuses the write without changing data. Restore and
   the ordinary block path still reject block 0.
+- A UFUID seal requires Advanced mode, the reader's `manufacturer_seal`
+  capability, a successful Gen1A probe, and the same one-shot sector-0
+  preflight used by UID writes. It backs up sector 0, writes the canonical
+  magic configuration that disables the backdoor, then reselects and requires
+  the card identity and sector 0 to be unchanged and the Gen1A probe to stop
+  answering. The command is irreversible; a still-open backdoor is reported as
+  unchanged, and a changed or unreadable card is an uncertain outcome with the
+  backup path.
 - A restore requires confirmation, verifies layout and known identity, refuses
   to change block 0, requires every pending block to exist in the backup,
   writes data blocks before the sector trailer, and stops at the first failure

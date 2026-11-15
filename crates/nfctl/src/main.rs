@@ -9,10 +9,11 @@ use std::time::Duration;
 use clap::{Parser, Subcommand};
 use nfc_app::classic::{
     AuthenticatedKey, BackupStore, ClassicBlockWrite, ClassicKeyscan, ClassicNdefFormat,
-    ClassicNdefRead, ClassicNdefWrite, ClassicRead, ClassicUidExecution, ClassicUidPlan,
-    ClassicUidPreflight, ClassicWriteExecution, ClassicWritePlan, ClassicWritePreflight, KeyEntry,
-    KeyFile, KeyKind, KeySource, KeyStore, KeyTypes, RestoreSelection, RestoreUidState,
-    adopt_sidecar, common_keys, format_uid, parse_block_list, parse_uid, write_sidecar,
+    ClassicNdefRead, ClassicNdefWrite, ClassicRead, ClassicSealExecution, ClassicSealPlan,
+    ClassicSealPreflight, ClassicUidExecution, ClassicUidPlan, ClassicUidPreflight,
+    ClassicWriteExecution, ClassicWritePlan, ClassicWritePreflight, KeyEntry, KeyFile, KeyKind,
+    KeySource, KeyStore, KeyTypes, RestoreSelection, RestoreUidState, adopt_sidecar, common_keys,
+    format_uid, parse_block_list, parse_uid, write_sidecar,
 };
 use nfc_app::desfire::{
     AccessRight, AccessRights, ApplicationKeyType, AuthKeyType, CommunicationMode,
@@ -279,6 +280,12 @@ enum ClassicCommand {
         #[arg(long, value_name = "UID")]
         uid: String,
         /// Required: UID writes are an Advanced action.
+        #[arg(long)]
+        advanced: bool,
+    },
+    /// Permanently disable the Gen1A backdoor on a UFUID card (irreversible).
+    Seal {
+        /// Required: sealing is an Advanced action.
         #[arg(long)]
         advanced: bool,
     },
@@ -1300,6 +1307,7 @@ impl Command {
                 ClassicCommand::Dump { .. } => "classic.dump",
                 ClassicCommand::Write { .. } => "classic.write",
                 ClassicCommand::Uid { .. } => "classic.uid",
+                ClassicCommand::Seal { .. } => "classic.seal",
                 ClassicCommand::Restore { .. } => "classic.restore",
                 ClassicCommand::Keyscan { .. } => "classic.keyscan",
                 ClassicCommand::Keys { command } => match command {
@@ -1379,6 +1387,7 @@ impl Command {
                 command,
                 ClassicCommand::Write { .. }
                     | ClassicCommand::Uid { .. }
+                    | ClassicCommand::Seal { .. }
                     | ClassicCommand::Restore { .. }
             ),
             Self::Type2 { command } => matches!(command, Type2Command::Uid { .. }),
@@ -1931,6 +1940,10 @@ fn classic(run: &mut Run<'_>, service: &mut Service, command: ClassicCommand) ->
             run.out.set_command("classic.uid");
             classic_uid(run, service, &uid, advanced)
         }
+        ClassicCommand::Seal { advanced } => {
+            run.out.set_command("classic.seal");
+            classic_seal(run, service, advanced)
+        }
         ClassicCommand::Restore {
             input,
             format,
@@ -2268,6 +2281,100 @@ fn classic_uid(
         "backend": backend,
         "backup": backup_path,
     }))
+}
+
+fn classic_seal(run: &mut Run<'_>, service: &mut Service, advanced: bool) -> CliResult<Value> {
+    if !advanced {
+        return Err(CliError::Usage(
+            "UFUID sealing requires --advanced".to_owned(),
+        ));
+    }
+    prepare(run, service)?;
+    let keys = load_key_store(run.cli)?;
+    let backup = backup_store(run.cli);
+    let plan = service.classic_seal_preflight(
+        ClassicSealPreflight::new(&keys)
+            .include_common_keys(!run.cli.no_common_keys)
+            .advanced(true)
+            .cancel(run.cancel.clone()),
+    )?;
+    run.out.set_card(&plan.card);
+    print_seal_plan(run.out, &plan);
+    if run.cli.dry_run {
+        say!(
+            run.out,
+            "dry run: no card writes were performed; sealing is irreversible"
+        );
+        return Ok(json!({
+            "dryRun": true,
+            "plan": seal_plan_json(&plan),
+        }));
+    }
+    require_confirmation(
+        run,
+        run.cli.yes,
+        "permanently sealing this UFUID (the UID cannot be changed afterwards)",
+    )?;
+    let result = service.classic_seal_execute(
+        ClassicSealExecution::new(plan.token, &keys, &backup)
+            .include_common_keys(!run.cli.no_common_keys)
+            .advanced(true)
+            .confirmed(true)
+            .cancel(run.cancel.clone()),
+    )?;
+    run.out.set_card(&result.card_after);
+    for warning in &result.warnings {
+        warn!(run.out, "{warning}");
+    }
+    say!(
+        run.out,
+        "UFUID sealed: UID {} · the Gen1A backdoor no longer answers",
+        result.card_after.uid_hex()
+    );
+    say!(run.out, "block 0 verified: {}", hex_bytes(&result.block0));
+    say!(run.out, "seal configuration: {}", hex_bytes(&result.config));
+    say!(run.out, "backup: {}", result.backup.backup.path.display());
+    Ok(json!({
+        "sealed": true,
+        "uid": compact_hex(&result.uid),
+        "block0": hex_bytes(&result.block0),
+        "trailer": hex_bytes(&result.trailer),
+        "config": hex_bytes(&result.config),
+        "backup": result.backup.backup.path.display().to_string(),
+    }))
+}
+
+fn print_seal_plan(out: &mut Output, plan: &ClassicSealPlan) {
+    say!(
+        out,
+        "UFUID seal plan: {} · UID {} · sector 0 key {}",
+        plan.layout.name(),
+        plan.card.uid_hex(),
+        plan.sector0_key.0.label()
+    );
+    say!(
+        out,
+        "  Gen1A probe answered; the card is unsealed and sealable"
+    );
+    say!(out, "  block 0 {}", hex_bytes(&plan.block0));
+    say!(out, "  trailer {}", hex_bytes(&plan.trailer));
+    say!(out, "  seal configuration {}", hex_bytes(&plan.config));
+    for warning in &plan.warnings {
+        warn!(out, "{warning}");
+    }
+}
+
+fn seal_plan_json(plan: &ClassicSealPlan) -> Value {
+    json!({
+        "layout": plan.layout.name(),
+        "uid": compact_hex(&plan.uid),
+        "block0": hex_bytes(&plan.block0),
+        "trailer": hex_bytes(&plan.trailer),
+        "config": hex_bytes(&plan.config),
+        "sector0KeyType": plan.sector0_key.0.label(),
+        "gen1aProbe": true,
+        "expiresAt": plan.expires_at,
+    })
 }
 
 fn print_uid_plan(out: &mut Output, plan: &ClassicUidPlan) {

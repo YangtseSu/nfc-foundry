@@ -32,9 +32,9 @@ Human-readable results are written to stdout. Warnings, progress, notes, and
 reader diagnostics are written to stderr in human and `--json` modes. `--jsonl`
 writes progress events on stdout and keeps stderr for diagnostics.
 
-`--dry-run` is accepted by `classic write`, `classic uid`, `classic restore`,
-`type2 uid`, `desfire format-ndef`, `desfire replace-ndef`, `desfire
-format-picc`, and `desfire file-settings`. Every other command rejects it with
+`--dry-run` is accepted by `classic write`, `classic uid`, `classic seal`,
+`classic restore`, `type2 uid`, `desfire format-ndef`, `desfire replace-ndef`,
+`desfire format-picc`, and `desfire file-settings`. Every other command rejects it with
 a usage error instead of ignoring it.
 
 `--timeout` cancels the shared `CancelToken` at the deadline. The cancellation
@@ -469,7 +469,7 @@ block.
 - `classic dump` writes the image, an image-only `.nfcx.json` sidecar unless
   `--no-sidecar` is set, and, when keys were verified, a paired `.dic` key
   file. The envelope reports the image, sidecar, and key-file paths.
-- `classic restore`, `classic write`, `classic uid`, Type 2 writes and formats,
+- `classic restore`, `classic write`, `classic uid`, `classic seal`, Type 2 writes and formats,
   NDEF writes and formats, and DESFire backups write a pre-change backup under
   the backup directory, `--backup-dir`, or `$XDG_DATA_HOME/nfc-foundry`.
 - DESFire app/file deletion writes a manifest before the delete and reports its

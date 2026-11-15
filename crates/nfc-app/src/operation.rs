@@ -74,6 +74,48 @@ impl<'a> Operation<'a> {
         self.reader.manufacturer_writer().is_some()
     }
 
+    /// Whether the selected reader exposes the protected UFUID sealer.
+    pub(crate) fn has_manufacturer_sealer(&mut self) -> bool {
+        self.reader.manufacturer_sealer().is_some()
+    }
+
+    /// Probe the selected card's Gen1A backdoor without changing card data.
+    pub(crate) fn probe_gen1a(&mut self) -> Result<bool> {
+        self.cancel.check()?;
+        let sealer = self
+            .reader
+            .manufacturer_sealer()
+            .ok_or(NfcError::Unsupported(
+                "the selected reader has no protected Gen1A probe",
+            ))?;
+        sealer.probe_gen1a()
+    }
+
+    /// Probe the Gen1A backdoor after a seal attempt. This path deliberately
+    /// ignores cancellation: once the command may have reached the card, the
+    /// caller must learn whether the backdoor is gone.
+    pub(crate) fn probe_gen1a_after_attempt(&mut self) -> Result<bool> {
+        let sealer = self
+            .reader
+            .manufacturer_sealer()
+            .ok_or(NfcError::Unsupported(
+                "the selected reader has no protected Gen1A probe",
+            ))?;
+        sealer.probe_gen1a()
+    }
+
+    /// Permanently disable the selected UFUID card's Gen1A backdoor.
+    pub(crate) fn seal_manufacturer_card(&mut self) -> Result<()> {
+        self.cancel.check()?;
+        let sealer = self
+            .reader
+            .manufacturer_sealer()
+            .ok_or(NfcError::Unsupported(
+                "the selected reader has no protected UFUID sealer",
+            ))?;
+        sealer.seal_manufacturer_card(nfc_transport::UFUID_SEAL_CONFIG)
+    }
+
     /// Writes manufacturer block 0 through the reader's protected writer.
     pub(crate) fn write_manufacturer_block(&mut self, data: [u8; BLOCK_SIZE]) -> Result<()> {
         self.cancel.check()?;

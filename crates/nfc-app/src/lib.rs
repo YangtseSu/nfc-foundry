@@ -25,13 +25,14 @@ pub use classic::{
     BackupRecord, BackupStore, ClassicBlockWrite, ClassicKeyscan, ClassicKeyscanResult,
     ClassicNdefFormat, ClassicNdefFormatResult, ClassicNdefRead, ClassicNdefReadResult,
     ClassicNdefWrite, ClassicNdefWriteResult, ClassicRead, ClassicReadResult, ClassicRestore,
-    ClassicRestoreResult, ClassicUidExecution, ClassicUidPlan, ClassicUidPreflight,
-    ClassicUidResult, ClassicWorkbench, ClassicWriteExecution, ClassicWritePlan,
-    ClassicWritePreflight, ClassicWriteResult, KeyEntry, KeyKind, KeySource, KeyStore, KeyTypes,
-    KeyscanProgress, KeyscanSink, PlannedWriteBlock, RestoreBlockResult, RestoreBlockState,
-    RestoreSelection, SectorKeys, UID_LEN, UidBackupRecord, UidWriteBackend, WorkbenchMergeReport,
-    WorkbenchSnapshot, WorkbenchValidation, WriteKeyTypes, WriteToken, dump_fingerprint,
-    format_uid, normalize_uid_text, parse_block_list, parse_uid,
+    ClassicRestoreResult, ClassicSealExecution, ClassicSealPlan, ClassicSealPreflight,
+    ClassicSealResult, ClassicUidExecution, ClassicUidPlan, ClassicUidPreflight, ClassicUidResult,
+    ClassicWorkbench, ClassicWriteExecution, ClassicWritePlan, ClassicWritePreflight,
+    ClassicWriteResult, KeyEntry, KeyKind, KeySource, KeyStore, KeyTypes, KeyscanProgress,
+    KeyscanSink, PlannedWriteBlock, RestoreBlockResult, RestoreBlockState, RestoreSelection,
+    SectorKeys, UID_LEN, UfuidSealBackupRecord, UidBackupRecord, UidWriteBackend,
+    WorkbenchMergeReport, WorkbenchSnapshot, WorkbenchValidation, WriteKeyTypes, WriteToken,
+    dump_fingerprint, format_uid, normalize_uid_text, parse_block_list, parse_uid,
 };
 pub use device::DeviceManager;
 pub use diagnostics::{

@@ -210,6 +210,14 @@ impl Acr122Reader {
     pub(crate) fn write_manufacturer_block(&mut self, data: [u8; BLOCK_SIZE]) -> Result<()> {
         self.protocol()?.write_manufacturer_block(data)
     }
+
+    pub(crate) fn probe_gen1a(&mut self) -> Result<bool> {
+        self.protocol()?.probe_gen1a()
+    }
+
+    pub(crate) fn seal_manufacturer_card(&mut self, config: [u8; BLOCK_SIZE]) -> Result<()> {
+        self.protocol()?.seal_manufacturer_card(config)
+    }
 }
 
 /// Forward `Reader` and `ManufacturerWriter` to the `core` field of a concrete
@@ -321,6 +329,12 @@ macro_rules! forward_acr122_reader {
                 Some(self)
             }
 
+            fn manufacturer_sealer(
+                &mut self,
+            ) -> Option<&mut dyn nfc_transport::ManufacturerSealer> {
+                Some(self)
+            }
+
             fn set_recovery_mode(&mut self, enabled: bool) -> nfc_core::Result<()> {
                 self.core.set_recovery_mode(enabled)
             }
@@ -359,6 +373,19 @@ macro_rules! forward_acr122_reader {
                 data: [u8; nfc_core::BLOCK_SIZE],
             ) -> nfc_core::Result<()> {
                 self.core.write_manufacturer_block(data)
+            }
+        }
+
+        impl nfc_transport::ManufacturerSealer for $reader {
+            fn probe_gen1a(&mut self) -> nfc_core::Result<bool> {
+                self.core.probe_gen1a()
+            }
+
+            fn seal_manufacturer_card(
+                &mut self,
+                config: [u8; nfc_core::BLOCK_SIZE],
+            ) -> nfc_core::Result<()> {
+                self.core.seal_manufacturer_card(config)
             }
         }
     };

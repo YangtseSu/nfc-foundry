@@ -4,14 +4,18 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use nfc_app::classic::{
-    ClassicBlockWrite, ClassicKeyscan, ClassicRead, ClassicRestore, ClassicUidExecution,
-    ClassicUidPreflight, ClassicWriteExecution, ClassicWritePreflight, KeyTypes, RestoreBlockState,
-    RestoreSelection, RestoreUidState, UidWriteBackend, WorkbenchMergeReport,
+    ClassicBlockWrite, ClassicKeyscan, ClassicRead, ClassicRestore, ClassicSealExecution,
+    ClassicSealPreflight, ClassicUidExecution, ClassicUidPreflight, ClassicWriteExecution,
+    ClassicWritePreflight, KeyTypes, RestoreBlockState, RestoreSelection, RestoreUidState,
+    UidWriteBackend, WorkbenchMergeReport,
 };
 use nfc_app::{BackupStore, KeyEntry, KeyKind, KeySource, KeyStore, Service};
 use nfc_classic::{AccessBits, AccessCondition, Dump, DumpFormat, Layout, bcc_for_uid, exchange};
 use nfc_core::{BLOCK_SIZE, CancelToken, CardInfo, CardType, Key, KeyType, NfcError, Result};
-use nfc_transport::{DeviceInfo, ManufacturerWriter, Reader, ReaderCapabilities, Transport};
+use nfc_transport::{
+    DeviceInfo, ManufacturerSealer, ManufacturerWriter, Reader, ReaderCapabilities, Transport,
+    UFUID_SEAL_CONFIG,
+};
 
 const UID: [u8; 4] = [0x04, 0xA2, 0x24, 0x8A];
 const KEY_A: Key = Key::new([0xFF; 6]);
@@ -88,6 +92,25 @@ struct TestState {
     manufacturer_write: bool,
     /// Fail the protected writer without touching the card.
     manufacturer_write_fails: bool,
+    /// Advertise the protected UFUID sealer.
+    manufacturer_seal: bool,
+    /// The card answers the Gen1A `0x40`/`0x43` probe.
+    gen1a_available: bool,
+    /// The seal command fails without changing the card.
+    seal_fails: bool,
+    /// The seal command reports success but leaves the backdoor enabled.
+    seal_ignored: bool,
+    /// The seal command disables the backdoor but loses the acknowledgement.
+    seal_applied_error: bool,
+    /// The card has already been sealed.
+    sealed: bool,
+    /// After a successful seal, answer this many probes before the backdoor
+    /// actually stops responding.
+    seal_probe_delay: usize,
+    /// Remaining delayed affirmative probes after the seal.
+    pending_seal_probes: usize,
+    /// Cancel this token after the seal command is applied.
+    cancel_on_seal: Option<CancelToken>,
     /// Accept an ordinary write to block 0.
     block_zero_writable: bool,
     /// Refuse an ordinary block-0 write unless the last authentication was B.
@@ -104,6 +127,8 @@ impl TestState {
             card: Some(card),
             blocks: default_image(),
             block_zero_writable: true,
+            manufacturer_seal: true,
+            gen1a_available: true,
             ..Self::default()
         }
     }
@@ -184,6 +209,7 @@ impl Reader for TestReader {
             raw_bytes: true,
             raw_bits: true,
             manufacturer_write: true,
+            manufacturer_seal: true,
             type2_read: true,
             type2_write: true,
             recovery_parity: true,
@@ -303,6 +329,11 @@ impl Reader for TestReader {
         if available { Some(self) } else { None }
     }
 
+    fn manufacturer_sealer(&mut self) -> Option<&mut dyn ManufacturerSealer> {
+        let available = self.handle.lock().manufacturer_seal;
+        if available { Some(self) } else { None }
+    }
+
     fn transceive_bytes(&mut self, _tx: &[u8]) -> Result<Vec<u8>> {
         Err(NfcError::NotImplemented("test transceive"))
     }
@@ -344,6 +375,56 @@ impl ManufacturerWriter for TestReader {
         }
         if state.vanish_after_write {
             state.card = None;
+        }
+        Ok(())
+    }
+}
+
+impl ManufacturerSealer for TestReader {
+    fn probe_gen1a(&mut self) -> Result<bool> {
+        let state = self.handle.lock();
+        if state.card.is_none() {
+            return Err(NfcError::NoCard);
+        }
+        if !state.manufacturer_seal {
+            return Err(NfcError::Unsupported("the test reader has no UFUID sealer"));
+        }
+        Ok(state.gen1a_available && !state.sealed)
+    }
+
+    fn seal_manufacturer_card(&mut self, config: [u8; BLOCK_SIZE]) -> Result<()> {
+        if config != UFUID_SEAL_CONFIG {
+            return Err(NfcError::InvalidArgument(
+                "the test seal configuration is not canonical".to_owned(),
+            ));
+        }
+        let mut state = self.handle.lock();
+        if state.card.is_none() {
+            return Err(NfcError::NoCard);
+        }
+        if !state.manufacturer_seal {
+            return Err(NfcError::Unsupported("the test reader has no UFUID sealer"));
+        }
+        if state.sealed {
+            return Err(NfcError::Unsupported("the test card is already sealed"));
+        }
+        if state.seal_fails {
+            return Err(NfcError::Unsupported(
+                "the test card did not accept the UFUID seal command",
+            ));
+        }
+        if state.seal_ignored {
+            return Ok(());
+        }
+        state.sealed = true;
+        state.pending_seal_probes = state.seal_probe_delay;
+        if let Some(token) = state.cancel_on_seal.take() {
+            token.cancel();
+        }
+        if state.seal_applied_error {
+            return Err(NfcError::Io(
+                "test seal acknowledgement was lost".to_owned(),
+            ));
         }
         Ok(())
     }
@@ -1328,6 +1409,202 @@ fn uid_execute(
             .advanced(true)
             .confirmed(true),
     )
+}
+
+fn seal_preflight(
+    service: &mut Service,
+    store: &KeyStore,
+) -> Result<nfc_app::classic::ClassicSealPlan> {
+    service.classic_seal_preflight(
+        ClassicSealPreflight::new(store)
+            .include_common_keys(false)
+            .advanced(true),
+    )
+}
+
+fn seal_execute(
+    service: &mut Service,
+    store: &KeyStore,
+    backup: &BackupStore,
+    plan: &nfc_app::classic::ClassicSealPlan,
+) -> Result<nfc_app::classic::ClassicSealResult> {
+    service.classic_seal_execute(
+        ClassicSealExecution::new(plan.token, store, backup)
+            .include_common_keys(false)
+            .advanced(true)
+            .confirmed(true),
+    )
+}
+
+#[test]
+fn seal_disables_the_backdoor_and_keeps_sector_zero_intact() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+    handle.lock().seal_probe_delay = 2;
+    let original = handle.lock().blocks[&0];
+    let original_trailer = handle.lock().blocks[&3];
+
+    let stale_uid_plan =
+        uid_preflight(&mut service, &store, [0xDE, 0xAD, 0xBE, 0xEF]).expect("UID preflight");
+    let plan = seal_preflight(&mut service, &store).expect("preflight");
+    assert_eq!(plan.uid, UID);
+    assert_eq!(plan.block0, original);
+    assert_eq!(plan.config, UFUID_SEAL_CONFIG);
+    assert!(
+        plan.warnings
+            .iter()
+            .any(|warning| warning.contains("cannot be unsealed"))
+    );
+
+    let result = seal_execute(&mut service, &store, &backup, &plan).expect("seal");
+    assert!(handle.lock().sealed);
+    assert_eq!(result.uid, UID);
+    assert_eq!(result.block0, original);
+    assert_eq!(result.trailer, trailer_as_read(original_trailer));
+    assert_eq!(handle.lock().blocks[&0], original);
+    assert_eq!(
+        result.backup.block0, original,
+        "the backup records the pre-seal block 0"
+    );
+    assert_eq!(
+        std::fs::read_dir(directory.path())
+            .expect("backup dir")
+            .count(),
+        1
+    );
+    assert!(
+        result
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("sector-0 backup")),
+        "{:?}",
+        result.warnings
+    );
+
+    assert!(matches!(
+        seal_execute(&mut service, &store, &backup, &plan),
+        Err(NfcError::InvalidArgument(_))
+    ));
+    assert!(
+        matches!(
+            uid_execute(&mut service, &store, &backup, &stale_uid_plan),
+            Err(NfcError::InvalidArgument(_))
+        ),
+        "a seal invalidates pending UID plans for the same card"
+    );
+}
+
+#[test]
+fn seal_refuses_a_card_that_does_not_answer_the_gen1a_probe() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    handle.lock().gen1a_available = false;
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+    let directory = tempfile::tempdir().expect("temp dir");
+    let result = seal_preflight(&mut service, &store);
+    assert!(matches!(result, Err(NfcError::Unsupported(_))));
+    assert!(!handle.lock().sealed);
+    assert_eq!(handle.lock().blocks[&0], default_image()[&0]);
+    assert_eq!(
+        std::fs::read_dir(directory.path())
+            .expect("backup dir")
+            .count(),
+        0
+    );
+}
+
+#[test]
+fn seal_requires_advanced_mode_and_a_sealer_capability() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+
+    let plain = service
+        .classic_seal_preflight(ClassicSealPreflight::new(&store).include_common_keys(false));
+    assert!(matches!(plain, Err(NfcError::InvalidArgument(_))));
+
+    handle.lock().manufacturer_seal = false;
+    let result = seal_preflight(&mut service, &store);
+    assert!(matches!(result, Err(NfcError::Unsupported(_))));
+}
+
+#[test]
+fn seal_reports_an_unchanged_card_when_the_command_is_ignored() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    handle.lock().seal_ignored = true;
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+    let plan = seal_preflight(&mut service, &store).expect("preflight");
+    let error = seal_execute(&mut service, &store, &backup, &plan).expect_err("unsealed");
+    assert!(matches!(error, NfcError::VerificationFailed(_)));
+    assert!(error.to_string().contains("unchanged"), "{error}");
+    assert!(!handle.lock().sealed);
+    assert_eq!(handle.lock().blocks[&0], default_image()[&0]);
+}
+
+#[test]
+fn seal_verifies_after_a_cancel_that_arrives_after_the_command() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    let cancel = CancelToken::new();
+    handle.lock().cancel_on_seal = Some(cancel.clone());
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+    let plan = seal_preflight(&mut service, &store).expect("preflight");
+    let result = service
+        .classic_seal_execute(
+            ClassicSealExecution::new(plan.token, &store, &backup)
+                .include_common_keys(false)
+                .advanced(true)
+                .confirmed(true)
+                .cancel(cancel),
+        )
+        .expect("post-command cancel still verifies");
+    assert!(handle.lock().sealed);
+    assert_eq!(result.uid, UID);
+}
+
+#[test]
+fn seal_reports_a_refused_command_without_claiming_a_change() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    handle.lock().seal_fails = true;
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+    let plan = seal_preflight(&mut service, &store).expect("preflight");
+    let error = seal_execute(&mut service, &store, &backup, &plan).expect_err("refused");
+    assert!(matches!(error, NfcError::VerificationFailed(_)));
+    assert!(error.to_string().contains("unchanged"), "{error}");
+    assert!(!handle.lock().sealed);
+    assert_eq!(handle.lock().blocks[&0], default_image()[&0]);
+}
+
+#[test]
+fn seal_treats_a_lost_acknowledgement_as_success_after_readback() {
+    let handle = TestHandle::new(TestState::with_card(card()));
+    handle.lock().seal_applied_error = true;
+    let mut service = service(&handle);
+    let store = key_store(&[(KeyType::A, KEY_A)]);
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backup = BackupStore::new(directory.path());
+    let plan = seal_preflight(&mut service, &store).expect("preflight");
+    let result = seal_execute(&mut service, &store, &backup, &plan).expect("seal");
+    assert!(handle.lock().sealed);
+    assert!(
+        result
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("acknowledgement was lost")),
+        "{:?}",
+        result.warnings
+    );
 }
 
 #[test]

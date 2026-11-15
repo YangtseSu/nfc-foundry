@@ -35,6 +35,8 @@ pub struct ReaderCapabilities {
     pub raw_bytes: bool,
     pub raw_bits: bool,
     pub manufacturer_write: bool,
+    /// The reader can permanently disable a UFUID card's Gen1A backdoor.
+    pub manufacturer_seal: bool,
     pub type2_read: bool,
     pub type2_write: bool,
     /// The reader can exchange parity-carrying Crypto1 frames, which active

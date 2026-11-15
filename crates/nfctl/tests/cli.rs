@@ -1817,6 +1817,81 @@ fn uid_write_gates_and_verifies_on_the_mock_card() {
 }
 
 #[test]
+fn ufuid_seal_gates_and_verifies_on_the_mock_card() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let backups = directory.path().join("backups");
+
+    let output = nfctl(&["--mock", "--device", "mock:classic-1k", "classic", "seal"]);
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("--advanced"),
+        "{}",
+        stderr(&output)
+    );
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "classic",
+        "seal",
+        "--advanced",
+    ]);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("--yes"), "{}", stderr(&output));
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "classic",
+        "seal",
+        "--advanced",
+        "--dry-run",
+    ]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("UFUID seal plan"), "{text}");
+    assert!(text.contains("seal configuration"), "{text}");
+    assert!(text.contains("dry run"), "{text}");
+    assert!(
+        stderr(&output).contains("cannot be unsealed"),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(
+        std::fs::read_dir(&backups).map_or(0, |entries| entries.count()),
+        0
+    );
+
+    let output = nfctl(&[
+        "--mock",
+        "--device",
+        "mock:classic-1k",
+        "--backup-dir",
+        backups.to_str().expect("path"),
+        "classic",
+        "seal",
+        "--advanced",
+        "--yes",
+    ]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains("UFUID sealed"), "{text}");
+    assert!(text.contains("Gen1A backdoor no longer answers"), "{text}");
+    assert!(text.contains("block 0 verified"), "{text}");
+    assert!(text.contains("backup:"), "{text}");
+    assert_eq!(
+        std::fs::read_dir(&backups)
+            .expect("backup dir")
+            .filter_map(Result::ok)
+            .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "json"))
+            .count(),
+        1
+    );
+}
+
+#[test]
 fn restore_with_uid_dry_run_gates_and_executes_on_the_mock_card() {
     let directory = tempfile::tempdir().expect("temp dir");
     let backups = directory.path().join("backups");

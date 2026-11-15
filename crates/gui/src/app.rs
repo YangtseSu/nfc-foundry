@@ -15,11 +15,12 @@ use gtk::{Orientation, gio, glib};
 use nfc_app::classic::{
     AuthenticatedKey, BackupStore, ClassicBlockReadResult, ClassicKeyscan, ClassicKeyscanResult,
     ClassicNdefFormat, ClassicNdefFormatResult, ClassicNdefWrite, ClassicNdefWriteResult,
-    ClassicRestoreResult, ClassicUidExecution, ClassicUidPlan, ClassicUidPreflight,
-    ClassicWriteExecution, ClassicWritePlan, ClassicWritePreflight, KeyEntry, KeyFile, KeyKind,
-    KeySource, KeyStore, KeyTypes, KeyscanProgress, KeyscanSink, RestoreSelection, RestoreUidState,
-    WorkbenchSnapshot, adopt_sidecar, common_keys, common_only_keys, default_extended_keys,
-    default_keys, ev1_signature_keys, format_uid, parse_block_list, parse_uid, write_sidecar,
+    ClassicRestoreResult, ClassicSealExecution, ClassicSealPlan, ClassicSealPreflight,
+    ClassicUidExecution, ClassicUidPlan, ClassicUidPreflight, ClassicWriteExecution,
+    ClassicWritePlan, ClassicWritePreflight, KeyEntry, KeyFile, KeyKind, KeySource, KeyStore,
+    KeyTypes, KeyscanProgress, KeyscanSink, RestoreSelection, RestoreUidState, WorkbenchSnapshot,
+    adopt_sidecar, common_keys, common_only_keys, default_extended_keys, default_keys,
+    ev1_signature_keys, format_uid, parse_block_list, parse_uid, write_sidecar,
 };
 use nfc_app::desfire::{
     ApplicationKeyType, AuthKeyType, CommunicationMode, DesfireAppCreateRequest,
@@ -585,6 +586,8 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
         pending_plan_dialog: RefCell::new(None),
         pending_uid_plan: RefCell::new(None),
         pending_uid_dialog: RefCell::new(None),
+        pending_seal_plan: RefCell::new(None),
+        pending_seal_dialog: RefCell::new(None),
         pending_ndef_write_dialog: RefCell::new(None),
         pending_ndef_format_dialog: RefCell::new(None),
         pending_type2_page_dialog: RefCell::new(None),
@@ -661,6 +664,7 @@ struct Inspector {
     uid_advanced: gtk::Switch,
     uid: gtk::Entry,
     uid_write: gtk::Button,
+    uid_seal: gtk::Button,
 }
 
 struct KeysView {
@@ -1149,6 +1153,8 @@ struct Ui {
     pending_plan_dialog: RefCell<Option<adw::AlertDialog>>,
     pending_uid_plan: RefCell<Option<ClassicUidPlan>>,
     pending_uid_dialog: RefCell<Option<adw::AlertDialog>>,
+    pending_seal_plan: RefCell<Option<ClassicSealPlan>>,
+    pending_seal_dialog: RefCell<Option<adw::AlertDialog>>,
     pending_ndef_write_dialog: RefCell<Option<adw::AlertDialog>>,
     pending_ndef_format_dialog: RefCell<Option<adw::AlertDialog>>,
     pending_type2_page_dialog: RefCell<Option<adw::AlertDialog>>,
@@ -1493,12 +1499,16 @@ fn build_inspector() -> Inspector {
     let uid_write = gtk::Button::with_label("Write UID…");
     uid_write.add_css_class("destructive-action");
     uid_write.set_sensitive(false);
+    let uid_seal = gtk::Button::with_label("Seal UFUID…");
+    uid_seal.add_css_class("destructive-action");
+    uid_seal.set_sensitive(false);
     let uid_actions = gtk::Box::new(Orientation::Horizontal, 6);
     uid_actions.append(&uid);
     uid_actions.append(&uid_write);
     let uid_note = gtk::Label::new(Some(
-        "UID writes need Advanced mode, a magic CUID/Gen2 Classic 1K card, a sector-0 backup, \
-         and a confirmation dialog. An ordinary card refuses the write unchanged.",
+        "UID writes need Advanced mode, a magic Gen1A/UFUID/CUID Classic 1K card, a sector-0 \
+         backup, and a confirmation dialog. Sealing permanently disables a UFUID backdoor; \
+         an ordinary card refuses the write or seal unchanged.",
     ));
     uid_note.set_xalign(0.0);
     uid_note.set_wrap(true);
@@ -1521,6 +1531,7 @@ fn build_inspector() -> Inspector {
     root.append(&gtk::Separator::new(Orientation::Horizontal));
     root.append(&uid_advanced_row);
     root.append(&uid_actions);
+    root.append(&uid_seal);
     root.append(&uid_note);
 
     Inspector {
@@ -1539,6 +1550,7 @@ fn build_inspector() -> Inspector {
         uid_advanced,
         uid,
         uid_write,
+        uid_seal,
     }
 }
 
@@ -4406,6 +4418,11 @@ fn connect_signals(ui: &Rc<Ui>) {
     ui.inspector
         .uid_write
         .connect_clicked(move |_| confirm_uid_write(ui2.clone()));
+
+    let ui2 = ui.clone();
+    ui.inspector
+        .uid_seal
+        .connect_clicked(move |_| confirm_seal(ui2.clone()));
 
     let ui2 = ui.clone();
     ui.ndef_view
@@ -10973,6 +10990,7 @@ fn update_classic_uid_actions(ui: &Ui) {
     let advanced = ui.inspector.uid_advanced.is_active();
     ui.inspector.uid.set_sensitive(live && advanced);
     ui.inspector.uid_write.set_sensitive(live && advanced);
+    ui.inspector.uid_seal.set_sensitive(live && advanced);
 }
 
 fn confirm_uid_write(ui: Rc<Ui>) {
@@ -11171,6 +11189,173 @@ fn finish_uid_execution(ui: &Rc<Ui>, result: NfcResult<nfc_app::classic::Classic
     }
 }
 
+fn confirm_seal(ui: Rc<Ui>) {
+    if ui.busy.get() {
+        return;
+    }
+    if !ui.inspector.uid_advanced.is_active() {
+        toast_error(&ui, "Enable Advanced mode before sealing a UFUID");
+        return;
+    }
+    if !ui.live.get() {
+        toast_error(&ui, "A UFUID seal needs a live selected card");
+        return;
+    }
+    let card = ui.dump.borrow().as_ref().and_then(|dump| dump.card.clone());
+    let Some(card) = card else {
+        toast_error(&ui, "Read a card before sealing it");
+        return;
+    };
+    if card.card_type != CardType::MifareClassic1K || card.uid.len() != 4 {
+        toast_error(
+            &ui,
+            "UFUID sealing requires a four-byte UID MIFARE Classic 1K card",
+        );
+        return;
+    }
+    set_busy(&ui, true);
+    ui.status
+        .set_localized("Probing the Gen1A backdoor for the seal plan…");
+    let keys = ui.keys.borrow().clone();
+    let include_common_keys = ui.preferences.borrow().use_common_keys;
+    run_service_task(
+        &ui,
+        "UFUID seal preflight",
+        move |service, cancel| {
+            service.classic_seal_preflight(
+                ClassicSealPreflight::new(&keys)
+                    .include_common_keys(include_common_keys)
+                    .expected_card(card)
+                    .advanced(true)
+                    .cancel(cancel),
+            )
+        },
+        finish_seal_preflight,
+    );
+}
+
+fn finish_seal_preflight(ui: &Rc<Ui>, result: NfcResult<ClassicSealPlan>) {
+    set_busy(ui, false);
+    match result {
+        Ok(plan) => show_seal_plan_dialog(ui, plan),
+        Err(NfcError::Cancelled) => {
+            ui.status.set_localized("Seal plan cancelled");
+            append_log(ui, "ufuid · preflight cancelled");
+        }
+        Err(error) => {
+            ui.status.set_localized("Seal plan failed");
+            toast_error(ui, &error.to_string());
+        }
+    }
+}
+
+fn seal_plan_body(plan: &ClassicSealPlan) -> String {
+    let mut body = format!(
+        "UID {}
+Sector 0 read key {}
+
+Block 0 {}
+Trailer {}
+Seal configuration {}
+
+Sealing permanently disables the Gen1A 0x40/0x43 backdoor. The card becomes an ordinary MIFARE Classic and cannot be unsealed. A sector-0 backup is written first. The service re-reads sector 0 and requires two consecutive Gen1A probes to stop answering.",
+        plan.card.uid_hex(),
+        plan.sector0_key.0.label(),
+        classic::hex_with_mask(&plan.block0, u16::MAX),
+        classic::hex_with_mask(&plan.trailer, u16::MAX),
+        classic::hex_with_mask(&plan.config, u16::MAX),
+    );
+    for warning in &plan.warnings {
+        body.push_str("\nWarning: ");
+        body.push_str(warning);
+    }
+    body
+}
+
+fn show_seal_plan_dialog(ui: &Rc<Ui>, plan: ClassicSealPlan) {
+    let dialog = confirmation_dialog(
+        "Seal this UFUID permanently?",
+        &seal_plan_body(&plan),
+        "Seal card",
+    );
+    let ui2 = ui.clone();
+    dialog.connect_response(None, move |_, response| {
+        ui2.pending_seal_dialog.replace(None);
+        let plan = ui2.pending_seal_plan.borrow_mut().take();
+        if response == "confirm"
+            && let Some(plan) = plan
+        {
+            start_seal_execution(&ui2, plan);
+        }
+    });
+    ui.pending_seal_plan.replace(Some(plan));
+    ui.pending_seal_dialog.replace(Some(dialog.clone()));
+    present_alert(&dialog, &ui.window);
+}
+
+fn start_seal_execution(ui: &Rc<Ui>, plan: ClassicSealPlan) {
+    set_busy(ui, true);
+    ui.status.set_localized("Sealing the UFUID…");
+    let keys = ui.keys.borrow().clone();
+    let backup = ui.backup.borrow().clone();
+    let include_common_keys = ui.preferences.borrow().use_common_keys;
+    let token = plan.token;
+    run_service_task(
+        ui,
+        "Seal UFUID",
+        move |service, cancel| {
+            service.classic_seal_execute(
+                ClassicSealExecution::new(token, &keys, &backup)
+                    .include_common_keys(include_common_keys)
+                    .advanced(true)
+                    .confirmed(true)
+                    .cancel(cancel),
+            )
+        },
+        finish_seal_execution,
+    );
+}
+
+fn finish_seal_execution(ui: &Rc<Ui>, result: NfcResult<nfc_app::classic::ClassicSealResult>) {
+    set_busy(ui, false);
+    match result {
+        Ok(result) => {
+            for warning in &result.warnings {
+                append_log(ui, &format!("warning · {warning}"));
+            }
+            append_log(
+                ui,
+                &format!(
+                    "ufuid · sealed · UID {} · backup {}",
+                    result.card_after.uid_hex(),
+                    result.backup.backup.path.display()
+                ),
+            );
+            ui.inspector.uid_advanced.set_active(false);
+            ui.status
+                .set_localized("UFUID sealed · Gen1A backdoor disabled");
+            toast_info(
+                ui,
+                &format!(
+                    "UFUID sealed; UID {} is now fixed",
+                    result.card_after.uid_hex()
+                ),
+            );
+        }
+        Err(NfcError::Cancelled) => {
+            ui.status
+                .set_localized("Seal cancelled · re-reading the card");
+            append_log(ui, "ufuid · cancelled");
+            start_read(ui.clone());
+        }
+        Err(error) => {
+            ui.status.set_localized("Seal failed · re-reading the card");
+            toast_error(ui, &error.to_string());
+            start_read(ui.clone());
+        }
+    }
+}
+
 fn invalidate_live_image(ui: &Rc<Ui>) {
     ui.live.set(false);
     ui.dump.replace(None);
@@ -11185,6 +11370,7 @@ fn invalidate_live_image(ui: &Rc<Ui>) {
     ui.table_stack.set_visible_child_name("empty");
     ui.inspector.uid.set_text("");
     ui.inspector.uid_advanced.set_active(false);
+    ui.pending_seal_plan.replace(None);
     ui.restore_view.uid.set_text("");
     ui.restore_view.uid_advanced.set_active(false);
     render_ndef(ui, None, None);
@@ -11652,10 +11838,14 @@ fn reset_advanced(ui: &Ui) {
     if let Some(dialog) = ui.pending_uid_dialog.borrow_mut().take() {
         dialog.force_close();
     }
+    if let Some(dialog) = ui.pending_seal_dialog.borrow_mut().take() {
+        dialog.force_close();
+    }
     if let Some(dialog) = ui.pending_recovery_dialog.borrow_mut().take() {
         dialog.force_close();
     }
     ui.pending_uid_plan.replace(None);
+    ui.pending_seal_plan.replace(None);
     update_classic_uid_actions(ui);
     update_type2_restore_sensitivity(ui);
 }
@@ -16541,6 +16731,7 @@ mod tests {
 
     fn reset(harness: &Harness) {
         harness.handle.set_card(Some(test_card()));
+        harness.handle.set_sealed(false);
         for (block, data) in image().into_iter().enumerate() {
             harness.handle.set_block(block as u8, data);
         }
@@ -16570,6 +16761,8 @@ mod tests {
         ui.pending_plan.replace(None);
         close_alert(&ui.pending_uid_dialog);
         ui.pending_uid_plan.replace(None);
+        close_alert(&ui.pending_seal_dialog);
+        ui.pending_seal_plan.replace(None);
         ui.inspector.uid_advanced.set_active(false);
         ui.inspector.uid.set_text("");
         ui.type2.replace(None);
@@ -16803,6 +16996,7 @@ mod tests {
         identity_only_read_stays_inspect(&harness);
         unsupported_card_reports_identity(&harness);
         classic_uid_write(&harness);
+        classic_ufuid_seal(&harness);
         keyscan_finds_and_saves(&harness);
         recovery_limitation_and_saved_key(&harness);
         diagnostics_and_activity(&harness);
@@ -18045,6 +18239,53 @@ mod tests {
             activity_text(ui).contains("uid · 04 A2 24 8A -> DE AD BE EF"),
             "{}",
             activity_text(ui)
+        );
+    }
+
+    fn classic_ufuid_seal(harness: &Harness) {
+        reset(harness);
+        let ui = &harness.ui;
+        show_dump(ui);
+        assert!(ui.inspector.uid_advanced.is_sensitive());
+        assert!(!ui.inspector.uid_seal.is_sensitive());
+        ui.inspector.uid_advanced.set_active(true);
+        assert!(ui.inspector.uid_seal.is_sensitive());
+        let original_block0 = harness.handle.block(0).expect("block 0");
+
+        ui.inspector.uid_seal.emit_clicked();
+        pump_until(ui, "seal plan", || {
+            ui.pending_seal_dialog.borrow().is_some()
+        });
+        let dialog = alert_pending(&ui.pending_seal_dialog);
+        emit_response(&dialog, "cancel");
+        assert!(ui.pending_seal_plan.borrow().is_none());
+        assert!(!harness.handle.sealed());
+
+        ui.inspector.uid_seal.emit_clicked();
+        pump_until(ui, "seal plan", || {
+            ui.pending_seal_dialog.borrow().is_some()
+        });
+        let dialog = alert_pending(&ui.pending_seal_dialog);
+        emit_response(&dialog, "confirm");
+        pump_until(ui, "UFUID seal", || {
+            !ui.busy.get() && ui.status.label().contains("backdoor disabled")
+        });
+        assert!(harness.handle.sealed());
+        assert_eq!(harness.handle.block(0).expect("block 0"), original_block0);
+        assert!(!ui.inspector.uid_advanced.is_active());
+        assert!(!ui.inspector.uid_seal.is_sensitive());
+        assert!(
+            activity_text(ui).contains("ufuid · sealed"),
+            "{}",
+            activity_text(ui)
+        );
+        assert_eq!(
+            std::fs::read_dir(harness.backups.path())
+                .expect("backup dir")
+                .filter_map(Result::ok)
+                .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "json"))
+                .count(),
+            1
         );
     }
 

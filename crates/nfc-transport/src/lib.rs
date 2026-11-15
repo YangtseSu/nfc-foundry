@@ -126,6 +126,12 @@ pub trait Reader: Send {
         None
     }
 
+    /// Protected UFUID seal capability. Readers without a validated seal
+    /// sequence keep the default `None`.
+    fn manufacturer_sealer(&mut self) -> Option<&mut dyn ManufacturerSealer> {
+        None
+    }
+
     /// Enter or leave the parity-disabled framing mode used by Crypto1 partial
     /// authentication. Ordinary and raw byte modes are unavailable while this
     /// is enabled.
@@ -206,6 +212,26 @@ pub trait TrailerWriter: Reader {
 /// special-card UID/clone path.
 pub trait ManufacturerWriter: Reader {
     fn write_manufacturer_block(&mut self, data: [u8; BLOCK_SIZE]) -> Result<()>;
+}
+
+/// The canonical UFUID configuration that permanently disables the Gen1A
+/// backdoor while leaving the card usable as an ordinary MIFARE Classic 1K.
+pub const UFUID_SEAL_CONFIG: [u8; BLOCK_SIZE] = [
+    0x85, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08,
+];
+
+/// Capability for the irreversible UFUID seal: probe the Gen1A backdoor and
+/// write the configuration that disables it. The command is separate from
+/// [`ManufacturerWriter`] because a reader can write block 0 without knowing
+/// the seal sequence.
+pub trait ManufacturerSealer: Reader {
+    /// Check whether the selected card answers the Gen1A `0x40`/`0x43` unlock.
+    /// The probe does not change card data and leaves the card reselected.
+    fn probe_gen1a(&mut self) -> Result<bool>;
+
+    /// Send [`UFUID_SEAL_CONFIG`]. The implementation must reject any other
+    /// configuration.
+    fn seal_manufacturer_card(&mut self, config: [u8; BLOCK_SIZE]) -> Result<()>;
 }
 
 /// Transport used by callers that have no reader backend yet. It reports no

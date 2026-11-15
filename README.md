@@ -7,10 +7,10 @@ Forum Type 2 / NDEF cards, written in Rust.
 
 **Release 0.2.0: the AUR source package, GitHub CI binary tarball, source
 archive, and hardware matrix are in place.** PN532 UART passed every operation
-in its certified scope. The ACR122U passed its certified scope: selection,
-Classic reads, Type 2 reads, raw REQA, Gen1A same-value block 0 write,
-recovery, and DESFire inventory, 3K3DES/AES authentication, and
-secure-messaging reads. ACR122U Classic data writes, ACR122U Type 2 write/NDEF, ACR122U
+in its certified scope, including UFUID UID change and seal application. The
+ACR122U passed its certified scope: selection, Classic reads, Type 2 reads,
+raw REQA, Gen1A same-value block 0 write, recovery, and DESFire inventory,
+3K3DES/AES authentication, and secure-messaging reads. ACR122U Classic data writes, ACR122U Type 2 write/NDEF, ACR122U
 Classic NDEF, one-way locks, passwords, trailer writes, and ACR122U Type 4 are
 not advertised because no release hardware record exists. Classic 4K read/write
 is validated on PN532 UART; the ACR122U 4K path is not. Ultralight EV1 MF0UL11,
@@ -116,7 +116,17 @@ Classic 1K magic cards, prefers the Gen1A protected writer on ACR122U and
 PN532 UART, falls back to an ordinary CUID/Gen2 block-0 write, and reselects
 and verifies the complete block 0, BCC, and sector trailer after every attempt.
 The path is hardware-validated on PN532 UART and ACR122U with an owned Gen1A
-card. S3b (restore with UID) is complete:
+card, and on PN532 UART with an owned UFUID. UFUID sealing is implemented as a
+separate irreversible Advanced operation: it proves the Gen1A backdoor, backs
+up sector 0, writes the canonical seal configuration, and requires the
+backdoor to stop answering while the UID and sector data stay unchanged. The
+seal command was applied on the owned UFUID with owner approval; the card is
+now permanently sealed. The first automated verification returned a false negative while the backdoor
+still answered immediate probes. Verification now polls for two consecutive
+negative probes, covered by a delayed-probe test. The sealed card reads 64/64
+blocks with block 0 unchanged, and a second seal preflight is refused. A clean
+automated rerun is impossible on this card because the seal is permanent. S3b
+(restore with UID) is complete:
 a full restore runs under one preflight token, verifies the restored sector 0,
 and only then writes the target UID. It is hardware-validated on PN532 UART and
 ACR122U with an owned Gen1A Classic 1K. S4 (reader lifecycle and capability

@@ -43,6 +43,7 @@ tested, and no read, write, restore, or recovery operation is claimed for it.
 | Raw 7-bit REQA with 16-bit ATQA | validated | validated | phase 02, phase 05 |
 | Gen1A manufacturer block 0 same-value write | not recorded | validated | phase 05: magic Classic 1K, reselect and read-back |
 | Classic UID change through the guarded `nfc-app` service | validated | validated | 2026-11-11: Gen1A magic Classic 1K, UID `FA B9 CF F4` -> `FA B9 CF F5`, reselect and full block 0/BCC verified, original UID restored. PN532 used the ordinary backend; ACR122U used Gen1A. |
+| UFUID seal through the guarded `nfc-app` service | applied; automated rerun n/r | not recorded | 2026-11-15: PN532 UART, UFUID `47 D5 87 A9`. The preflight and dry run passed, then `seals_a_ufuid_permanently` applied the seal. Immediate verification returned a false negative while the backdoor still answered; afterward `40(7)` no longer answered, a 64/64-block dump and block 0 were unchanged, and a new seal preflight was refused. Verification now polls for two consecutive negative probes, covered by a delayed-probe test. The card is permanently sealed, so a clean automated rerun needs another UFUID. |
 | Classic full restore with UID through the guarded `nfc-app` service | validated | validated | phase 24d, 2026-11-11: full dump with one changed data block, UID `FA B9 CF F4` -> `FA B9 CF F5`, full read verified, original data and UID restored and diffed byte for byte on both readers. PN532 used the ordinary backend; ACR122U used Gen1A. |
 | Type 2 page read | validated | validated | phase 02, phase 05. PN532 2026-11-12: Ultralight EV1 MF0UL11 `04 43 47 4A 75 22 91`, 20/20 pages including EV1 configuration. |
 | Type 2 GET_VERSION product identification | validated | not recorded | 2026-11-12: PN532 UART, MF0UL11 returned storage `0x0B`; the eight-byte descriptor selected the 20-page EV1 layout without a CC. ACR122U not recorded. |
@@ -110,6 +111,7 @@ through `acr122_pcsc:ACS ACR122U 00 00` on 2026-11-14 with `pcscd` active.
 | NTAG 424 DNA | `04 86 40 42 22 17 90` | PN532 | Type 4 read, NDEF write, clear/restore |
 | Type 2 tag | `04 34 4C C2 83 5C 80` | ACR122U | page read; NDEF format/write/read/restore |
 | Magic Gen1A Classic 1K | `FA B9 CF F4` | PN532, ACR122U | same-value block 0 write; guarded UID change/restore; restore with UID on both |
+| UFUID Classic 1K | `47 D5 87 A9` | PN532 | 64/64 block read with Key A; guarded UID change `47 D5 87 A9` → `47 D5 87 A8` → restore; seal command applied; sealed card read 64/64 with block 0 unchanged, Gen1A backdoor gone |
 
 `FA B9 CF F4` appears twice with different sector keys. The PN532 card uses
 `FFFFFFFFFFFF` plus `FBBECDF6304E`; the ACR122U card uses
@@ -138,6 +140,12 @@ card under test.
 - Type 2 UID change is validated on PN532 UART for a 7-byte NTAG213 clone and
   not recorded on ACR122U. Genuine Type 2 tags remain read-only at the UID
   pages.
+- UFUID UID change/restore is validated on PN532 UART with the owned UFUID.
+  The seal command was applied to that card and the resulting sealed state was
+  read back; the immediate automated verification false negative is fixed and
+  covered by a delayed-probe test. No clean automated rerun exists because the
+  card is permanently sealed, so the seal row is recorded as applied rather
+  than a clean pass.
 - DESFire EV3 inventory, factory-key authentication, NDEF provisioning, Type 4
   Text write/read/clear, the guarded delete, NDEF replace, and FormatPICC are
   validated on PN532 UART and ACR122U. Standard/Backup file-settings decode,
@@ -203,6 +211,21 @@ NFC_FOUNDRY_HARDWARE_WRITE=yes \
 NFC_FOUNDRY_HARDWARE_BACKUP_DIR=/tmp/nfc-type4-backups \
 cargo test -p nfctl --features hardware-write --test hardware_type4 -- --ignored
 ```
+
+PN532 UART, owner-approved irreversible UFUID seal:
+
+```sh
+NFC_FOUNDRY_HARDWARE=1 \
+NFC_FOUNDRY_DEVICE=pn532_uart:/dev/ttyUSB0 \
+NFC_FOUNDRY_HARDWARE_KEY=FFFFFFFFFFFF \
+NFC_FOUNDRY_HARDWARE_WRITE=yes \
+NFC_FOUNDRY_HARDWARE_UFUID_SEAL_CONFIRM=yes \
+NFC_FOUNDRY_HARDWARE_BACKUP_DIR=/tmp/nfc-ufuid-seal \
+cargo test -p nfctl --features hardware-write --test hardware_classic \
+  -- --ignored seals_a_ufuid_permanently --nocapture
+```
+
+This disables the card's Gen1A backdoor permanently.
 
 ACR122U, read-only driver checks:
 

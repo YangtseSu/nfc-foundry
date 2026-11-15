@@ -543,6 +543,54 @@ impl Acr122Protocol {
         }
     }
 
+    /// Probes the Gen1A unlock without changing card data, then reselects the
+    /// card so the backdoor state cannot leak into the next operation.
+    pub(crate) fn probe_gen1a(&mut self) -> Result<bool> {
+        self.require_ordinary("Gen1A probe")?;
+        let card = self.selected.as_ref().ok_or(NfcError::NoCard)?.clone();
+        let current = self.select_card()?;
+        if !current.same_identity(&card) {
+            return Err(NfcError::CardChanged);
+        }
+
+        self.set_raw_mode(true)?;
+        let result = gen1a::probe(self);
+        let reset = self.set_raw_mode(false);
+        let result = match (result, reset) {
+            (Ok(available), Ok(())) => Ok(available),
+            (Err(error), _) => Err(error),
+            (Ok(_), Err(error)) => Err(error),
+        };
+
+        let current = self.select_card()?;
+        if !current.same_identity(&card) {
+            return Err(NfcError::CardChanged);
+        }
+        result
+    }
+
+    /// Unlocks the Gen1A backdoor and writes the UFUID configuration that
+    /// disables it. The caller must reselect and verify the result.
+    pub(crate) fn seal_manufacturer_card(&mut self, config: [u8; BLOCK_SIZE]) -> Result<()> {
+        self.require_ordinary("UFUID seal")?;
+        let card = self.selected.as_ref().ok_or(NfcError::NoCard)?.clone();
+        gen1a::validate_seal_config(&config)?;
+
+        let current = self.select_card()?;
+        if !current.same_identity(&card) {
+            return Err(NfcError::CardChanged);
+        }
+
+        self.set_raw_mode(true)?;
+        let result = gen1a::seal(self, &config);
+        let reset = self.set_raw_mode(false);
+        match (result, reset) {
+            (Ok(()), Ok(())) => Ok(()),
+            (Err(error), _) => Err(error),
+            (Ok(()), Err(error)) => Err(error),
+        }
+    }
+
     fn initialize_picc(&mut self) -> Result<()> {
         // Set PICC operating parameters. The ACR122U may report ICC_MUTE here
         // right after power-on; firmware validation is the authoritative check.

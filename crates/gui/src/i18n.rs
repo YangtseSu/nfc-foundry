@@ -2514,15 +2514,45 @@ keys! {
         "格式化会替换每个 NFC 扇区的 MAD、NDEF 消息 TLV、扇区密钥和访问位。"
     ),
     ClassicUidWrite => ("Write UID…", "写入 UID…"),
+    ClassicSealWrite => ("Seal UFUID…", "封卡 UFUID…"),
     ClassicUidPlaceholder => ("Target UID, e.g. 04A2248A", "目标 UID，例如 04A2248A"),
     ClassicUidNote => (
-        "UID writes need Advanced mode, a magic CUID/Gen2 Classic 1K card, a sector-0 backup, and a confirmation dialog. An ordinary card refuses the write unchanged.",
-        "UID 写入需要高级模式、魔术 CUID/Gen2 Classic 1K 卡、扇区 0 备份以及精确输入确认。普通卡会拒绝写入且数据不变。"
+        "UID writes need Advanced mode, a magic Gen1A/UFUID/CUID Classic 1K card, a sector-0 backup, and a confirmation dialog. Sealing permanently disables a UFUID backdoor; an ordinary card refuses the write or seal unchanged.",
+        "UID 写入需要高级模式、魔术 Gen1A/UFUID/CUID Classic 1K 卡、扇区 0 备份以及确认对话框。封卡会永久禁用 UFUID 后门；普通卡会拒绝写入或封卡且数据不变。"
     ),
     ClassicUidAdvancedRequired => (
         "Enable Advanced mode before changing the UID",
         "更改 UID 前请启用高级模式"
     ),
+    ClassicSealAdvancedRequired => (
+        "Enable Advanced mode before sealing a UFUID",
+        "封卡 UFUID 前请启用高级模式"
+    ),
+    ClassicSealNeedsLive => (
+        "A UFUID seal needs a live selected card",
+        "UFUID 封卡需要已连接的选中卡片"
+    ),
+    ClassicSealReadFirst => ("Read a card before sealing it", "封卡前请先读取卡片"),
+    ClassicSealRequiresCard => (
+        "UFUID sealing requires a four-byte UID MIFARE Classic 1K card",
+        "UFUID 封卡需要四字节 UID 的 MIFARE Classic 1K 卡"
+    ),
+    ClassicSealProbing => (
+        "Probing the Gen1A backdoor for the seal plan…",
+        "正在探测 Gen1A 后门以生成封卡计划…"
+    ),
+    ClassicSealPlanCancelled => ("Seal plan cancelled", "封卡计划已取消"),
+    ClassicSealPlanFailed => ("Seal plan failed", "封卡计划失败"),
+    ClassicSealDialogHeading => ("Seal this UFUID permanently?", "永久封卡此 UFUID？"),
+    ClassicSealDialogConfirm => ("Seal card", "封卡"),
+    ClassicSealWorking => ("Sealing the UFUID…", "正在封卡 UFUID…"),
+    ClassicSealDone => (
+        "UFUID sealed · Gen1A backdoor disabled",
+        "UFUID 已封卡 · Gen1A 后门已禁用"
+    ),
+    ClassicSealToast => ("UFUID sealed; UID {} is now fixed", "UFUID 已封卡；UID {} 现已固定"),
+    ClassicSealReread => ("Seal cancelled · re-reading the card", "封卡已取消 · 正在重新读取卡片"),
+    ClassicSealFailed => ("Seal failed · re-reading the card", "封卡失败 · 正在重新读取卡片"),
     ClassicUidNeedsLive => (
         "A UID write needs a live selected card",
         "UID 写入需要已连接的选中卡片"

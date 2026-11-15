@@ -100,7 +100,7 @@ Every service request receives that token.
 
 Accepted only by commands with an existing preflight/plan path:
 
-`classic write`, `classic uid`, `classic restore`, `type2 uid`,
+`classic write`, `classic uid`, `classic seal`, `classic restore`, `type2 uid`,
 `desfire format-ndef`, `desfire replace-ndef`, `desfire format-picc`,
 `desfire file-settings`.
 

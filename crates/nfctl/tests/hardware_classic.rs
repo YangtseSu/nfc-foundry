@@ -21,8 +21,9 @@ use std::sync::{Mutex, MutexGuard};
 use nfc_app::Service;
 #[cfg(feature = "hardware-write")]
 use nfc_app::classic::{
-    BackupStore, ClassicBlockWrite, ClassicUidExecution, ClassicUidPreflight,
-    ClassicWriteExecution, ClassicWritePreflight, RestoreUidState,
+    BackupStore, ClassicBlockWrite, ClassicSealExecution, ClassicSealPreflight,
+    ClassicUidExecution, ClassicUidPreflight, ClassicWriteExecution, ClassicWritePreflight,
+    RestoreUidState,
 };
 use nfc_app::classic::{
     ClassicKeyscan, ClassicRead, KeyEntry, KeyKind, KeySource, KeyStore, KeyTypes,
@@ -306,6 +307,81 @@ fn changes_and_restores_the_card_uid() {
         "UID restore verified: uid={} block0={:02X?}",
         restored.card_after.uid_hex(),
         restored.new_block0
+    );
+}
+
+#[cfg(feature = "hardware-write")]
+#[test]
+#[ignore = "requires an owned UFUID and NFC_FOUNDRY_HARDWARE_UFUID_SEAL_CONFIRM=yes"]
+fn seals_a_ufuid_permanently() {
+    assert_eq!(
+        env::var("NFC_FOUNDRY_HARDWARE_WRITE").as_deref(),
+        Ok("yes"),
+        "set NFC_FOUNDRY_HARDWARE_WRITE=yes to allow a write"
+    );
+    assert_eq!(
+        env::var("NFC_FOUNDRY_HARDWARE_UFUID_SEAL_CONFIRM").as_deref(),
+        Ok("yes"),
+        "set NFC_FOUNDRY_HARDWARE_UFUID_SEAL_CONFIRM=yes to allow the irreversible seal"
+    );
+    let _guard = lock_hardware();
+    let conn_string = conn_string();
+    let mut service = service(&conn_string);
+    let key = key();
+    let store = key_store(key);
+    let directory = env::var("NFC_FOUNDRY_HARDWARE_BACKUP_DIR")
+        .map(std::path::PathBuf::from)
+        .map(BackupStore::new)
+        .unwrap_or_default();
+    let card = service.card_info().expect("select the UFUID");
+    assert_eq!(card.card_type, CardType::MifareClassic1K);
+    assert_eq!(card.uid.len(), 4, "the seal path requires a four-byte UID");
+    let original = service
+        .classic_read_block(0, &store, false, CancelToken::new())
+        .expect("read manufacturer block 0")
+        .data;
+    println!(
+        "UFUID seal: uid={} block0={:02X?}",
+        card.uid_hex(),
+        original
+    );
+
+    let plan = service
+        .classic_seal_preflight(
+            ClassicSealPreflight::new(&store)
+                .include_common_keys(false)
+                .advanced(true),
+        )
+        .expect("seal preflight");
+    println!(
+        "seal plan: uid={} config={:02X?}",
+        nfc_app::classic::format_uid(&plan.uid),
+        plan.config
+    );
+    let result = service
+        .classic_seal_execute(
+            ClassicSealExecution::new(plan.token, &store, &directory)
+                .include_common_keys(false)
+                .advanced(true)
+                .confirmed(true),
+        )
+        .expect("seal the UFUID");
+    assert_eq!(result.card_after.uid, card.uid);
+    assert_eq!(result.block0, original);
+    println!(
+        "UFUID sealed: uid={} backup={:?}",
+        result.card_after.uid_hex(),
+        result.backup.backup.path
+    );
+
+    let card = service.card_info().expect("reselect the sealed card");
+    assert_eq!(card.uid, result.card_after.uid);
+    assert_eq!(
+        service
+            .classic_read_block(0, &store, false, CancelToken::new())
+            .expect("read block 0 after the seal")
+            .data,
+        original
     );
 }
 

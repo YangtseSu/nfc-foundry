@@ -11,8 +11,8 @@ use nfc_core::{
 #[cfg(feature = "developer-tools")]
 use crate::RawConsole;
 use crate::{
-    ApduCapabilities, ApduResponse, DeviceInfo, ManufacturerWriter, Reader, ReaderCapabilities,
-    TrailerWriter, Transport,
+    ApduCapabilities, ApduResponse, DeviceInfo, ManufacturerSealer, ManufacturerWriter, Reader,
+    ReaderCapabilities, TrailerWriter, Transport,
 };
 
 /// Reader entry points that can be scripted with a fault.
@@ -34,6 +34,10 @@ pub enum MockCall {
     /// The protected manufacturer-block writer. Scripted separately so a
     /// Gen1A path can fail without consuming a fault meant for a normal write.
     ManufacturerWrite,
+    /// The read-only Gen1A backdoor probe used before sealing.
+    ManufacturerProbe,
+    /// The irreversible UFUID seal command.
+    ManufacturerSeal,
 }
 
 /// Injected behavior for the next matching call.
@@ -281,6 +285,8 @@ struct MockState {
     capabilities: ReaderCapabilities,
     /// An ordinary write to block 0 is accepted, as on a CUID/Gen2 card.
     block_zero_writable: bool,
+    /// The scripted Gen1A card has been sealed and no longer answers `0x40`.
+    sealed: bool,
     /// Type 2 pages 0/1 update the selected UID, as on a UID-changeable clone.
     type2_uid_writable: bool,
     /// Selection succeeds but every MIFARE authentication times out, as on a
@@ -317,11 +323,13 @@ impl Default for MockState {
                 raw_bytes: true,
                 raw_bits: true,
                 manufacturer_write: true,
+                manufacturer_seal: true,
                 type2_read: true,
                 type2_write: true,
                 recovery_parity: false,
             },
             block_zero_writable: true,
+            sealed: false,
             type2_uid_writable: false,
             mifare_unsupported: false,
             #[cfg(feature = "developer-tools")]
@@ -506,6 +514,16 @@ impl MockHandle {
         self.lock().capabilities.manufacturer_write = enabled;
     }
 
+    /// Advertise the protected UFUID seal capability.
+    pub fn set_manufacturer_seal(&self, enabled: bool) {
+        self.lock().capabilities.manufacturer_seal = enabled;
+    }
+
+    /// Set whether the scripted card still answers the Gen1A backdoor.
+    pub fn set_sealed(&self, sealed: bool) {
+        self.lock().sealed = sealed;
+    }
+
     /// Accept or refuse an ordinary write to manufacturer block 0.
     pub fn set_block_zero_writable(&self, enabled: bool) {
         self.lock().block_zero_writable = enabled;
@@ -523,6 +541,14 @@ impl MockHandle {
 
     pub fn block_zero_writable(&self) -> bool {
         self.lock().block_zero_writable
+    }
+
+    pub fn manufacturer_seal(&self) -> bool {
+        self.lock().capabilities.manufacturer_seal
+    }
+
+    pub fn sealed(&self) -> bool {
+        self.lock().sealed
     }
 
     pub fn is_raw_mode(&self) -> bool {
@@ -613,6 +639,10 @@ impl MockReader {
 
     pub fn fail_next(&mut self, call: MockCall, fault: MockFault) {
         self.state.fail_next(call, fault);
+    }
+
+    pub fn sealed(&self) -> bool {
+        self.state.sealed()
     }
 
     pub fn on_write_applied(&self, hook: impl Fn() + Send + Sync + 'static) {
@@ -836,6 +866,11 @@ impl Reader for MockReader {
         if available { Some(self) } else { None }
     }
 
+    fn manufacturer_sealer(&mut self) -> Option<&mut dyn ManufacturerSealer> {
+        let available = self.state.lock().capabilities.manufacturer_seal;
+        if available { Some(self) } else { None }
+    }
+
     #[cfg(feature = "developer-tools")]
     fn raw_console(&mut self) -> Option<&mut dyn RawConsole> {
         Some(self)
@@ -877,6 +912,46 @@ fn apply_block_write(
 impl TrailerWriter for MockReader {
     fn write_sector_trailer(&mut self, block: u8, data: [u8; BLOCK_SIZE]) -> Result<()> {
         Reader::write_block(self, block, data)
+    }
+}
+
+impl ManufacturerSealer for MockReader {
+    fn probe_gen1a(&mut self) -> Result<bool> {
+        let mut state = self.state.lock();
+        if !state.capabilities.manufacturer_seal {
+            return Err(NfcError::Unsupported("the mock reader has no Gen1A sealer"));
+        }
+        state.check_call(MockCall::ManufacturerProbe)?;
+        Ok(!state.sealed)
+    }
+
+    fn seal_manufacturer_card(&mut self, config: [u8; BLOCK_SIZE]) -> Result<()> {
+        if config != crate::UFUID_SEAL_CONFIG {
+            return Err(NfcError::InvalidArgument(
+                "the mock UFUID seal configuration is not canonical".to_owned(),
+            ));
+        }
+        let mut state = self.state.lock();
+        if !state.capabilities.manufacturer_seal {
+            return Err(NfcError::Unsupported("the mock reader has no UFUID sealer"));
+        }
+        if state.sealed {
+            return Err(NfcError::Unsupported("the mock card is already sealed"));
+        }
+        if let Some(fault) = state.take_fault(MockCall::ManufacturerSeal) {
+            match fault {
+                MockFault::WriteIgnored => return Ok(()),
+                MockFault::WriteAppliedError => {
+                    state.present_card()?;
+                    state.sealed = true;
+                    return Err(fault.into_error());
+                }
+                other => return Err(other.into_error()),
+            }
+        }
+        state.present_card()?;
+        state.sealed = true;
+        Ok(())
     }
 }
 
@@ -1037,6 +1112,47 @@ mod tests {
         assert!(reader.manufacturer_writer().is_none());
         assert!(matches!(
             reader.write_manufacturer_block([0xAA; BLOCK_SIZE]),
+            Err(NfcError::Unsupported(_))
+        ));
+    }
+
+    #[test]
+    fn seal_probe_disables_the_backdoor_only_after_success() {
+        let mut reader = MockReader::new(DeviceInfo::new("mock", "mock:0"), Some(card(1)));
+        assert!(reader.capabilities().manufacturer_seal);
+        assert!(reader.probe_gen1a().expect("probe"));
+        reader
+            .seal_manufacturer_card(crate::UFUID_SEAL_CONFIG)
+            .expect("seal");
+        assert!(reader.sealed());
+        assert!(!reader.probe_gen1a().expect("probe"));
+        assert!(matches!(
+            reader.seal_manufacturer_card(crate::UFUID_SEAL_CONFIG),
+            Err(NfcError::Unsupported(_))
+        ));
+
+        let mut ignored = MockReader::new(DeviceInfo::new("mock", "mock:1"), Some(card(2)));
+        ignored.fail_next(MockCall::ManufacturerSeal, MockFault::WriteIgnored);
+        ignored
+            .seal_manufacturer_card(crate::UFUID_SEAL_CONFIG)
+            .expect("ignored seal");
+        assert!(!ignored.sealed());
+        assert!(ignored.probe_gen1a().expect("probe"));
+    }
+
+    #[test]
+    fn capabilities_gate_the_ufuid_sealer() {
+        let mut reader = MockReader::new(DeviceInfo::new("mock", "mock:0"), Some(card(1)));
+        let mut capabilities = reader.capabilities();
+        capabilities.manufacturer_seal = false;
+        reader.set_capabilities(capabilities);
+        assert!(reader.manufacturer_sealer().is_none());
+        assert!(matches!(
+            reader.probe_gen1a(),
+            Err(NfcError::Unsupported(_))
+        ));
+        assert!(matches!(
+            reader.seal_manufacturer_card(crate::UFUID_SEAL_CONFIG),
             Err(NfcError::Unsupported(_))
         ));
     }

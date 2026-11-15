@@ -14,8 +14,8 @@ use std::time::Duration;
 
 use nfc_core::{BLOCK_SIZE, CardInfo, Key, KeyType, NfcError, Result};
 use nfc_transport::{
-    ApduCapabilities, ApduResponse, DeviceInfo, ManufacturerWriter, ParityFrame, Reader,
-    ReaderCapabilities, TrailerWriter,
+    ApduCapabilities, ApduResponse, DeviceInfo, ManufacturerSealer, ManufacturerWriter,
+    ParityFrame, Reader, ReaderCapabilities, TrailerWriter,
 };
 
 use crate::PN532_UART_PREFIX;
@@ -186,6 +186,7 @@ impl Reader for Pn532Uart {
             raw_bytes: true,
             raw_bits: true,
             manufacturer_write: true,
+            manufacturer_seal: true,
             type2_read: true,
             type2_write: true,
             recovery_parity: true,
@@ -269,6 +270,10 @@ impl Reader for Pn532Uart {
         Some(self)
     }
 
+    fn manufacturer_sealer(&mut self) -> Option<&mut dyn ManufacturerSealer> {
+        Some(self)
+    }
+
     fn set_recovery_mode(&mut self, enabled: bool) -> Result<()> {
         self.protocol()?.set_recovery_mode(enabled)
     }
@@ -319,6 +324,16 @@ impl TrailerWriter for Pn532Uart {
 impl ManufacturerWriter for Pn532Uart {
     fn write_manufacturer_block(&mut self, data: [u8; BLOCK_SIZE]) -> Result<()> {
         self.protocol()?.write_manufacturer_block(data)
+    }
+}
+
+impl ManufacturerSealer for Pn532Uart {
+    fn probe_gen1a(&mut self) -> Result<bool> {
+        self.protocol()?.probe_gen1a()
+    }
+
+    fn seal_manufacturer_card(&mut self, config: [u8; BLOCK_SIZE]) -> Result<()> {
+        self.protocol()?.seal_manufacturer_card(config)
     }
 }
 

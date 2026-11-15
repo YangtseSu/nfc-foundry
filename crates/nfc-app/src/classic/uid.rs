@@ -236,14 +236,14 @@ pub struct ClassicUidResult {
     pub warnings: Vec<String>,
 }
 
-struct SectorZero {
-    card: CardInfo,
-    blocks: [[u8; BLOCK_SIZE]; 4],
-    key: (KeyType, Key),
+pub(crate) struct SectorZero {
+    pub(crate) card: CardInfo,
+    pub(crate) blocks: [[u8; BLOCK_SIZE]; 4],
+    pub(crate) key: (KeyType, Key),
 }
 
 impl SectorZero {
-    fn image(&self) -> Dump {
+    pub(crate) fn image(&self) -> Dump {
         let mut dump = Dump::new(Layout::Classic1K).with_card(self.card.clone());
         for (number, data) in self.blocks.iter().enumerate() {
             dump.blocks[number].set_read(*data);
@@ -261,7 +261,7 @@ impl SectorZero {
         )
     }
 
-    fn current_uid(&self) -> [u8; UID_LEN] {
+    pub(crate) fn current_uid(&self) -> [u8; UID_LEN] {
         self.blocks[0][0..UID_LEN]
             .try_into()
             .expect("four-byte UID slice")
@@ -828,7 +828,7 @@ pub fn execute(
 
 /// Reads and authenticates sector 0. The caller must not assume any other
 /// sector is readable.
-fn read_sector_zero(
+pub(crate) fn read_sector_zero(
     operation: &mut Operation<'_>,
     keys: &KeyStore,
     include_common_keys: bool,

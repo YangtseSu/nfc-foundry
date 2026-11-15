@@ -225,6 +225,7 @@ mod tests {
                     raw_bytes: true,
                     raw_bits: true,
                     manufacturer_write: true,
+                    manufacturer_seal: true,
                     recovery_parity: true,
                 },
                 firmware: Some("PN532 IC 32 · firmware 1.6 · support 07".to_owned()),

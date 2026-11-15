@@ -47,6 +47,7 @@ impl Acr122Usb {
                     raw_bytes: true,
                     raw_bits: true,
                     manufacturer_write: true,
+                    manufacturer_seal: true,
                     type2_read: true,
                     type2_write: true,
                     recovery_parity: true,

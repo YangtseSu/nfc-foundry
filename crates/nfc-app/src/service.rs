@@ -10,10 +10,11 @@ use crate::classic::{
     BackupRecord, BackupStore, ClassicBlockWrite, ClassicKeyscan, ClassicKeyscanResult,
     ClassicNdefFormat, ClassicNdefFormatResult, ClassicNdefRead, ClassicNdefReadResult,
     ClassicNdefWrite, ClassicNdefWriteResult, ClassicRead, ClassicReadResult, ClassicRestore,
-    ClassicRestoreResult, ClassicUidExecution, ClassicUidPlan, ClassicUidPreflight,
-    ClassicUidResult, ClassicWorkbench, ClassicWriteExecution, ClassicWritePlan,
-    ClassicWritePreflight, ClassicWriteResult, KeyStore, WorkbenchMergeReport, WorkbenchSnapshot,
-    WorkbenchValidation, WriteToken,
+    ClassicRestoreResult, ClassicSealExecution, ClassicSealPlan, ClassicSealPreflight,
+    ClassicSealResult, ClassicUidExecution, ClassicUidPlan, ClassicUidPreflight, ClassicUidResult,
+    ClassicWorkbench, ClassicWriteExecution, ClassicWritePlan, ClassicWritePreflight,
+    ClassicWriteResult, KeyStore, WorkbenchMergeReport, WorkbenchSnapshot, WorkbenchValidation,
+    WriteToken,
 };
 use crate::device::DeviceManager;
 use crate::diagnostics::{DriverInfo, PcscInfo, ReaderDevice, SelfCheck};
@@ -43,6 +44,11 @@ struct PendingUidWrite {
     expires: Instant,
 }
 
+struct PendingSeal {
+    plan: ClassicSealPlan,
+    expires: Instant,
+}
+
 /// Application facade shared by the GUI and `nfctl`.
 #[derive(Default)]
 pub struct Service {
@@ -50,6 +56,7 @@ pub struct Service {
     workbench: Option<ClassicWorkbench>,
     pending_writes: HashMap<u64, PendingWrite>,
     pending_uid_writes: HashMap<u64, PendingUidWrite>,
+    pending_seals: HashMap<u64, PendingSeal>,
     next_write_token: u64,
 }
 
@@ -404,6 +411,55 @@ impl Service {
                 self.workbench = None;
             }
         }
+        Ok(result)
+    }
+
+    /// Probes the card and returns a guarded UFUID seal plan without writing.
+    pub fn classic_seal_preflight(
+        &mut self,
+        request: ClassicSealPreflight<'_>,
+    ) -> Result<ClassicSealPlan> {
+        let token = self.new_write_token();
+        let cancel = request.cancel.clone();
+        let plan = {
+            let mut operation = self.begin_operation(OperationKind::Read, cancel)?;
+            crate::classic::ufuid::preflight(&mut operation, &request, token)?
+        };
+        let now = Instant::now();
+        self.pending_seals
+            .retain(|_, pending| pending.expires > now);
+        self.pending_seals.insert(
+            plan.token.value(),
+            PendingSeal {
+                plan: plan.clone(),
+                expires: now + crate::classic::WRITE_PLAN_TTL,
+            },
+        );
+        Ok(plan)
+    }
+
+    /// Executes a seal plan after rechecking the card and sector-0 state. The
+    /// token is consumed even when execution fails.
+    pub fn classic_seal_execute(
+        &mut self,
+        request: ClassicSealExecution<'_>,
+    ) -> Result<ClassicSealResult> {
+        let Some(pending) = self.pending_seals.remove(&request.token.value()) else {
+            return Err(NfcError::InvalidArgument(
+                "the seal token is unknown or was already used".to_owned(),
+            ));
+        };
+        if Instant::now() > pending.expires {
+            return Err(NfcError::InvalidArgument(
+                "the seal plan expired; run the preflight again".to_owned(),
+            ));
+        }
+        let cancel = request.cancel.clone();
+        let mut operation = self.begin_operation(OperationKind::Write, cancel)?;
+        let result = crate::classic::ufuid::execute(&mut operation, request, &pending.plan)?;
+        drop(operation);
+        self.pending_uid_writes.clear();
+        self.pending_seals.clear();
         Ok(result)
     }
 
@@ -997,6 +1053,51 @@ mod tests {
             .confirmed(true);
         assert!(matches!(
             service.classic_uid_execute(unknown),
+            Err(NfcError::InvalidArgument(_))
+        ));
+        assert_eq!(handle.block(0), None);
+    }
+
+    #[test]
+    fn expired_and_unknown_seal_tokens_are_refused_before_io() {
+        use nfc_classic::Layout;
+
+        let (mut service, handle) = service_with_card(card(1));
+        let directory = tempfile::tempdir().expect("temp dir");
+        let backup = BackupStore::new(directory.path());
+        let keys = KeyStore::new();
+        let plan = ClassicSealPlan {
+            token: WriteToken::new(93),
+            card: card(1),
+            layout: Layout::Classic1K,
+            uid: [1; 4],
+            block0: [0; BLOCK_SIZE],
+            trailer: [0; BLOCK_SIZE],
+            sector0_key: (KeyType::A, Key::new([0xFF; 6])),
+            config: nfc_transport::UFUID_SEAL_CONFIG,
+            warnings: Vec::new(),
+            expires_at: 0,
+            card_fingerprint: 0,
+        };
+        service.pending_seals.insert(
+            93,
+            PendingSeal {
+                plan,
+                expires: Instant::now() - std::time::Duration::from_secs(1),
+            },
+        );
+        let expired = ClassicSealExecution::new(WriteToken::new(93), &keys, &backup)
+            .advanced(true)
+            .confirmed(true);
+        assert!(matches!(
+            service.classic_seal_execute(expired),
+            Err(NfcError::InvalidArgument(_))
+        ));
+        let unknown = ClassicSealExecution::new(WriteToken::new(94), &keys, &backup)
+            .advanced(true)
+            .confirmed(true);
+        assert!(matches!(
+            service.classic_seal_execute(unknown),
             Err(NfcError::InvalidArgument(_))
         ));
         assert_eq!(handle.block(0), None);

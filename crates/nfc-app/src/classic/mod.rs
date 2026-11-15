@@ -12,6 +12,7 @@ pub mod ndef;
 pub(crate) mod plan;
 pub(crate) mod read;
 pub(crate) mod restore;
+pub mod ufuid;
 pub mod uid;
 pub(crate) mod workbench;
 pub(crate) mod write;
@@ -39,6 +40,10 @@ pub use read::{ClassicBlockReadResult, ClassicRead, ClassicReadResult};
 pub use restore::{
     ClassicRestore, ClassicRestoreResult, RestoreBlockResult, RestoreBlockState, RestoreUidResult,
     RestoreUidState,
+};
+pub use ufuid::{
+    ClassicSealExecution, ClassicSealPlan, ClassicSealPreflight, ClassicSealResult,
+    UfuidSealBackupRecord,
 };
 pub use uid::{
     ClassicUidExecution, ClassicUidPlan, ClassicUidPreflight, ClassicUidResult, UID_LEN,

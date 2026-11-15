@@ -1,17 +1,18 @@
-//! Gen1A magic-card unlock and manufacturer-block write sequence.
+//! Gen1A magic-card unlock, manufacturer-block write, and UFUID seal sequence.
 //!
 //! The sequence is reader-neutral: HALT the card, send the 7-bit `0x40`
-//! unlock, send `0x43`, acknowledge a block-0 write, then send the 16-byte
-//! block with CRC_A. Each driver supplies raw byte and bit exchanges that keep
-//! the RF field on.
+//! unlock, send `0x43`, then either write block 0 or the UFUID configuration.
+//! Each driver supplies raw byte and bit exchanges that keep the RF field on.
 
 use nfc_core::{BLOCK_SIZE, CardInfo, CardType, NfcError, Result};
+use nfc_transport::UFUID_SEAL_CONFIG;
 
 const UNLOCK_FIRST: u8 = 0x40;
 const UNLOCK_SECOND: u8 = 0x43;
 const MIFARE_HALT: u8 = 0x50;
 const MIFARE_WRITE: u8 = 0xA0;
 const MIFARE_ACK: u8 = 0x0A;
+const UFUID_WRITE_CONFIG: u8 = 0xE1;
 
 /// Raw exchanges used by the Gen1A sequence.
 pub(crate) trait Gen1aLink {
@@ -34,10 +35,19 @@ pub(crate) fn validate(card: &CardInfo, data: &[u8; BLOCK_SIZE]) -> Result<()> {
     Ok(())
 }
 
-/// Runs the unlock sequence and writes one manufacturer block. The caller must
-/// enter raw mode first and reselect the card so Crypto1 authentication is
-/// cleared.
-pub(crate) fn write_block0(link: &mut impl Gen1aLink, data: &[u8; BLOCK_SIZE]) -> Result<()> {
+/// Rejects a UFUID configuration other than the canonical sealed value.
+pub(crate) fn validate_seal_config(config: &[u8; BLOCK_SIZE]) -> Result<()> {
+    if *config != UFUID_SEAL_CONFIG {
+        return Err(NfcError::InvalidArgument(
+            "the UFUID seal configuration is not the canonical sealed value".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+/// Runs the HALT and `0x40`/`0x43` unlock. The caller must enter raw mode first
+/// and reselect the card so Crypto1 authentication is cleared.
+fn unlock(link: &mut impl Gen1aLink) -> Result<()> {
     let halt = crc_a(&[MIFARE_HALT, 0x00]);
     match link.transceive_bytes(&halt) {
         Ok(_) => {}
@@ -62,6 +72,37 @@ pub(crate) fn write_block0(link: &mut impl Gen1aLink, data: &[u8; BLOCK_SIZE]) -
             "the card answered the Gen1A 0x43 unlock command with an unexpected frame",
         ));
     }
+    Ok(())
+}
+
+/// Probes the Gen1A backdoor without changing card data. A card that does not
+/// answer the unlock is reported as `false`; a transport failure is returned.
+pub(crate) fn probe(link: &mut impl Gen1aLink) -> Result<bool> {
+    let halt = crc_a(&[MIFARE_HALT, 0x00]);
+    match link.transceive_bytes(&halt) {
+        Ok(_) => {}
+        Err(NfcError::Timeout(_) | NfcError::NoCard) => {}
+        Err(error) => return Err(error),
+    }
+
+    let (response, bits) = match link.transceive_bits(&[UNLOCK_FIRST], 7) {
+        Ok(answer) => answer,
+        Err(NfcError::Timeout(_) | NfcError::NoCard) => return Ok(false),
+        Err(error) => return Err(error),
+    };
+    if bits != 4 || !is_ack(&response) {
+        return Ok(false);
+    }
+    match link.transceive_bytes(&[UNLOCK_SECOND]) {
+        Ok(response) => Ok(is_ack(&response)),
+        Err(NfcError::Timeout(_) | NfcError::NoCard) => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
+/// Runs the unlock sequence and writes one manufacturer block.
+pub(crate) fn write_block0(link: &mut impl Gen1aLink, data: &[u8; BLOCK_SIZE]) -> Result<()> {
+    unlock(link)?;
 
     let mut write_command = vec![MIFARE_WRITE, 0x00];
     write_command.extend_from_slice(&crc_a(&write_command));
@@ -83,6 +124,38 @@ pub(crate) fn write_block0(link: &mut impl Gen1aLink, data: &[u8; BLOCK_SIZE]) -
     if !is_ack(&response) {
         return Err(NfcError::Io(
             "the block 0 data frame was answered with an unexpected frame".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+/// Runs the unlock sequence and writes the UFUID configuration that disables
+/// the backdoor. The caller must reselect and verify that the unlock no longer
+/// answers.
+pub(crate) fn seal(link: &mut impl Gen1aLink, config: &[u8; BLOCK_SIZE]) -> Result<()> {
+    validate_seal_config(config)?;
+    unlock(link)?;
+
+    let mut command = vec![UFUID_WRITE_CONFIG, 0x00];
+    command.extend_from_slice(&crc_a(&command));
+    let response = link.transceive_bytes(&command).map_err(|error| {
+        gen1a_error("the card did not acknowledge the UFUID seal command", error)
+    })?;
+    if !is_ack(&response) {
+        return Err(NfcError::Unsupported(
+            "the card did not accept the UFUID seal command; it is not a sealable UFUID",
+        ));
+    }
+
+    let mut payload = Vec::with_capacity(BLOCK_SIZE + 2);
+    payload.extend_from_slice(config);
+    payload.extend_from_slice(&crc_a(config));
+    let response = link
+        .transceive_bytes(&payload)
+        .map_err(|error| gen1a_error("the UFUID seal configuration was not acknowledged", error))?;
+    if !is_ack(&response) {
+        return Err(NfcError::Io(
+            "the card answered the UFUID seal configuration with an unexpected frame".to_owned(),
         ));
     }
     Ok(())
@@ -113,6 +186,8 @@ pub(crate) fn crc_a(data: &[u8]) -> [u8; 2] {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
+
     use super::*;
 
     #[test]
@@ -168,5 +243,94 @@ mod tests {
             validate(&long_uid, &block),
             Err(NfcError::Unsupported(_))
         ));
+    }
+
+    #[derive(Default)]
+    struct FakeLink {
+        bytes: VecDeque<Result<Vec<u8>>>,
+        bits: VecDeque<Result<(Vec<u8>, usize)>>,
+        sent: Vec<(Vec<u8>, Option<usize>)>,
+    }
+
+    impl FakeLink {
+        fn with_unlock() -> Self {
+            Self {
+                bytes: VecDeque::from([Ok(vec![0x05]), Ok(vec![0x0A])]),
+                bits: VecDeque::from([Ok((vec![0x0A], 4))]),
+                sent: Vec::new(),
+            }
+        }
+    }
+
+    impl Gen1aLink for FakeLink {
+        fn transceive_bytes(&mut self, tx: &[u8]) -> Result<Vec<u8>> {
+            self.sent.push((tx.to_vec(), None));
+            self.bytes.pop_front().unwrap_or(Err(NfcError::Timeout(
+                "fake link has no queued byte response".to_owned(),
+            )))
+        }
+
+        fn transceive_bits(&mut self, tx: &[u8], tx_bits: usize) -> Result<(Vec<u8>, usize)> {
+            self.sent.push((tx.to_vec(), Some(tx_bits)));
+            self.bits.pop_front().unwrap_or(Err(NfcError::Timeout(
+                "fake link has no queued bit response".to_owned(),
+            )))
+        }
+    }
+
+    #[test]
+    fn probe_requires_both_gen1a_acknowledgements() {
+        let mut link = FakeLink::with_unlock();
+        assert!(probe(&mut link).expect("probe"));
+        assert_eq!(
+            link.sent,
+            vec![
+                (crc_a(&[0x50, 0x00]).to_vec(), None),
+                (vec![0x40], Some(7)),
+                (vec![0x43], None),
+            ]
+        );
+
+        let mut denied = FakeLink {
+            bytes: VecDeque::from([Ok(vec![0x05])]),
+            bits: VecDeque::from([Ok((vec![0x0A], 4)), Ok((vec![0x05], 4))]),
+            sent: Vec::new(),
+        };
+        assert!(!probe(&mut denied).expect("probe"));
+    }
+
+    #[test]
+    fn seal_writes_the_canonical_config_after_the_unlock() {
+        let mut link = FakeLink::with_unlock();
+        link.bytes.push_back(Ok(vec![0x0A]));
+        link.bytes.push_back(Ok(vec![0x0A]));
+        seal(&mut link, &UFUID_SEAL_CONFIG).expect("seal");
+
+        let mut expected_command = vec![0xE1, 0x00];
+        expected_command.extend_from_slice(&crc_a(&[0xE1, 0x00]));
+        let mut expected_config = UFUID_SEAL_CONFIG.to_vec();
+        expected_config.extend_from_slice(&crc_a(&UFUID_SEAL_CONFIG));
+        assert_eq!(
+            link.sent,
+            vec![
+                (crc_a(&[0x50, 0x00]).to_vec(), None),
+                (vec![0x40], Some(7)),
+                (vec![0x43], None),
+                (expected_command, None),
+                (expected_config, None),
+            ]
+        );
+    }
+
+    #[test]
+    fn seal_rejects_any_other_configuration_before_touching_the_card() {
+        let mut link = FakeLink::default();
+        let mut config = UFUID_SEAL_CONFIG;
+        config[7] = 0x5A;
+        assert!(matches!(
+            seal(&mut link, &config),
+            Err(NfcError::InvalidArgument(_))
+        ));
+        assert!(link.sent.is_empty());
     }
 }

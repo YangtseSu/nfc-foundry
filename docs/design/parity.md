@@ -41,6 +41,7 @@ hidden there.
 | Write sector trailer | `classic write --confirm-trailer` | Stage the trailer edit, then Write changes… | C, B | PN532, ACR |
 | Write preflight | `classic write --dry-run` / `classic restore --dry-run` | Plan dialog before Write changes… / Restore to card | R | PN532, ACR |
 | Change UID / manufacturer block 0 | `classic uid --uid --advanced [--dry-run]` | Blocks inspector → Advanced mode → Write UID… → target UID → plan dialog | A, B, C | PN532, ACR |
+| Seal UFUID (irreversible) | `classic seal --advanced [--dry-run]` | Blocks inspector → Advanced mode → Seal UFUID… → plan dialog | A, C, B | PN532 seal applied; clean rerun n/r |
 | Edit working image | — (staged by the GUI; `--dry-run` previews the plan) | Stage edit, Undo edit, Revert edits; dirty rows show `edited` | none | file only |
 | Restore | `classic restore --input [--blocks] [--changes-only] [--continue-on-error] [--dry-run]` | MIFARE Classic → Dumps → Restore → Load dump… → mode → Restore to card | C, B | PN532, ACR |
 | Restore with UID | `classic restore --input --uid --advanced [--dry-run]` | Restore → target UID + Advanced → Restore to card → plan dialog | A, B, C | PN532, ACR |

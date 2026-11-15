@@ -55,6 +55,8 @@ Hardware tests:
 - read Type 2 pages;
 - same-value Classic write with explicit confirmation and read-back;
 - guarded Gen1A UID change and restore;
+- read-only Gen1A probe and UFUID seal preflight;
+- environment-gated irreversible UFUID seal;
 - raw transceive after driver stabilization;
 - full Classic dump and per-sector key scan;
 - temporary data-block write and restore with backups.
@@ -65,7 +67,15 @@ dump, key scan, temporary data-block write with backup and read-back, and
 restore are validated on a PN532 (CH340 UART adapter, firmware 1.6). The
 guarded Gen1A UID change and restore, sector-trailer write, and full restore
 with UID passed on 2026-11-11 with an owned magic Classic 1K; see
-`docs/notes/24c-uid-write.md` and `docs/notes/24d-restore-with-uid.md`. On
+`docs/notes/24c-uid-write.md` and `docs/notes/24d-restore-with-uid.md`. The
+guarded UID change/restore also passed on 2026-11-15 with an owned UFUID
+`47 D5 87 A9`. Its seal preflight and dry run passed, the seal command was then
+applied with owner approval, and the card became permanently sealed; a 64/64
+dump and block 0 verified unchanged and a new seal preflight was refused. The
+first automated verification saw a false negative while the backdoor still
+answered immediate probes; the workflow now polls for two consecutive negative
+probes. See
+`docs/notes/33-ufuid-seal.md`. On
 2026-11-12 a Xiaomi wallet full MIFARE Classic 1K emulation was read 64/64
 blocks in 1.2 s and a data block was written, verified, and restored; the
 phone dump matched the source card byte for byte. The phone UID is copy-only;
