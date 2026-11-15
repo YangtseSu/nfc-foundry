@@ -2,7 +2,7 @@
 # Upstream: https://github.com/YangtseSu/nfc-foundry
 
 pkgname=nfc-foundry
-pkgver=0.2.0
+pkgver=0.3.0
 pkgrel=1
 pkgdesc='NFC reader workbench for MIFARE Classic and NFC Forum Type 2/NDEF cards'
 arch=('x86_64')

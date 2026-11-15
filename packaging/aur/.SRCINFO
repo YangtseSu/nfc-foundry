@@ -1,6 +1,6 @@
 pkgbase = nfc-foundry
 	pkgdesc = NFC reader workbench for MIFARE Classic and NFC Forum Type 2/NDEF cards
-	pkgver = 0.2.0
+	pkgver = 0.3.0
 	pkgrel = 1
 	url = https://github.com/YangtseSu/nfc-foundry
 	arch = x86_64
@@ -18,7 +18,7 @@ pkgbase = nfc-foundry
 	depends = systemd-libs
 	options = !debug
 	options = !lto
-	source = nfc-foundry-0.2.0::git+https://github.com/YangtseSu/nfc-foundry.git#tag=v0.2.0
+	source = nfc-foundry-0.3.0::git+https://github.com/YangtseSu/nfc-foundry.git#tag=v0.3.0
 	sha256sums = SKIP
 
 pkgname = nfc-foundry
