@@ -1,7 +1,8 @@
-# Phase 31 plan: optional scope register
+# Phase 31 plan: conditional scope register
 
-Status: conditional 2026-11-12. No implementation is scheduled. This phase
-exists so two previously discussed directions are not silently dropped.
+Status: conditional 2026-11-12. No implementation is scheduled. This register
+covers card emulation and Jewel/Topaz only; NFC hardware candidates are in
+[Phase 34](34-nfc-hardware-candidates.md).
 
 ## Card emulation
 
@@ -55,6 +56,7 @@ Non-goals:
 ## Documentation
 
 - Add a conditional entry to `docs/plan/README.md`.
-- Keep both items out of the release support matrix until a phase is accepted.
+- Keep these items out of the release support matrix until a phase is accepted.
 - Do not remove the conditional wording in favor of a global “no emulation”
   statement.
+- Record NFC hardware candidates in Phase 34, not here.

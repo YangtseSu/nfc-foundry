@@ -56,8 +56,9 @@ work; their current equivalents are the GTK4 workspaces.
 | 28 | ACR122U PC/SC transport (ACR122U only, not generic PC/SC) | done |
 | 29 | CLI machine contract, cross-process reader ownership, cancellation/tasks, developer raw diagnostics | done (29.1-29.7) |
 | 30 | Workbench/file parity: sector grouping/ASCII, dump sidecars, export all candidates | done (30.1-30.4) |
-| 31 | Conditional scope register: card emulation, Jewel/Topaz, ST25R3916 I2C backend | conditional |
+| 31 | Conditional scope register: card emulation, Jewel/Topaz | conditional |
 | 33 | UFUID support: Gen1A probe, guarded UID writes, irreversible seal | done (PN532 UID and seal applied; delayed verification fixed; clean seal rerun n/r) |
+| 34 | NFC hardware candidate register: ST25R3916 I2C, ACR1552U/ACR1252U, PN532 I2C/SPI, PN7160, raw frontends | conditional |
 
 ## Rules
 
@@ -68,9 +69,11 @@ work; their current equivalents are the GTK4 workspaces.
   non-default features and never ship in release packages.
 - Phase 29 drops `OpenCommandTerminal`: the GUI has no command terminal,
   private runtime, external engine bundle, or shell launch.
-- Phase 31 records conditional directions only; none of card emulation,
-  Jewel/Topaz, or the ST25R3916 I2C backend is in the support matrix until a
-  phase is accepted.
+- Phase 31 records card emulation and Jewel/Topaz only; neither is in the
+  support matrix until a phase is accepted.
+- Phase 34 records NFC hardware candidates only; none is in the support matrix
+  until a phase is accepted. Generic PC/SC, raw recovery, and new card-family
+  claims need their own ADR, spec, and hardware record.
 - One phase at a time unless work is genuinely independent.
 - A CLI operation is incomplete until the GUI exposes the same operation with
   the same safety rules.
