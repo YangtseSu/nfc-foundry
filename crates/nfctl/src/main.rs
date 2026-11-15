@@ -7,6 +7,10 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
+use nfc_app::amiibo::{
+    AmiiboFileRequest, AmiiboReadRequest, AmiiboSourceFormat, AmiiboWriteExecution,
+    AmiiboWriteRequest,
+};
 use nfc_app::classic::{
     AuthenticatedKey, BackupStore, ClassicBlockWrite, ClassicKeyscan, ClassicNdefFormat,
     ClassicNdefRead, ClassicNdefWrite, ClassicRead, ClassicSealExecution, ClassicSealPlan,
@@ -33,7 +37,10 @@ use nfc_app::type2::{
     Type2Auth, Type2Format, Type2Lock, Type2NdefWrite, Type2PageWrite, Type2Password,
     Type2ReadRequest, Type2Restore, Type2UidExecution, parse_uid_hex,
 };
-use nfc_app::{ReaderEvent, ReaderStatus, Service, classic_health};
+use nfc_app::{
+    AmiiboIdentity, AmiiboKeys, ReaderEvent, ReaderStatus, Service, classic_health, load_key_parts,
+    load_keys,
+};
 use nfc_classic::{DumpFormat, Layout, bcc_for_uid, diff, exchange};
 use nfc_classic_ndef::{
     ClassicNdefInfo, Mad, MadVersion, NdefState as ClassicNdefState, format_ndef_area,
@@ -171,6 +178,15 @@ struct Cli {
         hide_env_values = true
     )]
     type2_pack: Option<String>,
+    /// Amiibo combined 160-byte key file. Never logged or saved.
+    #[arg(long = "amiibo-keys", global = true, value_name = "PATH")]
+    amiibo_keys: Option<PathBuf>,
+    /// Amiibo 80-byte data key file (unfixed-info.bin).
+    #[arg(long = "amiibo-data-key", global = true, value_name = "PATH")]
+    amiibo_data_key: Option<PathBuf>,
+    /// Amiibo 80-byte tag key file (locked-secret.bin).
+    #[arg(long = "amiibo-tag-key", global = true, value_name = "PATH")]
+    amiibo_tag_key: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
 }
@@ -199,6 +215,11 @@ enum Command {
     Type2 {
         #[command(subcommand)]
         command: Type2Command,
+    },
+    /// Amiibo / NTAG215 decrypt, encrypt, and controlled write operations.
+    Amiibo {
+        #[command(subcommand)]
+        command: AmiiboCommand,
     },
     /// DESFire inventory, file read/write, management, keys, and NDEF.
     Desfire {
@@ -472,6 +493,41 @@ enum Type2Command {
         #[arg(long, value_name = "UID")]
         uid: String,
         /// Required: UID writes are an Advanced action.
+        #[arg(long)]
+        advanced: bool,
+    },
+}
+
+#[derive(Clone, Debug, Subcommand)]
+enum AmiiboCommand {
+    /// Read the selected NTAG215 and optionally decrypt it.
+    Read {
+        /// Save the raw 540-byte dump here.
+        #[arg(long, short, value_name = "PATH")]
+        output: Option<PathBuf>,
+    },
+    /// Verify and decrypt a raw dump into its plaintext form.
+    Decrypt {
+        #[arg(long, short, value_name = "PATH")]
+        input: PathBuf,
+        #[arg(long, short, value_name = "PATH")]
+        output: Option<PathBuf>,
+    },
+    /// Encrypt and sign a plaintext dump.
+    Encrypt {
+        #[arg(long, short, value_name = "PATH")]
+        input: PathBuf,
+        #[arg(long, short, value_name = "PATH")]
+        output: Option<PathBuf>,
+    },
+    /// Re-sign a source dump for the selected tag and write it.
+    Write {
+        #[arg(long, short, value_name = "PATH")]
+        input: PathBuf,
+        /// Treat the input as a plaintext dump instead of a raw dump.
+        #[arg(long)]
+        plain: bool,
+        /// Required: Amiibo writes are an Advanced action.
         #[arg(long)]
         advanced: bool,
     },
@@ -1275,6 +1331,7 @@ fn dispatch(run: &mut Run<'_>, service: &mut Service, command: Command) -> CliRe
         },
         Command::Classic { command } => classic(run, service, command),
         Command::Type2 { command } => type2(run, service, command),
+        Command::Amiibo { command } => amiibo(run, service, command),
         Command::Desfire { command } => desfire(run, service, *command),
         Command::Ndef { command } => ndef(run, service, command),
         Command::Recover { command } => recovery(run, service, command),
@@ -1324,6 +1381,12 @@ impl Command {
                     ClassicNdefCommand::Write { .. } => "classic.ndef.write",
                     ClassicNdefCommand::Format { .. } => "classic.ndef.format",
                 },
+            },
+            Self::Amiibo { command } => match command {
+                AmiiboCommand::Read { .. } => "amiibo.read",
+                AmiiboCommand::Decrypt { .. } => "amiibo.decrypt",
+                AmiiboCommand::Encrypt { .. } => "amiibo.encrypt",
+                AmiiboCommand::Write { .. } => "amiibo.write",
             },
             Self::Type2 { command } => match command {
                 Type2Command::Info => "type2.info",
@@ -1391,6 +1454,7 @@ impl Command {
                     | ClassicCommand::Restore { .. }
             ),
             Self::Type2 { command } => matches!(command, Type2Command::Uid { .. }),
+            Self::Amiibo { command } => matches!(command, AmiiboCommand::Write { .. }),
             Self::Desfire { command } => matches!(
                 command.as_ref(),
                 DesfireCommand::FormatNdef { .. }
@@ -5436,6 +5500,255 @@ fn type2(run: &mut Run<'_>, service: &mut Service, command: Type2Command) -> Cli
     }
 }
 
+fn amiibo_keys(cli: &Cli, required: bool) -> CliResult<Option<AmiiboKeys>> {
+    match (&cli.amiibo_keys, &cli.amiibo_data_key, &cli.amiibo_tag_key) {
+        (Some(combined), None, None) => Ok(Some(load_keys(combined)?)),
+        (None, Some(data), Some(tag)) => Ok(Some(load_key_parts(data, tag)?)),
+        (None, None, None) if !required => Ok(None),
+        (None, None, None) => Err(CliError::Usage(
+            "supply --amiibo-keys or both --amiibo-data-key and --amiibo-tag-key".to_owned(),
+        )),
+        _ => Err(CliError::Usage(
+            "use --amiibo-keys or the two --amiibo-data-key/--amiibo-tag-key files, not both forms"
+                .to_owned(),
+        )),
+    }
+}
+
+fn amiibo_identity_json(identity: AmiiboIdentity) -> Value {
+    json!({
+        "gameCharacterId": format!("{:04X}", identity.game_character_id),
+        "gameId": identity.game_id,
+        "characterId": identity.character_id,
+        "variant": identity.variant,
+        "figureType": identity.figure_type,
+        "figureTypeLabel": identity.figure_type_label(),
+        "modelNumber": format!("{:04X}", identity.model_number),
+        "series": identity.series,
+        "formatVersion": identity.format_version,
+        "writeCount": identity.write_count,
+        "appId": format!("{:08X}", identity.app_id),
+        "initialized": identity.initialized(),
+    })
+}
+
+fn print_amiibo_identity(out: &mut Output, identity: AmiiboIdentity) {
+    say!(
+        out,
+        "identity: game 0x{:04X} character 0x{:02X} variant 0x{:02X} type {} model 0x{:04X} series 0x{:02X} format {}",
+        identity.game_character_id,
+        identity.character_id,
+        identity.variant,
+        identity.figure_type_label(),
+        identity.model_number,
+        identity.series,
+        identity.format_version
+    );
+    say!(
+        out,
+        "write count {} · app ID 0x{:08X}",
+        identity.write_count,
+        identity.app_id
+    );
+}
+
+fn amiibo(run: &mut Run<'_>, service: &mut Service, command: AmiiboCommand) -> CliResult<Value> {
+    match command {
+        AmiiboCommand::Read { output } => {
+            run.out.set_command("amiibo.read");
+            prepare(run, service)?;
+            let keys = amiibo_keys(run.cli, false)?;
+            let auth = type2_auth(run.cli)?;
+            let read = service.amiibo_read(
+                AmiiboReadRequest::new(run.cancel.clone())
+                    .auth(auth)
+                    .keys(keys),
+            )?;
+            run.out.set_card(&read.card);
+            let uid = read.raw.uid()?;
+            say!(
+                run.out,
+                "NTAG215 · UID {} · 135/135 pages",
+                compact_hex(&uid)
+            );
+            if let Some(identity) = read.identity {
+                say!(run.out, "signature: valid");
+                print_amiibo_identity(run.out, identity);
+            } else {
+                say!(run.out, "signature: not checked (no key files)");
+            }
+            if let Some(output) = &output {
+                write_output(output, read.raw.as_bytes())?;
+                say!(run.out, "raw dump: {}", output.display());
+            }
+            for warning in &read.warnings {
+                warn!(run.out, "{warning}");
+            }
+            Ok(json!({
+                "uid": compact_hex(&uid),
+                "product": read.image.layout.product.name(),
+                "pagesRead": read.image.known_pages(),
+                "pageCount": read.image.layout.page_count(),
+                "signature": if read.identity.is_some() { "valid" } else { "not_checked" },
+                "identity": read.identity.map(amiibo_identity_json),
+                "warnings": read.warnings,
+                "output": output.as_ref().map(|path| path.display().to_string()),
+            }))
+        }
+        AmiiboCommand::Decrypt { input, output } => {
+            run.out.set_command("amiibo.decrypt");
+            let keys = amiibo_keys(run.cli, true)?
+                .ok_or_else(|| CliError::Usage("Amiibo key files are required".to_owned()))?;
+            let result = service.amiibo_decrypt(AmiiboFileRequest {
+                keys,
+                input: input.clone(),
+                output: output.clone(),
+                cancel: run.cancel.clone(),
+            })?;
+            say!(
+                run.out,
+                "decrypted {} · UID {} · {} bytes",
+                input.display(),
+                compact_hex(&result.source_uid),
+                result.input_bytes
+            );
+            print_amiibo_identity(run.out, result.identity);
+            if let Some(path) = &result.output {
+                say!(run.out, "plaintext: {}", path.display());
+            }
+            for warning in &result.warnings {
+                warn!(run.out, "{warning}");
+            }
+            Ok(json!({
+                "sourceUid": compact_hex(&result.source_uid),
+                "identity": amiibo_identity_json(result.identity),
+                "input": input.display().to_string(),
+                "output": result.output.as_ref().map(|path| path.display().to_string()),
+                "bytes": result.output_bytes,
+                "warnings": result.warnings,
+            }))
+        }
+        AmiiboCommand::Encrypt { input, output } => {
+            run.out.set_command("amiibo.encrypt");
+            let keys = amiibo_keys(run.cli, true)?
+                .ok_or_else(|| CliError::Usage("Amiibo key files are required".to_owned()))?;
+            let result = service.amiibo_encrypt(AmiiboFileRequest {
+                keys,
+                input: input.clone(),
+                output: output.clone(),
+                cancel: run.cancel.clone(),
+            })?;
+            say!(
+                run.out,
+                "encrypted {} · UID {} · {} bytes",
+                input.display(),
+                compact_hex(&result.source_uid),
+                result.output_bytes
+            );
+            print_amiibo_identity(run.out, result.identity);
+            if let Some(path) = &result.output {
+                say!(run.out, "raw dump: {}", path.display());
+            }
+            Ok(json!({
+                "sourceUid": compact_hex(&result.source_uid),
+                "identity": amiibo_identity_json(result.identity),
+                "input": input.display().to_string(),
+                "output": result.output.as_ref().map(|path| path.display().to_string()),
+                "bytes": result.output_bytes,
+            }))
+        }
+        AmiiboCommand::Write {
+            input,
+            plain,
+            advanced,
+        } => {
+            run.out.set_command("amiibo.write");
+            if !advanced {
+                return Err(CliError::Usage("Amiibo writes need --advanced".to_owned()));
+            }
+            prepare(run, service)?;
+            let keys = amiibo_keys(run.cli, true)?
+                .ok_or_else(|| CliError::Usage("Amiibo key files are required".to_owned()))?;
+            let auth = type2_auth(run.cli)?;
+            let backup = backup_store(run.cli);
+            let plan = service.amiibo_write_preflight(AmiiboWriteRequest {
+                keys,
+                source: input.clone(),
+                format: if plain {
+                    AmiiboSourceFormat::Plain
+                } else {
+                    AmiiboSourceFormat::Raw
+                },
+                auth,
+                advanced: true,
+                backup,
+                cancel: run.cancel.clone(),
+            })?;
+            run.out.set_card(plan.card());
+            say!(
+                run.out,
+                "target NTAG215 · UID {} · source UID {}",
+                compact_hex(&plan.target_uid()),
+                compact_hex(&plan.source_uid())
+            );
+            print_amiibo_identity(run.out, plan.identity());
+            say!(
+                run.out,
+                "{} pages · {} · backup {}",
+                plan.pages().len(),
+                plan.credential_policy(),
+                plan.backup_path().display()
+            );
+            say!(
+                run.out,
+                "the static lock and configuration pages become read-only after the write"
+            );
+            for warning in plan.warnings() {
+                warn!(run.out, "{warning}");
+            }
+            let plan_json = json!({
+                "dryRun": run.cli.dry_run,
+                "targetUid": compact_hex(&plan.target_uid()),
+                "sourceUid": compact_hex(&plan.source_uid()),
+                "identity": amiibo_identity_json(plan.identity()),
+                "writePages": plan.pages().len(),
+                "credentials": plan.credential_policy(),
+                "backup": plan.backup_path().display().to_string(),
+                "warnings": plan.warnings(),
+            });
+            if run.cli.dry_run {
+                return Ok(plan_json);
+            }
+            require_confirmation(run, run.cli.yes, "writing an Amiibo")?;
+            let result = service.amiibo_write_execute(
+                AmiiboWriteExecution::new(plan.token())
+                    .confirm(true)
+                    .cancel(run.cancel.clone()),
+            )?;
+            say!(
+                run.out,
+                "Amiibo written and verified: {} pages · UID {}",
+                result.written_pages,
+                compact_hex(&result.target_uid)
+            );
+            say!(run.out, "backup: {}", result.backup.path.display());
+            for warning in &result.warnings {
+                warn!(run.out, "{warning}");
+            }
+            Ok(json!({
+                "dryRun": false,
+                "verified": true,
+                "written": result.written_pages,
+                "targetUid": compact_hex(&result.target_uid),
+                "sourceUid": compact_hex(&result.source_uid),
+                "identity": amiibo_identity_json(result.identity),
+                "backup": result.backup.path.display().to_string(),
+                "warnings": result.warnings,
+            }))
+        }
+    }
+}
+
 fn ndef(run: &mut Run<'_>, service: &mut Service, command: NdefCommand) -> CliResult<Value> {
     prepare(run, service)?;
     let auth = type2_auth(run.cli)?;
@@ -6286,6 +6599,24 @@ fn mock_service() -> Service {
     ntag.set_page(131, [0x00, 0x00, 0x00, 0xFF]);
     ntag.set_page(132, [0x00, 0x00, 0x00, 0x00]);
     ntag.set_password([0xFF; PAGE_SIZE], [0x00, 0x00]);
+    let amiibo = transport.add(
+        mock_device("Mock blank Amiibo NTAG215", "mock:amiibo"),
+        Some(CardInfo::new(
+            vec![0x04, 0x5B, 0x1C, 0x2A, 0x3B, 0x4C, 0x80],
+            [0x00, 0x44],
+            0x00,
+            CardType::Type2,
+        )),
+    );
+    for page in 0..135u8 {
+        amiibo.set_page(page, [0u8; PAGE_SIZE]);
+    }
+    amiibo.set_type2_version(Some([0x00, 0x04, 0x04, 0x02, 0x01, 0x00, 0x11, 0x03]));
+    amiibo.set_page(0, [0x04, 0x5B, 0x1C, 0xCB]);
+    amiibo.set_page(1, [0x2A, 0x3B, 0x4C, 0x80]);
+    amiibo.set_page(2, [0xDD, 0x48, 0x00, 0x00]);
+    amiibo.set_page(131, [0x00, 0x00, 0x00, 0xFF]);
+    amiibo.set_password([0xFF; PAGE_SIZE], [0x00, 0x00]);
     let type4 = transport.add(
         mock_device("Mock Type 4 DESFire", "mock:type4-desfire"),
         Some(CardInfo::new(

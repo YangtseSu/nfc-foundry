@@ -37,6 +37,7 @@ application shell, or a sibling feature.
 | `nfc-recover` | Crypto1, darkside, nested, staticnested, hardnested, FM11RF08S, auto | via transport |
 | `nfc-ndef` | NDEF message/record, TLV, templates, validation | no |
 | `nfc-type2` | Type 2 / NTAG pages, CC, lock/config, NDEF TLV adapter | via transport |
+| `nfc-amiibo` | Amiibo key records, AES-CTR/HMAC crypto, NTAG215 image, UID rebinding, numeric identity | no |
 | `nfc-classic-ndef` | MAD1/MAD2, GPB mapping/access, NDEF sectors, format | no |
 | `nfc-type4` | ISO-DEP/APDU CC and NDEF file read/write | via transport |
 | `nfc-app` | Device manager, exclusive operations, Classic, Type 2, and Type 4 workflows, key store, backups | via transport |
@@ -297,6 +298,28 @@ from becoming the NDEF implementation.
   URI identifier codes, bad chunk order, missing MB/ME, and truncated fields
   are errors rather than silent repairs. No card or transport type enters the
   crate.
+
+## Amiibo
+
+`nfc-amiibo` is a hardware-free application codec over the existing Type 2 /
+NTAG215 path. It contains no keys, identity database, file I/O, or reader code.
+It owns:
+
+- 80-byte data/tag master key records and the 160-byte combined form;
+- the HMAC-SHA256 DRBG, AES-128-CTR crypto region, and both Amiibo signatures;
+- the 540-byte raw image, the 520-byte internal plaintext, and the carried
+  20-byte tail;
+- UID binding (BCC0/BCC1 and the internal UID pages) and re-signing for another
+  tag UID;
+- the numeric game/character, variant, figure-type, model, series, format, and
+  write-counter fields.
+
+`nfc-app::amiibo` loads the user's key files, converts files, reads a live
+image, and owns the Advanced write plan. The plan holds a one-shot token and a
+full target-image fingerprint. Execution writes the backup, the 133-page image
+in lock-safe order, authenticates with the derived PWD/PACK, and then requires
+a full reselect, read, signature, and identity check. No key bytes enter a
+project file, log, or JSON result.
 
 ## Type 2 / NTAG
 

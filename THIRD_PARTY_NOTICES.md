@@ -18,6 +18,10 @@ license files or generate a dependency manifest.
 | `proptest` | 1.12.x | MIT OR Apache-2.0 |
 | `tempfile` | 3.27.x | MIT OR Apache-2.0 |
 | `lz4_flex` | 0.14.x | MIT |
+| `aes` | 0.9.x | MIT OR Apache-2.0 |
+| `cipher` | 0.5.x | MIT OR Apache-2.0 |
+| `hmac` | 0.13.x | MIT OR Apache-2.0 |
+| `sha2` | 0.11.x | MIT OR Apache-2.0 |
 
 Transitive dependencies and their exact versions are recorded in
 `Cargo.lock`. The release installs only NFC Foundry's own license texts and
@@ -69,6 +73,11 @@ THE SOFTWARE.
 
 The old mfoc/mfcuk/mfoc-hardnested implementations are not shipped; they may
 appear only in development notes as test oracles.
+
+The Amiibo key-derivation and encryption format is documented by
+`socram8888/amiitool` (MIT, Copyright (c) 2015-2017 Marcos Del Sol Vives and
+contributors). `crates/nfc-amiibo` is an independent Rust implementation of
+the published format; it copies no amiitool source or Nintendo key material.
 
 The Gen1A unlock and manufacturer-block write sequence in
 `crates/nfc-drivers/src/acr122_usb/protocol.rs` is derived from the libnfc

@@ -35,6 +35,11 @@ pub(crate) fn read_text(path: &Path) -> Result<String> {
         .map_err(|error| NfcError::Io(format!("could not read {}: {error}", path.display())))
 }
 
+pub(crate) fn read_bytes(path: &Path) -> Result<Vec<u8>> {
+    fs::read(path)
+        .map_err(|error| NfcError::Io(format!("could not read {}: {error}", path.display())))
+}
+
 fn restrict_permissions(path: &Path) -> Result<()> {
     #[cfg(unix)]
     {

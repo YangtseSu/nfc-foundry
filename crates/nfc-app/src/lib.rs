@@ -3,6 +3,7 @@
 //! Device ownership, exclusive operations, backups, and workflows live here.
 //! The GUI and CLI never touch a driver directly.
 
+pub mod amiibo;
 pub mod classic;
 pub mod desfire;
 #[cfg(feature = "developer-tools")]
@@ -21,6 +22,11 @@ pub mod service;
 pub mod type2;
 pub mod type4;
 
+pub use amiibo::{
+    AmiiboFileRequest, AmiiboFileResult, AmiiboReadRequest, AmiiboReadResult, AmiiboSourceFormat,
+    AmiiboWriteExecution, AmiiboWritePlan, AmiiboWriteRequest, AmiiboWriteResult, load_key_parts,
+    load_keys, password_for_uid,
+};
 pub use classic::{
     BackupRecord, BackupStore, ClassicBlockWrite, ClassicKeyscan, ClassicKeyscanResult,
     ClassicNdefFormat, ClassicNdefFormatResult, ClassicNdefRead, ClassicNdefReadResult,
@@ -40,6 +46,7 @@ pub use diagnostics::{
     ReaderListing, SelfCheck, TablesStatus,
 };
 pub use health::{CardHealth, CardIdentityHealth, KeyCoverage, classic_health};
+pub use nfc_amiibo::{AmiiboIdentity, AmiiboKeys};
 pub use nfc_classic_ndef::{
     ClassicNdefInfo, ClassicNdefLayout, MappingVersion, NdefState as ClassicNdefState,
 };

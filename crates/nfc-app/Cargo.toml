@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+nfc-amiibo.workspace = true
 nfc-classic.workspace = true
 nfc-classic-ndef.workspace = true
 nfc-core.workspace = true

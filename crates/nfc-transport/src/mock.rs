@@ -369,6 +369,8 @@ impl MockState {
         match self.pages.get(&3)?.get(2).copied()? {
             0x12 => Some((41, 42)),
             0x3E => Some((131, 132)),
+            // Amiibo NTAG215 images carry the F1 10 FF EE container.
+            0xFF => Some((131, 132)),
             0x6D => Some((227, 228)),
             _ => None,
         }

@@ -155,7 +155,9 @@ deterministic self-check with version, commit, build date, platform, drivers,
 selected-reader firmware and capabilities, and hardnested table status; and
 both recovery surfaces require authorization before the engine starts.
 Remaining work is the Type 4 read surface, the rest of phase 25, and phases
-13-17.
+13-16. Phase 17 is implemented: the Amiibo decrypt/encrypt path is validated
+against user-supplied dumps, and a full NTAG215 write/read-back passed on PN532
+UART; the ACR122U write record is pending.
 
 ## Product scope
 
@@ -169,6 +171,10 @@ Two first-class domains:
    implemented and validated on PN532 UART, with the ACR122U path pending and
    no CLI or GUI surface yet.
 
+Amiibo is an application on the Type 2 path: read and decrypt with user key
+files, encrypt a user dump, and write a re-signed image to an owned unlocked
+magic NTAG215. No Nintendo keys or Amiibo data ship with the product.
+
 Supported hardware for the first release:
 
 - PN532 UART (`pn532_uart`)
@@ -179,13 +185,13 @@ Out of scope for the first release: PN53x USB, generic or PC/SC-only readers,
 Proxmark3 device control, Windows, macOS, containers, AppImage/Flatpak/Snap,
 telemetry, a browser-first UI, and a GUI command terminal or shell launch.
 
-Post-release work is listed in the phase plan (phases 13-17): phase 13 is the
-pending RF and transport prerequisite; phases 14-17 are optional and cover
-Type 3/4B NDEF, EMV public data, China T-Union, FMCOS/Calypso, ICAO 9303
-eMRTD, and a controlled Amiibo path with user-supplied keys and data. The
-read-only phases add no write or transaction path; Amiibo writes are Advanced,
-user-key/user-data only, and limited to owned magic NTAG215 tags. No hardware
-support is claimed until validated.
+Post-release work is listed in the phase plan: phase 13 is the pending RF and
+transport prerequisite; phases 14-16 are optional read-only work covering
+Type 3/4B NDEF, EMV public data, China T-Union, FMCOS/Calypso, and ICAO 9303
+eMRTD. Phase 17 is the controlled Amiibo path with user-supplied keys and
+data. The read-only phases add no write or transaction path; Amiibo writes are
+Advanced, user-key/user-data only, and limited to owned unlocked magic NTAG215
+tags. No hardware support is claimed until validated.
 
 ## Technical stack
 
@@ -214,6 +220,7 @@ crates/
   nfc-recover         # Crypto1 and Classic key-recovery attacks
   nfc-ndef            # NDEF/TLV/message/record core
   nfc-type2           # Type 2 / NTAG page and NDEF adapter
+  nfc-amiibo          # Amiibo key records, crypto, NTAG215 image, UID rebinding
   nfc-classic-ndef    # MAD / Classic NDEF adapter
   nfc-type4           # ISO-DEP/APDU CC and NDEF file read/write
   nfc-app             # device manager, services, workflows, events
@@ -224,7 +231,7 @@ Dependency direction:
 
 ```text
 nfctl -> nfc-app -> nfc-recover / nfc-classic / nfc-type2 / nfc-classic-ndef
-      -> nfc-ndef -> nfc-core
+      -> nfc-amiibo / nfc-ndef -> nfc-core
 nfc-drivers -> nfc-transport
 ```
 

@@ -884,6 +884,10 @@ cargo clippy -p nfc-drivers --features hardware --all-targets -- -D warnings
 - Proxmark3 `mfc v2` golden JSON (`crates/nfc-classic/tests/fixtures/`) and
   PM3 `.dic` vectors for comments, inline comments, duplicates, lowercase, and
   malformed lines.
+- A synthetic Amiibo crypto vector with synthetic master keys and a synthetic
+  NTAG215 image. No retail key file, Amiibo identity database, or retail dump
+  is committed. A local pack check used the user's external keys and dumps
+  only; it is not part of `cargo test --workspace`.
 
 ## What not to test
 
@@ -905,3 +909,8 @@ verify the access bytes and GPB on read-back. Restore fills masked trailer
 slots from the dump key metadata. A generic single-block trailer write with a
 B-only access condition and a masked Key A is refused; use a dump restore,
 which has the recorded key metadata.
+
+The Amiibo write hardware test is gated by `NFC_FOUNDRY_HARDWARE=1` and an
+owned blank/magic NTAG215. It is not part of the default suite. PN532 UART
+passed the full write/read-back on 2026-11-15; the ACR122U record is pending.
+The file and mock tests never read the user's key file or Amiibo Pack.

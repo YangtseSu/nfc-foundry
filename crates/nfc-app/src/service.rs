@@ -6,6 +6,7 @@ use std::time::Instant;
 use nfc_core::{CancelToken, CardInfo, CardType, NfcError, Result};
 use nfc_transport::{DeviceInfo, Transport};
 
+use crate::amiibo::PendingAmiiboWrite;
 use crate::classic::{
     BackupRecord, BackupStore, ClassicBlockWrite, ClassicKeyscan, ClassicKeyscanResult,
     ClassicNdefFormat, ClassicNdefFormatResult, ClassicNdefRead, ClassicNdefReadResult,
@@ -57,7 +58,9 @@ pub struct Service {
     pending_writes: HashMap<u64, PendingWrite>,
     pending_uid_writes: HashMap<u64, PendingUidWrite>,
     pending_seals: HashMap<u64, PendingSeal>,
+    pub(crate) pending_amiibo_writes: HashMap<u64, PendingAmiiboWrite>,
     next_write_token: u64,
+    pub(crate) next_amiibo_token: u64,
 }
 
 impl Service {

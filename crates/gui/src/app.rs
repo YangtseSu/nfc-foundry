@@ -12,6 +12,10 @@ use std::time::{Duration, Instant};
 
 use adw::prelude::*;
 use gtk::{Orientation, gio, glib};
+use nfc_app::amiibo::{
+    AmiiboFileRequest, AmiiboFileResult, AmiiboReadRequest, AmiiboReadResult, AmiiboSourceFormat,
+    AmiiboWriteExecution, AmiiboWritePlan, AmiiboWriteRequest, AmiiboWriteResult,
+};
 use nfc_app::classic::{
     AuthenticatedKey, BackupStore, ClassicBlockReadResult, ClassicKeyscan, ClassicKeyscanResult,
     ClassicNdefFormat, ClassicNdefFormatResult, ClassicNdefWrite, ClassicNdefWriteResult,
@@ -42,8 +46,9 @@ use nfc_app::type2::{
     Type2Restore, Type2UidExecution, Type2UidPlan, Type2UidResult, parse_uid_hex,
 };
 use nfc_app::{
-    CardReadResult, ClassicNdefInfo, ClassicNdefState, DriverInfo, PcscInfo, ReaderDevice,
-    ReaderEvent, ReaderSnapshot, ReaderStatus, ReaderUpdate, SelfCheck, Service, classic_health,
+    AmiiboKeys, CardReadResult, ClassicNdefInfo, ClassicNdefState, DriverInfo, PcscInfo,
+    ReaderDevice, ReaderEvent, ReaderSnapshot, ReaderStatus, ReaderUpdate, SelfCheck, Service,
+    classic_health, load_keys,
 };
 use nfc_classic::{Dump, DumpFormat, DumpLoad, diff, exchange};
 use nfc_core::{CancelToken, CardInfo, CardType, Key, NfcError, Result as NfcResult};
@@ -577,6 +582,11 @@ fn build_ui_with(app: &adw::Application, workbench: Workbench) -> Rc<Ui> {
         system_switcher,
         type2: RefCell::new(None),
         type2_restore: RefCell::new(None),
+        amiibo_keys: RefCell::new(None),
+        amiibo_source: RefCell::new(None),
+        amiibo_raw: RefCell::new(None),
+        pending_amiibo_token: Cell::new(None),
+        pending_amiibo_dialog: RefCell::new(None),
         diff_before: RefCell::new(None),
         diff_after: RefCell::new(None),
         restore_load: RefCell::new(None),
@@ -1144,6 +1154,11 @@ struct Ui {
     system_switcher: gtk::StackSwitcher,
     type2: RefCell<Option<Type2Session>>,
     type2_restore: RefCell<Option<(PathBuf, Type2Image)>>,
+    amiibo_keys: RefCell<Option<AmiiboKeys>>,
+    amiibo_source: RefCell<Option<PathBuf>>,
+    amiibo_raw: RefCell<Option<[u8; 540]>>,
+    pending_amiibo_token: Cell<Option<u64>>,
+    pending_amiibo_dialog: RefCell<Option<adw::AlertDialog>>,
     diff_before: RefCell<Option<DumpLoad>>,
     diff_after: RefCell<Option<DumpLoad>>,
     restore_load: RefCell<Option<(PathBuf, DumpLoad)>>,
@@ -1224,6 +1239,24 @@ struct Type2View {
     uid_target: gtk::Entry,
     uid_apply: gtk::Button,
     uid_note: gtk::Label,
+    amiibo: AmiiboView,
+}
+
+struct AmiiboView {
+    root: gtk::Box,
+    keys: gtk::Button,
+    keys_label: gtk::Label,
+    source: gtk::Button,
+    source_label: gtk::Label,
+    plain: gtk::CheckButton,
+    read: gtk::Button,
+    save_raw: gtk::Button,
+    decrypt: gtk::Button,
+    encrypt: gtk::Button,
+    write: gtk::Button,
+    signature: gtk::Label,
+    identity: gtk::Label,
+    note: gtk::Label,
 }
 
 struct DesfireView {
@@ -3067,6 +3100,9 @@ fn build_type2_view() -> Type2View {
     ndef_slot.set_vexpand(true);
     tabs.add_titled(&ndef_slot, Some("ndef"), "NDEF");
 
+    let amiibo = build_amiibo_view();
+    tabs.add_titled(&amiibo.root, Some("amiibo"), "Amiibo");
+
     let type2_dumps = gtk::Box::new(Orientation::Vertical, 10);
     type2_dumps.set_vexpand(true);
     type2_dumps.append(&toolbar);
@@ -3115,6 +3151,171 @@ fn build_type2_view() -> Type2View {
         uid_target,
         uid_apply,
         uid_note,
+        amiibo,
+    }
+}
+
+fn build_amiibo_view() -> AmiiboView {
+    let root = gtk::Box::new(Orientation::Vertical, 10);
+    root.set_margin_top(12);
+    root.set_margin_bottom(12);
+    root.set_margin_start(12);
+    root.set_margin_end(12);
+
+    let heading = gtk::Label::new(Some(
+        "Read, decrypt, encrypt, and write an Amiibo with your own key files and dumps.",
+    ));
+    heading.set_xalign(0.0);
+    heading.set_wrap(true);
+    heading.add_css_class("caption");
+    heading.add_css_class("dim-label");
+    root.append(&heading);
+
+    let keys_card = gtk::Box::new(Orientation::Vertical, 6);
+    keys_card.add_css_class("card");
+    let keys_title = gtk::Label::new(Some("Amiibo keys"));
+    keys_title.set_xalign(0.0);
+    keys_title.add_css_class("title-4");
+    let keys_row = gtk::Box::new(Orientation::Horizontal, 8);
+    let keys = gtk::Button::with_label("Choose key file…");
+    let keys_label = gtk::Label::new(Some("No Amiibo key file loaded"));
+    keys_label.set_xalign(0.0);
+    keys_label.set_hexpand(true);
+    keys_label.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
+    keys_label.add_css_class("dim-label");
+    keys_row.append(&keys);
+    keys_row.append(&keys_label);
+    let keys_note = gtk::Label::new(Some(
+        "A 160-byte combined key file (unfixed-info followed by locked-secret). The bytes stay in memory for this session and are never saved or logged.",
+    ));
+    keys_note.set_xalign(0.0);
+    keys_note.set_wrap(true);
+    keys_note.add_css_class("caption");
+    keys_note.add_css_class("dim-label");
+    keys_card.append(&keys_title);
+    keys_card.append(&keys_row);
+    keys_card.append(&keys_note);
+
+    let source_card = gtk::Box::new(Orientation::Vertical, 6);
+    source_card.add_css_class("card");
+    let source_title = gtk::Label::new(Some("Source dump"));
+    source_title.set_xalign(0.0);
+    source_title.add_css_class("title-4");
+    let source_row = gtk::Box::new(Orientation::Horizontal, 8);
+    let source = gtk::Button::with_label("Choose dump…");
+    let source_label = gtk::Label::new(Some("No source dump loaded"));
+    source_label.set_xalign(0.0);
+    source_label.set_hexpand(true);
+    source_label.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
+    source_label.add_css_class("dim-label");
+    source_row.append(&source);
+    source_row.append(&source_label);
+    let plain = gtk::CheckButton::with_label("Plaintext source");
+    let source_note = gtk::Label::new(Some(
+        "A raw dump is 540 bytes (532 is accepted). A plaintext dump is 520 or 540 bytes. Write re-signs the source for the selected tag's UID.",
+    ));
+    source_note.set_xalign(0.0);
+    source_note.set_wrap(true);
+    source_note.add_css_class("caption");
+    source_note.add_css_class("dim-label");
+    source_card.append(&source_title);
+    source_card.append(&source_row);
+    source_card.append(&plain);
+    source_card.append(&source_note);
+
+    let read_card = gtk::Box::new(Orientation::Vertical, 6);
+    read_card.add_css_class("card");
+    let read_title = gtk::Label::new(Some("Live Amiibo"));
+    read_title.set_xalign(0.0);
+    read_title.add_css_class("title-4");
+    let read_row = gtk::Box::new(Orientation::Horizontal, 8);
+    let read = gtk::Button::with_label("Read Amiibo");
+    read.add_css_class("suggested-action");
+    read.set_sensitive(false);
+    let save_raw = gtk::Button::with_label("Save raw dump…");
+    save_raw.set_sensitive(false);
+    let signature = gtk::Label::new(Some("No Amiibo read."));
+    signature.set_xalign(0.0);
+    signature.set_wrap(true);
+    signature.set_hexpand(true);
+    signature.add_css_class("caption");
+    read_row.append(&read);
+    read_row.append(&save_raw);
+    read_row.append(&signature);
+    let identity = gtk::Label::new(None);
+    identity.set_xalign(0.0);
+    identity.set_wrap(true);
+    identity.set_selectable(true);
+    identity.add_css_class("mono");
+    identity.add_css_class("caption");
+    read_card.append(&read_title);
+    read_card.append(&read_row);
+    read_card.append(&identity);
+
+    let convert_card = gtk::Box::new(Orientation::Vertical, 6);
+    convert_card.add_css_class("card");
+    let convert_title = gtk::Label::new(Some("File conversion"));
+    convert_title.set_xalign(0.0);
+    convert_title.add_css_class("title-4");
+    let convert_row = gtk::Box::new(Orientation::Horizontal, 8);
+    let decrypt = gtk::Button::with_label("Decrypt dump…");
+    decrypt.set_sensitive(false);
+    let encrypt = gtk::Button::with_label("Encrypt dump…");
+    encrypt.set_sensitive(false);
+    convert_row.append(&decrypt);
+    convert_row.append(&encrypt);
+    convert_card.append(&convert_title);
+    convert_card.append(&convert_row);
+
+    let write_card = gtk::Box::new(Orientation::Vertical, 6);
+    write_card.add_css_class("card");
+    let write_title = gtk::Label::new(Some("Write to NTAG215"));
+    write_title.set_xalign(0.0);
+    write_title.add_css_class("title-4");
+    let write_row = gtk::Box::new(Orientation::Horizontal, 8);
+    let write = gtk::Button::with_label("Write Amiibo…");
+    write.add_css_class("destructive-action");
+    write.set_sensitive(false);
+    let note = gtk::Label::new(Some(
+        "Advanced mode is required. The target must be a complete, unlocked NTAG215. A backup is written first; static lock and configuration pages become read-only after the write.",
+    ));
+    note.set_xalign(0.0);
+    note.set_wrap(true);
+    note.set_hexpand(true);
+    note.add_css_class("caption");
+    note.add_css_class("dim-label");
+    write_row.append(&write);
+    write_row.append(&note);
+    write_card.append(&write_title);
+    write_card.append(&write_row);
+
+    let scrolled = gtk::ScrolledWindow::builder().build();
+    scrolled.set_vexpand(true);
+    scrolled.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+    let content = gtk::Box::new(Orientation::Vertical, 10);
+    content.append(&keys_card);
+    content.append(&source_card);
+    content.append(&read_card);
+    content.append(&convert_card);
+    content.append(&write_card);
+    scrolled.set_child(Some(&content));
+    root.append(&scrolled);
+
+    AmiiboView {
+        root,
+        keys,
+        keys_label,
+        source,
+        source_label,
+        plain,
+        read,
+        save_raw,
+        decrypt,
+        encrypt,
+        write,
+        signature,
+        identity,
+        note,
     }
 }
 
@@ -4571,6 +4772,47 @@ fn connect_signals(ui: &Rc<Ui>) {
     ui.type2_view
         .uid_apply
         .connect_clicked(move |_| confirm_type2_uid(ui2.clone()));
+
+    let ui2 = ui.clone();
+    ui.type2_view
+        .amiibo
+        .keys
+        .connect_clicked(move |_| choose_amiibo_keys(ui2.clone()));
+    let ui2 = ui.clone();
+    ui.type2_view
+        .amiibo
+        .source
+        .connect_clicked(move |_| choose_amiibo_source(ui2.clone()));
+    let ui2 = ui.clone();
+    ui.type2_view
+        .amiibo
+        .plain
+        .connect_toggled(move |_| update_amiibo_actions(&ui2));
+    let ui2 = ui.clone();
+    ui.type2_view
+        .amiibo
+        .read
+        .connect_clicked(move |_| start_amiibo_read(ui2.clone()));
+    let ui2 = ui.clone();
+    ui.type2_view
+        .amiibo
+        .save_raw
+        .connect_clicked(move |_| save_amiibo_raw(ui2.clone()));
+    let ui2 = ui.clone();
+    ui.type2_view
+        .amiibo
+        .decrypt
+        .connect_clicked(move |_| start_amiibo_decrypt(ui2.clone()));
+    let ui2 = ui.clone();
+    ui.type2_view
+        .amiibo
+        .encrypt
+        .connect_clicked(move |_| start_amiibo_encrypt(ui2.clone()));
+    let ui2 = ui.clone();
+    ui.type2_view
+        .amiibo
+        .write
+        .connect_clicked(move |_| confirm_amiibo_write(ui2.clone()));
 
     let ui2 = ui.clone();
     ui.keys_view.add.connect_clicked(move |_| add_key(&ui2));
@@ -12192,6 +12434,7 @@ fn update_type2_actions(ui: &Ui) {
     view.lock_apply.set_sensitive(lock_ready && live && !busy);
     update_type2_restore_sensitivity(ui);
     update_type2_write_sensitivity(ui);
+    update_amiibo_actions(ui);
 }
 
 fn type2_restore_compatible(ui: &Ui) -> bool {
@@ -13083,6 +13326,539 @@ fn finish_type2_password(ui: &Rc<Ui>, result: NfcResult<Type2MutationResult>) {
         }
         Err(error) => {
             ui.status.set_localized("Type 2 password failed");
+            toast_error(ui, &error.to_string());
+        }
+    }
+}
+
+fn amiibo_identity_text(identity: nfc_app::AmiiboIdentity) -> String {
+    format!(
+        "game 0x{:04X} · character 0x{:02X} · variant {} · {} · model 0x{:04X} · series 0x{:02X} · format {}\nwrite count {} · app ID 0x{:08X}",
+        identity.game_character_id,
+        identity.character_id,
+        identity.variant,
+        identity.figure_type_label(),
+        identity.model_number,
+        identity.series,
+        identity.format_version,
+        identity.write_count,
+        identity.app_id
+    )
+}
+
+fn update_amiibo_actions(ui: &Ui) {
+    let view = &ui.type2_view.amiibo;
+    let keys = ui.amiibo_keys.borrow().is_some();
+    let source = ui.amiibo_source.borrow().is_some();
+    let plain = view.plain.is_active();
+    let live = ui.live.get();
+    let busy = ui.busy.get();
+    let advanced = ui.type2_view.advanced.is_active();
+
+    view.read.set_sensitive(live && !busy);
+    view.save_raw
+        .set_sensitive(ui.amiibo_raw.borrow().is_some() && !busy);
+    view.decrypt
+        .set_sensitive(keys && source && !plain && !busy);
+    view.encrypt.set_sensitive(keys && source && plain && !busy);
+    let write_ready = keys && source && live && advanced && !busy;
+    view.write.set_sensitive(write_ready);
+    if !keys {
+        view.keys_label.set_localized("No Amiibo key file loaded");
+    }
+    if let Some(path) = ui.amiibo_source.borrow().as_ref() {
+        view.source_label.set_localized(&format!(
+            "{} · {}",
+            path.display(),
+            if plain { "plaintext" } else { "raw" }
+        ));
+    } else {
+        view.source_label.set_localized("No source dump loaded");
+    }
+    view.note.set_localized(if !keys {
+        "Load the 160-byte combined Amiibo key file."
+    } else if !source {
+        "Choose a raw or plaintext source dump."
+    } else if !live {
+        "Read a live Type 2 tag before writing an Amiibo."
+    } else if !advanced {
+        "Enable Advanced mode to write an Amiibo."
+    } else if plain {
+        "The plaintext source is encrypted and signed for the selected tag's UID. A backup is written first; static lock and configuration pages become read-only."
+    } else {
+        "The raw source is verified, re-signed for the selected tag's UID, and written. A backup is written first; static lock and configuration pages become read-only."
+    });
+}
+
+fn choose_amiibo_keys(ui: Rc<Ui>) {
+    let dialog = gtk::FileDialog::builder()
+        .title(i18n::translate_lines("Choose Amiibo key file"))
+        .build();
+    set_dialog_folder(&dialog, DataFolder::Keys);
+    let ui2 = ui.clone();
+    dialog.open(Some(&ui.window), None::<&gio::Cancellable>, move |result| {
+        let file = match result {
+            Ok(file) => file,
+            Err(error) => {
+                if !error.matches(gtk::DialogError::Dismissed) {
+                    toast_error(&ui2, &error.to_string());
+                }
+                return;
+            }
+        };
+        let Some(path) = file.path() else {
+            toast_error(&ui2, "The selected location is not a local file");
+            return;
+        };
+        match load_keys(&path) {
+            Ok(keys) => {
+                ui2.amiibo_keys.replace(Some(keys));
+                ui2.type2_view
+                    .amiibo
+                    .keys_label
+                    .set_localized(&path.display().to_string());
+                ui2.status.set_localized("Amiibo key file loaded");
+                append_log(&ui2, &format!("amiibo keys · {}", path.display()));
+                update_amiibo_actions(&ui2);
+                toast_info(&ui2, "Amiibo key file loaded");
+            }
+            Err(error) => toast_error(&ui2, &error.to_string()),
+        }
+    });
+}
+
+fn choose_amiibo_source(ui: Rc<Ui>) {
+    let dialog = gtk::FileDialog::builder()
+        .title(i18n::translate_lines("Choose Amiibo source dump"))
+        .build();
+    set_dialog_folder(&dialog, DataFolder::Dumps);
+    let ui2 = ui.clone();
+    dialog.open(Some(&ui.window), None::<&gio::Cancellable>, move |result| {
+        let file = match result {
+            Ok(file) => file,
+            Err(error) => {
+                if !error.matches(gtk::DialogError::Dismissed) {
+                    toast_error(&ui2, &error.to_string());
+                }
+                return;
+            }
+        };
+        let Some(path) = file.path() else {
+            toast_error(&ui2, "The selected location is not a local file");
+            return;
+        };
+        ui2.amiibo_source.replace(Some(path.clone()));
+        ui2.status.set_localized("Amiibo source dump selected");
+        append_log(&ui2, &format!("amiibo source · {}", path.display()));
+        update_amiibo_actions(&ui2);
+    });
+}
+
+fn start_amiibo_read(ui: Rc<Ui>) {
+    if ui.busy.get() {
+        return;
+    }
+    if !ui.live.get() {
+        toast_error(&ui, "Read a live Type 2 tag first");
+        return;
+    }
+    let keys = ui.amiibo_keys.borrow().clone();
+    let auth = match type2_auth_from_ui(&ui) {
+        Ok(auth) => auth,
+        Err(error) => {
+            toast_error(&ui, &error);
+            return;
+        }
+    };
+    set_busy(&ui, true);
+    ui.status.set_localized("Reading Amiibo…");
+    run_service_task(
+        &ui,
+        "Read Amiibo",
+        move |service, cancel| {
+            service.amiibo_read(AmiiboReadRequest::new(cancel).auth(auth).keys(keys))
+        },
+        finish_amiibo_read,
+    );
+}
+
+fn finish_amiibo_read(ui: &Rc<Ui>, result: NfcResult<AmiiboReadResult>) {
+    set_busy(ui, false);
+    match result {
+        Ok(read) => {
+            let view = &ui.type2_view.amiibo;
+            if let Some(identity) = read.identity {
+                view.signature.set_localized("Signature valid");
+                view.identity.set_localized(&amiibo_identity_text(identity));
+            } else {
+                view.signature
+                    .set_localized("Keys not loaded · raw read only");
+                view.identity.set_localized("");
+            }
+            ui.amiibo_raw.replace(Some(*read.raw.as_bytes()));
+            ui.type2.replace(Some(Type2Session::new(
+                read.card.clone(),
+                read.image.clone(),
+                read.warnings.clone(),
+            )));
+            render_type2(ui);
+            update_card(ui);
+            update_ndef(ui);
+            ui.status.set_localized(&format!(
+                "Amiibo read · UID {}",
+                read.raw
+                    .uid()
+                    .map(|uid| type2_ui::hex_bytes(&uid))
+                    .unwrap_or_default()
+            ));
+            append_log(ui, "amiibo read");
+            toast_info(ui, "Amiibo read complete");
+        }
+        Err(NfcError::Cancelled) => {
+            ui.status.set_localized("Amiibo read cancelled");
+            append_log(ui, "amiibo read · cancelled");
+        }
+        Err(error) => {
+            ui.status.set_localized("Amiibo read failed");
+            toast_error(ui, &error.to_string());
+        }
+    }
+}
+
+fn save_amiibo_raw(ui: Rc<Ui>) {
+    let Some(raw) = *ui.amiibo_raw.borrow() else {
+        toast_error(&ui, "Read an Amiibo first");
+        return;
+    };
+    let dialog = gtk::FileDialog::builder()
+        .title(i18n::translate_lines("Save raw Amiibo dump"))
+        .initial_name("amiibo.bin")
+        .build();
+    set_dialog_folder(&dialog, DataFolder::Dumps);
+    let ui2 = ui.clone();
+    dialog.save(Some(&ui.window), None::<&gio::Cancellable>, move |result| {
+        let file = match result {
+            Ok(file) => file,
+            Err(error) => {
+                if !error.matches(gtk::DialogError::Dismissed) {
+                    toast_error(&ui2, &error.to_string());
+                }
+                return;
+            }
+        };
+        let Some(path) = file.path() else {
+            toast_error(&ui2, "The selected location is not a local file");
+            return;
+        };
+        if let Err(error) = std::fs::write(&path, raw) {
+            toast_error(
+                &ui2,
+                &format!("Could not write {}: {error}", path.display()),
+            );
+            return;
+        }
+        ui2.status
+            .set_localized(&format!("Raw Amiibo dump saved to {}", path.display()));
+        append_log(&ui2, &format!("amiibo raw dump · {}", path.display()));
+        toast_info(&ui2, "Raw Amiibo dump saved");
+    });
+}
+
+fn choose_amiibo_output(ui: Rc<Ui>, keys: AmiiboKeys, input: PathBuf, encrypt: bool) {
+    let name = input
+        .file_stem()
+        .map(|stem| {
+            if encrypt {
+                format!("{}.bin", stem.to_string_lossy())
+            } else {
+                format!("{}.plain.bin", stem.to_string_lossy())
+            }
+        })
+        .unwrap_or_else(|| "amiibo.bin".to_owned());
+    let dialog = gtk::FileDialog::builder()
+        .title(i18n::translate_lines(if encrypt {
+            "Save raw Amiibo dump"
+        } else {
+            "Save plaintext Amiibo dump"
+        }))
+        .initial_name(name)
+        .build();
+    set_dialog_folder(&dialog, DataFolder::Dumps);
+    let ui2 = ui.clone();
+    dialog.save(Some(&ui.window), None::<&gio::Cancellable>, move |result| {
+        let file = match result {
+            Ok(file) => file,
+            Err(error) => {
+                if !error.matches(gtk::DialogError::Dismissed) {
+                    toast_error(&ui2, &error.to_string());
+                }
+                return;
+            }
+        };
+        let Some(output) = file.path() else {
+            toast_error(&ui2, "The selected location is not a local file");
+            return;
+        };
+        start_amiibo_file(ui2.clone(), keys.clone(), input.clone(), output, encrypt);
+    });
+}
+
+fn start_amiibo_decrypt(ui: Rc<Ui>) {
+    if ui.busy.get() {
+        return;
+    }
+    let Some(keys) = ui.amiibo_keys.borrow().clone() else {
+        toast_error(&ui, "Load the Amiibo key file first");
+        return;
+    };
+    if ui.type2_view.amiibo.plain.is_active() {
+        toast_error(&ui, "Decrypt needs a raw dump, not a plaintext source");
+        return;
+    }
+    let Some(input) = ui.amiibo_source.borrow().clone() else {
+        toast_error(&ui, "Choose a source dump first");
+        return;
+    };
+    choose_amiibo_output(ui, keys, input, false);
+}
+
+fn start_amiibo_encrypt(ui: Rc<Ui>) {
+    if ui.busy.get() {
+        return;
+    }
+    let Some(keys) = ui.amiibo_keys.borrow().clone() else {
+        toast_error(&ui, "Load the Amiibo key file first");
+        return;
+    };
+    if !ui.type2_view.amiibo.plain.is_active() {
+        toast_error(&ui, "Enable Plaintext source to encrypt a dump");
+        return;
+    }
+    let Some(input) = ui.amiibo_source.borrow().clone() else {
+        toast_error(&ui, "Choose a source dump first");
+        return;
+    };
+    choose_amiibo_output(ui, keys, input, true);
+}
+
+fn start_amiibo_file(ui: Rc<Ui>, keys: AmiiboKeys, input: PathBuf, output: PathBuf, encrypt: bool) {
+    set_busy(&ui, true);
+    ui.status.set_localized(if encrypt {
+        "Encrypting Amiibo dump…"
+    } else {
+        "Decrypting Amiibo dump…"
+    });
+    run_service_task(
+        &ui,
+        if encrypt {
+            "Encrypt Amiibo dump"
+        } else {
+            "Decrypt Amiibo dump"
+        },
+        move |service, cancel| {
+            let request = AmiiboFileRequest {
+                keys,
+                input,
+                output: Some(output),
+                cancel,
+            };
+            if encrypt {
+                service.amiibo_encrypt(request)
+            } else {
+                service.amiibo_decrypt(request)
+            }
+        },
+        finish_amiibo_file,
+    );
+}
+
+fn finish_amiibo_file(ui: &Rc<Ui>, result: NfcResult<AmiiboFileResult>) {
+    set_busy(ui, false);
+    match result {
+        Ok(result) => {
+            let path = result
+                .output
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "no output file".to_owned());
+            ui.type2_view
+                .amiibo
+                .identity
+                .set_localized(&amiibo_identity_text(result.identity));
+            ui.type2_view
+                .amiibo
+                .signature
+                .set_localized("Signature valid");
+            ui.status
+                .set_localized(&format!("Amiibo dump written to {path}"));
+            append_log(
+                ui,
+                &format!(
+                    "amiibo dump · {} · {path}",
+                    type2_ui::hex_bytes(&result.source_uid)
+                ),
+            );
+            toast_info(ui, "Amiibo dump written");
+        }
+        Err(NfcError::Cancelled) => {
+            ui.status.set_localized("Amiibo file conversion cancelled");
+            append_log(ui, "amiibo dump · cancelled");
+        }
+        Err(error) => {
+            ui.status.set_localized("Amiibo file conversion failed");
+            toast_error(ui, &error.to_string());
+        }
+    }
+}
+
+fn confirm_amiibo_write(ui: Rc<Ui>) {
+    if ui.busy.get() {
+        return;
+    }
+    if !ui.live.get() {
+        toast_error(&ui, "Read a live Type 2 tag first");
+        return;
+    }
+    if !ui.type2_view.advanced.is_active() {
+        toast_error(&ui, "Enable Advanced mode before writing an Amiibo");
+        return;
+    }
+    let Some(keys) = ui.amiibo_keys.borrow().clone() else {
+        toast_error(&ui, "Load the Amiibo key file first");
+        return;
+    };
+    let Some(source) = ui.amiibo_source.borrow().clone() else {
+        toast_error(&ui, "Choose a source dump first");
+        return;
+    };
+    let auth = match type2_auth_from_ui(&ui) {
+        Ok(auth) => auth,
+        Err(error) => {
+            toast_error(&ui, &error);
+            return;
+        }
+    };
+    let format = if ui.type2_view.amiibo.plain.is_active() {
+        AmiiboSourceFormat::Plain
+    } else {
+        AmiiboSourceFormat::Raw
+    };
+    let backup = ui.backup.borrow().clone();
+    set_busy(&ui, true);
+    ui.status.set_localized("Checking the Amiibo write plan…");
+    run_service_task(
+        &ui,
+        "Amiibo write preflight",
+        move |service, cancel| {
+            service.amiibo_write_preflight(AmiiboWriteRequest {
+                keys,
+                source,
+                format,
+                auth,
+                advanced: true,
+                backup,
+                cancel,
+            })
+        },
+        finish_amiibo_preflight,
+    );
+}
+
+fn finish_amiibo_preflight(ui: &Rc<Ui>, result: NfcResult<AmiiboWritePlan>) {
+    set_busy(ui, false);
+    match result {
+        Ok(plan) => present_amiibo_plan(ui, plan),
+        Err(NfcError::Cancelled) => {
+            ui.status.set_localized("Amiibo write plan cancelled");
+            append_log(ui, "amiibo write · preflight cancelled");
+        }
+        Err(error) => {
+            ui.status.set_localized("Amiibo write plan failed");
+            toast_error(ui, &error.to_string());
+        }
+    }
+}
+
+fn present_amiibo_plan(ui: &Rc<Ui>, plan: AmiiboWritePlan) {
+    let body = format!(
+        "Target NTAG215 · UID {}\nSource UID {}\n\n{}\n\n{} pages · {}\nBackup: {}\n\nStatic lock and configuration pages become read-only after the write. A failed write cannot be rolled back by restoring the backup.",
+        type2_ui::hex_bytes(&plan.target_uid()),
+        type2_ui::hex_bytes(&plan.source_uid()),
+        amiibo_identity_text(plan.identity()),
+        plan.pages().len(),
+        plan.credential_policy(),
+        plan.backup_path().display()
+    );
+    let dialog = confirmation_dialog("Write this Amiibo?", &body, "Write Amiibo");
+    ui.pending_amiibo_token.set(Some(plan.token()));
+    let ui2 = ui.clone();
+    dialog.connect_response(None, move |_, response| {
+        ui2.pending_amiibo_dialog.replace(None);
+        if response == "confirm"
+            && let Some(token) = ui2.pending_amiibo_token.take()
+        {
+            start_amiibo_write(ui2.clone(), token);
+        }
+    });
+    ui.pending_amiibo_dialog.replace(Some(dialog.clone()));
+    present_alert(&dialog, &ui.window);
+}
+
+fn start_amiibo_write(ui: Rc<Ui>, token: u64) {
+    set_busy(&ui, true);
+    ui.status.set_localized("Writing Amiibo…");
+    run_service_task(
+        &ui,
+        "Write Amiibo",
+        move |service, cancel| {
+            service.amiibo_write_execute(
+                AmiiboWriteExecution::new(token)
+                    .confirm(true)
+                    .cancel(cancel),
+            )
+        },
+        finish_amiibo_write,
+    );
+}
+
+fn finish_amiibo_write(ui: &Rc<Ui>, result: NfcResult<AmiiboWriteResult>) {
+    set_busy(ui, false);
+    match result {
+        Ok(result) => {
+            clear_type2_auth(ui);
+            ui.type2.replace(Some(Type2Session::new(
+                result.card.clone(),
+                result.image.clone(),
+                result.warnings.clone(),
+            )));
+            render_type2(ui);
+            update_card(ui);
+            update_ndef(ui);
+            let view = &ui.type2_view.amiibo;
+            view.signature.set_localized("Signature valid");
+            view.identity
+                .set_localized(&amiibo_identity_text(result.identity));
+            ui.status.set_localized(&format!(
+                "Amiibo written · UID {}",
+                type2_ui::hex_bytes(&result.target_uid)
+            ));
+            append_log(
+                ui,
+                &format!(
+                    "amiibo write · UID {} · {} pages · {}",
+                    type2_ui::hex_bytes(&result.target_uid),
+                    result.written_pages,
+                    result.backup.path.display()
+                ),
+            );
+            toast_info(ui, "Amiibo written and verified");
+        }
+        Err(NfcError::Cancelled) => {
+            ui.status.set_localized("Amiibo write cancelled");
+            append_log(ui, "amiibo write · cancelled");
+        }
+        Err(error) => {
+            ui.status.set_localized("Amiibo write failed");
             toast_error(ui, &error.to_string());
         }
     }
@@ -16643,6 +17419,187 @@ mod tests {
         backups: tempfile::TempDir,
     }
 
+    fn synthetic_amiibo_keys() -> nfc_app::AmiiboKeys {
+        let mut data = vec![0u8; 80];
+        for (index, value) in data.iter_mut().take(16).enumerate() {
+            *value = index as u8;
+        }
+        data[16..30].copy_from_slice(b"unfixed infos\0");
+        data[31] = 14;
+        for index in 0..16 {
+            data[32 + index] = 0x20 + index as u8;
+        }
+        for index in 0..32 {
+            data[48 + index] = 0x30 + index as u8;
+        }
+        let mut tag = vec![0u8; 80];
+        for (index, value) in tag.iter_mut().take(16).enumerate() {
+            *value = 0x50 + index as u8;
+        }
+        tag[16..30].copy_from_slice(b"locked secret\0");
+        tag[31] = 16;
+        for index in 0..16 {
+            tag[32 + index] = 0x60 + index as u8;
+        }
+        for index in 0..32 {
+            tag[48 + index] = 0x70 + index as u8;
+        }
+        nfc_app::AmiiboKeys::from_parts(&data, &tag).expect("keys")
+    }
+
+    fn amiibo_source_tag() -> nfc_amiibo::AmiiboTag {
+        let uid = [0x04, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66];
+        let mut bytes = [0u8; 540];
+        for (index, byte) in bytes.iter_mut().enumerate() {
+            *byte = (index * 7 + 3) as u8;
+        }
+        bytes[..8].copy_from_slice(&[
+            nfc_amiibo::bcc1(&uid),
+            0x48,
+            0x0F,
+            0xE0,
+            0xF1,
+            0x10,
+            0xFF,
+            0xEE,
+        ]);
+        bytes[0x29..0x2B].copy_from_slice(&[0x00, 0x05]);
+        bytes[0x1D4..0x1DC].copy_from_slice(&[
+            uid[0],
+            uid[1],
+            uid[2],
+            nfc_amiibo::bcc0(&uid),
+            uid[3],
+            uid[4],
+            uid[5],
+            uid[6],
+        ]);
+        bytes[0x1DC..0x1E4].copy_from_slice(&[0x12, 0x34, 0x01, 0x02, 0x0A, 0xBC, 0x03, 0x02]);
+        bytes[0x208..0x21C].copy_from_slice(&[
+            0x01, 0x00, 0x0F, 0xBD, 0x00, 0x00, 0x00, 0x04, 0x5F, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ]);
+        let plain = nfc_amiibo::AmiiboPlain::from_bytes(&bytes).expect("plain");
+        nfc_amiibo::pack(&synthetic_amiibo_keys(), &plain).expect("tag")
+    }
+
+    fn install_blank_amiibo(handle: &MockHandle) {
+        handle.set_card(Some(type2_card(0x80)));
+        handle.set_type2_version(Some([0x00, 0x04, 0x04, 0x02, 0x01, 0x00, 0x11, 0x03]));
+        handle.clear_pages();
+        for page in 0..135u8 {
+            handle.set_page(page, [0u8; 4]);
+        }
+        handle.set_page(
+            0,
+            [
+                TYPE2_UID[0],
+                TYPE2_UID[1],
+                TYPE2_UID[2],
+                nfc_amiibo::bcc0(&TYPE2_UID),
+            ],
+        );
+        handle.set_page(1, [TYPE2_UID[3], TYPE2_UID[4], TYPE2_UID[5], TYPE2_UID[6]]);
+        handle.set_page(2, [nfc_amiibo::bcc1(&TYPE2_UID), 0x48, 0x00, 0x00]);
+        handle.set_page(131, [0x00, 0x00, 0x00, 0xFF]);
+    }
+
+    fn amiibo_workflow(harness: &Harness) {
+        reset(harness);
+        choose_reader(harness, "mock:ntag");
+        install_blank_amiibo(&harness.ntag);
+        let source = harness.keys_dir.path().join("amiibo-source.bin");
+        std::fs::write(&source, amiibo_source_tag().as_bytes()).expect("source dump");
+        harness
+            .ui
+            .amiibo_keys
+            .replace(Some(synthetic_amiibo_keys()));
+        harness.ui.amiibo_source.replace(Some(source));
+        harness.ui.type2_view.amiibo.plain.set_active(false);
+        update_amiibo_actions(&harness.ui);
+        assert!(!harness.ui.type2_view.amiibo.write.is_sensitive());
+        assert!(harness.ui.type2_view.amiibo.read.is_sensitive() == harness.ui.live.get());
+
+        start_read(harness.ui.clone());
+        pump_until(&harness.ui, "blank NTAG215 read", || {
+            !harness.ui.busy.get() && harness.ui.live.get()
+        });
+        harness.ui.type2_view.advanced.set_active(true);
+        update_amiibo_actions(&harness.ui);
+        assert!(harness.ui.type2_view.amiibo.write.is_sensitive());
+        assert!(harness.ui.type2_view.amiibo.decrypt.is_sensitive());
+        assert!(!harness.ui.type2_view.amiibo.encrypt.is_sensitive());
+
+        confirm_amiibo_write(harness.ui.clone());
+        pump_until(&harness.ui, "Amiibo write plan", || {
+            harness.ui.pending_amiibo_dialog.borrow().is_some()
+        });
+        let dialog = alert_pending(&harness.ui.pending_amiibo_dialog);
+        emit_response(&dialog, "confirm");
+        pump_until(&harness.ui, "Amiibo write", || {
+            !harness.ui.busy.get() && harness.ui.status.label().contains("Amiibo written")
+        });
+        assert_eq!(harness.ntag.page(3), Some([0xF1, 0x10, 0xFF, 0xEE]));
+        assert_eq!(harness.ntag.page(131), Some([0x00, 0x00, 0x00, 0x04]));
+        assert_eq!(harness.ntag.page(132), Some([0x5F, 0x00, 0x00, 0x00]));
+        let password = nfc_app::password_for_uid(&TYPE2_UID);
+        assert_eq!(
+            harness.ntag.page(133),
+            Some([password[0], password[1], password[2], password[3]])
+        );
+        assert_eq!(harness.ntag.page(134), Some([0x80, 0x80, 0x00, 0x00]));
+        assert!(
+            harness
+                .ui
+                .type2_view
+                .amiibo
+                .signature
+                .label()
+                .contains("Signature valid")
+        );
+        assert!(
+            harness
+                .ui
+                .type2_view
+                .amiibo
+                .identity
+                .label()
+                .contains("game 0x1234")
+        );
+        assert!(
+            std::fs::read_dir(harness.backups.path())
+                .expect("backups")
+                .next()
+                .is_some()
+        );
+
+        start_amiibo_read(harness.ui.clone());
+        pump_until(&harness.ui, "Amiibo read", || {
+            !harness.ui.busy.get()
+                && harness
+                    .ui
+                    .type2_view
+                    .amiibo
+                    .signature
+                    .label()
+                    .contains("Signature valid")
+        });
+        assert!(
+            harness
+                .ui
+                .type2_view
+                .amiibo
+                .identity
+                .label()
+                .contains("game 0x1234")
+        );
+        assert!(harness.ui.type2_view.amiibo.save_raw.is_sensitive());
+        let raw = harness.ui.amiibo_raw.borrow().expect("raw image");
+        assert_eq!(raw[0x0C..0x10], [0xF1, 0x10, 0xFF, 0xEE]);
+        reset(harness);
+        switch_workspace(&harness.ui, Workspace::Classic);
+    }
+
     fn harness() -> Harness {
         gtk::init().expect("GTK display");
         adw::init().expect("libadwaita");
@@ -16767,6 +17724,25 @@ mod tests {
         ui.inspector.uid.set_text("");
         ui.type2.replace(None);
         ui.type2_restore.replace(None);
+        ui.amiibo_keys.replace(None);
+        ui.amiibo_source.replace(None);
+        ui.amiibo_raw.replace(None);
+        ui.pending_amiibo_token.set(None);
+        close_alert(&ui.pending_amiibo_dialog);
+        ui.type2_view.amiibo.plain.set_active(false);
+        ui.type2_view
+            .amiibo
+            .signature
+            .set_localized("No Amiibo read.");
+        ui.type2_view.amiibo.identity.set_localized("");
+        ui.type2_view
+            .amiibo
+            .keys_label
+            .set_localized("No Amiibo key file loaded");
+        ui.type2_view
+            .amiibo
+            .source_label
+            .set_localized("No source dump loaded");
         close_alert(&ui.pending_type2_page_dialog);
         close_alert(&ui.pending_type2_advanced_dialog);
         close_alert(&ui.pending_type2_lock_dialog);
@@ -16979,6 +17955,7 @@ mod tests {
         write_gates_follow_state(&harness);
         reader_refresh_invalidates(&harness);
         reader_resolution_is_visible(&harness);
+        amiibo_workflow(&harness);
         reader_monitor_invalidates(&harness);
         reader_disconnect_and_reconnect(&harness);
         task_cancellation_states(&harness);

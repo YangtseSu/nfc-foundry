@@ -62,8 +62,17 @@ impl BackupStore {
     /// the path, show it, and pass the exact path to the writer. [`Self::save_bytes`]
     /// uses the same naming for callers that do not need a pre-planned path.
     pub fn plan_path(&self, label: &str) -> PathBuf {
+        self.plan_path_with_extension(label, "json")
+    }
+
+    /// Reserve a private path for a raw binary backup.
+    pub fn plan_binary_path(&self, label: &str) -> PathBuf {
+        self.plan_path_with_extension(label, "bin")
+    }
+
+    fn plan_path_with_extension(&self, label: &str, extension: &str) -> PathBuf {
         self.directory
-            .join(format!("{}-{}.json", sanitize(label), unique()))
+            .join(format!("{}-{}.{extension}", sanitize(label), unique()))
     }
 
     /// Writes an already-encoded project snapshot atomically. Type 2 images

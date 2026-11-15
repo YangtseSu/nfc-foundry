@@ -296,6 +296,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "const-oid"
+version = "0.10.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be95d4a884358a21a199689323c29e9256b4a1b315e22f183d155422041d3a9a"
+
+[[package]]
 name = "core-foundation"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -381,6 +387,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1dd6dbb5841937940781866fa1281a1ff7bd3bf827091440879f9994983d5c2"
 dependencies = [
  "block-buffer",
+ "const-oid",
  "crypto-common",
  "ctutils",
 ]
@@ -775,6 +782,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
+name = "hmac"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6303bc9732ae41b04cb554b844a762b4115a61bfaa81e3e83050991eeb56863f"
+dependencies = [
+ "digest",
+]
+
+[[package]]
 name = "hybrid-array"
 version = "0.4.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -956,9 +972,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "nfc-amiibo"
+version = "0.2.0"
+dependencies = [
+ "aes",
+ "cipher",
+ "hmac",
+ "nfc-core",
+ "sha2",
+]
+
+[[package]]
 name = "nfc-app"
 version = "0.2.0"
 dependencies = [
+ "nfc-amiibo",
  "nfc-classic",
  "nfc-classic-ndef",
  "nfc-core",
@@ -1035,6 +1063,7 @@ dependencies = [
  "glib",
  "gtk4",
  "libadwaita",
+ "nfc-amiibo",
  "nfc-app",
  "nfc-classic",
  "nfc-classic-ndef",
@@ -1104,6 +1133,7 @@ name = "nfctl"
 version = "0.2.0"
 dependencies = [
  "clap",
+ "nfc-amiibo",
  "nfc-app",
  "nfc-classic",
  "nfc-classic-ndef",
@@ -1445,6 +1475,17 @@ dependencies = [
  "scopeguard",
  "unescaper",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "sha2"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47d7069beb7d6ac7b9acd1039986e73443f24234f41074da099d6f994ac9ad19"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "digest",
 ]
 
 [[package]]

@@ -37,7 +37,7 @@ work; their current equivalents are the GTK4 workspaces.
 | 14 | Read-only protocol adapters: Type 4B/Type 3, EMV, T-Union, FMCOS/Calypso | optional |
 | 15 | Read-only eMRTD reader (passport, compatible permits) | optional |
 | 16 | Chinese resident ID read-only (authorized SAM) | blocked |
-| 17 | Amiibo / NTAG215 read, decrypt, encrypt, write (user keys/data) | optional |
+| 17 | Amiibo / NTAG215 read, decrypt, encrypt, write (user keys/data) | done (PN532 UART; ACR122U pending) |
 | 18 | Workbench UI redesign, bilingual UI, icon and desktop entry | done (GPUI; GUI superseded by 19) |
 | 19 | GTK4 workbench: shell, Classic slice, then parity screens | done (19a–19e) |
 | 19a | Classic completion: PM3 interchange, keys, diff/restore, safety, UI tests | done |
@@ -572,8 +572,7 @@ Deliver:
   configuration, and capacity checks. The raw read/dump reuses the existing
   Type 2 workflow.
 - Key import: an amiitool-compatible key file selected by the user, held only
-  in memory, never logged, never written to project files, and zeroized after
-  use where practical.
+  in memory, never logged, and never written to project files.
 - Decrypt/unpack: verify the encrypted payload and produce the plaintext
   Amiibo image. A wrong key or corrupted tag is a typed error, not garbage
   output.
@@ -582,10 +581,8 @@ Deliver:
 - Write path: Advanced-only, explicit confirmation, full pre-write image
   backup, encrypted-image capacity and lock checks, read-back verification,
   and card identity check. Refuse genuine locked NTAG215 tags; only
-  user-owned magic NTAG215 tags are writable. When the user-supplied image
-  requires the original UID, a magic-tag UID write is a separate Advanced
-  confirmation with the same backup and verify rules; it is never attempted on
-  a genuine tag.
+  user-owned magic NTAG215 tags are writable. The source is re-signed for the
+  selected tag's UID, so UID pages 0 and 1 are never written.
 - CLI and GUI read-only/decrypt/encrypt views, plus the Advanced write action.
   The CLI uses a separate `nfctl amiibo` command family so the Type 2 page
   editor does not grow Amiibo-specific branches.
@@ -605,8 +602,8 @@ Acceptance:
   repository, logs, or default output.
 - A genuine locked tag is refused before any write.
 - No genuine-tag UID write, lock bypass, or third-party Amiibo copying is part
-  of this phase. A magic-tag UID write is Advanced, explicit, backed up, and
-  verified.
+  of this phase. The write re-signs the source for the selected tag's UID
+  instead of changing the UID pages.
 
 Non-goals:
 
@@ -614,6 +611,20 @@ Non-goals:
 - Writing genuine locked Amiibo tags.
 - Cloning or distributing third-party Amiibo data.
 - Online Amiibo services or account integration.
+
+Status: implemented 2026-11-15. `nfc-amiibo` owns the key records, AES-128-CTR
+and HMAC-SHA256 crypto, the 540-byte NTAG215 image, UID rebinding, and numeric
+identity fields. `nfc-app::amiibo` owns key loading, file conversion, the live
+read, the one-shot write plan, the full-page write sequence, the backup, and
+the final full read plus PWD_AUTH and decrypted identity verification.
+`nfctl amiibo` and the GTK Type 2 Amiibo tab share those services. The
+user-supplied Amiibo Pack decrypted and re-encrypted 278 dumps byte-for-byte;
+no key or dump data is committed. On 2026-11-15, PN532 UART wrote a
+user-supplied 540-byte dump to a discardable Amiibo-writable NTAG215
+`04 63 CD 3B DE 2A 81`; the service read the image back, authenticated with
+the derived PWD/PACK, decrypted it, and matched the identity. The ACR122U
+write record is pending. See `docs/specs/17-amiibo.md` and
+`docs/notes/17-amiibo.md`.
 
 ### 18: Workbench UI redesign and bilingual UI
 

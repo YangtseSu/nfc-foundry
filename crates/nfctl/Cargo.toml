@@ -33,6 +33,7 @@ hardware = []
 hardware-write = ["hardware"]
 
 [dev-dependencies]
+nfc-amiibo.workspace = true
 nfc-desfire.workspace = true
 serde_json.workspace = true
 tempfile = "3"

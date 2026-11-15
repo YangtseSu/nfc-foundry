@@ -24,6 +24,8 @@ Options may appear before or after the subcommand.
 | `--key`, `--key-file`, `--key-store`, `--backup-dir` | key candidates, key files, key store, and backup directory |
 | `--no-common-keys`, `--hardnested-tables`, `--max-nonces` | recovery and read tuning |
 | `--type2-password`, `--type2-pack` | protected Type 2 credentials |
+| `--amiibo-keys <path>` | 160-byte combined Amiibo key file, kept in memory |
+| `--amiibo-data-key <path>`, `--amiibo-tag-key <path>` | the two 80-byte Amiibo key files instead of the combined file |
 
 `--json` and `--jsonl` are mutually exclusive; clap rejects the pair with exit
 code 2.
@@ -33,8 +35,8 @@ reader diagnostics are written to stderr in human and `--json` modes. `--jsonl`
 writes progress events on stdout and keeps stderr for diagnostics.
 
 `--dry-run` is accepted by `classic write`, `classic uid`, `classic seal`,
-`classic restore`, `type2 uid`, `desfire format-ndef`, `desfire replace-ndef`,
-`desfire format-picc`, and `desfire file-settings`. Every other command rejects it with
+`classic restore`, `type2 uid`, `amiibo write`, `desfire format-ndef`,
+`desfire replace-ndef`, `desfire format-picc`, and `desfire file-settings`. Every other command rejects it with
 a usage error instead of ignoring it.
 
 `--timeout` cancels the shared `CancelToken` at the deadline. The cancellation
@@ -199,13 +201,15 @@ Machine output never contains:
 
 - MIFARE keys or verified key values (`classic keyscan`, `classic keys list`,
   recovery);
-- Type 2 PWD/PACK values (`type2 password`);
+- Type 2 PWD/PACK values (`type2 password`) and Amiibo key bytes;
 - DESFire key material (`desfire change-key`, `desfire verify-key`,
   `desfire uid`);
 - the request frame of `pn532 shell` and the request APDU of `apdu --raw`,
   because a diagnostic exchange can carry key material;
-- raw dump or file payloads from `classic dump`, `type2 dump`, or DESFire
-  backups. `desfire read` returns the data it was asked to read.
+- raw dump or file payloads from `classic dump`, `type2 dump`, `amiibo
+  read`, or DESFire backups. `amiibo decrypt` and `amiibo encrypt` write the
+  requested file and report only its path; `desfire read` returns the data it
+  was asked to read.
 
 Explicit exports remain explicit:
 
@@ -251,6 +255,10 @@ type2.restore
 type2.lock
 type2.password
 type2.uid
+amiibo.read
+amiibo.decrypt
+amiibo.encrypt
+amiibo.write
 desfire.info
 desfire.format_ndef
 desfire.delete_ndef
@@ -396,6 +404,36 @@ NDEF objects use `state` (`unformatted`, `empty`, `message`, or `invalid`),
 `capacity`, `messageBytes`, `readOnly`, and `records`. A record is
 `{index, tnf, type, payload}` plus decoded `kind` (`text`, `uri`, `wifi`) and
 its fields when the payload matches a standard record.
+
+### Amiibo
+
+```sh
+nfctl amiibo read --output tag.bin
+nfctl --amiibo-keys key_retail.bin amiibo read
+nfctl --amiibo-keys key_retail.bin amiibo decrypt --input tag.bin --output tag.plain.bin
+nfctl --amiibo-keys key_retail.bin amiibo encrypt --input tag.plain.bin --output rebuilt.bin
+nfctl --amiibo-keys key_retail.bin amiibo write --input tag.bin --advanced --dry-run
+nfctl --amiibo-keys key_retail.bin amiibo write --input tag.bin --advanced --yes
+```
+
+`read` requires a live NTAG215. `decrypt` and `encrypt` are file-only.
+`write` requires `--advanced` in every mode, re-signs the source for the
+selected tag's UID, and writes pages 4..129, the CC, PWD/PACK, both lock pages,
+and the configuration. It refuses a locked target and writes a backup before
+the first mutation. A dry run builds the same plan and writes nothing.
+
+| Command | `result` fields |
+|---|---|
+| `amiibo.read` | `uid`, `product`, `pagesRead`, `pageCount`, `signature` (`valid` or `not_checked`), `identity`, `warnings`, `output` |
+| `amiibo.decrypt` | `sourceUid`, `identity`, `input`, `output`, `bytes`, `warnings` |
+| `amiibo.encrypt` | `sourceUid`, `identity`, `input`, `output`, `bytes` |
+| `amiibo.write` | dry run: `dryRun`, `targetUid`, `sourceUid`, `identity`, `writePages`, `credentials`, `backup`, `warnings`; execution adds `verified`, `written`, `backup` |
+
+`identity` is the numeric tag identity: `gameCharacterId`, `gameId`,
+`characterId`, `variant`, `figureType`, `figureTypeLabel`, `modelNumber`,
+`series`, `formatVersion`, `writeCount`, `appId`, and `initialized`. The
+catalog names are never shipped; only the values from the user's dump are
+reported. PWD and PACK are derived from the target UID and are not printed.
 
 ### DESFire
 

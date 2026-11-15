@@ -2720,6 +2720,147 @@ keys! {
         "Recovery authenticates and reads; it never writes the card. The selected reader stays busy until the attack stops or is cancelled.",
         "恢复仅做认证和读取，绝不写卡。攻击停止或取消前，所选读卡器保持占用。"
     ),
+    Amiibo => ("Amiibo", "Amiibo 数据"),
+    AmiiboHeading => (
+        "Read, decrypt, encrypt, and write an Amiibo with your own key files and dumps.",
+        "使用你自己的密钥文件和转储读取、解密、加密并写入 Amiibo。"
+    ),
+    AmiiboKeysTitle => ("Amiibo keys", "Amiibo 密钥"),
+    AmiiboChooseKeys => ("Choose key file…", "选择密钥文件…"),
+    AmiiboNoKeys => ("No Amiibo key file loaded", "未加载 Amiibo 密钥文件"),
+    AmiiboKeysNote => (
+        "A 160-byte combined key file (unfixed-info followed by locked-secret). The bytes stay in memory for this session and are never saved or logged.",
+        "160 字节的组合密钥文件（unfixed-info 后接 locked-secret）。密钥仅在本会话内存中保留，绝不保存或记录。"
+    ),
+    AmiiboSourceTitle => ("Source dump", "源转储"),
+    AmiiboChooseSource => ("Choose dump…", "选择转储…"),
+    AmiiboNoSource => ("No source dump loaded", "未加载源转储"),
+    AmiiboPlaintextSource => ("Plaintext source", "明文源"),
+    AmiiboSourceNote => (
+        "A raw dump is 540 bytes (532 is accepted). A plaintext dump is 520 or 540 bytes. Write re-signs the source for the selected tag's UID.",
+        "原始转储为 540 字节（接受 532 字节）。明文转储为 520 或 540 字节。写入时会按所选标签的 UID 重新签名源数据。"
+    ),
+    AmiiboLiveTitle => ("Live Amiibo", "在线 Amiibo"),
+    AmiiboRead => ("Read Amiibo", "读取 Amiibo"),
+    AmiiboNotRead => ("No Amiibo read.", "尚未读取 Amiibo。"),
+    AmiiboSaveRawButton => ("Save raw dump…", "保存原始转储…"),
+    AmiiboRawSaved => ("Raw Amiibo dump saved to {}", "原始 Amiibo 转储已保存至 {}"),
+    AmiiboRawSavedToast => ("Raw Amiibo dump saved", "原始 Amiibo 转储已保存"),
+    AmiiboConversionTitle => ("File conversion", "文件转换"),
+    AmiiboDecryptDump => ("Decrypt dump…", "解密转储…"),
+    AmiiboEncryptDump => ("Encrypt dump…", "加密转储…"),
+    AmiiboWriteTitle => ("Write to NTAG215", "写入 NTAG215"),
+    AmiiboWrite => ("Write Amiibo…", "写入 Amiibo…"),
+    AmiiboWriteNoteDefault => (
+        "Advanced mode is required. The target must be a complete, unlocked NTAG215. A backup is written first; static lock and configuration pages become read-only after the write.",
+        "需要高级模式。目标必须是完整且未锁定的 NTAG215。写入前会先备份；写入后静态锁定位和配置页将变为只读。"
+    ),
+    AmiiboKeysLoaded => ("Amiibo key file loaded", "Amiibo 密钥文件已加载"),
+    AmiiboSourceSelected => ("Amiibo source dump selected", "已选择 Amiibo 源转储"),
+    AmiiboReading => ("Reading Amiibo…", "正在读取 Amiibo…"),
+    AmiiboSignatureValid => ("Signature valid", "签名有效"),
+    AmiiboRawOnly => ("Keys not loaded · raw read only", "未加载密钥 · 仅原始读取"),
+    AmiiboReadUid => ("Amiibo read · UID {}", "Amiibo 已读取 · UID {}"),
+    AmiiboReadComplete => ("Amiibo read complete", "Amiibo 读取完成"),
+    AmiiboReadCancelled => ("Amiibo read cancelled", "Amiibo 读取已取消"),
+    AmiiboReadFailed => ("Amiibo read failed", "Amiibo 读取失败"),
+    AmiiboChooseKeysTitle => ("Choose Amiibo key file", "选择 Amiibo 密钥文件"),
+    AmiiboChooseSourceTitle => ("Choose Amiibo source dump", "选择 Amiibo 源转储"),
+    AmiiboSaveRaw => ("Save raw Amiibo dump", "保存原始 Amiibo 转储"),
+    AmiiboSavePlain => ("Save plaintext Amiibo dump", "保存明文 Amiibo 转储"),
+    AmiiboEncrypting => ("Encrypting Amiibo dump…", "正在加密 Amiibo 转储…"),
+    AmiiboDecrypting => ("Decrypting Amiibo dump…", "正在解密 Amiibo 转储…"),
+    AmiiboEncryptTask => ("Encrypt Amiibo dump", "加密 Amiibo 转储"),
+    AmiiboDecryptTask => ("Decrypt Amiibo dump", "解密 Amiibo 转储"),
+    AmiiboDumpWritten => ("Amiibo dump written to {}", "Amiibo 转储已写入 {}"),
+    AmiiboDumpWrittenToast => ("Amiibo dump written", "Amiibo 转储已写入"),
+    AmiiboFileCancelled => ("Amiibo file conversion cancelled", "Amiibo 文件转换已取消"),
+    AmiiboFileFailed => ("Amiibo file conversion failed", "Amiibo 文件转换失败"),
+    AmiiboReadLiveFirst => ("Read a live Type 2 tag first", "请先读取在线 Type 2 标签"),
+    AmiiboLoadKeysFirst => ("Load the Amiibo key file first", "请先加载 Amiibo 密钥文件"),
+    AmiiboChooseSourceFirst => ("Choose a source dump first", "请先选择源转储"),
+    AmiiboDecryptNeedsRaw => (
+        "Decrypt needs a raw dump, not a plaintext source",
+        "解密需要原始转储，而不是明文源"
+    ),
+    AmiiboEnablePlain => (
+        "Enable Plaintext source to encrypt a dump",
+        "启用“明文源”后才能加密转储"
+    ),
+    AmiiboCheckingPlan => ("Checking the Amiibo write plan…", "正在检查 Amiibo 写入计划…"),
+    AmiiboPlanCancelled => ("Amiibo write plan cancelled", "Amiibo 写入计划已取消"),
+    AmiiboPlanFailed => ("Amiibo write plan failed", "Amiibo 写入计划失败"),
+    AmiiboWriteDialogHeading => ("Write this Amiibo?", "写入此 Amiibo？"),
+    AmiiboWriteDialogConfirm => ("Write Amiibo", "写入 Amiibo"),
+    AmiiboWriting => ("Writing Amiibo…", "正在写入 Amiibo…"),
+    AmiiboWrittenUid => ("Amiibo written · UID {}", "Amiibo 已写入 · UID {}"),
+    AmiiboWrittenToast => ("Amiibo written and verified", "Amiibo 已写入并验证"),
+    AmiiboWriteCancelled => ("Amiibo write cancelled", "Amiibo 写入已取消"),
+    AmiiboWriteFailed => ("Amiibo write failed", "Amiibo 写入失败"),
+    AmiiboEnableAdvancedWrite => (
+        "Enable Advanced mode before writing an Amiibo",
+        "写入 Amiibo 前请启用高级模式"
+    ),
+    AmiiboGateKeys => (
+        "Load the 160-byte combined Amiibo key file.",
+        "加载 160 字节的组合 Amiibo 密钥文件。"
+    ),
+    AmiiboGateSource => (
+        "Choose a raw or plaintext source dump.",
+        "选择原始或明文源转储。"
+    ),
+    AmiiboGateLive => (
+        "Read a live Type 2 tag before writing an Amiibo.",
+        "写入 Amiibo 前请先读取在线 Type 2 标签。"
+    ),
+    AmiiboGateAdvanced => (
+        "Enable Advanced mode to write an Amiibo.",
+        "启用高级模式以写入 Amiibo。"
+    ),
+    AmiiboGatePlainWrite => (
+        "The plaintext source is encrypted and signed for the selected tag's UID. A backup is written first; static lock and configuration pages become read-only.",
+        "明文源会按所选标签的 UID 加密并签名。写入前会先备份；静态锁定位和配置页将变为只读。"
+    ),
+    AmiiboGateRawWrite => (
+        "The raw source is verified, re-signed for the selected tag's UID, and written. A backup is written first; static lock and configuration pages become read-only.",
+        "原始源会先验证，然后按所选标签的 UID 重新签名并写入。写入前会先备份；静态锁定位和配置页将变为只读。"
+    ),
+    AmiiboIdentityLine => (
+        "game 0x{} · character 0x{} · variant {} · {} · model 0x{} · series 0x{} · format {}",
+        "游戏 0x{} · 角色 0x{} · 变体 {} · {} · 型号 0x{} · 系列 0x{} · 格式 {}"
+    ),
+    AmiiboWriteCounterLine => (
+        "write count {} · app ID 0x{}",
+        "写入计数 {} · 应用 ID 0x{}"
+    ),
+    AmiiboPlanTarget => ("Target NTAG215 · UID {}", "目标 NTAG215 · UID {}"),
+    AmiiboPlanSource => ("Source UID {}", "源 UID {}"),
+    AmiiboPlanPages => ("{} pages · {}", "{} 页 · {}"),
+    AmiiboPlanBackup => ("Backup: {}", "备份：{}"),
+    AmiiboPlanIrreversible => (
+        "Static lock and configuration pages become read-only after the write. A failed write cannot be rolled back by restoring the backup.",
+        "写入后静态锁定位和配置页将变为只读。写入失败时无法通过恢复备份回滚。"
+    ),
+    AmiiboCredentialPolicy => (
+        "PWD and PACK are derived from the target UID; PACK is 8080",
+        "PWD 和 PACK 由目标 UID 推导；PACK 为 8080"
+    ),
+    AmiiboPlaintextLabel => ("plaintext", "明文"),
+    AmiiboRawLabel => ("raw", "原始"),
+    AmiiboDumpLog => ("amiibo dump · {} · {}", "Amiibo 转储 · {} · {}"),
+    AmiiboReadLog => ("amiibo read", "Amiibo 读取"),
+    AmiiboReadCancelledLog => ("amiibo read · cancelled", "Amiibo 读取 · 已取消"),
+    AmiiboSourceLog => ("amiibo source · {}", "Amiibo 源 · {}"),
+    AmiiboKeysLog => ("amiibo keys · {}", "Amiibo 密钥 · {}"),
+    AmiiboWriteLog => (
+        "amiibo write · UID {} · {} pages · {}",
+        "Amiibo 写入 · UID {} · {} 页 · {}"
+    ),
+    AmiiboWriteCancelledLog => ("amiibo write · cancelled", "Amiibo 写入 · 已取消"),
+    AmiiboPlanCancelledLog => (
+        "amiibo write · preflight cancelled",
+        "Amiibo 写入 · 预检已取消"
+    ),
 }
 
 #[cfg(test)]
