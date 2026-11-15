@@ -479,10 +479,10 @@ Acceptance:
 ### 14: Read-only protocol adapters (optional)
 
 Status: in progress 2026-11-15. Slice 14a implements the China T-Union Type
-4A read-only profile on PN532 UART and ACR122U PC/SC, exposed by
-`nfctl tunion read` and the GTK `China T-Union` workspace. Type 4B, Type 3 /
-FeliCa, EMV, FMCOS, Calypso, CIPURSE, and ITSO remain pending. Type B and
-high-rate items still depend on phase 13.
+4A read-only profile on PN532 UART, ACR122U direct USB, and ACR122U PC/SC,
+exposed by `nfctl tunion read` and the GTK `China T-Union` workspace. Type 4B,
+Type 3 / FeliCa, EMV, FMCOS, Calypso, CIPURSE, and ITSO remain pending. Type B
+and high-rate items still depend on phase 13.
 
 Goal: add read-only application and NDEF adapters on top of the phase 13
 transport. No adapter in this phase performs a transaction, credit, purchase,
@@ -502,9 +502,9 @@ Deliver:
   - Type 4A selection and AID `A000000632010105`.
   - Balance, up to 10 transaction records (file `0x18`), and up to 30 travel
     records (file `0x1E`), matching the Proxmark3 `read_t-union.py` behavior.
-  - PN532 UART and ACR122U PC/SC hardware records in
-    [14a-tunion-readonly.md](../notes/14a-tunion-readonly.md); ACR122U
-    direct USB is pending because `pcscd` holds the interface.
+  - PN532 UART, ACR122U direct USB, and ACR122U PC/SC hardware records in
+    [14a-tunion-readonly.md](../notes/14a-tunion-readonly.md); no transport
+    row is pending.
 - FMCOS read-only: `info`, balance, and history for cards that expose the
   FMCOS file system. No credit, purchase, key write, or file write.
 - Calypso, CIPURSE, and ITSO read-only adapters are optional follow-ups in
@@ -522,7 +522,7 @@ Acceptance:
   RF path.
 - One owned EMV card and one owned T-Union card are read on at least one
   supported reader; both readers are targeted for the release matrix.
-  T-Union is validated on PN532 UART and ACR122U PC/SC; EMV is pending.
+  T-Union is validated on PN532 UART and both ACR122U transports; EMV is pending.
 - EMV, T-Union, and FMCOS output is read-only and redacted by default.
 - No EMV transaction, PIN, online authorization, T-Union credit, T-Union
   purchase, FMCOS financial operation, or card mutation exists.

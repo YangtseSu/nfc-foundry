@@ -46,9 +46,9 @@ being folded into Classic, Type 2, or Type 4.
 
 - A new crate and a new card-family workspace exist; Classic, Type 2, DESFire,
   and NDEF code paths are unchanged.
-- The T-Union profile is validated on one PN532 UART card and on the ACR122U
-  PC/SC transport. The ACR122U direct USB row is pending because `pcscd` owns
-  the CCID interface.
+- The T-Union profile is validated on one PN532 UART card and on both ACR122U
+  transports (direct USB and PC/SC). Direct USB requires `pcscd` to be stopped;
+  the two transports never run at the same time.
 - The profile is read-only even when the card exposes a financial applet. No
   balance-changing or transaction command is reachable from the GUI or CLI.
 - A future EMV adapter can reuse the BER-TLV parser and APDU builders, but it

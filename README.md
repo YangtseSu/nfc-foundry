@@ -174,7 +174,8 @@ Two first-class domains:
 A read-only China T-Union adapter is available separately from the two
 domains: `nfctl tunion read` and the GTK `China T-Union` workspace show the
 application, masked card number, balance, and transaction/travel records on
-PN532 UART and ACR122U PC/SC. No credit, purchase, or write path exists.
+PN532 UART and both ACR122U transports. No credit, purchase, or write path
+exists.
 
 Amiibo is an application on the Type 2 path: read and decrypt with user key
 files, encrypt a user dump, and write a re-signed image to an owned unlocked
@@ -194,12 +195,12 @@ Post-release work is listed in the phase plan: phase 13 is the pending RF and
 transport prerequisite; phases 14-16 are optional read-only work covering
 Type 3/4B NDEF, EMV public data, China T-Union, FMCOS/Calypso, and ICAO 9303
 eMRTD. Phase 14a (China T-Union) is implemented and validated on PN532 UART
-and ACR122U PC/SC; the ACR122U direct USB row is pending. The rest of phase
-14 and the Type B paths still need phase 13. Phase 16 remains blocked on an
-authorized SAM. Phase 17 is the controlled Amiibo path with user-supplied
-keys and data. The read-only phases add no write or transaction path; Amiibo
-writes are Advanced, user-key/user-data only, and limited to owned unlocked
-magic NTAG215 tags. No hardware support is claimed until validated.
+and both ACR122U transports. The rest of phase 14 and the Type B paths still
+need phase 13. Phase 16 remains blocked on an authorized SAM. Phase 17 is the
+controlled Amiibo path with user-supplied keys and data. The read-only phases
+add no write or transaction path; Amiibo writes are Advanced,
+user-key/user-data only, and limited to owned unlocked magic NTAG215 tags. No
+hardware support is claimed until validated.
 
 ## Technical stack
 
