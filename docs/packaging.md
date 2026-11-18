@@ -192,7 +192,12 @@ AUR-side checks, run in the AUR checkout outside GitHub CI:
 cd /path/to/aur/nfc-foundry
 namcap PKGBUILD
 makepkg --printsrcinfo > .SRCINFO
-desktop-file-validate /path/to/nfc-foundry/resources/nfc-foundry.desktop
+```
+
+Desktop-file check, run in the source checkout:
+
+```sh
+desktop-file-validate resources/nfc-foundry.desktop
 ```
 
 After a package build:
