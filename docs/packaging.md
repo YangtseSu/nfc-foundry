@@ -2,9 +2,11 @@
 
 ## Supported outputs
 
-- Arch Linux AUR source package for `nfc-foundry`.
-- Local `nfc-foundry-git` package built from a checkout for testing; it is not
-  published.
+- Arch Linux AUR source package `nfc-foundry`, maintained in its own AUR
+  repository and published on the AUR.
+- Development `nfc-foundry-git` package maintained in
+  [arch-pkgs](https://github.com/YangtseSu/arch-pkgs); it builds the tip of
+  `main` and is not published to the AUR.
 - GitHub CI binary tarball for Linux amd64 built on Ubuntu 26.04.
 - GitHub-generated source archives for the release tag.
 
@@ -21,18 +23,16 @@ value; the GTK application will use it for its window title.
 
 ## AUR source package
 
-Files:
+The AUR repository is the source of truth for the package files:
 
-```text
-packaging/aur/PKGBUILD
-packaging/aur/.SRCINFO
-```
+<https://aur.archlinux.org/packages/nfc-foundry>
 
-The package is a source package. It builds the exact release tag:
+This repository does not carry a PKGBUILD. Clone the AUR repository to build
+the exact release tag:
 
 ```sh
-cd packaging/aur
-makepkg --printsrcinfo > .SRCINFO
+git clone https://aur.archlinux.org/nfc-foundry.git
+cd nfc-foundry
 makepkg -sri
 ```
 
@@ -68,9 +68,9 @@ Do not install:
 - files under `/usr/local` or `/opt`.
 
 Runtime dependencies are the direct NEEDED libraries of the packaged ELF files
-plus the icon theme search path: `glibc`, `libgcc`, `systemd-libs` for libudev,
-`gtk4`, `libadwaita`, and `hicolor-icon-theme`. Build-only dependencies are
-`cargo`, `git`, `gtk4`, `libadwaita`, and `rust`.
+plus the icon theme search path: `glibc`, `glib2`, `libgcc`, `systemd-libs`
+for libudev, `gtk4`, `libadwaita`, `pcsclite`, and `hicolor-icon-theme`.
+Build-only dependencies are `cargo`, `git`, `pkgconf`, and `rust`.
 
 The package installs desktop and icon files under the shared `share/`
 hierarchy, so pacman triggers update the desktop and icon caches. No private
@@ -163,9 +163,8 @@ tag build publishes them to the GitHub release. It does
 not re-run the check suite; branch and pull-request checks are handled by
 `check.yml`, and `check.yml` does not run on tag pushes.
 
-The workflow contains no Arch Linux, `makepkg`, or AUR step. The AUR package in
-`packaging/aur` is maintained for the AUR release path and is validated there,
-not in GitHub CI.
+The workflow contains no Arch Linux, `makepkg`, or AUR step. The AUR package
+lives in its AUR repository and is validated there, not in GitHub CI.
 
 `.github/dependabot.yml` checks Cargo and GitHub Actions daily.
 
@@ -182,25 +181,18 @@ cargo test --workspace
 reuse lint
 ```
 
-The local `nfc-foundry-git` package is built from a checkout with
-`packaging/local-git/PKGBUILD`. Set `NFC_FOUNDRY_GIT_SRC` to the absolute path
-of the checkout:
+The development package `nfc-foundry-git` is maintained in
+[arch-pkgs](https://github.com/YangtseSu/arch-pkgs). It builds the tip of
+`main`, uses the same build, check, and install paths as the AUR package, and
+provides/conflicts with `nfc-foundry`. It is not an AUR package.
+
+AUR-side checks, run in the AUR checkout outside GitHub CI:
 
 ```sh
-cd packaging/local-git
-NFC_FOUNDRY_GIT_SRC=/path/to/nfc-foundry makepkg -f
-```
-
-It uses the same build, check, and install paths as the AUR package and
-provides/conflicts with `nfc-foundry`. The placeholder source path is not
-publishable; do not copy this PKGBUILD to the AUR.
-
-AUR-side checks, run outside GitHub CI:
-
-```sh
-namcap packaging/aur/PKGBUILD
-(cd packaging/aur && makepkg --printsrcinfo > .SRCINFO)
-desktop-file-validate resources/nfc-foundry.desktop
+cd /path/to/aur/nfc-foundry
+namcap PKGBUILD
+makepkg --printsrcinfo > .SRCINFO
+desktop-file-validate /path/to/nfc-foundry/resources/nfc-foundry.desktop
 ```
 
 After a package build:
@@ -238,10 +230,10 @@ window on a clean runtime with GTK, libadwaita, and the icon theme installed.
 1. Update the workspace version and the phase notes.
 2. Update `docs/hardware-matrix.md` with only recorded hardware runs.
 3. Run the release checks above.
-4. Build and inspect the AUR package, the local `-git` package, and the binary
-   tarball.
+4. Build and inspect the AUR package, the `nfc-foundry-git` package, and the
+   binary tarball.
 5. Tag `v<version>` and push the tag only with explicit approval.
 6. Let `.github/workflows/release.yml` publish the tarball and checksums; GitHub
    attaches its source archives to the release.
-7. Copy `PKGBUILD` and `.SRCINFO` into the `nfc-foundry` AUR repository and
-   push that repository separately.
+7. Update `PKGBUILD` and `.SRCINFO` in the `nfc-foundry` AUR repository for the
+   new tag and push that repository separately.

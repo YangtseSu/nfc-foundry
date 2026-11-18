@@ -257,12 +257,22 @@ nfc-drivers -> nfc-transport
 
 ## Install
 
-Arch Linux AUR source package:
+Arch Linux AUR package:
 
 ```sh
-cd packaging/aur
+yay -S nfc-foundry
+```
+
+Or build it directly from the AUR repository:
+
+```sh
+git clone https://aur.archlinux.org/nfc-foundry.git
+cd nfc-foundry
 makepkg -sri
 ```
+
+The development package `nfc-foundry-git` is maintained in
+[arch-pkgs](https://github.com/YangtseSu/arch-pkgs).
 
 Binary tarball from the GitHub release:
 

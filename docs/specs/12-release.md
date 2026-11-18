@@ -29,6 +29,11 @@ phases already implement and records what has been validated.
 
 ## AUR source package
 
+> The package files now live in the AUR repository
+> <https://aur.archlinux.org/packages/nfc-foundry>. The paths and rules below
+> are the phase 12 implementation record. This repository no longer carries a
+> PKGBUILD.
+
 Files live in `packaging/aur/`:
 
 - `PKGBUILD`

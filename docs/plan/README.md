@@ -412,8 +412,10 @@ Acceptance:
 - PN532 UART and ACR122U pass the documented matrix.
 - `cargo fmt`, clippy, tests, GPUI UI tests, REUSE, packaging checks pass.
 
-Status: complete. `packaging/aur` contains the `nfc-foundry` source package and
-`.SRCINFO`; the release workflow builds the relocatable binary tarball and
+Status: complete. The `nfc-foundry` source package is published in the AUR and
+`nfc-foundry-git` is maintained in
+[arch-pkgs](https://github.com/YangtseSu/arch-pkgs); this repository carries no
+PKGBUILD. The release workflow builds the relocatable binary tarball and
 license notices inline. It
 builds on Ubuntu 26.04 for Linux amd64 and publishes the assets on a
 `v*` tag. The check suite runs on branches and pull requests, not on the
