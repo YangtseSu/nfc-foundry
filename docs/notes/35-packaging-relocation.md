@@ -35,7 +35,8 @@ Date: 2026-11-18.
 - Extracted `nfctl --version` reports `nfctl 0.3.0`; `nfctl diag` reports the
   release commit, the three driver prefixes, and the packaged hardnested table
   directory.
-- The rebuilt binaries contain no `$srcdir` or build-directory path.
+- The rebuilt binaries contain no `$srcdir` or local checkout path; Cargo
+  registry paths are remapped to `/build/cargo`.
 - `makepkg --printsrcinfo` matches the committed `.SRCINFO`.
 - The AUR push created `refs/heads/master`; the package page returns HTTP 200.
 - `makepkg -f` in arch-pkgs built `nfc-foundry-git 0.3.0.r0.gbf570b0-1`; the
